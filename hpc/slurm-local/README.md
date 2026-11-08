@@ -228,6 +228,8 @@ It takes about 5 minutes. Results go to `hpc/slurm-local/results/<run-id>/`:
 - `pod-listing.json`, the reference pod spec;
 - `outputs/*.txt`.
 
+Add `--scenarios` (with `--with-db`) for SCEN-1 to SCEN-6: requeue, spot preemption, out-of-memory, a SPECIAL_EXIT hold, suspend/resume, and a node failure. The node failure kills slurmd on this machine and starts it again. They drive Slurm events with `sudo -n scontrol` on the tower over your own login (`--admin-ssh`, default `OPERATOR_USER@TOWER_ADDR` from site.env) and take about 20 minutes.
+
 The exit status is 0 only if every executed case passed. SYNC-1 and SYNC-2 refuse to run unless `.env` loading is off and the database name contains `test` or `dev`. SYNC-1 waits out MinJobAge, because a finished job settles only once it has left the controller; SYNC-2 checks that a reconcile pass over five jobs sends one squeue and one sacct.
 
 The suite runs on the ASUS for a reason. The cluster has no shared filesystem, so a job on the ASUS writes its output on the ASUS, and the suite reads it there (`--local-output-dir`). Tower jobs are read through the gate. Real clusters share `/scratch`, so there the adapter reads everything through the login node.

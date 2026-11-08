@@ -30,6 +30,8 @@ Cases (see CHECKLIST.md for the acceptance criteria of each):
           scripts with directives outside the adapter's set
   SYNC-1..2  (optional, --with-db) reconcile loop against real jobs; a
           pass costs one squeue and one sacct however many jobs are open
+  SCEN-1..6  (optional, --scenarios) requeue, spot preemption, OOM, hold,
+          suspend/resume and node failure against the reconciler
 """
 
 from __future__ import annotations
@@ -1044,6 +1046,18 @@ def _mapping_rows(pg_connection, xids):
         ).fetchall()
 
 
+def _site_admin_ssh() -> str:
+    values = {}
+    site = KIT / "site.env"
+    if site.exists():
+        for line in site.read_text().splitlines():
+            key, _, val = line.partition("=")
+            values[key.strip()] = val.split("#", 1)[0].strip()
+    if values.get("OPERATOR_USER") and values.get("TOWER_ADDR"):
+        return f"{values['OPERATOR_USER']}@{values['TOWER_ADDR']}"
+    return ""
+
+
 class _CountingRunner:
     """Wraps the suite's runner to count the commands a reconcile pass sends."""
 
@@ -1098,6 +1112,316 @@ def sync_2(ctx: Ctx):
     )
 
 
+# ── Scenarios: real Slurm events against the reconciler ───────────
+#
+# Opt-in (--scenarios, with --with-db): each case submits through the adapter
+# (the job belongs to the service account), makes a Slurm event happen with
+# an admin command on the controller host (`sudo -n scontrol` over your own
+# SSH login, --admin-ssh), and checks what the reconciler records at each
+# step. The rule they all test: a mapping settles only when its job has left
+# the controller and its latest accounting run is finished. Job-id reuse is
+# not staged here; the reconciler's bounded sacct window and cluster-scoped
+# keys cover it by construction.
+
+
+class _Scenario:
+    """One scenario's job, mapping and reconciler, cleaned up on exit."""
+
+    def __init__(self, ctx: Ctx, tag: str):
+        self.ctx = ctx
+        self.cluster = f"{ctx.run_id}-{tag}"
+        self.trace: list = []
+        self.jobs: list[str] = []
+
+    def __enter__(self):
+        import slurm_reconciler  # noqa: F401  (path set up by _test_db_guard)
+
+        return self
+
+    def __exit__(self, *exc):
+        from db import pg_transaction  # type: ignore
+
+        for sid in self.jobs:
+            sa.cancel_slurm_job(sid, profile_name=self.ctx.profile, runner=self.ctx.runner)
+        with pg_transaction() as conn:
+            conn.execute("DELETE FROM slurm_job_mappings WHERE cluster_id = %s", (self.cluster,))
+        return False
+
+    def submit(self, tag: str, **fields) -> tuple[str, str]:
+        res = self.ctx.submit(tag, **fields)
+        if "slurm_job_id" not in res:
+            raise RuntimeError(f"submit {tag} failed: {res}")
+        sid = res["slurm_job_id"]
+        xid = f"{self.cluster}-{tag}"
+        sa.register_slurm_job(xid, sid, cluster_id=self.cluster)
+        self.jobs.append(sid)
+        return sid, xid
+
+    def admin(self, *args: str) -> str:
+        import subprocess
+
+        r = subprocess.run(
+            [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                self.ctx.args.admin_ssh,
+                "sudo",
+                "-n",
+                "scontrol",
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.trace.append(("admin", " ".join(args), r.returncode, r.stderr.strip()[:200]))
+        if r.returncode != 0:
+            raise RuntimeError(f"scontrol {' '.join(args)}: {r.stderr.strip()}")
+        return r.stdout
+
+    def reconcile(self, label: str) -> dict:
+        import slurm_reconciler as rc
+
+        result = rc.reconcile_cluster(
+            self.cluster, self.ctx.profile, runner=self.ctx.runner, cancel=False
+        )
+        rows = self.rows()
+        self.trace.append((label, result.ok, rows))
+        return rows
+
+    def rows(self) -> dict:
+        from db import pg_connection  # type: ignore
+
+        with pg_connection() as conn:
+            return {
+                r[0].rsplit("-", 1)[-1]: (r[1], r[2], r[3])
+                for r in conn.execute(
+                    "SELECT xcelsior_job_id, observed_state, slurm_state, terminal_at IS NOT NULL "
+                    "FROM slurm_job_mappings WHERE cluster_id = %s",
+                    (self.cluster,),
+                ).fetchall()
+            }
+
+    def wait_state(self, sid: str, states: set[str], timeout: float) -> str:
+        """Wait until squeue -t all shows one of `states` (or the job is gone, ``GONE``)."""
+        deadline = time.monotonic() + timeout
+        st = ""
+        while time.monotonic() < deadline:
+            jobs = sa.poll_cluster_jobs(profile_name=self.ctx.profile, runner=self.ctx.runner).get(
+                "jobs", {}
+            )
+            st = jobs[sid]["state"] if sid in jobs else "GONE"
+            if st in states:
+                return st
+            time.sleep(3)
+        return st
+
+    def runs(self, sid: str) -> list[str]:
+        acct = sa.accounting_window(
+            [sid], since_minutes=120, profile_name=self.ctx.profile, runner=self.ctx.runner
+        )
+        return [rec["state"] for rec in acct.get("records", {}).get(sid, [])]
+
+    def settle(self, sid: str, label: str = "settled") -> dict:
+        self.wait_state(sid, {"GONE"}, self.ctx.args.minjobage_wait)
+        return self.reconcile(label)
+
+
+def _scenario_guard(ctx: Ctx):
+    if not ctx.args.scenarios:
+        return (
+            SKIP,
+            {},
+            "run with --scenarios (and --with-db): needs admin scontrol on the controller host",
+        )
+    return _test_db_guard(ctx)
+
+
+def _scenario(ctx: Ctx, tag: str, body):
+    refused = _scenario_guard(ctx)
+    if refused:
+        return refused
+    with _Scenario(ctx, tag) as sc:
+        try:
+            good, note = body(sc)
+        except Exception as e:
+            return FAIL, {"trace": sc.trace, "error": repr(e)}, repr(e)
+        return ok(good, {"trace": sc.trace}, note)
+
+
+@case(
+    "SCEN-1",
+    "Requeue keeps the mapping open",
+    "scontrol requeue on a running job: pending again, not settled; it runs again and settles completed with two runs in accounting",
+)
+def scen_1(ctx: Ctx):
+    def body(sc):
+        sid, _ = sc.submit("req", num_gpus=0, nodelist=ctx.gpu_node, command="sleep 20")
+        sc.wait_state(sid, {"RUNNING"}, 90)
+        running = sc.reconcile("running")["req"]
+        sc.admin("requeue", sid)
+        sc.wait_state(sid, {"PENDING", "REQUEUED"}, 30)
+        requeued = sc.reconcile("requeued")["req"]
+        sc.wait_state(sid, {"COMPLETED"}, 400)
+        settled = sc.settle(sid)["req"]
+        runs = sc.runs(sid)
+        sc.trace.append(("accounting runs", runs))
+        good = (
+            running[0] == "running"
+            and requeued[0] == "pending"
+            and not requeued[2]
+            and settled == ("completed", "COMPLETED", True)
+            and len(runs) >= 2
+            and runs[-1] == "COMPLETED"
+        )
+        return good, f"accounting runs: {runs}"
+
+    return _scenario(ctx, "scen1", body)
+
+
+@case(
+    "SCEN-2",
+    "Spot preemption requeues, never settles early",
+    "a spot (QoS) GPU job preempted by a normal one goes back to pending, not settled; it reruns and settles with a PREEMPTED run before the final one",
+)
+def scen_2(ctx: Ctx):
+    def body(sc):
+        hog, _ = sc.submit("hog", num_gpus=1, command="sleep 600")
+        sc.wait_state(hog, {"RUNNING"}, 90)
+        spot, _ = sc.submit("spot", num_gpus=1, command="sleep 30")
+        sc.wait_state(spot, {"PENDING"}, 30)
+        sc.admin("update", f"jobid={spot}", "qos=spot")
+        sa.cancel_slurm_job(hog, profile_name=ctx.profile, runner=ctx.runner)
+        sc.wait_state(spot, {"RUNNING"}, 120)
+        before = sc.reconcile("spot running")["spot"]
+        normal, _ = sc.submit("normal", num_gpus=1, command="sleep 5")
+        sc.wait_state(spot, {"PENDING", "REQUEUED", "PREEMPTED"}, 180)
+        preempted = sc.reconcile("spot preempted")["spot"]
+        sc.wait_state(spot, {"COMPLETED"}, 400)
+        settled = sc.settle(spot)["spot"]
+        runs = sc.runs(spot)
+        sc.trace.append(("accounting runs", runs))
+        good = (
+            before[0] == "running"
+            and preempted[0] in ("pending", "preempted")
+            and not preempted[2]
+            and settled == ("completed", "COMPLETED", True)
+            and "PREEMPTED" in runs[:-1]
+            and runs[-1] == "COMPLETED"
+        )
+        return good, f"accounting runs: {runs}"
+
+    return _scenario(ctx, "scen2", body)
+
+
+@case(
+    "SCEN-3",
+    "Out of memory settles as failed",
+    "a job allocating past its --mem is killed by the cgroup: settled failed, OUT_OF_MEMORY",
+)
+def scen_3(ctx: Ctx):
+    def body(sc):
+        hog = 'python3 -c "b = bytearray(3 * 1024 ** 3)"'
+        sid, _ = sc.submit("oom", num_gpus=0, nodelist=ctx.gpu_node, mem_gb=1, command=hog)
+        sc.wait_state(sid, {"OUT_OF_MEMORY", "FAILED", "COMPLETED"}, 120)
+        settled = sc.settle(sid)["oom"]
+        return settled == ("failed", "OUT_OF_MEMORY", True), f"settled as {settled}"
+
+    return _scenario(ctx, "scen3", body)
+
+
+@case(
+    "SCEN-4",
+    "A hold is held, not failed",
+    "requeuehold State=SpecialExit: held and open; released, it runs again",
+)
+def scen_4(ctx: Ctx):
+    def body(sc):
+        sid, _ = sc.submit("hold", num_gpus=0, nodelist=ctx.gpu_node, command="sleep 300")
+        sc.wait_state(sid, {"RUNNING"}, 90)
+        sc.admin("requeuehold", "State=SpecialExit", sid)
+        sc.wait_state(sid, {"SPECIAL_EXIT"}, 60)
+        held = sc.reconcile("held")["hold"]
+        sc.admin("release", sid)
+        sc.wait_state(sid, {"RUNNING"}, 400)
+        again = sc.reconcile("released")["hold"]
+        sa.cancel_slurm_job(sid, profile_name=ctx.profile, runner=ctx.runner)
+        settled = sc.settle(sid)["hold"]
+        good = (
+            held == ("held", "SPECIAL_EXIT", False)
+            and again[0] == "running"
+            and settled[0] == "cancelled"
+            and settled[2]
+        )
+        return good, f"held {held}, released {again[0]}, settled {settled}"
+
+    return _scenario(ctx, "scen4", body)
+
+
+@case(
+    "SCEN-5",
+    "Suspension is suspended, not pending",
+    "scontrol suspend: suspended and open; resumed, it is running again",
+)
+def scen_5(ctx: Ctx):
+    def body(sc):
+        sid, _ = sc.submit("susp", num_gpus=0, nodelist=ctx.gpu_node, command="sleep 300")
+        sc.wait_state(sid, {"RUNNING"}, 90)
+        sc.admin("suspend", sid)
+        sc.wait_state(sid, {"SUSPENDED"}, 30)
+        suspended = sc.reconcile("suspended")["susp"]
+        sc.admin("resume", sid)
+        sc.wait_state(sid, {"RUNNING"}, 30)
+        resumed = sc.reconcile("resumed")["susp"]
+        sa.cancel_slurm_job(sid, profile_name=ctx.profile, runner=ctx.runner)
+        settled = sc.settle(sid)["susp"]
+        good = (
+            suspended == ("suspended", "SUSPENDED", False)
+            and resumed[0] == "running"
+            and settled[2]
+        )
+        return good, f"suspended {suspended}, resumed {resumed[0]}, settled {settled}"
+
+    return _scenario(ctx, "scen5", body)
+
+
+@case(
+    "SCEN-6",
+    "A node failure never settles the job early",
+    "slurmd on the CPU node killed under a running job: while the node is down the mapping stays open; accounting records NODE_FAIL",
+)
+def scen_6(ctx: Ctx):
+    import subprocess
+
+    def body(sc):
+        sid, _ = sc.submit("nf", num_gpus=0, nodelist=ctx.cpu_node, command="sleep 900")
+        sc.wait_state(sid, {"RUNNING"}, 90)
+        sc.reconcile("running")
+        kill = subprocess.run(
+            ["sudo", "-n", "systemctl", "kill", "-s", "KILL", "slurmd"],
+            capture_output=True,
+            text=True,
+        )
+        sc.trace.append(("kill slurmd on this node", kill.returncode, kill.stderr.strip()))
+        try:
+            # SlurmdTimeout is 120 s: the controller declares the node DOWN
+            # and the job NODE_FAIL, then requeues it (pending, node absent).
+            st = sc.wait_state(sid, {"PENDING", "REQUEUED", "NODE_FAIL"}, 300)
+            during = sc.reconcile("node down")["nf"]
+        finally:
+            start = subprocess.run(
+                ["sudo", "-n", "systemctl", "start", "slurmd"], capture_output=True, text=True
+            )
+            sc.trace.append(("start slurmd", start.returncode, start.stderr.strip()))
+        runs = sc.runs(sid)
+        sc.trace.append(("accounting runs", runs))
+        good = st in ("PENDING", "REQUEUED", "NODE_FAIL") and not during[2] and "NODE_FAIL" in runs
+        return good, f"state {st}, mapping {during}, runs {runs}"
+
+    return _scenario(ctx, "scen6", body)
+
+
 # ── Runner ──────────────────────────────────────────────────────────
 
 
@@ -1141,6 +1465,16 @@ def main():
     ap.add_argument("--only", default="", help="comma-separated case ids")
     ap.add_argument(
         "--with-db", action="store_true", help="also run SYNC-1 (needs a dev/test Xcelsior DB)"
+    )
+    ap.add_argument(
+        "--scenarios",
+        action="store_true",
+        help="also run SCEN-* (needs --with-db and admin scontrol on the controller host)",
+    )
+    ap.add_argument(
+        "--admin-ssh",
+        default=_site_admin_ssh(),
+        help="your own SSH login on the controller host (default: OPERATOR_USER@TOWER_ADDR from site.env)",
     )
     args = ap.parse_args()
 
