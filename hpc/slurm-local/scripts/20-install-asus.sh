@@ -32,7 +32,8 @@ step_preflight() {
     # unrestricted keys.
     chk "home of $OPERATOR_USER closed to other users" '[[ "$XCL_NO_SYSTEMD" == 1 ]] || (( 8#$(stat -c %a "$(getent passwd "$OPERATOR_USER" | cut -d: -f6)") % 8 == 0 ))'
     # A laptop that sleeps takes its jobs with it.
-    chk "sleep/suspend/hibernate masked" '[[ "$XCL_NO_SYSTEMD" == 1 ]] || ! systemctl show -p LoadState sleep.target suspend.target hibernate.target hybrid-sleep.target | grep -qv "=masked"'
+    # (systemctl show separates units with blank lines; count the masked ones.)
+    chk "sleep/suspend/hibernate masked" '[[ "$XCL_NO_SYSTEMD" == 1 ]] || [[ "$(systemctl show -p LoadState --value sleep.target suspend.target hibernate.target hybrid-sleep.target | grep -cx masked)" == 4 ]]'
     chk "slurmctld on $TOWER_ADDR:6817 reachable" 'xcl_wait_tcp "$TOWER_ADDR" 6817 3'
     xcl_init_state
     [[ -e "$XCL_STATE/untouchables.before" ]] || xcl_snapshot_untouchables "$XCL_STATE/untouchables.before"
