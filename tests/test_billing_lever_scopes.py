@@ -35,8 +35,10 @@ Split by verb, because reading which cards exist and detaching one are not the
 same act:
 
 * `billing:read` — the two reads.
-* `billing:write` — the four that move money, mint credentials, or change what
-  gets charged.
+* `billing:write` — the three that mint credentials or remove a card.
+* `billing:topup` — changing auto-top-up, which only funds the caller's own
+  wallet. `billing:write` contains it (`IMPLIED_SCOPES`), and it is the part of
+  billing an OAuth connector may be granted.
 """
 
 from __future__ import annotations
@@ -53,7 +55,7 @@ import routes.billing as billing_routes  # noqa: E402
 #: handler name -> the scope it must require. Listed individually so removing
 #: one is visible in review rather than showing up as a count change.
 LEVERS = {
-    "api_billing_configure_topup": "billing:write",
+    "api_billing_configure_topup": "billing:topup",
     "api_billing_portal_session": "billing:write",
     "api_billing_setup_intent": "billing:write",
     "api_billing_detach_payment_method": "billing:write",
