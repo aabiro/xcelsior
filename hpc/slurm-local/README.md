@@ -9,8 +9,9 @@ This kit builds a two-node Slurm cluster on hardware you already own. It then dr
 | `README.md` | This plan: steps, what changes on each machine, rollback, risks |
 | `CHECKLIST.md` | Pass/fail checklist for every check and test case |
 | `RESULTS_TEMPLATE.md` | Short results report to attach to the SHARCNET proposal |
-| `RESULTS_2026-11-07.md`, `CHECKLIST_RESULTS_2026-11-07.md` | The filled report and checklist from the real run |
+| `RESULTS_2026-11-07.md`, `CHECKLIST_RESULTS_2026-11-07.md` | The filled report and checklist from the first real run |
 | `evidence/r1107050537/` | That run's results.json, pod listing and job outputs |
+| `RESULTS_2026-11-08.md`, `evidence/r1108024006/` | The Phase 0 kit's rollback, reinstall and run on the real machines |
 | `conf/slurm.conf`, `gres.conf`, `cgroup.conf` | The cluster configuration |
 | `site.env.example` | Your addresses, the asus hostname and your account; copy to `site.env` (git-ignored) |
 | `conf/slurmdbd.conf.template`, `mariadb-xcl-slurm.cnf` | Accounting (needed for metering) |
@@ -45,7 +46,7 @@ It does not prove scale, multi-node MPI, a real fabric (InfiniBand or RoCE), a s
 
 ## Changes since the 2026-11-07 run (Phase 0 of the blueprint)
 
-The 2026-11-07 run proved the adapter, but jobs ran as your own account and the gate passed batch scripts through unread. These kit changes have **not yet been run on the real machines**; the cluster there is still the 2026-11-07 install until it is rolled back and reinstalled (Step 0 onwards).
+The 2026-11-07 run proved the adapter, but jobs ran as your own account and the gate passed batch scripts through unread. On 2026-11-08 that install was rolled back on both machines and this kit installed in its place: V-1 to V-12 and 26 of 26 suite cases passed (run `r1108024006`, [RESULTS_2026-11-08.md](RESULTS_2026-11-08.md)). The real run found four kit defects the rehearsal couldn't, all fixed; one would have killed a Docker container's database during rollback.
 
 - **A service account, `xclslurm` (uid 972).** Jobs submitted through the gate run as it on both nodes, never as you. Its shell is `/bin/sh`, which reads no startup files when sshd runs the gate, and its home is root-owned. The adapter's key sits in a root-owned file outside any home, with an `expiry-time`, and an sshd Match block forces the gate for that account whatever the client asks. Before, one job could append to `~/.ssh/authorized_keys` or `~/.bashrc` and turn the restricted key into a login, as an account with sudo.
 - **The gate checks exact command shapes and reads batch scripts.** It refuses `squeue -a`, `-i`, `scontrol` beyond `ping`, any `#SBATCH` directive outside the adapter's set (so `--output` can't target `~/.ssh`), and reads output files with `O_NOFOLLOW`. It logs every admitted script's sha256, and slurmdbd now keeps the scripts (`AccountingStoreFlags=job_script`).
