@@ -260,16 +260,53 @@ def require_team_quota(conn, policy, *, requested_gpus, replacing_attempts=()):
     Planning can credit only the exact eligible victims it will durably stop.
     Reservation calls this without credits and still waits for physical release.
     Other teams' allocations never contribute replacement credit.
+
+    A Slurm attempt has no device row. It counts, with the GPU count on its
+    spec, while the submission is still in flight or its mapping is still
+    open. A settled mapping releases the cap. One attempt is counted once
+    even if both a device row and a submission exist.
     """
-    key = team_key_sql()
+    key = sql.SQL(team_key_sql())
+    # {{ }} is a literal brace after psycopg composes {key}.
+    held = sql.SQL("""
+        SELECT count(*)::int AS jobs, COALESCE(SUM(gpus), 0)::int AS gpus
+          FROM (
+            SELECT attempt_id, MAX(gpus)::int AS gpus
+              FROM (
+                SELECT a.attempt_id, count(DISTINCT a.gpu_device_id)::int AS gpus
+                  FROM gpu_device_allocations a
+                  JOIN jobs j ON j.job_id = a.job_id
+                 WHERE a.released_at IS NULL
+                   AND {key} = %s
+                   AND NOT (a.attempt_id = ANY(%s::uuid[]))
+                 GROUP BY a.attempt_id
+                UNION ALL
+                SELECT s.attempt_id,
+                       CASE
+                         WHEN j.spec->>'num_gpus' ~ '^[0-9]{{1,9}}$'
+                         THEN LEAST((j.spec->>'num_gpus')::int, 1024)
+                         ELSE 0
+                       END AS gpus
+                  FROM slurm_submissions s
+                  JOIN jobs j ON j.job_id = s.xcelsior_job_id
+                 WHERE {key} = %s
+                   AND NOT (s.attempt_id = ANY(%s::uuid[]))
+                   AND (
+                        s.state IN ('pending', 'submitting', 'unknown')
+                        OR EXISTS (
+                            SELECT 1 FROM slurm_job_mappings m
+                             WHERE m.submission_name = s.submission_name
+                               AND m.terminal_at IS NULL
+                        )
+                   )
+              ) raw
+             GROUP BY attempt_id
+          ) held
+        """).format(key=key)
     with conn.cursor(row_factory=dict_row) as cur:
         usage = cur.execute(
-            f"""SELECT count(DISTINCT a.attempt_id) AS jobs,
-                count(DISTINCT a.gpu_device_id) AS gpus
-            FROM gpu_device_allocations a JOIN jobs j ON j.job_id=a.job_id
-            WHERE a.released_at IS NULL AND {key}=%s
-              AND NOT(a.attempt_id=ANY(%s::uuid[]))""",
-            (policy.key, list(replacing_attempts)),
+            held,
+            (policy.key, list(replacing_attempts), policy.key, list(replacing_attempts)),
         ).fetchone()
         if usage is None:
             raise RuntimeError("team capacity query returned no row")

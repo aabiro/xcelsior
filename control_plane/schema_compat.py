@@ -72,7 +72,10 @@ from psycopg import Connection
 # 148 records queue bids and the database-owned queue-entry time that the
 # claim ranks on. A database at 147 cannot claim or audit a paid queue.
 # 150 stores the account address and onboarding choices read by profile setup.
-REQUIRED_MIN_REVISION = "150"
+# 158 is the Slurm submit ledger and the shadow billing tables. Placement
+# counts an open submission against the team cap, and the submitter reads
+# that ledger. A database at 157 has the mapping rename and not the ledger.
+REQUIRED_MIN_REVISION = "158"
 REQUIRED_MAX_REVISION: str | None = None
 
 
