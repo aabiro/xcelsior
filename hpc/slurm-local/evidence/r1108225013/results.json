@@ -1,0 +1,38 @@
+{
+  "run_id": "r1108225013",
+  "profile": "xcl-local",
+  "adapter_version": "3.0.0",
+  "results": [
+    {
+      "id": "SIZE-1",
+      "title": "Output is read only when it changed (optional)",
+      "requirement": "With output_size_check on, a pass asks ls -l first: the first read sends ls and tail, a second pass over an unchanged file sends ls alone",
+      "status": "PASS",
+      "note": "",
+      "duration_s": 6.6,
+      "evidence": {
+        "first_pass": [
+          "ls",
+          "tail"
+        ],
+        "second_pass": [
+          "ls"
+        ],
+        "fetched": [
+          [
+            "r1108225013-size",
+            "out"
+          ]
+        ],
+        "unchanged": [
+          [
+            "r1108225013-size",
+            "out"
+          ]
+        ],
+        "errors": [],
+        "content": "first\n"
+      }
+    }
+  ]
+}

@@ -855,8 +855,10 @@ export interface paths {
          * Api V1 Hpc Jobs
          * @description Slurm jobs as the reconciler last observed them, newest change first.
          *
-         *     `state`: `open` (not yet settled), `settled`, or `all`. Operators see
-         *     every job; anyone else sees their own. Read-only; never contacts a cluster.
+         *     One entry per submission: a retried job appears once per attempt, each
+         *     with its own `mapping_id`. `state`: `open` (not yet settled), `settled`,
+         *     or `all`. Operators see every job; anyone else sees their own. Read-only;
+         *     never contacts a cluster.
          */
         get: operations["api_v1_hpc_jobs_api_v1_hpc_jobs_get"];
         put?: never;
@@ -876,7 +878,8 @@ export interface paths {
         };
         /**
          * Api V1 Hpc Job
-         * @description One Slurm job as the reconciler last observed it.
+         * @description One Slurm job as the reconciler last observed it: its current submission
+         *     (the open one, else the latest attempt).
          *
          *     Adds `reported_progress`, the job's own progress report if it writes one
          *     (cached like output: a stale copy queues one fetch). Someone else's job

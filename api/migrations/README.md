@@ -97,7 +97,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `156_slurm_output_size.py`.**
+**Repository head: `157_slurm_mapping_per_submission.py`.**
+
+157 makes a `slurm_job_mappings` row one submission rather than one job (decision D7): `mapping_id` becomes the primary key, `submission_name` (unique) is the name the submission carries in Slurm and in its output files (existing rows keep their job id, so names already submitted still match), and `xcelsior_job_id` is no longer unique; a job has at most one open mapping (`uq_slurm_open_job`), as it has at most one active attempt. `slurm_job_outputs` is re-keyed to `(mapping_id, stream)`. Four idempotent units through `lock_safe`; the key swap checks the current primary key first. Downgrade refuses while any job has more than one mapping. The runtime floor is unchanged.
 
 156 adds `slurm_job_outputs.size_bytes`: the size a job's output file had when its tail was last read. On clusters whose wrapper allows `cat` but not `tail` (Alliance), the reconciler asks `ls -l` first and reads only when the file changed and is under a cap; this is what it compares against. One idempotent unit through `lock_safe`; downgrade drops the column. The runtime floor is unchanged.
 

@@ -221,7 +221,8 @@ class TestVerdictAndProgress:
         with pg_transaction() as conn:  # what the reconciler's pass writes
             conn.execute(
                 "UPDATE slurm_job_outputs SET content = %s, attempted_at = clock_timestamp(), "
-                "fetched_at = clock_timestamp() WHERE xcelsior_job_id = %s AND stream = 'progress'",
+                "fetched_at = clock_timestamp() WHERE mapping_id IN (SELECT mapping_id FROM slurm_job_mappings WHERE xcelsior_job_id = %s) "
+                "AND stream = 'progress'",
                 (
                     '{"fraction": 0.25, "message": "step 250", "updated_at": %d}' % time.time(),
                     world["ids"]["a_open"],
@@ -261,7 +262,8 @@ class TestJobOutput:
         with pg_transaction() as conn:
             conn.execute(
                 "UPDATE slurm_job_outputs SET content = 'step 10 loss 0.4', attempted_at = "
-                "clock_timestamp(), fetched_at = clock_timestamp() WHERE xcelsior_job_id = %s",
+                "clock_timestamp(), fetched_at = clock_timestamp() "
+                "WHERE mapping_id IN (SELECT mapping_id FROM slurm_job_mappings WHERE xcelsior_job_id = %s)",
                 (world["ids"]["a_open"],),
             )
         out = client.get(url, headers=world["admin"]).json()["output"]
@@ -274,7 +276,7 @@ class TestJobOutput:
         with pg_connection() as conn:  # and the refused read filed no request
             assert (
                 conn.execute(
-                    "SELECT count(*) FROM slurm_job_outputs WHERE xcelsior_job_id = %s",
+                    "SELECT count(*) FROM slurm_job_outputs WHERE mapping_id IN (SELECT mapping_id FROM slurm_job_mappings WHERE xcelsior_job_id = %s)",
                     (world["ids"]["a_open"],),
                 ).fetchone()[0]
                 == 0

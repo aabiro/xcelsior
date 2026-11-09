@@ -1351,7 +1351,8 @@ def size_1(ctx: Ctx):
         with pg_transaction() as conn:  # a poll interval passes
             conn.execute(
                 "UPDATE slurm_job_outputs SET fetched_at = fetched_at - interval '5 minutes', "
-                "attempted_at = attempted_at - interval '5 minutes' WHERE xcelsior_job_id = %s",
+                "attempted_at = attempted_at - interval '5 minutes' WHERE mapping_id IN "
+                "(SELECT mapping_id FROM slurm_job_mappings WHERE xcelsior_job_id = %s)",
                 (xid,),
             )
         sa.read_cached_output(xid)
