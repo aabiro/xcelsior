@@ -267,16 +267,55 @@ def test_same_job_id_on_a_different_cluster_is_distinct(slurm_rows):
     assert row == (2,)
 
 
-def test_re_registering_bumps_version(slurm_rows):
+def test_a_mapping_is_never_re_pointed(slurm_rows):
+    """Re-pointing lost the first job's record and the run it would bill.
+
+    Registering the same submission with another Slurm job is refused and
+    changes nothing; with the same Slurm job it is a no-op (a retried
+    register after a lost response).
+    """
     job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
     slurm_adapter.register_slurm_job(job_id, "9001", cluster_id="nibi")
-    slurm_adapter.register_slurm_job(job_id, "9002", cluster_id="nibi")
+    with pytest.raises(slurm_adapter.SlurmAdapterError) as e:
+        slurm_adapter.register_slurm_job(job_id, "9002", cluster_id="nibi")
+    assert e.value.code == "mapping_conflict"
+    assert slurm_adapter.register_slurm_job(job_id, "9001", cluster_id="nibi") == []
 
     row = _row(
-        "SELECT slurm_job_id, version FROM slurm_job_mappings " "WHERE xcelsior_job_id = %s",
+        "SELECT slurm_job_id, version FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
         (job_id,),
     )
-    assert row == ("9002", 2)
+    assert row == ("9001", 1)
+
+
+def test_each_attempt_of_a_job_keeps_its_own_mapping(slurm_rows):
+    """One mapping per submission (migration 157): a retry is a new attempt
+    and a new Slurm job, and the first attempt's record stays."""
+    job_id = slurm_rows(f"xj-{uuid.uuid4().hex[:10]}")
+    slurm_adapter.register_slurm_job(
+        job_id, "9301", cluster_id="nibi", submission_name=f"{job_id}-a1"
+    )
+    # While the first attempt is open the job can't have a second.
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        slurm_adapter.register_slurm_job(
+            job_id, "9302", cluster_id="nibi", submission_name=f"{job_id}-a2"
+        )
+    with pg_transaction() as conn:
+        conn.execute(
+            "UPDATE slurm_job_mappings SET observed_state = 'failed', "
+            "terminal_at = clock_timestamp() WHERE submission_name = %s",
+            (f"{job_id}-a1",),
+        )
+    slurm_adapter.register_slurm_job(
+        job_id, "9302", cluster_id="nibi", submission_name=f"{job_id}-a2"
+    )
+    with pg_transaction() as conn:
+        rows = conn.execute(
+            "SELECT submission_name, slurm_job_id, terminal_at IS NOT NULL "
+            "FROM slurm_job_mappings WHERE xcelsior_job_id = %s ORDER BY submission_name",
+            (job_id,),
+        ).fetchall()
+    assert rows == [(f"{job_id}-a1", "9301", True), (f"{job_id}-a2", "9302", False)]
 
 
 def test_observed_state_check_rejects_an_invented_state(slurm_rows):

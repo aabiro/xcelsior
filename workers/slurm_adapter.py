@@ -1933,7 +1933,8 @@ def list_slurm_mappings(limit: int = 200) -> list[dict]:
                       EXTRACT(EPOCH FROM submitted_at),
                       EXTRACT(EPOCH FROM last_observed_at),
                       EXTRACT(EPOCH FROM terminal_at),
-                      slurm_state, state_reason, exit_code
+                      slurm_state, state_reason, exit_code,
+                      mapping_id::text, submission_name, xcelsior_attempt_id
                  FROM slurm_job_mappings
                 ORDER BY submitted_at DESC NULLS LAST
                 LIMIT %s""",
@@ -1954,6 +1955,9 @@ def list_slurm_mappings(limit: int = 200) -> list[dict]:
                 "slurm_state": r[8],
                 "state_reason": r[9],
                 "exit_code": r[10],
+                "mapping_id": r[11],
+                "submission_name": r[12],
+                "attempt_id": r[13],
             }
         )
     return out
@@ -2040,23 +2044,26 @@ def read_cached_output(xcelsior_job_id, stream="out") -> dict:
     if stream not in OUTPUT_STREAMS:
         return _error("invalid_request", "stream must be 'out', 'err' or 'progress'")
     with pg_transaction() as conn:
+        # The job's current submission: its open one, else its latest. Each
+        # attempt keeps its own copy (migration 157).
         mapping = conn.execute(
-            "SELECT m.slurm_job_id, m.cluster_id, m.terminal_at IS NOT NULL, "
+            "SELECT m.mapping_id, m.slurm_job_id, m.cluster_id, m.terminal_at IS NOT NULL, "
             "COALESCE(c.poll_interval_seconds, 60) "
             "FROM slurm_job_mappings m LEFT JOIN slurm_clusters c ON c.cluster_id = m.cluster_id "
-            "WHERE m.xcelsior_job_id = %s",
+            "WHERE m.xcelsior_job_id = %s "
+            "ORDER BY m.terminal_at IS NULL DESC, m.submitted_at DESC NULLS LAST LIMIT 1",
             (str(xcelsior_job_id),),
         ).fetchone()
         if mapping is None:
             return _error("not_found", f"job {xcelsior_job_id} has no Slurm mapping")
-        slurm_job_id, cluster_id, settled, interval = mapping
+        mapping_id, slurm_job_id, cluster_id, settled, interval = mapping
         # A request is filed only when none is outstanding, the copy is older
         # than one poll interval, and it isn't final.
         conn.execute(
             """
-            INSERT INTO slurm_job_outputs (xcelsior_job_id, stream, slurm_job_id, requested_at)
+            INSERT INTO slurm_job_outputs (mapping_id, stream, slurm_job_id, requested_at)
             VALUES (%s, %s, %s, clock_timestamp())
-            ON CONFLICT (xcelsior_job_id, stream) DO UPDATE
+            ON CONFLICT (mapping_id, stream) DO UPDATE
                SET requested_at = clock_timestamp()
              WHERE NOT slurm_job_outputs.final
                AND COALESCE(slurm_job_outputs.fetched_at, '-infinity'::timestamptz)
@@ -2064,15 +2071,15 @@ def read_cached_output(xcelsior_job_id, stream="out") -> dict:
                AND COALESCE(slurm_job_outputs.requested_at, '-infinity'::timestamptz)
                    <= COALESCE(slurm_job_outputs.attempted_at, '-infinity'::timestamptz)
             """,
-            (str(xcelsior_job_id), stream, slurm_job_id, int(interval)),
+            (mapping_id, stream, slurm_job_id, int(interval)),
         )
         row = conn.execute(
             "SELECT content, truncated, final, error_code, error, "
             "EXTRACT(EPOCH FROM fetched_at), "
             "EXTRACT(EPOCH FROM clock_timestamp() - fetched_at), "
             "requested_at > COALESCE(attempted_at, '-infinity'::timestamptz) "
-            "FROM slurm_job_outputs WHERE xcelsior_job_id = %s AND stream = %s",
-            (str(xcelsior_job_id), stream),
+            "FROM slurm_job_outputs WHERE mapping_id = %s AND stream = %s",
+            (mapping_id, stream),
         ).fetchone()
     content, truncated, final, error_code, error, fetched_at, age, pending = row
     return {
@@ -2143,39 +2150,48 @@ def register_slurm_job(
     attempt_id: str | None = None,
     submit_idempotency_key: str | None = None,
     just_submitted: bool = False,
+    submission_name: str | None = None,
 ):
     """Register a mapping between an Xcelsior job and an external Slurm job.
 
-    Idempotent on ``(tenant_id, submit_idempotency_key)`` and unique on
-    ``(cluster_id, slurm_job_id)`` among open mappings, so a retried submit
-    cannot create a second external job or let two Xcelsior jobs act on one
-    Slurm job (companion §10.1). Pass the profile's ``cluster_id``: Slurm
-    job ids are only unique per cluster, so every mapping filed under
-    "unknown" would collide as soon as a second cluster is connected. A
+    One row per *submission* (migration 157, decision D7).
+    ``submission_name`` is what the submission is called in Slurm
+    (``xcl-<submission_name>``) and in its output file names, and what the
+    reconciler matches a job's name against. It defaults to the job id; a
+    scheduler attempt passes ``<job id>-a<attempt number>``, so each attempt
+    keeps its own mapping, its own accounting and its own output.
+
+    Registering a submission again with the same Slurm job is a no-op. With
+    a different one it raises ``mapping_conflict``: a mapping is never
+    re-pointed. The old ``ON CONFLICT (xcelsior_job_id) DO UPDATE SET
+    slurm_job_id`` did that, last writer wins, losing the first job's record
+    and the run it would bill. A job has at most one open mapping, as it
+    has at most one active attempt, so a second submission while the first
+    is open is refused too (a unique violation).
+
+    Unique on ``(cluster_id, slurm_job_id)`` among open mappings, so two
+    Xcelsior jobs can't act on one Slurm job (companion §10.1). Pass the
+    profile's ``cluster_id``: Slurm job ids are only unique per cluster. A
     settled mapping does not hold its id: a rebuilt controller numbers jobs
-    from the start again, and the new job must still be registrable
-    (migration 153).
+    from the start again (migration 153).
 
-    An *open* mapping for another job under the same id is refused (a unique
-    violation): both jobs would act on its status and bill for it. The one
-    exception is ``just_submitted=True``, which the submit paths pass because
-    ``slurm_job_id`` is the id ``sbatch`` has only just returned. Slurm never
-    hands out an id its controller still holds, so that open mapping belongs
-    to a job the controller has lost (its state was wiped while accounting
-    had no outcome). That job can never come back under this id, so its
-    mapping is closed as ``unknown``, with the reason and its successor
-    recorded, rather than refusing the job Slurm is already running. A
-    caller registering an existing job has no such proof and gets the
-    refusal. Returns the ids of any mappings closed that way.
-
-    The previous implementation was ``ON CONFLICT (xcelsior_job_id) DO
-    UPDATE SET slurm_job_id`` — last-writer-wins, which silently
-    re-pointed a job at a different external id and orphaned the first.
+    An *open* mapping for another submission under the same id is refused
+    (a unique violation). The one exception is ``just_submitted=True``,
+    which the submit paths pass because ``slurm_job_id`` is the id
+    ``sbatch`` has only just returned. Slurm never hands out an id its
+    controller still holds, so that open mapping belongs to a job the
+    controller has lost (its state was wiped while accounting had no
+    outcome). That job can never come back under this id, so its mapping is
+    closed as ``unknown``, with the reason and its successor recorded,
+    rather than refusing the job Slurm is already running. Returns the job
+    ids of any mappings closed that way.
     """
     from db import pg_transaction
 
+    name = str(submission_name or xcelsior_job_id)
+    _require(_JOB_ID_RE, name, "submission_name")
     now = time.time()
-    key = submit_idempotency_key or f"submit:{xcelsior_job_id}"
+    key = submit_idempotency_key or f"submit:{name}"
     cluster = cluster_id or DEFAULT_CLUSTER_ID
     with pg_transaction() as conn:
         superseded = (
@@ -2194,29 +2210,27 @@ def register_slurm_job(
                            'superseded_by', %s::text, 'superseded_at', clock_timestamp()),
                        version = version + 1
                  WHERE cluster_id = %s AND slurm_job_id = %s
-                   AND terminal_at IS NULL AND xcelsior_job_id <> %s
+                   AND terminal_at IS NULL AND submission_name <> %s
              RETURNING xcelsior_job_id
                 """,
-                    (xcelsior_job_id, cluster, str(slurm_job_id), xcelsior_job_id),
+                    (name, cluster, str(slurm_job_id), name),
                 ).fetchall()
             ]
         )
-        conn.execute(
+        inserted = conn.execute(
             """
             INSERT INTO slurm_job_mappings
-                (xcelsior_job_id, slurm_job_id, created_at, cluster_id,
+                (xcelsior_job_id, submission_name, slurm_job_id, created_at, cluster_id,
                  tenant_id, xcelsior_attempt_id, submit_idempotency_key,
                  desired_state, observed_state, submitted_at, version)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'running', 'pending',
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'running', 'pending',
                     to_timestamp(%s), 1)
-            ON CONFLICT (xcelsior_job_id) DO UPDATE
-               SET slurm_job_id = EXCLUDED.slurm_job_id,
-                   cluster_id = EXCLUDED.cluster_id,
-                   version = slurm_job_mappings.version + 1
-             WHERE slurm_job_mappings.terminal_at IS NULL
+            ON CONFLICT (submission_name) DO NOTHING
+            RETURNING mapping_id
             """,
             (
                 xcelsior_job_id,
+                name,
                 str(slurm_job_id),
                 now,
                 cluster,
@@ -2225,13 +2239,26 @@ def register_slurm_job(
                 key,
                 now,
             ),
-        )
+        ).fetchone()
+        if inserted is None:
+            held = conn.execute(
+                "SELECT slurm_job_id, cluster_id FROM slurm_job_mappings WHERE submission_name = %s",
+                (name,),
+            ).fetchone()
+            if held is None or (held[0], held[1]) != (str(slurm_job_id), cluster):
+                # Raised inside the transaction: a supersede above rolls back with it.
+                raise SlurmAdapterError(
+                    "mapping_conflict",
+                    f"submission {name} is already mapped to Slurm job "
+                    f"{held[0] if held else '?'} on {held[1] if held else '?'}; "
+                    "a mapping is never re-pointed",
+                )
     if superseded:
         log.warning(
             "Slurm job %s on %s was handed to %s while %s still held it; closed as unknown",
             slurm_job_id,
             cluster,
-            xcelsior_job_id,
+            name,
             superseded,
         )
     return superseded
@@ -2344,7 +2371,8 @@ def slurm_status_cli(xcelsior_job_id=None, slurm_job_id=None):
         with pg_connection() as conn:
             row = conn.execute(
                 "SELECT slurm_job_id, cluster_id FROM slurm_job_mappings "
-                "WHERE xcelsior_job_id = %s",
+                "WHERE xcelsior_job_id = %s "
+                "ORDER BY terminal_at IS NULL DESC, submitted_at DESC NULLS LAST LIMIT 1",
                 (xcelsior_job_id,),
             ).fetchone()
         if not row or not row[0]:

@@ -400,7 +400,8 @@ def _open_mappings(cluster_id: str) -> list[dict]:
         cur = conn.cursor(row_factory=dict_row)
         return cur.execute(
             """
-            SELECT xcelsior_job_id, slurm_job_id, observed_state, desired_state,
+            SELECT mapping_id, submission_name, xcelsior_job_id, slurm_job_id,
+                   observed_state, desired_state,
                    slurm_state, state_reason, exit_code, derived_exit_code,
                    time_limit_seconds, version,
                    EXTRACT(EPOCH FROM missing_since) AS missing_since,
@@ -421,7 +422,7 @@ def _open_names(cluster_id: str, slurm_ids: list[str]) -> set[tuple[str, str]]:
         return set()
     with pg_connection() as conn:
         rows = conn.execute(
-            "SELECT slurm_job_id, xcelsior_job_id FROM slurm_job_mappings "
+            "SELECT slurm_job_id, submission_name FROM slurm_job_mappings "
             "WHERE cluster_id = %s AND slurm_job_id = ANY(%s) AND terminal_at IS NULL",
             (cluster_id, slurm_ids),
         ).fetchall()
@@ -432,7 +433,7 @@ def _owns(row: dict, job_name: str | None) -> bool:
     """Whether a job seen under this mapping's Slurm id is this mapping's job."""
     name = job_name or ""
     return not name.startswith(ADAPTER_JOB_PREFIX) or name == (
-        ADAPTER_JOB_PREFIX + row["xcelsior_job_id"]
+        ADAPTER_JOB_PREFIX + row["submission_name"]
     )
 
 
@@ -541,22 +542,23 @@ def _mark_controller_presence(in_controller: list[str], gone: list[str]) -> None
         if gone:
             conn.execute(
                 "UPDATE slurm_job_mappings SET left_controller_at = clock_timestamp() "
-                "WHERE xcelsior_job_id = ANY(%s) AND left_controller_at IS NULL "
+                "WHERE mapping_id = ANY(%s) AND left_controller_at IS NULL "
                 "AND terminal_at IS NULL",
                 (gone,),
             )
         if in_controller:
             conn.execute(
                 "UPDATE slurm_job_mappings SET left_controller_at = NULL "
-                "WHERE xcelsior_job_id = ANY(%s) AND left_controller_at IS NOT NULL",
+                "WHERE mapping_id = ANY(%s) AND left_controller_at IS NOT NULL",
                 (in_controller,),
             )
 
 
-def _write(rows_and_obs: list, unchanged_ids: list[str]) -> list[str]:
+def _write(rows_and_obs: list, unchanged_ids: list) -> list:
     """Apply changed observations (version-guarded) and refresh the rest.
 
-    Returns the ids whose guarded write lost to a concurrent writer.
+    Keyed by ``mapping_id``: one submission each (migration 157). Returns
+    the mapping ids whose guarded write lost to a concurrent writer.
     """
     from db import pg_transaction
 
@@ -579,7 +581,7 @@ def _write(rows_and_obs: list, unchanged_ids: list[str]) -> list[str]:
                        last_observed_at = clock_timestamp(),
                        last_changed_at = clock_timestamp(),
                        version = version + 1
-                 WHERE xcelsior_job_id = %s AND version = %s AND terminal_at IS NULL
+                 WHERE mapping_id = %s AND version = %s AND terminal_at IS NULL
                 """,
                 (
                     obs["observed_state"],
@@ -592,16 +594,16 @@ def _write(rows_and_obs: list, unchanged_ids: list[str]) -> list[str]:
                     obs["ended_at"],
                     obs["missing_since"],
                     obs["settled"],
-                    row["xcelsior_job_id"],
+                    row["mapping_id"],
                     row["version"],
                 ),
             )
             if cur.rowcount == 0:
-                lost.append(row["xcelsior_job_id"])
+                lost.append(row["mapping_id"])
         if unchanged_ids:
             conn.execute(
                 "UPDATE slurm_job_mappings SET last_observed_at = clock_timestamp() "
-                "WHERE xcelsior_job_id = ANY(%s) AND terminal_at IS NULL",
+                "WHERE mapping_id = ANY(%s) AND terminal_at IS NULL",
                 (unchanged_ids,),
             )
     return lost
@@ -642,8 +644,8 @@ def reconcile_cluster(
     now = time.time()
     gone = [r for r in rows if not _in_controller(r, squeue_jobs)]
     _mark_controller_presence(
-        [r["xcelsior_job_id"] for r in rows if _in_controller(r, squeue_jobs)],
-        [r["xcelsior_job_id"] for r in gone],
+        [r["mapping_id"] for r in rows if _in_controller(r, squeue_jobs)],
+        [r["mapping_id"] for r in gone],
     )
     records: dict = {}
     if gone:
@@ -669,17 +671,17 @@ def reconcile_cluster(
     changes, unchanged, observed = [], [], {}
     for row in rows:
         obs = _observation(row, squeue_jobs, records, now)
-        observed[row["xcelsior_job_id"]] = obs["observed_state"]
+        observed[row["mapping_id"]] = obs["observed_state"]
         if obs["missing_since"] is not None:
             result.missing.append(row["slurm_job_id"])
         if _changed(row, obs):
             changes.append((row, obs))
         else:
-            unchanged.append(row["xcelsior_job_id"])
+            unchanged.append(row["mapping_id"])
     lost = set(_write(changes, unchanged))
 
     for row, obs in changes:
-        if row["xcelsior_job_id"] in lost:
+        if row["mapping_id"] in lost:
             continue
         if row["observed_state"] != obs["observed_state"]:
             result.changed.append(
@@ -704,7 +706,7 @@ def reconcile_cluster(
     # desired → cluster: Xcelsior wants it stopped and it isn't finished.
     if cancel or cancel_callback:
         for row in rows:
-            state = observed[row["xcelsior_job_id"]]
+            state = observed[row["mapping_id"]]
             if row["desired_state"] == "cancelled" and state not in sa.FINISHED_OBSERVED_STATES:
                 try:
                     if cancel_callback:
@@ -751,30 +753,31 @@ def _due_outputs(cluster_id: str, limit: int) -> list[tuple]:
     with pg_connection() as conn:
         return conn.execute(
             """
-            SELECT o.xcelsior_job_id, o.stream, m.slurm_job_id, m.terminal_at IS NOT NULL,
-                   o.size_bytes, o.fetched_at IS NOT NULL AND o.slurm_job_id = m.slurm_job_id
+            SELECT o.mapping_id, m.xcelsior_job_id, m.submission_name, o.stream,
+                   m.slurm_job_id, m.terminal_at IS NOT NULL, o.size_bytes,
+                   o.fetched_at IS NOT NULL AND o.slurm_job_id = m.slurm_job_id
               FROM slurm_job_outputs o
-              JOIN slurm_job_mappings m ON m.xcelsior_job_id = o.xcelsior_job_id
+              JOIN slurm_job_mappings m ON m.mapping_id = o.mapping_id
              WHERE m.cluster_id = %s AND NOT o.final
                AND (o.requested_at > COALESCE(o.attempted_at, '-infinity'::timestamptz)
                     OR (m.terminal_at IS NOT NULL
                         AND COALESCE(o.attempted_at, '-infinity'::timestamptz) < m.terminal_at))
-             ORDER BY o.requested_at NULLS LAST, o.xcelsior_job_id, o.stream
+             ORDER BY o.requested_at NULLS LAST, o.mapping_id, o.stream
              LIMIT %s
             """,
             (cluster_id, limit),
         ).fetchall()
 
 
-def _record_output_error(xid: str, stream: str, got: dict, size: int | None = None) -> None:
+def _record_output_error(mapping_id, stream: str, got: dict, size: int | None = None) -> None:
     from db import pg_transaction
 
     with pg_transaction() as conn:
         conn.execute(
             "UPDATE slurm_job_outputs SET attempted_at = clock_timestamp(), "
             "error_code = %s, error = %s, size_bytes = COALESCE(%s, size_bytes) "
-            "WHERE xcelsior_job_id = %s AND stream = %s",
-            (got.get("error_code"), got["error"][:500], size, xid, stream),
+            "WHERE mapping_id = %s AND stream = %s",
+            (got.get("error_code"), got["error"][:500], size, mapping_id, stream),
         )
 
 
@@ -784,7 +787,7 @@ def _refresh_outputs(cluster_id: str, profile_key: str, runner, result: PassResu
     profile = sa._get_profile(profile_key)
     check_size = sa.output_size_check(profile)
     reads_whole_file = profile.get("output_reader") == "cat"
-    for xid, stream, sid, settled, known_size, have_copy in _due_outputs(
+    for mapping_id, xid, name, stream, sid, settled, known_size, have_copy in _due_outputs(
         cluster_id, OUTPUT_FETCHES_PER_PASS
     ):
         size = None
@@ -792,10 +795,10 @@ def _refresh_outputs(cluster_id: str, profile_key: str, runner, result: PassResu
             # Where reading means cat, ask ls -l first: read only when the
             # file changed, and never past the cap.
             sized = sa.get_slurm_job_output_size(
-                sid, xid, profile_name=profile_key, runner=runner, stream=stream
+                sid, name, profile_name=profile_key, runner=runner, stream=stream
             )
             if "error" in sized:
-                _record_output_error(xid, stream, sized)
+                _record_output_error(mapping_id, stream, sized)
                 result.output_errors.append((xid, stream, sized.get("error_code")))
                 if sized.get("error_code") in _TRANSPORT_ERRORS:
                     break
@@ -806,8 +809,8 @@ def _refresh_outputs(cluster_id: str, profile_key: str, runner, result: PassResu
                     conn.execute(
                         "UPDATE slurm_job_outputs SET attempted_at = clock_timestamp(), "
                         "fetched_at = clock_timestamp(), final = %s, error_code = NULL, "
-                        "error = NULL WHERE xcelsior_job_id = %s AND stream = %s",
-                        (settled, xid, stream),
+                        "error = NULL WHERE mapping_id = %s AND stream = %s",
+                        (settled, mapping_id, stream),
                     )
                 result.outputs_unchanged.append((xid, stream))
                 continue
@@ -817,19 +820,19 @@ def _refresh_outputs(cluster_id: str, profile_key: str, runner, result: PassResu
                     "error": f"{size} bytes; this cluster can only cat, and the cap is "
                     f"{sa.OUTPUT_CAT_MAX_BYTES}",
                 }
-                _record_output_error(xid, stream, too_big, size)
+                _record_output_error(mapping_id, stream, too_big, size)
                 result.output_errors.append((xid, stream, "output_too_large"))
                 continue
         got = sa.get_slurm_job_output(
             sid,
-            xid,
+            name,
             profile_name=profile_key,
             runner=runner,
             stream=stream,
             max_bytes=sa.PROGRESS_MAX_BYTES if stream == "progress" else sa.OUTPUT_TAIL_BYTES,
         )
         if "error" in got:
-            _record_output_error(xid, stream, got)
+            _record_output_error(mapping_id, stream, got)
             result.output_errors.append((xid, stream, got.get("error_code")))
             if got.get("error_code") in _TRANSPORT_ERRORS:
                 break  # the cluster stopped answering; the rest wait for the next pass
@@ -843,7 +846,7 @@ def _refresh_outputs(cluster_id: str, profile_key: str, runner, result: PassResu
                    SET content = %s, truncated = %s, slurm_job_id = %s, size_bytes = %s,
                        attempted_at = clock_timestamp(), fetched_at = clock_timestamp(),
                        final = %s, error_code = NULL, error = NULL
-                 WHERE xcelsior_job_id = %s AND stream = %s
+                 WHERE mapping_id = %s AND stream = %s
                 """,
                 (
                     content,
@@ -851,7 +854,7 @@ def _refresh_outputs(cluster_id: str, profile_key: str, runner, result: PassResu
                     sid,
                     size,
                     settled,
-                    xid,
+                    mapping_id,
                     stream,
                 ),
             )
