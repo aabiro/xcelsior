@@ -180,6 +180,17 @@ def _is_mountpoint(path: str) -> bool:
     )
 
 
+def _mount_source(path: str) -> str:
+    """``server:export`` currently mounted at ``path``, or "" when unreadable."""
+    r = subprocess.run(
+        ["findmnt", "-n", "-o", "SOURCE", "--mountpoint", path],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
 # ── NFS ─────────────────────────────────────────────────────────────────
 
 
@@ -189,11 +200,22 @@ def op_nfs_mount(args: dict, conf: dict[str, str]) -> dict:
     roots = [r.strip() for r in conf["NFS_EXPORT_ROOTS"].split(",") if r.strip()]
     export = _under(args.get("export"), roots, "NFS export")
     if args.get("volume_id") is not None:
-        mount_point = os.path.join(NFS_VOLUME_ROOT, _id(args["volume_id"], "volume id"))
+        vid = _id(args["volume_id"], "volume id")
+        # A managed volume mounts its own export directory and nothing else:
+        # neither a parent tree nor another volume's directory under its id.
+        if os.path.basename(export) != vid:
+            raise Refused(f"export {export} is not the directory of volume {vid}")
+        mount_point = os.path.join(NFS_VOLUME_ROOT, vid)
     else:
         mount_point = NFS_SHARED_MOUNT
     os.makedirs(mount_point, exist_ok=True)
     if _is_mountpoint(mount_point):
+        # Reusing a mount means reusing *this* source. Reporting success for
+        # whatever happens to be mounted there would hand one job another's data.
+        wanted = f"{server}:{export}"
+        current = _mount_source(mount_point)
+        if current != wanted:
+            raise Refused(f"{mount_point} already carries a different source, not {wanted}")
         return {"mount_point": mount_point, "already": True}
     opts = _nfs_opts(conf)
     fstype = "nfs4" if "nfsvers=4" in opts else "nfs"
