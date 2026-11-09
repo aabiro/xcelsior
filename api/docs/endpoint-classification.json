@@ -1937,7 +1937,7 @@
   },
   "POST /api/v2/billing/top-up": {
     "class": "covered",
-    "notes": "P1's top_up_wallet calls it; billing:write, idempotency-keyed"
+    "notes": "P1's top_up_wallet calls it; billing:topup (contained in billing:write), idempotency-keyed"
   },
   "POST /api/v2/inference/endpoints": {
     "class": "redundant",

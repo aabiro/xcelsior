@@ -306,4 +306,4 @@ def test_the_action_type_demands_billing_write():
     """The plan may add approval; it must never add authority."""
     from control_plane.launch.service import ACTION_REQUIRED_SCOPES
 
-    assert ACTION_REQUIRED_SCOPES["configure_auto_topup"] == ["billing:write"]
+    assert ACTION_REQUIRED_SCOPES["configure_auto_topup"] == ["billing:topup"]

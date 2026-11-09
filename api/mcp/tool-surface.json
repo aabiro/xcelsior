@@ -4,6 +4,7 @@
   "scopesSupported": [
     "artifacts:read",
     "billing:read",
+    "billing:topup",
     "email",
     "events:read",
     "gpu:read",
@@ -148,7 +149,7 @@
       "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "billing:write"
+        "billing:topup"
       ],
       "idempotency": "none",
       "retry": "none",
@@ -187,7 +188,7 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "billing:write"
+        "billing:topup"
       ],
       "idempotency": "keyed",
       "retry": "idempotent",
@@ -416,7 +417,7 @@
       "version": "2.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "billing:write"
+        "billing:topup"
       ],
       "idempotency": "keyed",
       "retry": "idempotent",
@@ -2499,7 +2500,7 @@
       "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
-        "billing:write"
+        "billing:topup"
       ],
       "idempotency": "none",
       "retry": "none",
