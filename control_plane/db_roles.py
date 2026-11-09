@@ -169,6 +169,14 @@ CONTROL_TABLES = frozenset(
         # Cached output tails: the reconciler fetches them, API reads file
         # refresh requests. Same writer as the mappings they hang off.
         "slurm_job_outputs",
+        # Phase 2 (158): the submit log the scheduler opens and the submitter
+        # advances, the per-run billing ledger the reconciler writes when a
+        # mapping settles, and the daily drift report. All written by the
+        # same control-plane writer as the mappings; usage_meters stay in the
+        # billing domain and are reached through attempt settlement.
+        "slurm_submissions",
+        "slurm_billing_segments",
+        "slurm_billing_drift",
         # Unified launch service (Track B B2): the launch/action-plan spine
         # is control-plane state the API writer owns.
         "action_plans",
