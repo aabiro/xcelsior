@@ -108,6 +108,20 @@ def validate_canonical_spec(spec: dict[str, Any]) -> list[Problem]:
                 )
             )
 
+    # Customer launch specs attach storage with volume_ids. The legacy
+    # shared-dataset fields select an export on a server of the caller's
+    # choosing and are mounted by the host's root helper (CVP-01 T-01); the
+    # launch-plan surface has no operator principal, so it never carries them.
+    for field in ("nfs_server", "nfs_path", "nfs_mount_point"):
+        if str(spec.get(field) or ""):
+            problems.append(
+                Problem(
+                    "nfs_operator_only",
+                    "nfs_server, nfs_path and nfs_mount_point are operator-only; use volume_ids",
+                    field,
+                )
+            )
+
     # init_script must be printable (no smuggled binary blobs).
     init_script = str(spec.get("init_script") or "")
     if init_script:

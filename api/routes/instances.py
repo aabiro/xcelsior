@@ -683,6 +683,15 @@ def api_submit_instance(j: JobIn, request: Request):
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _require_team_instance_write(user)
+    # CVP-01 T-01: a customer's storage is `volume_ids`, which the server
+    # validates for ownership and whose NFS address the server selects. The
+    # legacy shared-dataset fields name an arbitrary export on an arbitrary
+    # server and reach the host's root mount helper; they are operator-only.
+    if (j.nfs_server or j.nfs_path or j.nfs_mount_point) and not _is_platform_admin(user):
+        raise HTTPException(
+            status_code=403,
+            detail="nfs_server, nfs_path and nfs_mount_point are operator-only; attach storage with volume_ids",
+        )
     from abuse_policy import account_suspended
 
     if account_suspended(user):
