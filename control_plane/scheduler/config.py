@@ -98,6 +98,10 @@ class SchedulerConfig:
     # Lease shape handed to reservations.
     lease_claim_ttl_sec: int = 60
     lease_renewal_ttl_sec: int = 300
+    # Off until a cluster is ready to take jobs. A job that names
+    # hpc_cluster_id stays queued (reason slurm_placement_disabled) and is
+    # never placed on a host. On, the scheduler places it on that cluster.
+    slurm_placement: bool = False
 
     def owns_job(self, job: dict) -> bool:
         """Does the new scheduler own queued→assigned for this job?
@@ -146,4 +150,5 @@ class SchedulerConfig:
             tick_max_placements=_int_env("XCELSIOR_SCHEDULER_TICK_MAX_PLACEMENTS", 10),
             lease_claim_ttl_sec=_int_env("XCELSIOR_SCHEDULER_LEASE_CLAIM_TTL_SEC", 60),
             lease_renewal_ttl_sec=_int_env("XCELSIOR_SCHEDULER_LEASE_RENEWAL_TTL_SEC", 300),
+            slurm_placement=_bool_env("XCELSIOR_SLURM_PLACEMENT", False),
         )

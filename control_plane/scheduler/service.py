@@ -45,6 +45,7 @@ from control_plane.scheduler.reservation import (
     reserve_and_bind,
 )
 from control_plane.scheduler.scoring import rank_candidates
+from control_plane.scheduler.slurm_placement import SlurmPlacement, place_on_cluster
 from control_plane.scheduler.snapshot import take_snapshot, with_nominated_devices
 
 log = logging.getLogger("xcelsior.control_plane.scheduler.service")
@@ -59,6 +60,7 @@ _CONFLICT_BACKOFF_SEC = 3.0
 class TickReport:
     mode: str
     placements: list[Reservation] = field(default_factory=list)
+    slurm_placements: list[SlurmPlacement] = field(default_factory=list)
     released: list[tuple[str, str]] = field(default_factory=list)  # (job_id, reason)
     claims_expired: int = 0
     leases_expired: int = 0
@@ -151,7 +153,7 @@ class SchedulerService:
             return None
         return sorted(self.config.canary_gpu_models)
 
-    def _place_one(self, claimed: ClaimedJob) -> Reservation | tuple[str, str]:
+    def _place_one(self, claimed: ClaimedJob) -> Reservation | SlurmPlacement | tuple[str, str]:
         """Place a claimed job or release it with a durable reason."""
         cfg = self.config
         try:
@@ -162,6 +164,12 @@ class SchedulerService:
             self._release(claimed, "execution_spec_unqualified", _NO_CAPACITY_BACKOFF_SEC)
             return (claimed.job_id, "execution_spec_unqualified")
         job["job_id"] = claimed.job_id
+
+        # A named cluster is the placement target. It is never a hint that
+        # falls through to a host when the switch is off or the cluster refuses.
+        cluster_id = str(job.get("hpc_cluster_id") or "").strip()
+        if cluster_id:
+            return self._place_on_slurm(claimed, job, cluster_id)
 
         snapshot = run_transaction(
             lambda c: take_snapshot(c, host_freshness_timeout_sec=cfg.host_freshness_timeout_sec),
@@ -298,6 +306,49 @@ class SchedulerService:
         self._release(claimed, "placement_conflict", _CONFLICT_BACKOFF_SEC)
         return (claimed.job_id, "placement_conflict")
 
+    def _place_on_slurm(
+        self, claimed: ClaimedJob, job: dict, cluster_id: str
+    ) -> SlurmPlacement | tuple[str, str]:
+        """Place on the named cluster, or release the claim with a reason."""
+        if str(job.get("preferred_host_id") or "").strip():
+            self._release(claimed, "slurm_and_host_pin", _NO_CAPACITY_BACKOFF_SEC)
+            return (claimed.job_id, "slurm_and_host_pin")
+        if not self.config.slurm_placement:
+            self._release(claimed, "slurm_placement_disabled", _NO_CAPACITY_BACKOFF_SEC)
+            return (claimed.job_id, "slurm_placement_disabled")
+        trace_id = str(claimed.payload.get("trace_id") or "") or None
+        try:
+            placed = run_transaction(
+                lambda c: place_on_cluster(
+                    c,
+                    job_id=claimed.job_id,
+                    claim_token=claimed.claim_token,
+                    replica_id=self.config.replica_id,
+                    cluster_id=cluster_id,
+                    expected_spec_hash=claimed.spec_hash,
+                    trace_id=trace_id,
+                ),
+                what="sched_slurm_place",
+                isolation_level="SERIALIZABLE",
+            )
+        except ReservationConflict as exc:
+            if exc.code in ("claim_lost", "job_not_schedulable"):
+                log.info("slurm placement abandoned for %s: %s", claimed.job_id, exc.code)
+                return (claimed.job_id, exc.code)
+            self._release(claimed, exc.code, _NO_CAPACITY_BACKOFF_SEC)
+            return (claimed.job_id, exc.code)
+        except RetryBudgetExceeded:
+            self._release(claimed, "placement_conflict", _CONFLICT_BACKOFF_SEC)
+            return (claimed.job_id, "placement_conflict")
+        log.info(
+            "PLACED job=%s cluster=%s attempt=%s submission=%s",
+            placed.job_id,
+            placed.cluster_id,
+            placed.attempt_id,
+            placed.submission_name,
+        )
+        return placed
+
     def _plan_preemption(self, claimed, hosts, rejections) -> bool:
         from psycopg.errors import LockNotAvailable
         from control_plane.commands import CommandProtocolError
@@ -382,6 +433,7 @@ class SchedulerService:
         report_kwargs["inventory_synced"] = self._sync_inventory(fleet.hosts)
 
         placements: list[Reservation] = []
+        slurm_placements: list[SlurmPlacement] = []
         released: list[tuple[str, str]] = []
         scope = self._claim_scope()
         for _ in range(cfg.tick_max_placements):
@@ -394,12 +446,15 @@ class SchedulerService:
             outcome = self._place_one(claimed)
             if isinstance(outcome, Reservation):
                 placements.append(outcome)
+            elif isinstance(outcome, SlurmPlacement):
+                slurm_placements.append(outcome)
             else:
                 released.append(outcome)
 
         return TickReport(
             mode=cfg.mode.value,
             placements=placements,
+            slurm_placements=slurm_placements,
             released=released,
             **report_kwargs,
         )

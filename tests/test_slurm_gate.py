@@ -93,6 +93,11 @@ class TestAdapterAndGateAgree:
         _sa.cancel_slurm_job("41", profile_name=lab_profile)
         _sa.poll_cluster_jobs(profile_name=lab_profile)
         _sa.accounting_window(["41", "42"], since_minutes=90, profile_name=lab_profile)
+        _sa.accounting_by_name(["g-1-a1", "g-2-a3"], since_minutes=90, profile_name=lab_profile)
+        _sa.accounting_between(1794000000, 1794090000, profile_name=lab_profile)
+        _sa.submit_to_slurm(
+            _job(command="hostname"), profile_name=lab_profile, submission_name="g-1-a2"
+        )
 
         progs = {
             cmd.split()[0] if not cmd.startswith("env ") else cmd.split()[2]
@@ -158,6 +163,18 @@ class TestRefusedCommands:
             "sacct -D -X -n --parsable2 --noconvert -S now-5minutes -j "
             + ",".join(str(i) for i in range(201))
             + " -o JobIDRaw",
+            # by name: adapter names only, bounded, at most 200
+            "sacct -D -X -n --parsable2 --noconvert -S now-5minutes --name g-1 -o JobIDRaw",
+            "sacct -D -X -n --parsable2 --noconvert -S now-5minutes --name xcl-g-1,other -o JobIDRaw",
+            "sacct -D -X -n --parsable2 --noconvert --name xcl-g-1 -o JobIDRaw",
+            "sacct -D -X -n --parsable2 --noconvert -S now-5minutes --name "
+            + ",".join(f"xcl-g-{i}" for i in range(201))
+            + " -o JobIDRaw",
+            # by window: both ends, local-time stamps only
+            "sacct -D -X -n --parsable2 --noconvert -S 2026-11-08T00:00:00 -o JobIDRaw",
+            "sacct -D -X -n --parsable2 --noconvert -S 2026-11-08 -E 2026-11-09 -o JobIDRaw",
+            "sacct -D -X -n --parsable2 --noconvert -S now-1days -E now -o JobIDRaw",
+            "sacct -D -X -n --parsable2 --noconvert -S 2026-11-08T00:00:00 -E 2026-11-09T01:00:00 -a -o JobIDRaw",
             # env prefix: one variable, one program
             "env SLURM_TIME_FORMAT=%s sbatch --parsable",
             "env FOO=1 sacct -j 1 --noheader --parsable2 -o JobID",

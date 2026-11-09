@@ -750,6 +750,27 @@ def main():
 
     register_task("slurm_reconcile", _slurm_reconcile, 30)
 
+    # 22d. Slurm submitter (blueprint 2.2). Claims each pending submission and
+    # calls sbatch at most once per claim. A name already on the cluster is
+    # adopted. Idle until the scheduler writes a slurm_submissions row, which
+    # it does only while XCELSIOR_SLURM_PLACEMENT is on.
+    def _slurm_submit():
+        from slurm_submitter import submit_due
+
+        submit_due()
+
+    register_task("slurm_submit", _slurm_submit, 30)
+
+    # 22e. Shadow billing drift (blueprint 2.3). Compares yesterday's ledger
+    # with the cluster's own accounting. It records the comparison and does
+    # not charge. Once a day is enough; the report skips a day already stored.
+    def _slurm_billing_drift():
+        from slurm_billing import report_due_clusters
+
+        report_due_clusters()
+
+    register_task("slurm_billing_drift", _slurm_billing_drift, 3600)
+
     # ── Launch executor thread ───────────────────────────────────────
     def _executor_loop():
         log.info("Durable scheduled task executor started (worker_id=%s)", WORKER_ID)

@@ -54,6 +54,13 @@ BYTES = re.compile(r"\d{1,9}")
 # The reconciler's batched sacct: a bounded window over at most 200 ids.
 SINCE = re.compile(r"now-\d{1,6}minutes")
 JOB_IDS = re.compile(r"\d{1,12}(?:_\d{1,9})?(?:,\d{1,12}(?:_\d{1,9})?){0,199}")
+# The submitter resolving an unknown sbatch by the job's name: at most 200
+# adapter names (xcl-<submission>) in one bounded window.
+JOB_NAMES = re.compile(
+    r"xcl-[A-Za-z0-9][A-Za-z0-9_.-]{0,63}(?:,xcl-[A-Za-z0-9][A-Za-z0-9_.-]{0,63}){0,199}"
+)
+# The daily billing drift report: one calendar window, local time.
+STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
 JOBS_FILE = re.compile(
     re.escape(JOBS_DIR)
     + r"/xcl-[A-Za-z0-9][A-Za-z0-9_.-]{0,63}-\d{1,12}(?:_\d{1,9})?\.(?:out|err|progress)"
@@ -75,6 +82,8 @@ SHAPES = {
         ("-j", JOB_ID, "--noheader", "--parsable2", "-o", FIELDS),
         ("-j", JOB_ID, "-X", "--noheader", "--parsable2", "--noconvert", "-o", FIELDS),
         ("-D", "-X", "-n", "--parsable2", "--noconvert", "-S", SINCE, "-j", JOB_IDS, "-o", FIELDS),
+        ("-D", "-X", "-n", "--parsable2", "--noconvert", "-S", SINCE, "--name", JOB_NAMES, "-o", FIELDS),
+        ("-D", "-X", "-n", "--parsable2", "--noconvert", "-S", STAMP, "-E", STAMP, "-o", FIELDS),
     ),
     # show config: the registry's connection check keeps a few settings.
     "scontrol": (("--version",), ("ping",), ("show", "config")),
