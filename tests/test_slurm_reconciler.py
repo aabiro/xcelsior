@@ -111,9 +111,9 @@ def cluster():
     cid = f"rt-{uuid.uuid4().hex[:8]}"
     made: list[str] = []
 
-    def add(slurm_id, *, xid=None, **kw):
+    def add(slurm_id, *, xid=None, submission_name=None, **kw):
         xid = xid or f"{cid}-{slurm_id}"
-        sa.register_slurm_job(xid, str(slurm_id), cluster_id=cid)
+        sa.register_slurm_job(xid, str(slurm_id), cluster_id=cid, submission_name=submission_name)
         if kw:
             sets = ", ".join(f"{k} = %s" for k in kw)
             with pg_transaction() as conn:
@@ -318,7 +318,7 @@ class TestFailures:
         obs = rc._observation(
             stale, {"503": {"state": "RUNNING", "reason": "None", "name": f"xcl-{xid}"}}, {}, 0.0
         )
-        assert rc._write([(stale, obs)], []) == [xid]
+        assert rc._write([(stale, obs)], []) == [stale["mapping_id"]]
         assert row(xid)["observed"] != "running"
 
 
@@ -454,6 +454,36 @@ class TestJobIdReuse:
         assert row(new)["observed"] == "running" and not row(new)["terminal"]
         assert result.orphans == []
 
+    def test_each_attempt_is_its_own_submission(self, cluster):
+        # Attempt 1 failed and settled; attempt 2 is a new Slurm job under
+        # its own name. Each mapping only ever takes its own job's state.
+        job = f"{cluster.cid}-retried"
+        first = cluster(807, xid=job, submission_name=f"{job}-a1")
+        with pg_transaction() as conn:
+            conn.execute(
+                "UPDATE slurm_job_mappings SET observed_state = 'failed', exit_code = '1:0', "
+                "terminal_at = clock_timestamp() WHERE submission_name = %s",
+                (f"{job}-a1",),
+            )
+        sa.register_slurm_job(job, "808", cluster_id=cluster.cid, submission_name=f"{job}-a2")
+        fake = FakeCluster(
+            squeue=[cluster.q("808", "RUNNING", name_=f"xcl-{job}-a2")],
+            outputs={("808", "out"): "attempt two\n"},
+        )
+        sa.read_cached_output(job)  # the job's current submission: attempt 2
+        result = run_pass(cluster, fake)
+        with pg_connection() as conn:
+            rows = conn.execute(
+                "SELECT submission_name, observed_state, terminal_at IS NOT NULL "
+                "FROM slurm_job_mappings WHERE xcelsior_job_id = %s ORDER BY submission_name",
+                (job,),
+            ).fetchall()
+        assert rows == [(f"{job}-a1", "failed", True), (f"{job}-a2", "running", False)]
+        assert result.orphans == [] and first == job
+        tail = next(c for c in fake.calls if c[0] == "tail")
+        assert tail[-1].endswith(f"/xcl-{job}-a2-808.out")
+        assert sa.read_cached_output(job)["content"] == "attempt two\n"
+
     def test_a_job_the_adapter_did_not_submit_is_matched_by_id(self, cluster):
         # Registered for a job submitted some other way: its name says nothing
         # about Xcelsior, so the id is all there is to go on.
@@ -498,7 +528,7 @@ class TestOutputCache:
         with pg_transaction() as conn:  # a poll interval passes
             conn.execute(
                 "UPDATE slurm_job_outputs SET fetched_at = fetched_at - interval '2 minutes', "
-                "attempted_at = attempted_at - interval '2 minutes' WHERE xcelsior_job_id = %s",
+                "attempted_at = attempted_at - interval '2 minutes' WHERE mapping_id IN (SELECT mapping_id FROM slurm_job_mappings WHERE xcelsior_job_id = %s)",
                 (xid,),
             )
         assert sa.read_cached_output(xid)["refresh_pending"]
@@ -905,7 +935,7 @@ class TestOutputSizeCheck:
         with pg_transaction() as conn:  # a poll interval passes
             conn.execute(
                 "UPDATE slurm_job_outputs SET fetched_at = fetched_at - interval '5 minutes', "
-                "attempted_at = attempted_at - interval '5 minutes' WHERE xcelsior_job_id = %s",
+                "attempted_at = attempted_at - interval '5 minutes' WHERE mapping_id IN (SELECT mapping_id FROM slurm_job_mappings WHERE xcelsior_job_id = %s)",
                 (xid,),
             )
 

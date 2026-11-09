@@ -1676,7 +1676,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Hpc Jobs",
-        "description": "Slurm jobs as the reconciler last observed them, newest change first.\n\n`state`: `open` (not yet settled), `settled`, or `all`. Operators see\nevery job; anyone else sees their own. Read-only; never contacts a cluster.",
+        "description": "Slurm jobs as the reconciler last observed them, newest change first.\n\nOne entry per submission: a retried job appears once per attempt, each\nwith its own `mapping_id`. `state`: `open` (not yet settled), `settled`,\nor `all`. Operators see every job; anyone else sees their own. Read-only;\nnever contacts a cluster.",
         "operationId": "api_v1_hpc_jobs_api_v1_hpc_jobs_get",
         "parameters": [
           {
@@ -1762,7 +1762,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Hpc Job",
-        "description": "One Slurm job as the reconciler last observed it.\n\nAdds `reported_progress`, the job's own progress report if it writes one\n(cached like output: a stale copy queues one fetch). Someone else's job\nis not-found, not forbidden: ids can't be probed. Read-only; never\ncontacts a cluster.",
+        "description": "One Slurm job as the reconciler last observed it: its current submission\n(the open one, else the latest attempt).\n\nAdds `reported_progress`, the job's own progress report if it writes one\n(cached like output: a stale copy queues one fetch). Someone else's job\nis not-found, not forbidden: ids can't be probed. Read-only; never\ncontacts a cluster.",
         "operationId": "api_v1_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__get",
         "parameters": [
           {

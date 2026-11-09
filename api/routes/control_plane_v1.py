@@ -1280,7 +1280,8 @@ _HPC_JOB_SELECT = """
            EXTRACT(EPOCH FROM clock_timestamp() - m.last_observed_at) AS observed_age,
            COALESCE(c.poll_interval_seconds, 60) AS poll_interval,
            m.derived_exit_code, m.time_limit_seconds, m.left_controller_at,
-           EXTRACT(EPOCH FROM COALESCE(m.ended_at, clock_timestamp()) - m.started_at) AS ran
+           EXTRACT(EPOCH FROM COALESCE(m.ended_at, clock_timestamp()) - m.started_at) AS ran,
+           m.mapping_id::text, m.submission_name, m.xcelsior_attempt_id
       FROM slurm_job_mappings m
       LEFT JOIN slurm_clusters c ON c.cluster_id = m.cluster_id
 """
@@ -1323,12 +1324,19 @@ def _hpc_job(row) -> dict:
         time_limit,
         left_controller,
         ran,
+        mapping_id,
+        submission_name,
+        attempt_id,
     ) = row
     settled = terminal is not None
     age_s = None if age is None else round(float(age), 1)
     elapsed = None if ran is None or started is None else max(0, int(float(ran)))
     return {
         "xcelsior_job_id": xid,
+        # One submission of the job: a retried job has one per attempt.
+        "mapping_id": mapping_id,
+        "submission_name": submission_name,
+        "attempt_id": attempt_id,
         "cluster_id": cluster,
         "slurm_job_id": sid,
         "observed_state": observed,
@@ -1567,8 +1575,10 @@ def api_v1_hpc_jobs(
 ):
     """Slurm jobs as the reconciler last observed them, newest change first.
 
-    `state`: `open` (not yet settled), `settled`, or `all`. Operators see
-    every job; anyone else sees their own. Read-only; never contacts a cluster.
+    One entry per submission: a retried job appears once per attempt, each
+    with its own `mapping_id`. `state`: `open` (not yet settled), `settled`,
+    or `all`. Operators see every job; anyone else sees their own. Read-only;
+    never contacts a cluster.
     """
     from db import _get_pg_pool
 
@@ -1599,7 +1609,7 @@ def api_v1_hpc_jobs(
         _HPC_JOB_SELECT
         + (" WHERE " + " AND ".join(where) if where else "")
         + " ORDER BY COALESCE(m.last_changed_at, m.submitted_at, to_timestamp(m.created_at)) DESC,"
-        " m.xcelsior_job_id LIMIT %s OFFSET %s"
+        " m.mapping_id LIMIT %s OFFSET %s"
     )
     with _get_pg_pool().connection() as conn:
         rows = conn.execute(query, (*params, limit + 1, offset)).fetchall()
@@ -1615,7 +1625,8 @@ def api_v1_hpc_jobs(
 
 @router.get("/api/v1/hpc/jobs/{xcelsior_job_id}")
 def api_v1_hpc_job(xcelsior_job_id: str, request: Request):
-    """One Slurm job as the reconciler last observed it.
+    """One Slurm job as the reconciler last observed it: its current submission
+    (the open one, else the latest attempt).
 
     Adds `reported_progress`, the job's own progress report if it writes one
     (cached like output: a stale copy queues one fetch). Someone else's job
@@ -1631,6 +1642,8 @@ def api_v1_hpc_job(xcelsior_job_id: str, request: Request):
     if not global_access:
         query += " AND m.tenant_id = ANY(%s)"
         params.append(sorted(owners))
+    # The job's current submission: its open one, else its latest attempt.
+    query += " ORDER BY m.terminal_at IS NULL DESC, m.submitted_at DESC NULLS LAST LIMIT 1"
     with _get_pg_pool().connection() as conn:
         row = conn.execute(query, params).fetchone()
     if row is None:
