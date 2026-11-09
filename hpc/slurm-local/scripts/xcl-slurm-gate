@@ -86,7 +86,17 @@ SHAPES = {
         ("-D", "-X", "-n", "--parsable2", "--noconvert", "-S", STAMP, "-E", STAMP, "-o", FIELDS),
     ),
     # show config: the registry's connection check keeps a few settings.
-    "scontrol": (("--version",), ("ping",), ("show", "config")),
+    # suspend, resume, and requeue act on one job id. resume is what lets a
+    # suspended job finish and release its node. update, hold, and a list of
+    # ids are not shapes the adapter sends.
+    "scontrol": (
+        ("--version",),
+        ("ping",),
+        ("show", "config"),
+        ("suspend", JOB_ID),
+        ("resume", JOB_ID),
+        ("requeue", JOB_ID),
+    ),
     "scancel": (("-v", JOB_ID), (JOB_ID,)),
     "sbatch": (("--parsable",),),
     "tail": (("-c", BYTES, "--", JOBS_FILE),),

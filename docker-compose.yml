@@ -355,6 +355,10 @@ x-api-environment: &api-env
   # The API runs legacy queue walkers during rollout, so it reads these too.
   XCELSIOR_AUTOSCALE: ${XCELSIOR_AUTOSCALE:-}
   XCELSIOR_AUTOSCALE_PROVIDER: ${XCELSIOR_AUTOSCALE_PROVIDER:-}
+  # Slurm placement. Empty is off. deploy.sh writes 1 only when started with
+  # XCELSIOR_DEPLOY_SLURM_PLACEMENT=1, and removes the line on every other deploy.
+  # Charging is not a deploy switch: the worker does not settle Slurm attempts.
+  XCELSIOR_SLURM_PLACEMENT: ${XCELSIOR_SLURM_PLACEMENT:-}
 
 # ── Shared API volumes ───────────────────────────────────────────────
 # Phase 10: API/bg-worker do NOT mount host /exports (no privileged volume
@@ -533,6 +537,8 @@ services:
       # Track A: paused | shadow | canary | active (shadow = read-only
       # comparison of the new placement pipeline against this legacy loop)
       XCELSIOR_SCHEDULER_MODE: ${XCELSIOR_SCHEDULER_MODE:-paused}
+      # This process places jobs. The flag is off unless that deploy asked for it.
+      XCELSIOR_SLURM_PLACEMENT: ${XCELSIOR_SLURM_PLACEMENT:-}
       XCELSIOR_SCHEDULER_SHADOW_INTERVAL_SEC: ${XCELSIOR_SCHEDULER_SHADOW_INTERVAL_SEC:-15}
       XCELSIOR_SCHEDULER_SHADOW_COMPARE_GRACE_SEC: ${XCELSIOR_SCHEDULER_SHADOW_COMPARE_GRACE_SEC:-30}
       XCELSIOR_SCHEDULER_SHADOW_RETENTION_DAYS: ${XCELSIOR_SCHEDULER_SHADOW_RETENTION_DAYS:-14}
@@ -628,6 +634,12 @@ services:
     network_mode: host
     environment:
       <<: *api-env
+      # Every deploy. The file is in the image and has no secrets. The key is
+      # whatever the server .env already holds; this deploy does not copy one.
+      # A cluster whose credential_ref names a different variable needs that
+      # name added here too, or the worker cannot see it.
+      XCELSIOR_SLURM_PROFILES_FILE: ${XCELSIOR_SLURM_PROFILES_FILE:-/app/hpc/slurm-local/conf/xcelsior-profiles.json}
+      XCELSIOR_SLURM_KEY_XCL_LOCAL: ${XCELSIOR_SLURM_KEY_XCL_LOCAL:-}
       XCELSIOR_SERVICE: ${XCELSIOR_MAINTENANCE_DB_SERVICE:-reconciler}
       XCELSIOR_EXTERNAL_PARTITION_MAINTENANCE: ${XCELSIOR_EXTERNAL_PARTITION_MAINTENANCE:-0}
       XCELSIOR_POSTGRES_DSN_RECONCILER: ${XCELSIOR_POSTGRES_DSN_RECONCILER:-}

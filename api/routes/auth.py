@@ -2971,6 +2971,39 @@ def api_auth_introspect(request: Request):
     return _filter_auth_identity(user, identity)
 
 
+def _sync_seller_address_from_account(email: str, body: ProfileUpdateRequest) -> None:
+    """Keep the payout address equal to the account address.
+
+    Provider onboarding collects the address once. Later edits update the
+    seller record when one already exists.
+    """
+    watched = {"address_line1", "address_line2", "city", "postal_code", "country", "province"}
+    if not (watched & body.model_fields_set):
+        return
+    if _USE_PERSISTENT_AUTH:
+        record = UserStore.get_user(email) or {}
+    else:
+        with _user_lock:
+            record = dict(_users_db.get(email) or {})
+    provider_id = str(record.get("provider_id") or "").strip()
+    line1 = str(record.get("address_line1") or "").strip()
+    if not provider_id or not line1:
+        return
+    from stripe_connect import get_stripe_manager
+
+    get_stripe_manager().sync_seller_address(
+        provider_id,
+        {
+            "address_line1": line1,
+            "address_line2": str(record.get("address_line2") or ""),
+            "city": str(record.get("city") or ""),
+            "province": str(record.get("province") or ""),
+            "postal_code": str(record.get("postal_code") or ""),
+            "country": str(record.get("country") or ""),
+        },
+    )
+
+
 @router.patch("/api/auth/me", tags=["Auth"])
 def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
     """Update the current user's profile fields."""
@@ -3015,6 +3048,7 @@ def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
             full_user.update(_business_profile_updates(body))
             full_user.update(_account_profile_updates(body))
 
+    _sync_seller_address_from_account(user["email"], body)
     return {"ok": True, "message": "Profile updated"}
 
 

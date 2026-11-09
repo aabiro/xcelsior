@@ -60,7 +60,7 @@ export function TermsContent() {
             </ul>
           </Section>
 
-          <Section title={`6. ${t("terms.s6_title")}`}>
+          <Section id="provider-terms" title={`6. ${t("terms.s6_title")}`}>
             <ul className="site-legal-list">
               <li>{t("terms.s6_p1")}</li>
               <li>{t("terms.s6_p2")}</li>
@@ -156,9 +156,9 @@ export function TermsContent() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ id, title, children }: { id?: string; title: string; children: React.ReactNode }) {
   return (
-    <section className="site-legal-section">
+    <section id={id} className="site-legal-section">
       <h2 className="site-legal-title">{title}</h2>
       {children}
     </section>

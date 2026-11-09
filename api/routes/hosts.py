@@ -56,13 +56,13 @@ def api_location_catalog(country: str = ""):
 
 
 class AddressSearchRequest(BaseModel):
-    country: str = Field(min_length=2, max_length=2)
+    country: str = ""
     text: str = Field(min_length=3, max_length=200)
     container: str = Field(default="", max_length=1000)
 
 
 class AddressRetrieveRequest(BaseModel):
-    country: str = Field(min_length=2, max_length=2)
+    country: str = ""
     address_id: str = Field(min_length=1, max_length=1000)
 
 
@@ -128,17 +128,18 @@ def _loqate_capture(operation: str, values: dict[str, str]) -> list[dict]:
 
 @router.post("/api/locations/search", tags=["Account"])
 def api_address_search(body: AddressSearchRequest, request: Request):
-    """Search addresses in the selected country for an authenticated profile form."""
+    """Search addresses for an authenticated profile form. A blank country searches everywhere."""
     from routes._deps import _require_user_grant
 
     _require_user_grant(request)
-    country = _address_lookup_country(body.country)
+    country = _address_lookup_country(body.country) if body.country.strip() else ""
     text = body.text.strip()
     if len(text) < 3:
         raise HTTPException(422, "Enter at least three address characters")
-    items = _loqate_capture(
-        "Find", {"Text": text, "Countries": country, "Container": body.container, "Limit": "8"}
-    )
+    query = {"Text": text, "Container": body.container, "Limit": "8"}
+    if country:
+        query["Countries"] = country
+    items = _loqate_capture("Find", query)
     return {
         "ok": True,
         "suggestions": [
@@ -161,11 +162,17 @@ def api_address_retrieve(body: AddressRetrieveRequest, request: Request):
     from host_metadata import require_location
 
     _require_user_grant(request)
-    country = _address_lookup_country(body.country)
     items = _loqate_capture("Retrieve", {"Id": body.address_id})
-    matches = [item for item in items if str(item.get("CountryIso2") or "").upper() == country]
-    if not matches:
-        raise HTTPException(422, "No address was returned in the selected country")
+    if body.country.strip():
+        country = _address_lookup_country(body.country)
+        matches = [item for item in items if str(item.get("CountryIso2") or "").upper() == country]
+        if not matches:
+            raise HTTPException(422, "No address was returned in the selected country")
+    else:
+        matches = [item for item in items if str(item.get("CountryIso2") or "").strip()]
+        if not matches:
+            raise HTTPException(422, "No address was returned")
+        country = _address_lookup_country(str(matches[0].get("CountryIso2") or ""))
     item = matches[0]
     province = str(item.get("ProvinceCode") or item.get("AdminAreaCode") or "").strip()
     try:

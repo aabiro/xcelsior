@@ -367,6 +367,34 @@ def test_lookup_uses_post_body_keeps_key_private_and_handles_address_groups(user
     assert "unit-only" not in response.text
 
 
+def test_address_search_without_a_country_does_not_limit_loqate(user_headers, monkeypatch):
+    import httpx
+
+    calls = []
+
+    def provider(url, **kwargs):
+        calls.append(kwargs)
+        return httpx.Response(200, json={"Items": [{"Id": "a1", "Text": "1 Test Street", "Description": "London", "Type": "Address"}]}, request=httpx.Request("POST", url))
+
+    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY", "unit-only-not-a-service-key")
+    monkeypatch.setattr(httpx, "post", provider)
+    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"text": "Test Street"})
+    assert response.status_code == 200, response.text
+    assert "Countries" not in calls[0]["data"]
+
+
+def test_address_retrieve_without_a_country_uses_the_returned_country(user_headers, monkeypatch):
+    import httpx
+
+    item = {"CountryIso2": "CA", "Line1": "1 Test Street", "City": "London", "PostalCode": "N6A 1A1", "ProvinceCode": "ON"}
+    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY", "unit-only-not-a-service-key")
+    monkeypatch.setattr(httpx, "post", lambda url, **kwargs: httpx.Response(200, json={"Items": [item]}, request=httpx.Request("POST", url)))
+    response = client.post("/api/locations/retrieve", headers=user_headers["headers"], json={"address_id": "address-1"})
+    assert response.status_code == 200, response.text
+    assert response.json()["address"]["country"] == "CA"
+    assert response.json()["address"]["province"] == "ON"
+
+
 @pytest.mark.parametrize("payload,status",[
     ({"Items":[{"Error":"2","Description":"a secret provider error"}]},502),
     ({"Items":[{"CountryIso2":"US","Line1":"foreign address"}]},422),

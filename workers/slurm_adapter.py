@@ -1993,6 +1993,63 @@ def cancel_slurm_job(slurm_job_id, *, profile_name=None, runner=None):
         return _error("adapter_exception", str(e))
 
 
+_SCONTROL_JOB_VERBS = frozenset({"suspend", "resume", "requeue"})
+
+
+def _scontrol_one_job(verb, slurm_job_id, *, profile_name=None, runner=None):
+    """One authorized ``scontrol`` verb on one job id.
+
+    ``suspend`` and ``requeue`` are how a shadow run produces the suspended
+    and requeued accounting records. ``resume`` is the matching release, so
+    a suspended job can finish and give the node back. ``update``, ``hold``,
+    and a list of ids are not this function.
+    """
+    if verb not in _SCONTROL_JOB_VERBS:
+        return _error("invalid_request", f"scontrol {verb} is not authorized")
+    if not _SLURM_JOB_ID_RE.match(str(slurm_job_id)):
+        return _error("invalid_job_id", f"invalid Slurm job id: {slurm_job_id!r}")
+    try:
+        _profile, runner = _resolve(profile_name, runner)
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
+    if not _slurm_reachable(runner):
+        return _error("slurm_unavailable", "Slurm not available")
+    try:
+        r = runner.run(["scontrol", verb, str(slurm_job_id)], timeout=15)
+        failure = _transport_failure(r, runner)
+        if failure:
+            return failure
+        if r.returncode == 0:
+            return {"ok": True, "verb": verb, "slurm_job_id": str(slurm_job_id)}
+        detail = ((r.stderr or "") + (r.stdout or "")).strip()
+        if r.returncode == 126 or "refused" in detail:
+            return _error("scontrol_rejected", detail or f"scontrol {verb} was refused")
+        if "Invalid job id" in detail:
+            return _error("not_found", detail)
+        return _error("scontrol_failed", detail or f"scontrol {verb} failed")
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
+    except subprocess.TimeoutExpired:
+        return _error("timeout", f"scontrol {verb} timed out")
+    except Exception as e:
+        return _error("adapter_exception", str(e))
+
+
+def suspend_slurm_job(slurm_job_id, *, profile_name=None, runner=None):
+    """Suspend one job. The allocation stays; resume it to let it finish."""
+    return _scontrol_one_job("suspend", slurm_job_id, profile_name=profile_name, runner=runner)
+
+
+def resume_slurm_job(slurm_job_id, *, profile_name=None, runner=None):
+    """Resume one suspended job so it can finish and release its node."""
+    return _scontrol_one_job("resume", slurm_job_id, profile_name=profile_name, runner=runner)
+
+
+def requeue_slurm_job(slurm_job_id, *, profile_name=None, runner=None):
+    """Requeue one job. Slurm keeps the earlier run as its own accounting record."""
+    return _scontrol_one_job("requeue", slurm_job_id, profile_name=profile_name, runner=runner)
+
+
 # ── Sync Engine ──────────────────────────────────────────────────────
 # Tracks mapping between Xcelsior job_ids and Slurm job_ids.
 #

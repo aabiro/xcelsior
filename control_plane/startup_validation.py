@@ -196,9 +196,7 @@ def _check_agent_authentication() -> Finding | None:
 
 
 def _check_privacy_deletion_credentials() -> Finding | None:
-    reference_secret = (
-        os.environ.get("XCELSIOR_PRIVACY_REFERENCE_SECRET") or ""
-    ).strip()
+    reference_secret = (os.environ.get("XCELSIOR_PRIVACY_REFERENCE_SECRET") or "").strip()
     if not reference_secret:
         return Finding(
             code="privacy_reference_secret_missing",
@@ -224,12 +222,8 @@ def _check_privacy_deletion_credentials() -> Finding | None:
     )
     if not posthog_enabled:
         return None
-    personal_key = (
-        os.environ.get("XCELSIOR_POSTHOG_PERSONAL_API_KEY") or ""
-    ).strip()
-    project_id = (
-        os.environ.get("XCELSIOR_POSTHOG_PROJECT_ID") or ""
-    ).strip()
+    personal_key = (os.environ.get("XCELSIOR_POSTHOG_PERSONAL_API_KEY") or "").strip()
+    project_id = (os.environ.get("XCELSIOR_POSTHOG_PROJECT_ID") or "").strip()
     if personal_key and project_id:
         return None
     return Finding(
@@ -497,7 +491,7 @@ def _check_artifact_backend() -> Finding | None:
     if not backend:
         backend = (os.environ.get("XCELSIOR_STORAGE_BACKEND") or "").strip().lower()
     if not backend:
-        if not enforcement_enabled():
+        if not is_production():
             return None
         return Finding(
             code="artifact_backend_missing",
@@ -508,7 +502,9 @@ def _check_artifact_backend() -> Finding | None:
             ),
         )
     if backend in ("local", "file", "filesystem"):
-        if not enforcement_enabled():
+        # Staging on this host keeps a local artifact directory. The replica
+        # rule is a production requirement; the message says so.
+        if not is_production():
             return None
         return Finding(
             code="artifact_backend_local",
@@ -588,10 +584,9 @@ def _check_analytics_configuration() -> Finding | None:
     location = (os.environ.get("XCELSIOR_ANALYTICS_BQ_LOCATION") or "").strip()
     dataset = (os.environ.get("XCELSIOR_ANALYTICS_BQ_RAW_DATASET") or "").strip()
     bucket = (os.environ.get("XCELSIOR_ANALYTICS_GCS_LANDING_BUCKET") or "").strip()
-    workload_id = (
-        (os.environ.get("XCELSIOR_ANALYTICS_WORKLOAD_IDENTITY") or "").strip()
-        or (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
-    )
+    workload_id = (os.environ.get("XCELSIOR_ANALYTICS_WORKLOAD_IDENTITY") or "").strip() or (
+        os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or ""
+    ).strip()
     missing = []
     if not project:
         missing.append("XCELSIOR_ANALYTICS_GCP_PROJECT")
@@ -626,10 +621,9 @@ def _check_retrieval_configuration() -> Finding | None:
     rerank_path = (os.environ.get("XCELSIOR_RETRIEVAL_RERANK_MODEL_PATH") or "").strip()
     sha256 = (os.environ.get("XCELSIOR_RETRIEVAL_EXPECTED_MODEL_SHA256") or "").strip()
     dimension = (os.environ.get("XCELSIOR_RETRIEVAL_EXPECTED_DIMENSION") or "").strip()
-    revision = (
-        (os.environ.get("XCELSIOR_RETRIEVAL_REVISION") or "").strip()
-        or (os.environ.get("XCELSIOR_RETRIEVAL_MODEL_REVISION") or "").strip()
-    )
+    revision = (os.environ.get("XCELSIOR_RETRIEVAL_REVISION") or "").strip() or (
+        os.environ.get("XCELSIOR_RETRIEVAL_MODEL_REVISION") or ""
+    ).strip()
     missing = []
     if not embed_path:
         missing.append("XCELSIOR_RETRIEVAL_EMBED_MODEL_PATH")
@@ -670,7 +664,7 @@ def _check_lightning_tls() -> Finding | None:
             message=f"XCELSIOR_LN_CLNREST_URL={url!r} uses plaintext HTTP — Lightning clnrest requires TLS (https://)",
             remediation="Change URL scheme to https:// and provide XCELSIOR_LN_CA_CERT.",
         )
-    if enforcement_enabled():
+    if is_production():
         ca_cert = (os.environ.get("XCELSIOR_LN_CA_CERT") or "").strip()
         if not ca_cert:
             return Finding(
@@ -690,10 +684,9 @@ def _check_lightning_tls() -> Finding | None:
 
 
 def _check_secret_manager_discipline() -> Finding | None:
-    sm = (
-        (os.environ.get("XCELSIOR_SECRET_MANAGER") or "").strip().lower()
-        or (os.environ.get("XCELSIOR_SECRETS_BACKEND") or "").strip().lower()
-    )
+    sm = (os.environ.get("XCELSIOR_SECRET_MANAGER") or "").strip().lower() or (
+        os.environ.get("XCELSIOR_SECRETS_BACKEND") or ""
+    ).strip().lower()
     if not sm or sm in ("none", "false", "0"):
         return None
     env_file = os.environ.get("XCELSIOR_ENV_FILE") or ".env"
@@ -723,10 +716,13 @@ def _check_secret_manager_discipline() -> Finding | None:
 
 def _check_job_stop_repair_policy() -> Finding | None:
     name = "XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING"
-    if os.environ.get("XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING", "report_only").strip().lower() in ("report_only", "enforce"):
+    if os.environ.get(
+        "XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING", "report_only"
+    ).strip().lower() in ("report_only", "enforce"):
         return None
     return Finding(
-        code="job_stop_repair_policy", severity="error",
+        code="job_stop_repair_policy",
+        severity="error",
         message=f"{name} must be report_only or enforce",
         remediation="Use report_only until job reconciliation findings have been reviewed.",
     )
@@ -737,7 +733,8 @@ def _check_job_lease_repair_policy() -> Finding | None:
     if os.environ.get(name, "report_only").strip().lower() in ("report_only", "enforce"):
         return None
     return Finding(
-        code="job_lease_repair_policy", severity="error",
+        code="job_lease_repair_policy",
+        severity="error",
         message=f"{name} must be report_only or enforce",
         remediation="Use report_only until job reconciliation findings have been reviewed.",
     )
@@ -748,7 +745,8 @@ def _check_billing_meter_repair_policy() -> Finding | None:
         name = f"XCELSIOR_RECONCILE_ACTION_BILLING_{suffix}"
         if os.environ.get(name, "report_only").strip().lower() not in ("report_only", "enforce"):
             return Finding(
-                code="billing_meter_repair_policy", severity="error",
+                code="billing_meter_repair_policy",
+                severity="error",
                 message=f"{name} must be report_only or enforce",
                 remediation="Use report_only until billing reconciliation findings have been reviewed.",
             )

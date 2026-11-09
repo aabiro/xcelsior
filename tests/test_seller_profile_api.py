@@ -210,6 +210,38 @@ def test_register_without_a_seller_profile_does_not_open_a_payout_account():
     assert row is None
 
 
+def test_account_address_edit_updates_the_seller_address():
+    _user, headers = _auth()
+    sin = _sin("24681357")
+    saved = client.put("/api/providers/seller-profile", json=_profile(sin), headers=headers)
+    assert saved.status_code == 200, saved.text[:400]
+    provider_id = saved.json()["provider_id"]
+    try:
+        patched = client.patch(
+            "/api/auth/me",
+            headers=headers,
+            json={
+                "name": "Seller",
+                "country": "CA",
+                "province": "BC",
+                "account_type": "individual",
+                "onboarding_intent": "provide",
+                "address_line1": "9 New Street",
+                "city": "Vancouver",
+                "postal_code": "V6B 1A1",
+            },
+        )
+        assert patched.status_code == 200, patched.text[:400]
+        profile = client.get("/api/providers/seller-profile", headers=headers).json()["profile"]
+        assert profile["address_line1"] == "9 New Street"
+        assert profile["city"] == "Vancouver"
+        assert profile["province"] == "BC"
+        assert profile["country"] == "CA"
+        assert profile["postal_code"] == "V6B 1A1"
+    finally:
+        _delete_provider(provider_id)
+
+
 def test_paypal_onboarding_waits_for_the_seller_profile():
     user, headers = _auth()
     provider_id = user.get("customer_id") or user["user_id"]
