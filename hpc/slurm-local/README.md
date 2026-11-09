@@ -228,7 +228,7 @@ It takes about 5 minutes. Results go to `hpc/slurm-local/results/<run-id>/`:
 - `pod-listing.json`, the reference pod spec;
 - `outputs/*.txt`.
 
-`--with-db` also runs REG-1 (the cluster registry's transport: it registers the tower with the host key your own `~/.ssh/known_hosts` already trusts and the adapter's key, captures `scontrol show config` facts, checks that passes share one ControlMaster, and that a wrong pin is refused), PROG-1 (a job's progress file, fetched through the gate) and VERDICT-1 (a job that exits 0 after a failed step reads `failed`).
+`--with-db` also runs REG-1 (the cluster registry's transport: it registers the tower with the host key your own `~/.ssh/known_hosts` already trusts and the adapter's key, captures `scontrol show config` facts, checks that passes share one ControlMaster, and that a wrong pin is refused), PROG-1 (a job's progress file, fetched through the gate), VERDICT-1 (a job that exits 0 after a failed step reads `failed`) and SIZE-1 (with `output_size_check` on, a pass over an unchanged file sends `ls -l` and no read).
 
 After a kit change that only adds a gate shape, install just the gate on the tower: rsync the kit, then `sudo ./10-install-tower.sh gate`.
 

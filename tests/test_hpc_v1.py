@@ -290,6 +290,105 @@ class TestJobOutput:
         assert r.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
 
 
+_KEY = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+
+
+class TestClusterRegistration:
+    """POST /api/v1/hpc/clusters and its connection check: admin only."""
+
+    @pytest.fixture
+    def cid(self):
+        cid = f"hr-{uuid.uuid4().hex[:8]}"
+        yield cid
+        with pg_transaction() as conn:
+            conn.execute("DELETE FROM slurm_clusters WHERE cluster_id = %s", (cid,))
+
+    @pytest.fixture
+    def key_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_SLURM_KEY_DIR", str(tmp_path))
+        return tmp_path
+
+    def _body(self, cid, **kw):
+        body = {
+            "profile_key": "generic",
+            "cluster_id": cid,
+            "ssh_host": "203.0.113.7",
+            "remote_user": "xclslurm",
+            "known_hosts_line": f"203.0.113.7 ssh-ed25519 {_KEY}",
+            "credential_ref": "env:XCELSIOR_SLURM_KEY_LAB",
+        }
+        body.update(kw)
+        return body
+
+    def test_an_admin_registers_it_disabled_and_sees_its_fingerprint(self, world, cid):
+        r = client.post("/api/v1/hpc/clusters", headers=world["admin"], json=self._body(cid))
+        assert r.status_code == 201, r.text
+        assert r.json()["cluster"]["transport"] == "registry"
+        listed = client.get("/api/v1/hpc/clusters", headers=world["admin"]).json()["clusters"]
+        [mine] = [c for c in listed if c["cluster_id"] == cid]
+        assert mine["enabled"] is False  # off until a connection check proves it
+        transport = mine["transport"]
+        assert transport["kind"] == "registry" and transport["ssh_host"] == "203.0.113.7"
+        assert transport["host_key_fingerprint"].startswith("SHA256:")
+        assert transport["credential_ref"] == "env:XCELSIOR_SLURM_KEY_LAB"
+        assert _KEY not in r.text + str(listed)  # the key line itself is never echoed
+
+    def test_a_key_file_must_be_in_the_key_directory(self, world, cid, key_dir):
+        inside = client.post(
+            "/api/v1/hpc/clusters",
+            headers=world["admin"],
+            json=self._body(cid, credential_ref=f"file:{key_dir}/lab.key"),
+        )
+        assert inside.status_code == 201, inside.text
+        for ref in (
+            "file:/etc/ssh/ssh_host_ed25519_key",
+            f"file:{key_dir}/../escape.key",
+            "env:AWS_SECRET_ACCESS_KEY",
+            "env:XCELSIOR_STRIPE_SECRET_KEY",
+        ):
+            r = client.post(
+                "/api/v1/hpc/clusters",
+                headers=world["admin"],
+                json=self._body(cid, credential_ref=ref),
+            )
+            assert r.status_code == 422 and r.json()["code"] == "credential_ref_not_allowed", ref
+
+    @pytest.mark.parametrize(
+        "change,code",
+        [
+            ({"known_hosts_line": "@cert-authority * ssh-ed25519 AAAA"}, "invalid_host_key"),
+            ({"profile_key": "no-such-profile"}, "unknown_profile"),
+        ],
+    )
+    def test_a_bad_registration_is_a_problem(self, world, cid, change, code):
+        r = client.post(
+            "/api/v1/hpc/clusters", headers=world["admin"], json=self._body(cid, **change)
+        )
+        assert r.status_code == 422 and r.json()["code"] == code
+        assert r.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+
+    def test_only_a_platform_admin(self, world, cid):
+        r = client.post("/api/v1/hpc/clusters", headers=world["a"], json=self._body(cid))
+        assert r.status_code == 403 and r.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+        r = client.post(f"/api/v1/hpc/clusters/{world['cid']}/connection-check", headers=world["a"])
+        assert r.status_code == 403
+
+    def test_the_connection_check_reports_what_it_found(self, world, monkeypatch):
+        import slurm_reconciler as rc
+
+        # An unknown cluster is found missing before anything is contacted.
+        missing = client.post(
+            "/api/v1/hpc/clusters/no-such/connection-check", headers=world["admin"]
+        )
+        assert missing.status_code == 404 and missing.json()["code"] == "hpc_cluster_not_found"
+        found = {"ok": False, "error_code": "host_key_mismatch", "error": "refused"}
+        monkeypatch.setattr(rc, "check_cluster_connection", lambda cluster_id: found)
+        r = client.post(
+            f"/api/v1/hpc/clusters/{world['cid']}/connection-check", headers=world["admin"]
+        )
+        assert r.status_code == 200 and r.json()["check"] == found
+
+
 class TestAdminStatusReadsTheCache:
     """/api/slurm/status/{id} (the dashboard's refresh) used to poll Slurm on
     every click; it now reads the reconciler's copy."""

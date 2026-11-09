@@ -53,12 +53,14 @@ class FakeCluster:
             out, rc_ = "Slurmctld(primary) at tower is UP\n", 0
         elif prog == "scontrol" and argv[1:] == ["show", "config"]:
             out, rc_ = CONFIG_TEXT, 0
-        elif prog == "tail":
+        elif prog in ("tail", "cat", "ls"):
             sid, stream = argv[-1].rsplit("-", 1)[1].split(".")
             text = self.outputs.get((sid, stream))
-            out, rc_ = (text, 0) if text is not None else ("", 1)
-            if rc_:
-                return subprocess.CompletedProcess(argv, 1, "", f"tail: {argv[-1]}: No such file")
+            if text is None:
+                return subprocess.CompletedProcess(argv, 1, "", f"{prog}: {argv[-1]}: No such file")
+            out, rc_ = text, 0
+            if prog == "ls":
+                out = f"-rw-r----- 1 xclslurm xcl {len(text.encode())} Nov  8 12:00 {argv[-1]}\n"
         else:
             out, rc_ = "", 0
         return subprocess.CompletedProcess(argv, rc_, out, self.stderr if rc_ else "")
@@ -806,6 +808,177 @@ class TestRegistryTransport:
 
     def test_a_check_of_an_unknown_cluster_reports_it(self):
         assert rc.check_cluster_connection("no-such-cluster")["error_code"] == "not_found"
+
+
+class TestFactsRefresh:
+    def test_due_when_missing_old_or_unreadable(self):
+        import datetime as dt
+
+        now = dt.datetime.now(dt.timezone.utc)
+        assert rc._facts_due({}) and rc._facts_due(None)
+        assert rc._facts_due({"config_captured_at": "yesterday-ish"})
+        assert rc._facts_due({"config_captured_at": "2026-11-08T12:00:00"})  # no zone
+        old = (now - dt.timedelta(days=8)).isoformat()
+        assert rc._facts_due({"config_captured_at": old})
+        assert not rc._facts_due({"config_captured_at": (now - dt.timedelta(days=1)).isoformat()})
+
+    def test_a_due_cluster_captures_them_on_its_pass(self, cluster, monkeypatch):
+        with pg_transaction() as conn:
+            conn.execute(
+                "INSERT INTO slurm_clusters (cluster_id, profile_key, display_name) "
+                "VALUES (%s, 'generic', 'x')",
+                (cluster.cid,),
+            )
+        fake = FakeCluster()
+
+        @contextlib.contextmanager
+        def runner_for(row):
+            yield fake
+
+        monkeypatch.setattr(rc, "_runner_for", runner_for)
+        monkeypatch.setattr(rc, "_due_clusters", lambda: [rc._cluster_row(cluster.cid)])
+        [first] = rc.reconcile_due_clusters()
+        assert first["facts_refreshed"] and fake.calls[-1] == ["scontrol", "show", "config"]
+        [second] = rc.reconcile_due_clusters()  # captured a moment ago: not due
+        assert not second["facts_refreshed"]
+        assert sum(1 for c in fake.calls if c[:2] == ["scontrol", "show"]) == 1
+
+    def test_a_failed_capture_is_counted_not_fatal(self, cluster, monkeypatch):
+        with pg_transaction() as conn:
+            conn.execute(
+                "INSERT INTO slurm_clusters (cluster_id, profile_key, display_name) "
+                "VALUES (%s, 'generic', 'x')",
+                (cluster.cid,),
+            )
+
+        class NoConfig(FakeCluster):
+            def run(self, argv, **kw):
+                if argv[:2] == ["scontrol", "show"]:
+                    return subprocess.CompletedProcess(argv, 1, "", "scontrol: error: denied")
+                return super().run(argv, **kw)
+
+        @contextlib.contextmanager
+        def runner_for(row):
+            yield NoConfig()
+
+        monkeypatch.setattr(rc, "_runner_for", runner_for)
+        monkeypatch.setattr(rc, "_due_clusters", lambda: [rc._cluster_row(cluster.cid)])
+        [result] = rc.reconcile_due_clusters()
+        assert result["ok"] and result["facts_error_code"] and not result["facts_refreshed"]
+        with pg_connection() as conn:
+            counts = conn.execute(
+                "SELECT failure_counts FROM slurm_clusters WHERE cluster_id = %s", (cluster.cid,)
+            ).fetchone()[0]
+        assert any(k.startswith("facts:") for k in counts)
+
+
+@pytest.fixture
+def cat_profile(tmp_path, monkeypatch):
+    """A profile whose wrapper allows cat and ls, not tail (as Alliance's)."""
+    import json as _json
+
+    path = tmp_path / "profiles.json"
+    path.write_text(
+        _json.dumps(
+            {
+                "profiles": {
+                    "catlike": {
+                        "name": "cat-only wrapper",
+                        "partition_gpu": "g",
+                        "partition_cpu": "c",
+                        "output_reader": "cat",
+                        "scratch_dir": "/scratch/{user}",
+                    }
+                }
+            }
+        )
+    )
+    monkeypatch.setenv(sa.PROFILES_FILE_ENV, str(path))
+    return "catlike"
+
+
+class TestOutputSizeCheck:
+    def _pass(self, cluster, profile, fake):
+        return rc.reconcile_cluster(cluster.cid, profile, runner=fake)
+
+    def _expire(self, xid):
+        with pg_transaction() as conn:  # a poll interval passes
+            conn.execute(
+                "UPDATE slurm_job_outputs SET fetched_at = fetched_at - interval '5 minutes', "
+                "attempted_at = attempted_at - interval '5 minutes' WHERE xcelsior_job_id = %s",
+                (xid,),
+            )
+
+    def test_an_unchanged_file_is_not_read_again(self, cluster, cat_profile):
+        xid = cluster(990, observed_state="running")
+        squeue = [cluster.q("990", "RUNNING")]
+        sa.read_cached_output(xid)
+        first = FakeCluster(squeue=squeue, outputs={("990", "out"): "epoch 1\n"})
+        self._pass(cluster, cat_profile, first)
+        assert [c[0] for c in first.calls if c[0] in ("ls", "cat", "tail")] == ["ls", "cat"]
+        self._expire(xid)
+        assert sa.read_cached_output(xid)["refresh_pending"]
+        again = FakeCluster(squeue=squeue, outputs={("990", "out"): "epoch 1\n"})
+        result = self._pass(cluster, cat_profile, again)
+        assert [c[0] for c in again.calls if c[0] in ("ls", "cat", "tail")] == ["ls"]
+        assert result.outputs_unchanged == [(xid, "out")]
+        got = sa.read_cached_output(xid)
+        assert got["content"] == "epoch 1\n" and not got["refresh_pending"]
+
+    def test_a_grown_file_is_read(self, cluster, cat_profile):
+        xid = cluster(991, observed_state="running")
+        squeue = [cluster.q("991", "RUNNING")]
+        sa.read_cached_output(xid)
+        self._pass(
+            cluster, cat_profile, FakeCluster(squeue=squeue, outputs={("991", "out"): "a\n"})
+        )
+        self._expire(xid)
+        sa.read_cached_output(xid)
+        grown = FakeCluster(squeue=squeue, outputs={("991", "out"): "a\nb\n"})
+        self._pass(cluster, cat_profile, grown)
+        assert [c[0] for c in grown.calls if c[0] in ("ls", "cat")] == ["ls", "cat"]
+        assert sa.read_cached_output(xid)["content"] == "a\nb\n"
+
+    def test_past_the_cap_it_is_never_catted(self, cluster, cat_profile):
+        xid = cluster(992, observed_state="running")
+        sa.read_cached_output(xid)
+        huge = "x" * (sa.OUTPUT_CAT_MAX_BYTES + 1)
+        fake = FakeCluster(squeue=[cluster.q("992", "RUNNING")], outputs={("992", "out"): huge})
+        result = self._pass(cluster, cat_profile, fake)
+        assert fake.count("cat") == 0 and result.output_errors == [(xid, "out", "output_too_large")]
+        assert sa.read_cached_output(xid)["fetch_error_code"] == "output_too_large"
+
+    def test_a_tail_cluster_needs_no_size_check(self, cluster):
+        xid = cluster(993, observed_state="running")
+        sa.read_cached_output(xid)
+        fake = FakeCluster(squeue=[cluster.q("993", "RUNNING")], outputs={("993", "out"): "a\n"})
+        run_pass(cluster, fake)
+        assert fake.count("ls") == 0 and fake.count("tail") == 1
+
+    def test_a_settled_unchanged_file_becomes_final(self, cluster, cat_profile):
+        xid = cluster(994, observed_state="running")
+        sa.read_cached_output(xid)
+        self._pass(
+            cluster,
+            cat_profile,
+            FakeCluster(squeue=[cluster.q("994", "RUNNING")], outputs={("994", "out"): "done\n"}),
+        )
+        settled = FakeCluster(
+            sacct=[cluster.a("994", "COMPLETED")], outputs={("994", "out"): "done\n"}
+        )
+        result = self._pass(cluster, cat_profile, settled)
+        assert result.settled == [xid] and result.outputs_unchanged == [(xid, "out")]
+        assert sa.read_cached_output(xid)["final"]
+
+    def test_ls_output_that_is_not_a_regular_file_is_refused(self):
+        class Lister(FakeCluster):
+            def run(self, argv, **kw):
+                return subprocess.CompletedProcess(
+                    argv, 0, f"lrwxrwxrwx 1 x x 11 Nov 8 12:00 {argv[-1]} -> /etc/shadow\n", ""
+                )
+
+        got = sa.get_slurm_job_output_size("5", "j-1", profile_name="generic", runner=Lister())
+        assert got["error_code"] == "output_unavailable"
 
 
 class TestRunnerDecoding:

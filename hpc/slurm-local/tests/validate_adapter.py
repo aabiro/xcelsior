@@ -34,6 +34,7 @@ Cases (see CHECKLIST.md for the acceptance criteria of each):
           config facts, one ControlMaster, a wrong pin refused
   PROG-1     (optional, --with-db) a job's own progress file, fetched once
   VERDICT-1  (optional, --with-db) success needs DerivedExitCode 0:0
+  SIZE-1     (optional, --with-db) with a size check, an unchanged file isn't read
   SCEN-1..6  (optional, --scenarios) requeue, spot preemption, OOM, hold,
           suspend/resume and node failure against the reconciler
 """
@@ -1308,6 +1309,75 @@ def verdict_1(ctx: Ctx):
         and verdicts.get(xids[1]) == "failed"
         and rows[xids[1]][1] == "0:0"
         and rows[xids[1]][2] not in (None, "0:0"),
+        ev,
+    )
+
+
+@case(
+    "SIZE-1",
+    "Output is read only when it changed (optional)",
+    "With output_size_check on, a pass asks ls -l first: the first read sends ls and tail, a second pass over an unchanged file sends ls alone",
+)
+def size_1(ctx: Ctx):
+    refused = _test_db_guard(ctx)
+    if refused:
+        return refused
+    from db import pg_transaction  # type: ignore
+    import slurm_reconciler as rc  # noqa: E402
+
+    # As on Alliance, where the wrapper allows ls and cat: a size check
+    # before every read. This gate reads with tail, so tail does the read.
+    base = json.loads(pathlib.Path(os.environ[sa.PROFILES_FILE_ENV]).read_text())
+    base["profiles"]["xcl-local-sizecheck"] = dict(
+        base["profiles"][ctx.profile], output_size_check=True
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump(base, fh)
+    old = os.environ[sa.PROFILES_FILE_ENV]
+    os.environ[sa.PROFILES_FILE_ENV] = fh.name
+    job = ctx.submit("size", num_gpus=0, nodelist=ctx.gpu_node, command="echo first; sleep 60")
+    if "error" in job:
+        os.environ[sa.PROFILES_FILE_ENV] = old
+        os.unlink(fh.name)
+        return FAIL, {"submit": job}, "submit failed"
+    cid, xid = f"{ctx.run_id}-size", job["xcelsior_job_id"]
+    try:
+        sa.register_slurm_job(xid, job["slurm_job_id"], cluster_id=cid)
+        ctx.wait(job["slurm_job_id"], {"RUNNING"}, 60)
+        time.sleep(3)
+        sa.read_cached_output(xid)
+        first = _CountingRunner(ctx.runner)
+        one = rc.reconcile_cluster(cid, "xcl-local-sizecheck", runner=first)
+        with pg_transaction() as conn:  # a poll interval passes
+            conn.execute(
+                "UPDATE slurm_job_outputs SET fetched_at = fetched_at - interval '5 minutes', "
+                "attempted_at = attempted_at - interval '5 minutes' WHERE xcelsior_job_id = %s",
+                (xid,),
+            )
+        sa.read_cached_output(xid)
+        second = _CountingRunner(ctx.runner)
+        two = rc.reconcile_cluster(cid, "xcl-local-sizecheck", runner=second)
+        cached = sa.read_cached_output(xid)
+    finally:
+        os.environ[sa.PROFILES_FILE_ENV] = old
+        os.unlink(fh.name)
+        sa.cancel_slurm_job(job["slurm_job_id"], profile_name=ctx.profile, runner=ctx.runner)
+        with pg_transaction() as conn:
+            conn.execute("DELETE FROM slurm_job_mappings WHERE cluster_id = %s", (cid,))
+    reads = lambda sent: [c for c in sent if c in ("ls", "tail", "cat")]  # noqa: E731
+    ev = {
+        "first_pass": reads(first.sent),
+        "second_pass": reads(second.sent),
+        "fetched": one.outputs_fetched,
+        "unchanged": two.outputs_unchanged,
+        "errors": one.output_errors + two.output_errors,
+        "content": cached.get("content"),
+    }
+    return ok(
+        ev["first_pass"] == ["ls", "tail"]
+        and ev["second_pass"] == ["ls"]
+        and [tuple(u) for u in two.outputs_unchanged] == [(xid, "out")]
+        and cached.get("content") == "first\n",
         ev,
     )
 

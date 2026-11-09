@@ -801,7 +801,43 @@ export interface paths {
          */
         get: operations["api_v1_hpc_clusters_api_v1_hpc_clusters_get"];
         put?: never;
-        post?: never;
+        /**
+         * Api V1 Register Hpc Cluster
+         * @description Register (or update) a Slurm cluster the reconciler polls.
+         *
+         *     Platform admin only, and audited. With `ssh_host`, give the host key to
+         *     pin (a known_hosts or ssh-keyscan line verified out of band) and a
+         *     `credential_ref`: `env:XCELSIOR_SLURM_KEY_<NAME>`, or `file:` under the
+         *     API's key directory. Registered disabled unless `enabled` is set; run
+         *     the connection check, then register again with `enabled: true`. The
+         *     research-only, marketplace and agent flags come from the profile.
+         */
+        post: operations["api_v1_register_hpc_cluster_api_v1_hpc_clusters_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hpc/clusters/{cluster_id}/connection-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api V1 Check Hpc Cluster
+         * @description Connect to a registered cluster the way the reconciler will.
+         *
+         *     Runs `scontrol ping` and `scontrol show config`, and stores the config
+         *     facts on the cluster. Platform admin only, and audited. A failure is the
+         *     result (`ok: false` with an `error_code` such as `host_key_mismatch`),
+         *     not an error status; an unknown cluster is 404.
+         */
+        post: operations["api_v1_check_hpc_cluster_api_v1_hpc_clusters__cluster_id__connection_check_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3575,6 +3611,28 @@ export interface components {
             /** Container Port */
             container_port: number;
         };
+        /** _HpcClusterIn */
+        _HpcClusterIn: {
+            /** Profile Key */
+            profile_key: string;
+            /** Cluster Id */
+            cluster_id?: string | null;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Ssh Host */
+            ssh_host?: string | null;
+            /** Ssh Port */
+            ssh_port?: number | null;
+            /** Remote User */
+            remote_user?: string | null;
+            /** Known Hosts Line */
+            known_hosts_line?: string | null;
+            /** Credential Ref */
+            credential_ref?: string | null;
+        };
         /** _HttpPortsReport */
         _HttpPortsReport: {
             /** Host Id */
@@ -4837,6 +4895,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    api_v1_register_hpc_cluster_api_v1_hpc_clusters_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["_HpcClusterIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_check_hpc_cluster_api_v1_hpc_clusters__cluster_id__connection_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cluster_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
