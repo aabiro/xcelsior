@@ -92,11 +92,16 @@ def a(
     exit_code="0:0",
     name=None,
     derived="0:0",
+    tres="cpu=1,node=1",
+    suspended="00:00:00",
+    timelimit="10",
 ):
-    """One sacct -D -X line: JobIDRaw|JobName|State|Submit|Start|End|ElapsedRaw|ExitCode|AllocTRES|NodeList|DerivedExitCode."""
+    """One sacct -D -X line in the adapter's field order (sa._WINDOW_FIELDS):
+    JobIDRaw|JobName|State|Submit|Start|End|ElapsedRaw|ExitCode|AllocTRES|NodeList|DerivedExitCode|Suspended|TimelimitRaw.
+    """
     return (
         f"{sid}|{name or 'xcl-' + sid}|{state}|{submit}|{start}|{end}|{elapsed}|{exit_code}"
-        f"|cpu=1,node=1|tower|{derived}"
+        f"|{tres}|tower|{derived}|{suspended}|{timelimit}"
     )
 
 
@@ -202,10 +207,65 @@ class TestWhenAJobIsFinished:
         r = row(xid)
         assert r["observed"] == "completed" and r["terminal"] and r["started"]
         assert result.settled == [xid]
+        with pg_connection() as conn:
+            segment = conn.execute(
+                """
+                SELECT billable_sec, billing_rule, charged
+                  FROM slurm_billing_segments s
+                  JOIN slurm_job_mappings m ON m.mapping_id = s.mapping_id
+                 WHERE m.xcelsior_job_id = %s
+                """,
+                (xid,),
+            ).fetchone()
+        assert segment == (60, "ran_to_end", False)
         sacct = next(c for c in fake.calls if c[0] == "sacct")
         assert sacct[:5] == ["sacct", "-D", "-X", "-n", "--parsable2"]
         since = sacct[sacct.index("-S") + 1]
         assert since.startswith("now-") and since.endswith("minutes")  # always bounded
+
+    def test_a_settled_timeout_keeps_suspended_gpu_time_and_is_not_charged(self, cluster):
+        from psycopg.types.json import Jsonb
+
+        xid = cluster(311)
+        with pg_transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO slurm_clusters (
+                    cluster_id, profile_key, display_name, enabled, research_only,
+                    marketplace, agent_access, poll_interval_seconds, rate_card,
+                    suspend_holds_gres
+                )
+                VALUES (%s, 'generic', 'test', true, false, false, false, 60, %s, true)
+                """,
+                (cluster.cid, Jsonb({"gpu_hour_micros": 3_600_000})),
+            )
+        fake = FakeCluster(
+            squeue=[],
+            sacct=[
+                cluster.a(
+                    "311",
+                    "TIMEOUT",
+                    elapsed=78,
+                    suspended="00:00:10",
+                    timelimit="1",
+                    tres="cpu=4,gres/gpu=1,node=1",
+                )
+            ],
+        )
+        result = run_pass(cluster, fake)
+        assert result.settled == [xid]
+        with pg_connection() as conn:
+            segment = conn.execute(
+                """
+                SELECT billable_sec, billing_rule, gpu_seconds, shadow_cost_micros, charged
+                  FROM slurm_billing_segments s
+                  JOIN slurm_job_mappings m ON m.mapping_id = s.mapping_id
+                 WHERE m.xcelsior_job_id = %s
+                """,
+                (xid,),
+            ).fetchone()
+        # min(78, 60) plus the 10s the job held its GPU while suspended.
+        assert segment == (70, "timeout_capped_to_limit+suspended_gres_held", 70, 70_000, False)
 
     def test_a_requeued_job_stays_open(self, cluster):
         # Preempted, then requeued by Slurm under the same id: squeue shows it

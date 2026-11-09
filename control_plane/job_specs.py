@@ -27,7 +27,7 @@ EXECUTION_FIELDS = frozenset("""name vram_needed_gb num_gpus gpu_model region im
     egress exclusive_gpu job_type serverless_worker_id serverless_endpoint_id
     environment volume_mounts http_port health_check_path volumes require_nfs
     encrypted_volumes require_image_signature image_signature_key required_runtime
-    preferred_host_id placement_preference max_price_per_hour spot_rate_cad
+    preferred_host_id hpc_cluster_id placement_preference max_price_per_hour spot_rate_cad
     spot preemptible scheduler serverless_billing_quote service_tier_quote
     service_tier_price_id gpu_exclusive_price_id queue_bid_price_id queue_bid_units
     host_exclusive""".split())

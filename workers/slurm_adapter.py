@@ -14,6 +14,8 @@
 # Validation kit for a real two-node cluster: hpc/slurm-local/README.md.
 # Production plan: hpc/IMPLEMENTATION_PLAN.md.
 
+import datetime as _dt
+import hashlib
 import json
 import logging
 import os
@@ -751,10 +753,16 @@ def _require(pattern, value, field):
     return value
 
 
-def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
+def xcelsior_job_to_sbatch(
+    job, profile_name=None, extra_env=None, runner=None, submission_name=None
+):
     """Translate an Xcelsior job dict into an sbatch script string.
 
     Args:
+        submission_name: the job's name in Slurm (``xcl-<submission_name>``)
+            and in its output files; a scheduler attempt passes
+            ``<job id>-a<n>`` so each attempt is its own submission (D7).
+            Defaults to the job id, as every job already submitted is named.
         job: Xcelsior job dict. Keys: job_id, name, vram_needed_gb,
             priority, tier, image, and optionally:
               num_gpus   0 → CPU-only job on the profile's CPU partition
@@ -781,7 +789,9 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
 
     job_id = str(job.get("job_id", "unknown"))
     _require(_JOB_ID_RE, job_id, "job_id")
-    job_name = f"xcl-{job_id}"
+    name = str(submission_name or job_id)
+    _require(_JOB_ID_RE, name, "submission_name")
+    job_name = f"xcl-{name}"
 
     gpu_type = profile.get("gpu_type") or None
     if gpu_type is not None:
@@ -998,6 +1008,7 @@ def xcelsior_job_to_sbatch(job, profile_name=None, extra_env=None, runner=None):
 
     metadata = {
         "job_id": job_id,
+        "submission_name": name,
         "slurm_job_name": job_name,
         "profile": profile["_key"],
         "cluster_id": profile["cluster_id"],
@@ -1054,7 +1065,9 @@ def classify_slurm_error(stderr: str, default: str = "sbatch_rejected") -> str:
 # ── Slurm Submission ─────────────────────────────────────────────────
 
 
-def submit_to_slurm(job, profile_name=None, extra_env=None, dry_run=False, runner=None):
+def submit_to_slurm(
+    job, profile_name=None, extra_env=None, dry_run=False, runner=None, submission_name=None
+):
     """Submit an Xcelsior job to a Slurm cluster.
 
     Args:
@@ -1063,6 +1076,9 @@ def submit_to_slurm(job, profile_name=None, extra_env=None, dry_run=False, runne
         extra_env: Additional environment variables
         dry_run: If True, return script without submitting
         runner: transport override (default: from env / profile)
+        submission_name: the name this submission carries in Slurm (see
+            xcelsior_job_to_sbatch); the scheduler's submitter passes the
+            attempt's. Returned with the result, beside the script's sha256.
 
     Returns:
         dict with slurm_job_id and metadata, or error + error_code.
@@ -1076,12 +1092,15 @@ def submit_to_slurm(job, profile_name=None, extra_env=None, dry_run=False, runne
             raise SlurmAdapterError(
                 "cluster_retired", f"{profile['name']} is retired; choose another cluster"
             )
-        script, metadata = xcelsior_job_to_sbatch(job, profile_name, extra_env, runner=runner)
+        script, metadata = xcelsior_job_to_sbatch(
+            job, profile_name, extra_env, runner=runner, submission_name=submission_name
+        )
     except SlurmAdapterError as e:
         return _error(e.code, str(e))
 
     if dry_run:
         return {"script": script, "metadata": metadata, "dry_run": True}
+    script_sha256 = hashlib.sha256(script.encode()).hexdigest()
 
     if profile.get("account_required") and not os.environ.get(profile["account_env"], ""):
         return _error(
@@ -1126,7 +1145,9 @@ def submit_to_slurm(job, profile_name=None, extra_env=None, dry_run=False, runne
     return {
         "slurm_job_id": slurm_job_id,
         "xcelsior_job_id": job.get("job_id"),
+        "submission_name": metadata["submission_name"],
         "cluster_id": metadata["cluster_id"],
+        "script_sha256": script_sha256,
         "metadata": metadata,
     }
 
@@ -1372,9 +1393,15 @@ _WINDOW_FIELDS = (
     "AllocTRES",
     "NodeList",
     "DerivedExitCode",
+    # Billing (workers/slurm_billing.py): ElapsedRaw excludes suspended time,
+    # so Suspended is kept beside it (D8); TimelimitRaw caps a TIMEOUT run.
+    "Suspended",
+    "TimelimitRaw",
 )
 #: Ids per sacct call; the gate admits at most this many.
 MAX_IDS_PER_SACCT = 200
+_WINDOW_ARGV = ("sacct", "-D", "-X", "-n", "--parsable2", "--noconvert")
+_STAMP_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 
 def poll_cluster_jobs(*, profile_name=None, runner=None) -> dict:
@@ -1411,6 +1438,98 @@ def poll_cluster_jobs(*, profile_name=None, runner=None) -> dict:
     return {"jobs": jobs}
 
 
+def _run_sacct_window(argv, *, profile_name, runner, timeout=30):
+    """One ``sacct -D -X`` call; (profile, result) or an error dict."""
+    try:
+        profile, runner = _resolve(profile_name, runner)
+    except SlurmAdapterError as e:
+        return None, _error(e.code, str(e))
+    epoch_env = profile.get("accounting_time", "epoch_env") != "iso_local"
+    try:
+        r = runner.run(
+            argv, timeout=timeout, env={"SLURM_TIME_FORMAT": "%s"} if epoch_env else None
+        )
+    except SlurmAdapterError as e:
+        return None, _error(e.code, str(e))
+    except subprocess.TimeoutExpired:
+        return None, _error("timeout", "sacct timed out")
+    except FileNotFoundError:
+        return None, _error("slurm_unavailable", "Slurm not available")
+    failure = _transport_failure(r, runner)
+    if failure:
+        return None, failure
+    if r.returncode != 0:
+        msg = r.stderr.strip()
+        code = (
+            "accounting_disabled"
+            if "accounting storage is disabled" in msg.lower()
+            else "sacct_failed"
+        )
+        return None, _error(code, msg)
+    return profile, r
+
+
+def _sacct_records(argv, *, profile_name, runner, timeout=30, keep) -> dict:
+    """One window call as {"records": ...}, or the error dict the call returned."""
+    profile, ran = _run_sacct_window(
+        argv, profile_name=profile_name, runner=runner, timeout=timeout
+    )
+    if not isinstance(ran, subprocess.CompletedProcess) or profile is None:
+        if isinstance(ran, dict):
+            return ran
+        return _error("sacct_failed", "sacct returned no result")
+    return {"records": _window_records(ran.stdout, profile, keep)}
+
+
+def _window_records(stdout: str, profile: dict, keep) -> dict:
+    """Parse ``_WINDOW_FIELDS`` lines into {slurm_job_id: [run, ...]}, runs
+    in submit order (latest last); ``keep(row)`` selects the rows wanted."""
+    epoch_env = profile.get("accounting_time", "epoch_env") != "iso_local"
+    tz_name = str(profile.get("timezone") or "UTC")
+    records: dict = {}
+    for line in stdout.splitlines():
+        parts = line.split("|")
+        if len(parts) != len(_WINDOW_FIELDS):
+            continue
+        row = dict(zip(_WINDOW_FIELDS, parts))
+        if not _SLURM_JOB_ID_RE.match(row["JobIDRaw"]) or not keep(row):
+            continue
+        state = normalize_slurm_state(row["State"])
+        observed = SLURM_OBSERVED_STATE.get(state, "unknown")
+        elapsed = int(row["ElapsedRaw"]) if row["ElapsedRaw"].isdigit() else 0
+        finished = observed in FINISHED_OBSERVED_STATES
+        if epoch_env:
+            submitted = _epoch_or_none(row["Submit"])
+            started = _epoch_or_none(row["Start"])
+            ended = _epoch_or_none(row["End"]) if finished else None
+        else:
+            submitted, started, ended = _local_times(row, tz_name, elapsed, finished)
+        limit = row["TimelimitRaw"].strip()
+        records.setdefault(row["JobIDRaw"], []).append(
+            {
+                "name": row["JobName"],
+                "state": state,
+                "raw_state": row["State"],
+                "observed_state": observed,
+                "submitted_at": submitted,
+                "started_at": started,
+                "ended_at": ended,
+                "elapsed_sec": elapsed,
+                # Seconds the run spent suspended; not in ElapsedRaw (D8).
+                "suspended_sec": duration_seconds(row["Suspended"]) or 0,
+                # TimelimitRaw is minutes; UNLIMITED and Partition_Limit → None.
+                "time_limit_sec": int(limit) * 60 if limit.isdigit() else None,
+                "exit_code": row["ExitCode"],
+                "derived_exit_code": row["DerivedExitCode"],
+                "alloc_tres": row["AllocTRES"],
+                "node_list": row["NodeList"],
+            }
+        )
+    for runs in records.values():
+        runs.sort(key=lambda rec: rec["submitted_at"] or 0.0)
+    return records
+
+
 def accounting_window(job_ids, *, since_minutes: int, profile_name=None, runner=None) -> dict:
     """Accounting for these jobs, every run of each, in one sacct call.
 
@@ -1432,18 +1551,8 @@ def accounting_window(job_ids, *, since_minutes: int, profile_name=None, runner=
     if bad:
         return _error("invalid_job_id", f"invalid Slurm job ids: {bad!r}")
     since = max(1, int(since_minutes))
-    try:
-        profile, runner = _resolve(profile_name, runner)
-    except SlurmAdapterError as e:
-        return _error(e.code, str(e))
-    epoch_env = profile.get("accounting_time", "epoch_env") != "iso_local"
     argv = [
-        "sacct",
-        "-D",
-        "-X",
-        "-n",
-        "--parsable2",
-        "--noconvert",
+        *_WINDOW_ARGV,
         "-S",
         f"now-{since}minutes",
         "-j",
@@ -1451,61 +1560,74 @@ def accounting_window(job_ids, *, since_minutes: int, profile_name=None, runner=
         "-o",
         ",".join(_WINDOW_FIELDS),
     ]
+    wanted = set(ids)
+    return _sacct_records(
+        argv,
+        profile_name=profile_name,
+        runner=runner,
+        keep=lambda row: row["JobIDRaw"] in wanted,
+    )
+
+
+def accounting_by_name(names, *, since_minutes: int, profile_name=None, runner=None) -> dict:
+    """Accounting for the jobs carrying these submission names, in one call.
+
+    Resolves a submission whose ``sbatch`` outcome is unknown (a timeout, a
+    dropped connection, a crash before the mapping was written): the job's
+    name, ``xcl-<submission_name>``, is the one tag Slurm always stores and
+    filters on (``--comment`` reaches accounting only with
+    ``AccountingStoreFlags=job_comment``). Same result shape as
+    ``accounting_window``; a name with no record is absent.
+    """
+    wanted = [str(n) for n in names]
+    if not wanted:
+        return {"records": {}}
+    if len(wanted) > MAX_IDS_PER_SACCT:
+        return _error("invalid_request", f"at most {MAX_IDS_PER_SACCT} names per sacct call")
+    bad = [n for n in wanted if not _JOB_ID_RE.match(n)]
+    if bad:
+        return _error("invalid_job_id", f"invalid submission names: {bad!r}")
+    since = max(1, int(since_minutes))
+    job_names = {f"xcl-{n}" for n in wanted}
+    argv = [
+        *_WINDOW_ARGV,
+        "-S",
+        f"now-{since}minutes",
+        "--name",
+        ",".join(sorted(job_names)),
+        "-o",
+        ",".join(_WINDOW_FIELDS),
+    ]
+    return _sacct_records(
+        argv,
+        profile_name=profile_name,
+        runner=runner,
+        keep=lambda row: row["JobName"] in job_names,
+    )
+
+
+def accounting_between(start_epoch, end_epoch, *, profile_name=None, runner=None) -> dict:
+    """Every run of every job of this account that overlaps [start, end).
+
+    The daily drift report's one call (workers/slurm_billing.py): the window
+    is given to sacct in the cluster's local time; the caller decides
+    membership by each run's End. Same result shape as ``accounting_window``.
+    """
     try:
-        r = runner.run(argv, timeout=30, env={"SLURM_TIME_FORMAT": "%s"} if epoch_env else None)
+        profile = _get_profile(profile_name)
     except SlurmAdapterError as e:
         return _error(e.code, str(e))
-    except subprocess.TimeoutExpired:
-        return _error("timeout", "sacct timed out")
-    except FileNotFoundError:
-        return _error("slurm_unavailable", "Slurm not available")
-    failure = _transport_failure(r, runner)
-    if failure:
-        return failure
-    if r.returncode != 0:
-        msg = r.stderr.strip()
-        code = (
-            "accounting_disabled"
-            if "accounting storage is disabled" in msg.lower()
-            else "sacct_failed"
-        )
-        return _error(code, msg)
-    tz_name = str(profile.get("timezone") or "UTC")
-    records: dict = {}
-    for line in r.stdout.splitlines():
-        parts = line.split("|")
-        if len(parts) != len(_WINDOW_FIELDS) or parts[0] not in ids:
-            continue
-        row = dict(zip(_WINDOW_FIELDS, parts))
-        state = normalize_slurm_state(row["State"])
-        observed = SLURM_OBSERVED_STATE.get(state, "unknown")
-        elapsed = int(row["ElapsedRaw"]) if row["ElapsedRaw"].isdigit() else 0
-        finished = observed in FINISHED_OBSERVED_STATES
-        if epoch_env:
-            submitted = _epoch_or_none(row["Submit"])
-            started = _epoch_or_none(row["Start"])
-            ended = _epoch_or_none(row["End"]) if finished else None
-        else:
-            submitted, started, ended = _local_times(row, tz_name, elapsed, finished)
-        records.setdefault(row["JobIDRaw"], []).append(
-            {
-                "name": row["JobName"],
-                "state": state,
-                "raw_state": row["State"],
-                "observed_state": observed,
-                "submitted_at": submitted,
-                "started_at": started,
-                "ended_at": ended,
-                "elapsed_sec": elapsed,
-                "exit_code": row["ExitCode"],
-                "derived_exit_code": row["DerivedExitCode"],
-                "alloc_tres": row["AllocTRES"],
-                "node_list": row["NodeList"],
-            }
-        )
-    for runs in records.values():
-        runs.sort(key=lambda rec: rec["submitted_at"] or 0.0)
-    return {"records": records}
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(str(profile.get("timezone") or "UTC"))
+    start = _dt.datetime.fromtimestamp(float(start_epoch), tz).strftime(_STAMP_FORMAT)
+    end = _dt.datetime.fromtimestamp(float(end_epoch), tz).strftime(_STAMP_FORMAT)
+    if end <= start:
+        return _error("invalid_request", "accounting window must end after it starts")
+    argv = [*_WINDOW_ARGV, "-S", start, "-E", end, "-o", ",".join(_WINDOW_FIELDS)]
+    return _sacct_records(
+        argv, profile_name=profile_name, runner=runner, timeout=60, keep=lambda row: True
+    )
 
 
 # ── Accounting (metering) ────────────────────────────────────────────

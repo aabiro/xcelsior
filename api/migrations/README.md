@@ -97,7 +97,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `157_slurm_mapping_per_submission.py`.**
+**Repository head: `158_slurm_submissions_and_billing_ledger.py`.**
+
+158 adds the Slurm submit log, the per-run billing ledger and its daily drift report (blueprint rows 2.2 to 2.4, decision D8). `slurm_submissions` is one row per submission intent, written before any `sbatch`, so a crash between `sbatch` and the mapping insert, or a timed-out `sbatch`, is resolved by the job's name rather than resubmitted. `slurm_billing_segments` keeps one row per `sacct -D -X` record of a settled job with the raw fields and the seconds each bills under the written rules; `shadow_cost_micros` is computed from the cluster's rate card and charged only once `charged` is set. `slurm_billing_drift` is the ledger against the cluster's own accounting, per cluster per day. `slurm_clusters` gains `rate_card` and `suspend_holds_gres`. Four idempotent units through `lock_safe`; downgrade drops the tables and columns. The runtime floor is unchanged.
 
 157 makes a `slurm_job_mappings` row one submission rather than one job (decision D7): `mapping_id` becomes the primary key, `submission_name` (unique) is the name the submission carries in Slurm and in its output files (existing rows keep their job id, so names already submitted still match), and `xcelsior_job_id` is no longer unique; a job has at most one open mapping (`uq_slurm_open_job`), as it has at most one active attempt. `slurm_job_outputs` is re-keyed to `(mapping_id, stream)`. Four idempotent units through `lock_safe`; the key swap checks the current primary key first. Downgrade refuses while any job has more than one mapping. The runtime floor is unchanged.
 

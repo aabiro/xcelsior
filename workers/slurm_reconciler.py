@@ -29,8 +29,9 @@ A pass over one cluster:
 A Slurm id is unique on one cluster only for a while: a controller that loses
 its state numbers from FirstJobId again, and ids wrap at MaxJobId. So a job
 under a mapping's id is that mapping's job only if its name agrees. The
-adapter names every job ``xcl-<xcelsior job id>``; a job carrying another
-Xcelsior job's name is someone else's, in squeue and in accounting alike. A
+adapter names every job ``xcl-<submission_name>`` (the job id, or
+``<job id>-a<n>`` for a scheduler attempt); a job carrying another
+submission's name is someone else's, in squeue and in accounting alike. A
 name without the prefix says nothing either way (the job wasn't submitted by
 the adapter), and the id is all there is to go on.
 
@@ -308,8 +309,7 @@ def _due_clusters() -> list[dict]:
 
     with pg_connection() as conn:
         cur = conn.cursor(row_factory=dict_row)
-        return cur.execute(
-            """
+        return cur.execute("""
             SELECT cluster_id, profile_key, poll_interval_seconds, consecutive_failures,
                    ssh_host, ssh_port, remote_user, known_hosts_line, credential_ref, facts
               FROM slurm_clusters
@@ -319,8 +319,7 @@ def _due_clusters() -> list[dict]:
                     OR last_poll_at + make_interval(secs => poll_interval_seconds)
                        <= clock_timestamp())
              ORDER BY cluster_id
-            """
-        ).fetchall()
+            """).fetchall()
 
 
 def _record_health(cluster_id: str, result: PassResult, interval: int, failures: int) -> None:
@@ -401,6 +400,7 @@ def _open_mappings(cluster_id: str) -> list[dict]:
         return cur.execute(
             """
             SELECT mapping_id, submission_name, xcelsior_job_id, slurm_job_id,
+                   cluster_id, xcelsior_attempt_id, tenant_id,
                    observed_state, desired_state,
                    slurm_state, state_reason, exit_code, derived_exit_code,
                    time_limit_seconds, version,
@@ -554,11 +554,15 @@ def _mark_controller_presence(in_controller: list[str], gone: list[str]) -> None
             )
 
 
-def _write(rows_and_obs: list, unchanged_ids: list) -> list:
+def _write(rows_and_obs: list, unchanged_ids: list, *, records=None, cluster=None) -> list:
     """Apply changed observations (version-guarded) and refresh the rest.
 
     Keyed by ``mapping_id``: one submission each (migration 157). Returns
     the mapping ids whose guarded write lost to a concurrent writer.
+
+    A settlement that wins the version guard also writes the shadow ledger
+    for that mapping's accounting runs. The rows are computed, not charged.
+    A failure there rolls the settlement back with them.
     """
     from db import pg_transaction
 
@@ -600,6 +604,18 @@ def _write(rows_and_obs: list, unchanged_ids: list) -> list:
             )
             if cur.rowcount == 0:
                 lost.append(row["mapping_id"])
+                continue
+            if not obs["settled"]:
+                continue
+            runs = [
+                run
+                for run in (records or {}).get(str(row["slurm_job_id"]), ())
+                if _owns(row, run.get("name"))
+            ]
+            if runs:
+                import slurm_billing
+
+                slurm_billing.write_segments(conn, row, runs, cluster)
         if unchanged_ids:
             conn.execute(
                 "UPDATE slurm_job_mappings SET last_observed_at = clock_timestamp() "
@@ -678,7 +694,7 @@ def reconcile_cluster(
             changes.append((row, obs))
         else:
             unchanged.append(row["mapping_id"])
-    lost = set(_write(changes, unchanged))
+    lost = set(_write(changes, unchanged, records=records, cluster=_cluster_row(cluster_id)))
 
     for row, obs in changes:
         if row["mapping_id"] in lost:
@@ -867,7 +883,9 @@ def reconcile_due_clusters() -> list[dict]:
     for cluster in _due_clusters():
         try:
             with _runner_for(cluster) as runner:
-                result = reconcile_cluster(cluster["cluster_id"], cluster["profile_key"], runner=runner)
+                result = reconcile_cluster(
+                    cluster["cluster_id"], cluster["profile_key"], runner=runner
+                )
                 if result.ok and _facts_due(cluster.get("facts")):
                     _refresh_facts(cluster, runner, result)
         except sa.SlurmAdapterError as e:  # a profile or registry row that doesn't resolve
