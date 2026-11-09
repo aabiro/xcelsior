@@ -91,7 +91,10 @@ describe("trust-surface profiles", () => {
     for (const scope of CONNECTOR_WITHHELD_SCOPES) expect(customer).not.toContain(scope);
     expect(customer).toContain("ssh:read");
     expect(toolsInProfile("customer")).toContain("top_up_wallet");
-    expect(scopesForProfile("operator")).toContain("billing:write");
+    // Topping up is `billing:topup`, which a connector may hold, so it is
+    // advertised; `billing:write`, which it may not, is not.
+    expect(customer).toContain("billing:topup");
+    expect(customer).not.toContain("billing:write");
   });
 
   it("advertises optional account identity without changing tool visibility", () => {

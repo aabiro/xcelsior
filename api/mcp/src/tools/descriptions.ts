@@ -633,7 +633,7 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Check list_funding_options first: this rail can be configured and still be down, and it " +
     "answers 503 when it is. It creates an invoice, it moves nothing until the invoice is paid. " +
     "Safe to retry with the same idempotency_key; a different amount under a key already used is " +
-    "refused rather than creating a second invoice. Needs billing:write.",
+    "refused rather than creating a second invoice. Needs billing:topup.",
 
   get_lightning_deposit:
     "Check a Lightning deposit: whether the invoice was paid and whether the wallet has been " +
@@ -649,7 +649,7 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "and the network confirms, which get_crypto_deposit reports. Safe to retry with the same " +
     "idempotency_key; retrying with a different amount under a key already used is refused " +
     "rather than quietly creating a second deposit. The rate is locked only until it expires, so " +
-    "state the amount and the deadline back to the user. Needs billing:write.",
+    "state the amount and the deadline back to the user. Needs billing:topup.",
 
   get_crypto_deposit:
     "Check a Bitcoin deposit: whether the coins arrived, how many confirmations, and whether the " +

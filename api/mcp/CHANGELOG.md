@@ -67,6 +67,23 @@ reflected here and version-bumped fails the build.
 
 ### Added
 
+- **An OAuth connector can top up the wallet.** `top_up_wallet`,
+  `configure_auto_topup`, `create_crypto_deposit` and
+  `create_lightning_deposit` now require `billing:topup` instead of
+  `billing:write`, and `billing:topup` is in `scopes_supported`. A connector
+  (Claude, ChatGPT, VS Code, Cursor) gets it as an optional permission on the
+  consent page, listed under "Payments" as *"Charge your saved card to top up
+  your wallet, create Bitcoin and Lightning deposits, and change auto
+  top-up"*. It was never in a connector's reach before: those tools needed
+  `billing:write`, which connectors may not hold.
+
+  Not breaking: `billing:write` contains `billing:topup`, so every credential
+  that could top up still can. It runs one way only — `billing:topup` reaches
+  nothing else that `billing:write` guards (the billing portal, adding or
+  detaching a card, PayPal orders, the SCA resume secret). Widening auto-top-up
+  still waits for a human. The Quick Connect key, issued without a consent
+  page, still cannot top up.
+
 - **A server icon.** `serverInfo.icons` now carries the transparent gradient X,
   so clients that render MCP icons (VS Code's tool picker) show the Xcelsior
   mark instead of a generic plug. Clients only accept an HTTP server's icon
