@@ -5452,6 +5452,16 @@ def run_job(job):
             and not has_managed_volumes
             and (not is_interactive or job_requires_nfs)
         ):
+            # The legacy shared-dataset mount has exactly one mount point. The
+            # managed root is reserved for `volume_ids` the control plane
+            # validated (mounted in 0c); a spec must never be able to name a
+            # managed volume's path here and bind it into its container.
+            if os.path.normpath(nfs_mount_point) != worker_privileged.NFS_SHARED_MOUNT:
+                err = "legacy NFS mount point is reserved; attach storage with volume_ids"
+                log.error("Job %s aborting — %s (%s)", job_id, err, nfs_mount_point)
+                report_status(job_id, "failed", error_message=err)
+
+                return
             _v2_resource_intent(authority, "nfs_mounts", nfs_mount_point)
             nfs_mounted = _mount_nfs(nfs_server, nfs_path, nfs_mount_point)
             if nfs_mounted:
