@@ -15,7 +15,7 @@ not proof the job is absent. Two later lookups, at least one poll interval
 apart, have to miss it before another ``sbatch``, and there are at most three
 ``sbatch`` calls. A request Slurm refuses is ``rejected`` and is never retried.
 
-Nothing here charges the customer. Settlement stays behind ``slurm_placement``.
+Nothing here charges a customer. No code path settles a meter.
 """
 
 from __future__ import annotations
@@ -237,7 +237,7 @@ def _cancel(row: dict, code: str, now: float) -> dict:
         attempt_status="cancelled",
         job_status="cancelled",
     )
-    log.info("slurm submit %s cancelled before a job existed (%s)", row["submission_name"], code)
+    log.info("slurm submit %s closed without a running job (%s)", row["submission_name"], code)
     return {"submission_name": row["submission_name"], "action": "cancelled", "error_code": code}
 
 
@@ -327,7 +327,10 @@ def _record_look(row: dict, new_checks: int, now: float, error_code: str | None)
                SET state = 'unknown', checks = %s, last_check_at = to_timestamp(%s),
                    error_code = COALESCE(%s, error_code)
              WHERE submission_name = %s
-               AND state IN ('submitting', 'unknown')
+               -- pending is included so two ids under a name that was never
+               -- submitted still count as looks. Leaving it out keeps that
+               -- row pending forever.
+               AND state IN ('pending', 'submitting', 'unknown')
                AND checks = %s
             """,
             (new_checks, now, error_code, row["submission_name"], int(row["checks"])),

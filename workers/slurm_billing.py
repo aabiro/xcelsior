@@ -17,7 +17,9 @@ The rules (plan P2.4, §5a and decision D8), applied per record:
   job that had started, bill ElapsedRaw.
 - **timeout_capped_to_limit**: a TIMEOUT run bills ``min(ElapsedRaw, time
   limit)``. Enforcement granularity plus ``KillWait`` ran a 60 s job for 78 s
-  on the lab cluster; that lag is the cluster's, not the tenant's.
+  on the lab cluster; that lag is the cluster's, not the tenant's. The cap
+  applies to ElapsedRaw only. Held suspension is added after it, so a timeout
+  can bill more than its walltime by the seconds it still held its GPUs.
 - **preempted_to_preemption**: a PREEMPTED run bills ElapsedRaw, which ends at
   the preemption.
 - **requeued_run**: a REQUEUED, NODE_FAIL, BOOT_FAIL or similar earlier run
@@ -28,10 +30,10 @@ The rules (plan P2.4, §5a and decision D8), applied per record:
   suspended seconds are added; where false they are free. The rule name
   carries which applied.
 
-``shadow_cost_micros`` is what the cluster's rate card would charge; it is
-charged only through attempt settlement, which sets ``charged``. Until the
-`slurm_placement` switch allows charging, the ledger is computed and compared,
-never billed (plan P2.9 shadow mode).
+``shadow_cost_micros`` is what the cluster's rate card would charge.
+``mark_charged`` is the later settlement step and nothing calls it: every
+row is stored with ``charged`` false. The ``slurm_placement`` switch does
+not turn charging on. Charging is Phase 2.4 and is not built.
 
 The drift report compares the ledger's raw GPU seconds for a day with what the
 cluster's own accounting says for the same day, per cluster, so a week of

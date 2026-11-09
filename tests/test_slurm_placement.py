@@ -89,7 +89,7 @@ def _host(fleet, host_id, gpu_model):
     return payload
 
 
-def _job(fleet, job_id, *, gpu_model, cluster_id, preferred_host_id=None):
+def _job(fleet, job_id, *, gpu_model, cluster_id, preferred_host_id=None, owner=None):
     payload = {
         "job_id": job_id,
         "name": job_id,
@@ -101,6 +101,8 @@ def _job(fleet, job_id, *, gpu_model, cluster_id, preferred_host_id=None):
         "submitted_at": time.time(),
         "hpc_cluster_id": cluster_id,
     }
+    if owner:
+        payload["owner_id"] = owner
     if preferred_host_id:
         payload["preferred_host_id"] = preferred_host_id
     status = "queued"
@@ -278,6 +280,131 @@ def test_a_host_pin_beside_a_cluster_is_refused(fleet):
     assert (job_id, "slurm_and_host_pin") in report.released
     assert _job_row(job_id)["host_id"] is None
     assert _job_row(job_id)["active_attempt_id"] is None
+
+
+def _publish_cap(key, **limits):
+    from control_plane.scheduler.fairness import TeamPolicy, publish_policy
+
+    with _pool.connection() as conn:
+        publish_policy(conn, TeamPolicy(key=key, **limits), created_by="slurm-quota-test")
+        conn.commit()
+
+
+def _drop_cap(key):
+    with _pool.connection() as conn:
+        conn.execute("DELETE FROM scheduling_team_policies WHERE team_key = %s", (key,))
+        conn.execute("DELETE FROM scheduling_team_state WHERE team_key = %s", (key,))
+        conn.commit()
+
+
+@pytest.mark.parametrize("limit", [dict(max_allocated_gpus=1), dict(max_concurrent_jobs=1)])
+def test_an_open_slurm_submission_counts_against_the_team_cap(fleet, limit):
+    marker = uuid.uuid4().hex[:8]
+    model = f"SLURM-{marker}"
+    owner = f"slurm-cap-{marker}"
+    key = f"owner:{owner}"
+    cluster_id = f"c{marker}"
+    first = f"job{marker}a"
+    second = f"job{marker}b"
+    _host(fleet, f"host{marker}", model)
+    _cluster(fleet, cluster_id)
+    _publish_cap(key, **limit)
+    try:
+        _job(fleet, first, gpu_model=model, cluster_id=cluster_id, owner=owner)
+        _job(fleet, second, gpu_model=model, cluster_id=cluster_id, owner=owner)
+        report = _tick(model, slurm_placement=True)
+    finally:
+        _drop_cap(key)
+
+    placed = [item.job_id for item in report.slurm_placements]
+    refused = [job_id for job_id, code in report.released if code == "team_quota_exceeded"]
+    assert placed == [first]
+    assert refused == [second]
+    assert report.placements == []
+    with _pool.connection() as conn:
+        submissions = conn.execute(
+            "SELECT xcelsior_job_id FROM slurm_submissions WHERE cluster_id = %s",
+            (cluster_id,),
+        ).fetchall()
+        allocations = conn.execute(
+            "SELECT count(*) FROM gpu_device_allocations WHERE job_id = ANY(%s)",
+            ([first, second],),
+        ).fetchone()
+    assert submissions == [(first,)]
+    assert allocations == (0,)
+    assert _job_row(second)["host_id"] is None
+    assert _job_row(second)["active_attempt_id"] is None
+
+
+def test_a_settled_slurm_mapping_releases_the_team_gpu_cap(fleet):
+    marker = uuid.uuid4().hex[:8]
+    model = f"SLURM-{marker}"
+    owner = f"slurm-rel-{marker}"
+    key = f"owner:{owner}"
+    cluster_id = f"c{marker}"
+    first = f"job{marker}a"
+    second = f"job{marker}b"
+    _host(fleet, f"host{marker}", model)
+    _cluster(fleet, cluster_id)
+    _publish_cap(key, max_allocated_gpus=1)
+    try:
+        _job(fleet, first, gpu_model=model, cluster_id=cluster_id, owner=owner)
+        held = _tick(model, slurm_placement=True)
+        assert [item.job_id for item in held.slurm_placements] == [first]
+        with _pool.connection() as conn:
+            submission = conn.execute(
+                """
+                SELECT submission_name, attempt_id::text
+                  FROM slurm_submissions WHERE xcelsior_job_id = %s
+                """,
+                (first,),
+            ).fetchone()
+            name, attempt_id = submission
+            import slurm_adapter as sa
+
+            sa.register_slurm_job(
+                first,
+                "4242",
+                cluster_id=cluster_id,
+                attempt_id=attempt_id,
+                submission_name=name,
+            )
+            conn.execute(
+                """
+                UPDATE slurm_submissions
+                   SET state = 'submitted', slurm_job_id = '4242'
+                 WHERE submission_name = %s
+                """,
+                (name,),
+            )
+            conn.commit()
+        _job(fleet, second, gpu_model=model, cluster_id=cluster_id, owner=owner)
+        blocked = _tick(model, slurm_placement=True)
+        assert [job_id for job_id, code in blocked.released if code == "team_quota_exceeded"] == [
+            second
+        ]
+        with _pool.connection() as conn:
+            conn.execute(
+                """
+                UPDATE slurm_job_mappings
+                   SET terminal_at = clock_timestamp(), observed_state = 'completed'
+                 WHERE submission_name = %s
+                """,
+                (name,),
+            )
+            conn.execute(
+                """
+                UPDATE jobs
+                   SET next_schedule_at = NULL
+                 WHERE job_id = %s
+                """,
+                (second,),
+            )
+            conn.commit()
+        released = _tick(model, slurm_placement=True)
+        assert [item.job_id for item in released.slurm_placements] == [second]
+    finally:
+        _drop_cap(key)
 
 
 def test_a_research_only_cluster_does_not_take_the_job(fleet):
