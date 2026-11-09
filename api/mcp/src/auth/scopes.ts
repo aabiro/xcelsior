@@ -10,6 +10,7 @@ export type McpScope =
   | "artifacts:read"
   | "billing:read"
   | "billing:write"
+  | "billing:topup"
   | "gpu:read"
   | "marketplace:read"
   | "hosts:read"
@@ -180,13 +181,15 @@ const TOOL_SCOPE_REGISTRY = {
   list_funding_options: { allOf: ["billing:read"] },
   // The rail itself, once `list_funding_options` says it is available. Creating
   // a deposit request is the safe direction — it produces an address for the
-  // user to send funds *to*, and spends nothing — but it is `billing:write`
+  // user to send funds *to*, and spends nothing — but it needs `billing:topup`
   // because it commits a rate-locked quote and Quick Connect must not reach it.
-  create_crypto_deposit: { allOf: ["billing:write"] },
+  // `billing:topup` rather than `billing:write`: it only funds the caller's own
+  // wallet, which is all an OAuth connector may be granted of billing.
+  create_crypto_deposit: { allOf: ["billing:topup"] },
   get_crypto_deposit: { allOf: ["billing:read"] },
   // The same rail over Lightning: an invoice instead of an address, settled in
   // seconds instead of confirmations. Identical guards on the route.
-  create_lightning_deposit: { allOf: ["billing:write"] },
+  create_lightning_deposit: { allOf: ["billing:topup"] },
   get_lightning_deposit: { allOf: ["billing:read"] },
   // Reads the wallet *and* the running instances burning it down, so it needs
   // both. `instances:read` is not incidental here: the runway is meaningless
@@ -196,12 +199,12 @@ const TOOL_SCOPE_REGISTRY = {
   estimate_job_cost: { allOf: ["billing:read"] },
   list_invoices: { allOf: ["billing:read"] },
   list_payment_methods: { allOf: ["billing:read"] },
-  top_up_wallet: { allOf: ["billing:write"] },
+  top_up_wallet: { allOf: ["billing:topup"] },
   // Reading which charges stopped for a bank challenge. `billing:read`, not
   // write: it moves nothing and returns no `client_secret`. The resume route
   // that does return one is deliberately not on the tool surface.
   list_pending_verifications: { allOf: ["billing:read"] },
-  configure_auto_topup: { allOf: ["billing:write"] },
+  configure_auto_topup: { allOf: ["billing:topup"] },
   get_auto_topup: { allOf: ["billing:read"] },
   // The snapshot half of P7, and the reason the sweep was unusable without it:
   // `create_image_sweep` needs an `image_id` and nothing could produce or find
@@ -331,16 +334,34 @@ export type ToolName = keyof typeof TOOL_SCOPE_REGISTRY;
 export const TOOL_SCOPES: Record<string, ScopeRequirement> = TOOL_SCOPE_REGISTRY;
 
 /**
+ * Scopes a broader scope already contains — the same table as `IMPLIED_SCOPES`
+ * in api/routes/_deps.py, which is where the reasoning lives.
+ * `tests/test_connector_wallet_topup_scope.py` fails if the two differ.
+ *
+ * One entry: `billing:topup` is the part of `billing:write` that only puts
+ * money into the caller's own wallet, so an OAuth connector can hold it without
+ * the rest of `billing:write`, and credentials that already hold
+ * `billing:write` keep topping up. It runs one way only.
+ */
+export const IMPLIED_SCOPES: Readonly<Partial<Record<McpScope, readonly McpScope[]>>> = {
+  "billing:write": ["billing:topup"],
+};
+
+/**
  * Whether a granted scope set satisfies one required scope.
  *
- * A scope is satisfied only by holding it. There is no wildcard and no broad
- * grant: `api` used to short-circuit every check here, which made scope
- * reduction decorative — a token issued for read-only automation could launch
- * instances. It is removed from the enum entirely rather than narrowed, so
- * there is no value a caller can hold that means "everything".
+ * A scope is satisfied by holding it, or by holding a scope that contains it
+ * (`IMPLIED_SCOPES`). There is no wildcard and no broad grant: `api` used to
+ * short-circuit every check here, which made scope reduction decorative — a
+ * token issued for read-only automation could launch instances. It is removed
+ * from the enum entirely rather than narrowed, so there is no value a caller
+ * can hold that means "everything".
  */
 function grants(granted: ReadonlySet<string>, scope: McpScope): boolean {
-  return granted.has(scope);
+  if (granted.has(scope)) return true;
+  return Object.entries(IMPLIED_SCOPES).some(
+    ([broader, contained]) => granted.has(broader) && contained!.includes(scope),
+  );
 }
 
 /**

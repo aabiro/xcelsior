@@ -38,11 +38,15 @@ os.environ.setdefault("XCELSIOR_ENV", "test")
 import routes.billing as billing_routes  # noqa: E402
 
 
-def test_the_topup_route_requires_billing_write():
-    """Link 2. Without this the Quick Connect token could charge cards."""
+def test_the_topup_route_requires_the_topup_scope():
+    """Link 2. Without this the Quick Connect token could charge cards.
+
+    `billing:topup`, which `billing:write` contains: an OAuth connector can be
+    granted it on its consent page, and Quick Connect carries neither.
+    """
     source = inspect.getsource(billing_routes.api_billing_manual_topup)
-    assert '_require_scope(user, "billing:write")' in source, (
-        "the top-up route no longer requires billing:write — the default "
+    assert '_require_scope(user, "billing:topup")' in source, (
+        "the top-up route no longer requires billing:topup — the default "
         "connector token could charge a saved card"
     )
 

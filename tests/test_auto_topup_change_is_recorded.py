@@ -136,5 +136,5 @@ def test_the_response_lets_the_caller_report_what_changed():
 def test_configuring_auto_topup_still_requires_billing_write():
     """Unchanged by any of the above, and the reason none of it is a gate."""
     source = _route_source()
-    assert '_require_scope(user, "billing:write")' in source
+    assert '_require_scope(user, "billing:topup")' in source
     assert 'raise HTTPException(401, "Not authenticated")' in source

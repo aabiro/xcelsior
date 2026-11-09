@@ -23,11 +23,13 @@ export const OPERATOR_SCOPE_PREFIXES = ["hosts:", "control_plane:"] as const;
 
 /**
  * Tenant scopes the authorization server never grants to an OAuth connector
- * (`CONNECTOR_ALLOWED_SCOPES` in auth/oauth_registration.py): they move money,
- * a payout destination, or reputation badges. Their tools stay registered for
- * credentials that carry them, but the customer profile does not advertise
- * them, because a connector requests every advertised scope and these would be
- * dropped from its grant every time.
+ * (`CONNECTOR_ALLOWED_SCOPES` in auth/oauth_registration.py): they move a
+ * payout destination or reputation badges, or — `billing:write` — open the
+ * billing portal and add or remove cards. Topping up the user's own wallet is
+ * `billing:topup`, which connectors may hold. Tools needing these stay
+ * registered for credentials that carry them, but the customer profile does
+ * not advertise them, because a connector requests every advertised scope and
+ * these would be dropped from its grant every time.
  * `tests/test_advertised_scopes_match_the_connector_ceiling.py` holds the two
  * lists together.
  */

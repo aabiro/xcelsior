@@ -132,8 +132,8 @@ def test_a_manual_topup_requires_billing_write():
     fn = getattr(billing_routes, "api_billing_manual_topup", None)
     assert fn is not None, "POST /api/v2/billing/top-up does not exist"
     source = inspect.getsource(fn)
-    assert '_require_scope(user, "billing:write")' in source, (
-        "the manual top-up route does not require billing:write, so a token "
+    assert '_require_scope(user, "billing:topup")' in source, (
+        "the manual top-up route does not require billing:topup, so a token "
         "narrowed to instances:read could charge the user's card"
     )
     assert (

@@ -617,6 +617,9 @@ def oauth_authorization_server_metadata(request: Request):
             # list instead of the resource metadata (VS Code) would otherwise
             # never ask for it.
             "ssh:read",
+            # In the connector ceiling for the same reason: the top-up tools
+            # need it, and VS Code only learns about it here.
+            "billing:topup",
         ],
         "service_documentation": f"{_OAUTH_BASE_URL.rstrip('/')}/docs",
         "jwks_uri": f"{base_url}/.well-known/jwks.json",
@@ -858,6 +861,11 @@ def _oauth_consent_page(
     for scope in dict.fromkeys(scopes):
         if scope in {"instances:connect", "ssh:write"}:
             group = "Terminal and SSH access"
+        elif scope in {"billing:topup", "billing:write"}:
+            # Its own group, so a permission that spends money is never filed
+            # under "Account and connection" (where `billing:topup` would land
+            # by suffix) or among resource writes.
+            group = "Payments"
         elif scope.endswith(":read"):
             group = "Read access"
         elif scope.endswith((":write", ":operate", ":approve")) or scope in {"api", "admin"}:
@@ -872,6 +880,7 @@ def _oauth_consent_page(
             "Account and connection",
             "Read access",
             "Manage resources",
+            "Payments",
             "Terminal and SSH access",
         ):
             if (required, group) not in grouped:
