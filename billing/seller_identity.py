@@ -11,7 +11,7 @@ import re
 import math
 
 _GST_HST = re.compile(r"^\d{9}RT\d{4}$")
-_TAX_KINDS = frozenset({"sin", "bn", "other"})
+_TAX_KINDS = frozenset({"sin", "bn", "gst", "other"})
 
 # Columns a provider response must never carry, even to the account owner.
 SECRET_COLUMNS = ("tax_id_ciphertext",)
@@ -67,6 +67,8 @@ def _normalize_tax_id(kind: str, raw: str) -> str:
         if len(digits) != 9:
             raise ValueError("Enter the 9-digit business number")
         return digits
+    if kind == "gst":
+        return normalize_gst_hst(raw)
     compact = re.sub(r"[^A-Za-z0-9]", "", raw or "").upper()
     if not 4 <= len(compact) <= 32:
         raise ValueError("Enter the tax identifier, 4 to 32 letters or digits")
@@ -100,7 +102,7 @@ def _normalize_address(profile: dict) -> dict[str, str]:
         postal = re.sub(r"\s+", "", postal)
     kind = str(profile.get("tax_id_kind") or "").strip().lower()
     if kind not in _TAX_KINDS:
-        raise ValueError("Tax identifier must be a SIN, a business number, or another tax id")
+        raise ValueError("Tax identifier must be a SIN, a business number, a GST/HST number, or another tax id")
     return {
         "legal_name": legal_name,
         "address_line1": line1,
@@ -125,9 +127,11 @@ def normalize_seller_profile(profile: dict, *, require_tax_id: bool) -> dict[str
     if raw_tax_id:
         cleaned["tax_id"] = _normalize_tax_id(cleaned["tax_id_kind"], raw_tax_id)
     elif require_tax_id:
-        raise ValueError("Enter a SIN or business number")
+        raise ValueError("Enter a SIN, business number, or GST/HST number")
     else:
         cleaned["tax_id"] = ""
+    if cleaned["tax_id_kind"] == "gst" and cleaned["tax_id"]:
+        cleaned["gst_hst_number"] = cleaned["tax_id"]
     return cleaned
 
 
@@ -143,7 +147,7 @@ def seller_profile_complete(row: dict | None) -> bool:
         return False
     if not math.isfinite(accepted_at) or accepted_at <= 0:
         return False
-    pattern = r"[0-9]{4}" if row.get("tax_id_kind") in {"sin", "bn"} else r"[A-Z0-9]{4}"
+    pattern = r"[0-9]{4}" if row.get("tax_id_kind") in {"sin", "bn", "gst"} else r"[A-Z0-9]{4}"
     return re.fullmatch(pattern, str(row.get("tax_id_last4") or "").strip()) is not None
 
 

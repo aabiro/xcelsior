@@ -62,7 +62,7 @@ class ProviderRegisterRequest(BaseModel):
     address_line2: str = ""
     city: str = ""
     postal_code: str = ""
-    tax_id_kind: str = ""  # sin, bn, or other
+    tax_id_kind: str = ""  # sin, bn, gst, or other
     tax_id: str = ""  # Stored encrypted. Never returned.
     accepted_seller_terms: bool = False
 

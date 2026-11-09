@@ -877,6 +877,13 @@ def _refresh_outputs(cluster_id: str, profile_key: str, runner, result: PassResu
         result.outputs_fetched.append((xid, stream))
 
 
+def report_shadow_drift() -> list[dict]:
+    """Record yesterday's ledger against accounting. This does not charge."""
+    from slurm_billing import report_due_clusters
+
+    return report_due_clusters()
+
+
 def reconcile_due_clusters() -> list[dict]:
     """The scheduled task: one pass over every registered cluster that is due."""
     results = []

@@ -62,6 +62,23 @@ def test_every_overlaid_service_is_pinned_to_staging():
     assert not unpinned, f"these staging services do not set XCELSIOR_ENV=staging: {unpinned}"
 
 
+def test_staging_background_process_only_polls_slurm():
+    """The full worker bills and sends mail. Staging must not start it."""
+    command = _services(OVERLAY)["bg-worker"].get("command")
+    text = command if isinstance(command, str) else "\n".join(command)
+    assert "workers/bg_worker.py" not in text
+    assert "reconcile_due_clusters" in text
+    assert "report_shadow_drift" in text
+    assert "billing" not in text.lower()
+    assert "billing_cycle" not in text
+    assert "mark_charged" not in text
+    env = _services(OVERLAY)["bg-worker"].get("environment") or {}
+    assert env.get("XCELSIOR_SLURM_PROFILES_FILE") == (
+        "/app/hpc/slurm-local/conf/xcelsior-profiles.json"
+    )
+    assert "settle_finished_attempt" not in text
+
+
 def test_the_services_that_decide_enforcement_are_covered():
     """The API and the workers are where environment is read.
 

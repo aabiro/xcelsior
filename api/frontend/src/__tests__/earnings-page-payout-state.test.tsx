@@ -149,6 +149,73 @@ describe("required account location", () => {
 });
 
 
+it("puts address search ahead of country and lets a personal account skip business details", async () => {
+  authState.user = { name: "Original Name", country: "", province: "", account_type: "", onboarding_intent: "" };
+  const { container } = render(<AccountProfileForm step="address" />);
+  const search = await screen.findByRole("combobox", { name: "Search address" });
+  const country = screen.getByLabelText("Country");
+  expect(search.compareDocumentPosition(country) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(search).toBeEnabled();
+  expect(container).toHaveTextContent("Search for your address, or enter it below.");
+  expect(container).not.toHaveTextContent("Select your country first");
+});
+
+
+it("searches for an address before a country is chosen", async () => {
+  vi.useFakeTimers();
+  try {
+    apiMocks.apiFetch.mockImplementation((path: string) => {
+      if (String(path).includes("search")) return Promise.resolve({ suggestions: [] });
+      return Promise.resolve({ countries: [], subdivisions: [], requires_subdivision: false, required_address_fields: [] });
+    });
+    render(<AddressLookup country="" onSelect={vi.fn()} />);
+    const input = screen.getByRole("combobox", { name: "Search address" });
+    expect(input).toBeEnabled();
+    fireEvent.change(input, { target: { value: "123 Main" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(310); });
+    const searchCall = apiMocks.apiFetch.mock.calls.find((call) => String(call[0]).includes("search"));
+    expect(searchCall).toBeTruthy();
+    expect(JSON.parse(searchCall![1].body).country).toBe("");
+  } finally { vi.useRealTimers(); }
+});
+
+
+it("account setup saves the account type without a renter or provider choice", async () => {
+  authState.user = { name: "Original Name", account_type: "individual", onboarding_intent: "provide" };
+  apiMocks.updateProfile.mockResolvedValue({ ok: true });
+  render(<AccountProfileForm step="account" />);
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  await waitFor(() => expect(apiMocks.updateProfile).toHaveBeenCalled());
+  expect(apiMocks.updateProfile.mock.calls[0][0]).not.toHaveProperty("onboarding_intent");
+  expect(apiMocks.updateProfile.mock.calls[0][0]).toMatchObject({ account_type: "individual", business_name: "", gst_hst_number: "" });
+});
+
+
+it("says a renter or provider choice can change in settings and asks for business details only for a business account", async () => {
+  authState.user = { name: "Original Name", account_type: "", onboarding_intent: "" };
+  render(<AccountProfileForm step="account" />);
+  expect(screen.queryByText("How will you use Xcelsior?")).not.toBeInTheDocument();
+  expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Legal business name")).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Account type"), { target: { value: "individual" } });
+  expect(screen.getByText("A personal account does not need a business name, even if you provide GPUs.")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Legal business name")).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Account type"), { target: { value: "business" } });
+  expect(screen.getByLabelText("Legal business name")).toBeInTheDocument();
+  expect(screen.getByLabelText("GST/HST registration number (optional)")).toBeInTheDocument();
+  expect(screen.queryByText("A personal account does not need a business name, even if you provide GPUs.")).not.toBeInTheDocument();
+});
+
+
+it("tells someone already in settings that they can switch here", async () => {
+  authState.user = { name: "Original Name", account_type: "individual", onboarding_intent: "provide", country: "CA", province: "ON" };
+  render(<AccountProfileForm settings />);
+  expect(screen.getByText("You can switch between renting and providing here anytime. Payout setup stays on Earnings.")).toBeInTheDocument();
+  expect(screen.getByText("A personal account does not need a business name, even if you provide GPUs.")).toBeInTheDocument();
+  expect(await screen.findByRole("option", { name: "Canada" })).toBeInTheDocument();
+});
+
+
 it("saving profile details preserves a separately edited name and clears hidden business data", async () => {
   authState.user = { name:"Original Name", country:"CA", province:"ON", address_line1:"1 Test Street", address_line2:"", city:"London", postal_code:"N6A 1A1", account_type:"individual", onboarding_intent:"rent", business_name:"Old Company", gst_hst_number:"123456789RT0001" };
   apiMocks.updateProfile.mockResolvedValue({ok:true});

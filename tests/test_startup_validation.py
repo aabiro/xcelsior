@@ -286,6 +286,11 @@ def test_rejects_local_artifact_backend_in_production(clean_env, bad_backend):
         clean_env.setenv("XCELSIOR_ARTIFACT_BACKEND", ok_backend)
         assert "artifact_backend_local" not in _codes(sv.collect_findings())
 
+    # Staging is one host and keeps the local directory the compose file sets.
+    clean_env.setenv("XCELSIOR_ENV", "staging")
+    clean_env.setenv("XCELSIOR_ARTIFACT_BACKEND", "local")
+    assert "artifact_backend_local" not in _codes(sv.collect_findings())
+
 
 def test_rejects_missing_or_invalid_artifact_backend_in_production(clean_env):
     clean_env.setenv("XCELSIOR_ENV", "production")
@@ -414,6 +419,15 @@ def test_rejects_insecure_lightning_tls_and_missing_ca_cert(clean_env, tmp_path)
     clean_env.setenv("XCELSIOR_LN_ENABLED", "false")
     clean_env.delenv("XCELSIOR_LN_CA_CERT", raising=False)
     assert "lightning_ca_cert_missing" not in _codes(sv.collect_findings())
+
+    # Staging does not have a Lightning CA file. Plaintext HTTP is still refused.
+    clean_env.setenv("XCELSIOR_ENV", "staging")
+    clean_env.setenv("XCELSIOR_LN_ENABLED", "true")
+    clean_env.setenv("XCELSIOR_LN_CLNREST_URL", "https://127.0.0.1:3010")
+    clean_env.delenv("XCELSIOR_LN_CA_CERT", raising=False)
+    assert "lightning_ca_cert_missing" not in _codes(sv.collect_findings())
+    clean_env.setenv("XCELSIOR_LN_CLNREST_URL", "http://127.0.0.1:3010")
+    assert "lightning_tls_insecure" in _codes(sv.collect_findings())
 
 
 def test_rejects_secrets_in_plain_env_file_when_secret_manager_is_active(clean_env, tmp_path):

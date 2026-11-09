@@ -146,7 +146,7 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
   useEffect(() => {
     const version = ++requestVersion.current;
     setSuggestions([]); setActiveIndex(-1); setError(""); setLoading(false);
-    if (!country || query.trim().length < 3 || dismissed) return;
+    if (query.trim().length < 3 || dismissed) return;
     const timer = setTimeout(async () => {
       setLoadingLabel("Searching…"); setLoading(true);
       try {
@@ -180,7 +180,7 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
     <Label htmlFor={`${id}-search`}>Search address</Label>
     <Input id={`${id}-search`} role="combobox" aria-autocomplete="list" aria-expanded={open}
       aria-controls={`${id}-results`} aria-activedescendant={activeIndex >= 0 ? `${id}-result-${activeIndex}` : undefined}
-      autoComplete="off" disabled={!country} value={query} placeholder="Start typing your address"
+      autoComplete="off" value={query} placeholder="Start typing your address"
       onChange={(event) => { requestVersion.current++; setQuery(event.target.value); setContainer(""); setDismissed(false); }}
       onBlur={() => { if (!retrieving.current) { requestVersion.current++; setDismissed(true); setLoading(false); } }}
       onFocus={() => { if (!retrieving.current) setDismissed(false); }}
@@ -202,7 +202,7 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
     </ul>}
     {loading && <p role="status" className="text-xs text-text-secondary">{loadingLabel}</p>}
     {error && <p role="status" className="text-xs text-text-secondary">{error}</p>}
-    <p className="text-xs text-text-muted">{country ? "Choose an address to fill the fields below, or enter it manually." : "Select your country first, or enter the address fields manually."}</p>
+    <p className="text-xs text-text-muted">Search for your address, or enter it below.</p>
     {query && <Button type="button" variant="outline" size="sm" onClick={() => {
       requestVersion.current++; setDismissed(true); setSuggestions([]); setLoading(false); setError("");
     }}>Enter manually</Button>}
@@ -239,7 +239,8 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
       try {
         await updateProfile({
           ...(accountFields ? { ...(!user?.name?.trim() ? { name: name.trim() } : {}),
-            account_type: accountType, onboarding_intent: intent,
+            account_type: accountType,
+            ...(settings ? { onboarding_intent: intent } : {}),
             business_name: accountType === "business" ? businessName.trim() : "",
             gst_hst_number: accountType === "business" ? gst.trim() : "" } : {}),
           ...(addressFields ? {country, province, address_line1: line1, address_line2: line2, city, postal_code: postal} : {}),
@@ -253,16 +254,19 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
       {accountFields && <>
         {!user?.name?.trim() && <div className="space-y-1.5"><Label htmlFor={`${id}-name`}>Name</Label>
           <Input id={`${id}-name`} autoComplete="name" value={name} required maxLength={64} onChange={(event) => setName(event.target.value)} /></div>}
-        <fieldset className="space-y-2"><legend className="text-sm font-medium">How will you use Xcelsior?</legend>
+        {settings && <fieldset className="space-y-2"><legend className="text-sm font-medium">How will you use Xcelsior?</legend>
+          <p className="text-sm text-text-secondary">You can switch between renting and providing here anytime. Payout setup stays on Earnings.</p>
           {[["rent", "Rent GPUs"], ["provide", "Provide GPUs"], ["both", "Rent and provide GPUs"]].map(([value, label]) =>
             <label key={value} className={cn("flex cursor-pointer items-center gap-3 rounded-xl border p-4 text-sm transition-colors hover:bg-surface-hover", intent === value ? "border-accent-cyan/40 bg-accent-cyan/5" : "border-border bg-navy/30")}>
               <input type="radio" name={`${id}-intent`} value={value} checked={intent === value} required onChange={() => setIntent(value)} className="h-4 w-4 accent-sky-500" /><span className="font-medium">{label}</span>
             </label>)}
-        </fieldset>
+        </fieldset>}
         <div className="space-y-1.5"><Label htmlFor={`${id}-type`}>Account type</Label>
           <Select id={`${id}-type`} required value={accountType} onChange={(event) => setAccountType(event.target.value)}>
             <option value="">Select account type</option><option value="individual">Personal</option><option value="business">Business</option>
-          </Select></div>
+          </Select>
+          {accountType === "individual" && <p className="text-sm text-text-secondary">A personal account does not need a business name, even if you provide GPUs.</p>}
+        </div>
         {accountType === "business" && <>
           <div className="space-y-1.5"><Label htmlFor={`${id}-business`}>Legal business name</Label>
             <Input id={`${id}-business`} autoComplete="organization" required maxLength={200} value={businessName} onChange={(event) => setBusinessName(event.target.value)} /></div>
@@ -271,11 +275,11 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
         </>}
       </>}
       {addressFields && <>
-        <LocationFields country={country} province={province} onCountryChange={setCountry} onProvinceChange={(value) => manual(setProvince, value)} onRequirementsChange={setRequiredFields} />
         <AddressLookup country={country} editRevision={editRevision} onSelect={(address) => {
           setLine1(address.address_line1); setLine2(address.address_line2); setCity(address.city);
           setPostal(address.postal_code); setCountry(address.country); setProvince(address.province);
         }} />
+        <LocationFields country={country} province={province} onCountryChange={setCountry} onProvinceChange={(value) => manual(setProvince, value)} onRequirementsChange={setRequiredFields} />
         <div className="space-y-1.5"><Label htmlFor={`${id}-line1`}>Street address</Label>
           <Input id={`${id}-line1`} autoComplete="address-line1" required={requiredFields?.includes("address_line1") ?? true} maxLength={200} value={line1} onChange={(event) => manual(setLine1, event.target.value)} /></div>
         <div className="space-y-1.5"><Label htmlFor={`${id}-line2`}>Apartment, suite, or unit (optional)</Label>

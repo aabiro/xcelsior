@@ -193,9 +193,10 @@ def test_profile_completion_requires_every_required_account_field():
     from host_metadata import profile_missing_fields
 
     valid = {"name":"Account Owner", "email":"owner@example.test", "country":"CA", "province":"ON",
-             "account_type":"individual", "onboarding_intent":"rent", "address_line1":"1 Test Street",
+             "account_type":"individual", "address_line1":"1 Test Street",
              "city":"London", "postal_code":"N6A 1A1"}
     assert profile_missing_fields(valid) == []
+    assert profile_missing_fields({**valid, "onboarding_intent": ""}) == []
     for field in valid:
         assert profile_missing_fields({**valid, field:""})
 

@@ -30,10 +30,11 @@ The rules (plan P2.4, §5a and decision D8), applied per record:
   suspended seconds are added; where false they are free. The rule name
   carries which applied.
 
-``shadow_cost_micros`` is what the cluster's rate card would charge.
-``mark_charged`` is the later settlement step and nothing calls it: every
-row is stored with ``charged`` false. The ``slurm_placement`` switch does
-not turn charging on. Charging is Phase 2.4 and is not built.
+``shadow_cost_micros`` is what the cluster's rate card would charge, in
+integer micros. ``settle_finished_attempt`` debits that sum and calls
+``mark_charged``. The reconciler's shadow write and the placement switch
+do not call it, and no worker task does either. Charging stays off on
+staging and production until a week of shadow comparison is real.
 
 The drift report compares the ledger's raw GPU seconds for a day with what the
 cluster's own accounting says for the same day, per cluster, so a week of
@@ -284,6 +285,179 @@ def mark_charged(conn, attempt_id: str, meter_id: str) -> int:
         (meter_id, attempt_id),
     )
     return cur.rowcount
+
+
+_ACTIVE_ATTEMPT = frozenset(
+    {
+        "reserved",
+        "command_pending",
+        "lease_offered",
+        "lease_claimed",
+        "starting",
+        "running",
+    }
+)
+_ATTEMPT_STATUS = {
+    "completed": "succeeded",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "preempted": "preempted",
+}
+
+
+def settle_finished_attempt(conn, attempt_id: str) -> dict:
+    """Debit one finished attempt from its ledger rows and close the placement.
+
+    The caller's transaction owns the debit, the status change, and
+    ``mark_charged``. Nothing in the scheduler, the reconciler, or the
+    background worker calls this. A zero ledger sum is a charge of 0 and
+    does not touch the wallet.
+
+    When an attempt meter is already open, ``settle_attempt_meter`` closes
+    it from its own evidence. The wallet debit is the ledger sum, which is
+    the D8 amount, not that meter's duration formula.
+    """
+    from decimal import Decimal
+
+    from psycopg.rows import dict_row
+
+    from billing import get_billing_engine, settle_attempt_meter
+    from control_plane.state import job_phase
+    from money import MICROS_PER_CAD
+
+    previous = conn.row_factory
+    conn.row_factory = dict_row
+    try:
+        return _settle_finished(
+            conn,
+            attempt_id,
+            Decimal,
+            MICROS_PER_CAD,
+            job_phase,
+            get_billing_engine,
+            settle_attempt_meter,
+        )
+    finally:
+        conn.row_factory = previous
+
+
+def _customer(attempt: dict) -> str:
+    payload = attempt.get("payload") or {}
+    if isinstance(payload, str):
+        import json
+
+        payload = json.loads(payload)
+    if not isinstance(payload, dict):
+        payload = {}
+    return str(payload.get("owner") or payload.get("owner_id") or attempt.get("tenant_id") or "")
+
+
+def _settle_finished(conn, attempt_id, decimal, micros_per, job_phase, engine_fn, settle_meter):
+    attempt = conn.execute(
+        """
+        SELECT a.attempt_id, a.job_id, a.status, j.status AS job_status, j.phase,
+               j.tenant_id, j.payload, j.active_attempt_id
+          FROM job_attempts a
+          JOIN jobs j ON j.job_id = a.job_id
+         WHERE a.attempt_id = %s
+           FOR UPDATE OF a, j
+        """,
+        (attempt_id,),
+    ).fetchone()
+    if attempt is None:
+        raise ValueError(f"no attempt {attempt_id}")
+    rows = conn.execute(
+        """
+        SELECT run_index, slurm_state, shadow_cost_micros, charged, started_at, ended_at
+          FROM slurm_billing_segments
+         WHERE attempt_id = %s
+         ORDER BY run_index
+           FOR UPDATE
+        """,
+        (attempt_id,),
+    ).fetchall()
+    if not rows:
+        raise ValueError(f"attempt {attempt_id} has no ledger rows")
+    if any(row["shadow_cost_micros"] is None for row in rows):
+        raise ValueError(f"attempt {attempt_id} has an unpriced segment")
+    latest = rows[-1]
+    observed = sa.SLURM_OBSERVED_STATE.get(str(latest["slurm_state"]).upper())
+    if observed not in sa.FINISHED_OBSERVED_STATES:
+        raise ValueError(f"attempt {attempt_id} is not finished ({latest['slurm_state']})")
+    job_status = sa.SLURM_STATE_MAP[str(latest["slurm_state"]).upper()]
+    attempt_status = _ATTEMPT_STATUS[job_status]
+    uncharged = [row for row in rows if not row["charged"]]
+    total = sum(int(row["shadow_cost_micros"]) for row in uncharged)
+    if not uncharged and attempt["status"] not in _ACTIVE_ATTEMPT:
+        return {
+            "already_settled": True,
+            "charged_micros": 0,
+            "job_status": attempt["job_status"],
+            "attempt_status": attempt["status"],
+        }
+
+    if attempt["status"] in _ACTIVE_ATTEMPT:
+        started = next((row["started_at"] for row in rows if row["started_at"] is not None), None)
+        ended = latest["ended_at"]
+        moved = conn.execute(
+            """
+            UPDATE job_attempts
+               SET status = %s,
+                   started_at = COALESCE(started_at, %s),
+                   ended_at = COALESCE(ended_at, COALESCE(%s, clock_timestamp()))
+             WHERE attempt_id = %s AND status = %s
+            """,
+            (attempt_status, started, ended, attempt_id, attempt["status"]),
+        )
+        if moved.rowcount != 1:
+            raise ValueError(f"attempt {attempt_id} changed during settlement")
+        if attempt["job_status"] == "assigned" and attempt["phase"] == "scheduled":
+            closed = conn.execute(
+                """
+                UPDATE jobs
+                   SET status = %s, phase = %s, version = version + 1,
+                       updated_at = clock_timestamp()
+                 WHERE job_id = %s AND active_attempt_id = %s
+                   AND status = 'assigned' AND phase = 'scheduled'
+                """,
+                (job_status, job_phase(job_status), attempt["job_id"], attempt_id),
+            )
+            if closed.rowcount != 1:
+                raise ValueError(f"job {attempt['job_id']} was not assigned")
+
+    meter = conn.execute(
+        "SELECT meter_id FROM usage_meters WHERE attempt_id = %s",
+        (str(attempt_id),),
+    ).fetchone()
+    if meter is not None:
+        settle_meter(conn, str(attempt_id), str(meter["meter_id"]))
+
+    tx_id = None
+    if total > 0:
+        customer = _customer(attempt)
+        if not customer:
+            raise ValueError(f"attempt {attempt_id} has no customer to charge")
+        result = engine_fn()._charge_on_connection(
+            conn,
+            customer,
+            decimal(total) / decimal(micros_per),
+            job_id=attempt["job_id"],
+            description="Slurm compute",
+        )
+        if not result.get("charged"):
+            raise ValueError(
+                f"attempt {attempt_id} was not charged ({result.get('reason') or 'refused'})"
+            )
+        tx_id = result.get("tx_id")
+    token = tx_id or (str(meter["meter_id"]) if meter is not None else "zero")
+    marked = mark_charged(conn, str(attempt_id), token) if uncharged else 0
+    return {
+        "already_settled": False,
+        "charged_micros": total,
+        "segments": marked,
+        "job_status": job_status,
+        "attempt_status": attempt_status,
+    }
 
 
 # ── Drift report ─────────────────────────────────────────────────────

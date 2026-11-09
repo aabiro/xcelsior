@@ -265,6 +265,7 @@ LOCAL_ONLY = [
 STILL_SHIPPED = [
     "api.py",
     "hpc/slurm-local/README.md",
+    "hpc/slurm-local/conf/xcelsior-profiles.json",
     "hpc/slurm-local/site.env.example",
     "hpc/slurm-local/evidence/r1/results.json",
     "hpc/slurm-local/rehearsal/run-rehearsal.sh",
@@ -494,3 +495,103 @@ def test_the_real_frontend_build_takes_productions_posthog_keys() -> None:
     assert {"NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", "NEXT_PUBLIC_POSTHOG_HOST"} <= set(
         result.stdout.split()
     )
+
+
+# ── Slurm: placement is a flag, the profile ships on every deploy ─────────
+
+
+def _rewrite(tmp_path: Path, text: str, flag: str | None = None) -> tuple:
+    path = tmp_path / "prod.env"
+    path.write_text(text)
+    env = {k: v for k, v in os.environ.items() if k != "XCELSIOR_DEPLOY_SLURM_PLACEMENT"}
+    if flag is not None:
+        env["XCELSIOR_DEPLOY_SLURM_PLACEMENT"] = flag
+    script = _function("rewrite_slurm_placement_env")
+    script += f"rewrite_slurm_placement_env '{path}'\n"
+    return _bash(script, env=env), path.read_text()
+
+
+def test_a_normal_deploy_removes_placement_and_leaves_every_other_line(tmp_path: Path) -> None:
+    original = (
+        "XCELSIOR_POSTGRES_PASSWORD=kept-secret\n"
+        "XCELSIOR_SLURM_PLACEMENT=true\n"
+        "export XCELSIOR_SLURM_PLACEMENT=yes\n"
+        "XCELSIOR_SLURM_KEY_XCL_LOCAL=kept-secret\n"
+    )
+    result, text = _rewrite(tmp_path, original)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "slurm_placement off"
+    assert "kept-secret" not in result.stdout + result.stderr
+    assert text == (
+        "XCELSIOR_POSTGRES_PASSWORD=kept-secret\n"
+        "XCELSIOR_SLURM_KEY_XCL_LOCAL=kept-secret\n"
+    )
+    again, same = _rewrite(tmp_path, text)
+    assert again.returncode == 0
+    assert same == text
+
+
+def test_the_placement_flag_writes_one_line_and_nothing_else(tmp_path: Path) -> None:
+    result, text = _rewrite(
+        tmp_path,
+        "XCELSIOR_SLURM_KEY_XCL_LOCAL=kept-secret\nXCELSIOR_SLURM_PLACEMENT=true\n",
+        "1",
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "slurm_placement on"
+    assert "kept-secret" not in result.stdout + result.stderr
+    assert text == (
+        "XCELSIOR_SLURM_KEY_XCL_LOCAL=kept-secret\n"
+        "XCELSIOR_SLURM_PLACEMENT=1\n"
+    )
+
+
+def test_a_bad_placement_flag_is_refused(tmp_path: Path) -> None:
+    result, text = _rewrite(tmp_path, "A=1\n", "banana")
+    assert result.returncode == 2
+    assert text == "A=1\n"
+    assert "must be 0 or 1" in result.stderr
+
+
+def test_a_missing_env_file_is_left_missing(tmp_path: Path) -> None:
+    script = _function("rewrite_slurm_placement_env")
+    script += f"rewrite_slurm_placement_env '{tmp_path}/absent.env'\n"
+    env = {k: v for k, v in os.environ.items() if k != "XCELSIOR_DEPLOY_SLURM_PLACEMENT"}
+    result = _bash(script, env=env)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "slurm_placement missing_env"
+    assert not (tmp_path / "absent.env").exists()
+
+
+def test_prod_paths_apply_the_policy_before_hashing_the_runtime() -> None:
+    text = DEPLOY.read_text()
+    branches = {
+        "--quick)": "--rollback)",
+        "--post-merge)": "--systemd)",
+        '""|--docker)': "\n        *)",
+    }
+    for start, end in branches.items():
+        body = text.split(start, 1)[1].split(end, 1)[0]
+        assert body.index("apply_slurm_placement_policy") < body.index("detect_deploy_inputs"), start
+    systemd = text.split("--systemd)", 1)[1].split("--drain-host)", 1)[0]
+    assert "apply_slurm_placement_policy" in systemd
+    assert 'text += "XCELSIOR_SLURM_PLACEMENT=1\\n"' in text
+
+
+def test_compose_forwards_slurm_and_leaves_placement_empty() -> None:
+    import yaml
+
+    services = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]
+    for name in ("api", "api-blue", "bg-worker", "scheduler-worker"):
+        assert services[name]["environment"]["XCELSIOR_SLURM_PLACEMENT"] == (
+            "${XCELSIOR_SLURM_PLACEMENT:-}"
+        ), name
+    worker = services["bg-worker"]["environment"]
+    assert worker["XCELSIOR_SLURM_PROFILES_FILE"] == (
+        "${XCELSIOR_SLURM_PROFILES_FILE:-/app/hpc/slurm-local/conf/xcelsior-profiles.json}"
+    )
+    assert worker["XCELSIOR_SLURM_KEY_XCL_LOCAL"] == "${XCELSIOR_SLURM_KEY_XCL_LOCAL:-}"
+    assert "XCELSIOR_SLURM_KEY_XCL_LOCAL" not in services["api"]["environment"]
+    assert "XCELSIOR_SLURM_KEY_XCL_LOCAL" not in services["scheduler-worker"]["environment"]
+    hashed = _function("api_build_hash")
+    assert "hpc/slurm-local/conf/xcelsior-profiles.json" in hashed
