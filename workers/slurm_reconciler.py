@@ -68,6 +68,10 @@ WINDOW_MARGIN_MIN = 60
 ADAPTER_JOB_PREFIX = "xcl-"
 #: Output tails fetched per pass over one cluster; the rest wait their turn.
 OUTPUT_FETCHES_PER_PASS = 10
+#: How old a cluster's config facts may get before a pass captures them
+#: again. Settings like MinJobAge and MaxJobId change with an upgrade or a
+#: reconfigure, and the reconciler's rules lean on them.
+FACTS_REFRESH_SEC = 7 * 86400
 
 _TRANSPORT_ERRORS = {
     "transport_error",
@@ -93,10 +97,13 @@ class PassResult:
     orphans: list = field(default_factory=list)  # adapter-named jobs with no mapping
     cancel_requested: list = field(default_factory=list)
     outputs_fetched: list = field(default_factory=list)  # (xcelsior_job_id, stream)
+    outputs_unchanged: list = field(default_factory=list)  # size check: nothing new to read
     output_errors: list = field(default_factory=list)  # (xcelsior_job_id, stream, error_code)
     accounting_error: str | None = None
     accounting_error_code: str | None = None
     accounting_checked: bool = False  # sacct ran this pass (it only runs when needed)
+    facts_refreshed: bool = False
+    facts_error_code: str | None = None
     duration_ms: int = 0
 
     def as_dict(self) -> dict:
@@ -205,6 +212,53 @@ def _runner_for(cluster: dict | None):
         yield None
 
 
+def _store_facts(cluster_id: str, facts: dict, *, controller_up: bool = True) -> None:
+    from psycopg.types.json import Jsonb
+
+    from db import pg_transaction
+
+    with pg_transaction() as conn:
+        conn.execute(
+            """
+            UPDATE slurm_clusters
+               SET facts = facts || jsonb_build_object(
+                       'config', %s::jsonb, 'config_captured_at', clock_timestamp()),
+                   transport_ok_at = clock_timestamp(),
+                   controller_ok_at = CASE WHEN %s THEN clock_timestamp() ELSE controller_ok_at END,
+                   updated_at = clock_timestamp()
+             WHERE cluster_id = %s
+            """,
+            (Jsonb(facts), controller_up, cluster_id),
+        )
+
+
+def _facts_due(facts) -> bool:
+    """Whether the cluster's config facts are missing or older than FACTS_REFRESH_SEC."""
+    import datetime as _dt
+
+    captured = (facts or {}).get("config_captured_at") if isinstance(facts, dict) else None
+    try:
+        age = _dt.datetime.now(_dt.timezone.utc) - _dt.datetime.fromisoformat(str(captured))
+    except (ValueError, TypeError):
+        return True  # never captured, or unreadable: capture now
+    return age.total_seconds() > FACTS_REFRESH_SEC
+
+
+def _refresh_facts(cluster: dict, runner, result: PassResult) -> None:
+    """Capture the config facts again, on a pass that already reached the cluster."""
+    config = sa.cluster_config_facts(profile_name=cluster["profile_key"], runner=runner)
+    if "error" in config:
+        result.facts_error_code = config.get("error_code") or "unknown"
+        log.warning(
+            "slurm reconcile %s: config facts not refreshed: %s",
+            cluster["cluster_id"],
+            config["error"],
+        )
+        return
+    _store_facts(cluster["cluster_id"], config["facts"])
+    result.facts_refreshed = True
+
+
 def check_cluster_connection(cluster_id: str) -> dict:
     """Connect to a registered cluster, ask its controller, keep its config.
 
@@ -213,10 +267,6 @@ def check_cluster_connection(cluster_id: str) -> dict:
     stores the CONFIG_FACTS settings in ``facts['config']`` with the time.
     Returns what it found; a failure is returned, not raised.
     """
-    from psycopg.types.json import Jsonb
-
-    from db import pg_transaction
-
     cluster = _cluster_row(cluster_id)
     if cluster is None:
         return {"ok": False, "error_code": "not_found", "error": f"no cluster {cluster_id!r}"}
@@ -232,19 +282,7 @@ def check_cluster_connection(cluster_id: str) -> dict:
         return {"ok": False, "error_code": e.code, "error": str(e)}
     if "error" in config:
         return {"ok": False, "error_code": config.get("error_code"), "error": config["error"]}
-    with pg_transaction() as conn:
-        conn.execute(
-            """
-            UPDATE slurm_clusters
-               SET facts = facts || jsonb_build_object(
-                       'config', %s::jsonb, 'config_captured_at', clock_timestamp()),
-                   transport_ok_at = clock_timestamp(),
-                   controller_ok_at = CASE WHEN %s THEN clock_timestamp() ELSE controller_ok_at END,
-                   updated_at = clock_timestamp()
-             WHERE cluster_id = %s
-            """,
-            (Jsonb(config["facts"]), ping["controller"] == "up", cluster_id),
-        )
+    _store_facts(cluster_id, config["facts"], controller_up=ping["controller"] == "up")
     return {
         "ok": ping["controller"] == "up" and not config["missing"],
         "controller": ping,
@@ -273,7 +311,7 @@ def _due_clusters() -> list[dict]:
         return cur.execute(
             """
             SELECT cluster_id, profile_key, poll_interval_seconds, consecutive_failures,
-                   ssh_host, ssh_port, remote_user, known_hosts_line, credential_ref
+                   ssh_host, ssh_port, remote_user, known_hosts_line, credential_ref, facts
               FROM slurm_clusters
              WHERE enabled
                AND (breaker_open_until IS NULL OR breaker_open_until <= clock_timestamp())
@@ -308,6 +346,9 @@ def _record_health(cluster_id: str, result: PassResult, interval: int, failures:
         counts[key] = counts.get(key, 0) + 1
     for _xid, _stream, code in result.output_errors:
         key = f"output:{code or 'unknown'}"
+        counts[key] = counts.get(key, 0) + 1
+    if result.facts_error_code:
+        key = f"facts:{result.facts_error_code}"
         counts[key] = counts.get(key, 0) + 1
     with pg_transaction() as conn:
         for key, n in counts.items():
@@ -710,7 +751,8 @@ def _due_outputs(cluster_id: str, limit: int) -> list[tuple]:
     with pg_connection() as conn:
         return conn.execute(
             """
-            SELECT o.xcelsior_job_id, o.stream, m.slurm_job_id, m.terminal_at IS NOT NULL
+            SELECT o.xcelsior_job_id, o.stream, m.slurm_job_id, m.terminal_at IS NOT NULL,
+                   o.size_bytes, o.fetched_at IS NOT NULL AND o.slurm_job_id = m.slurm_job_id
               FROM slurm_job_outputs o
               JOIN slurm_job_mappings m ON m.xcelsior_job_id = o.xcelsior_job_id
              WHERE m.cluster_id = %s AND NOT o.final
@@ -724,10 +766,60 @@ def _due_outputs(cluster_id: str, limit: int) -> list[tuple]:
         ).fetchall()
 
 
+def _record_output_error(xid: str, stream: str, got: dict, size: int | None = None) -> None:
+    from db import pg_transaction
+
+    with pg_transaction() as conn:
+        conn.execute(
+            "UPDATE slurm_job_outputs SET attempted_at = clock_timestamp(), "
+            "error_code = %s, error = %s, size_bytes = COALESCE(%s, size_bytes) "
+            "WHERE xcelsior_job_id = %s AND stream = %s",
+            (got.get("error_code"), got["error"][:500], size, xid, stream),
+        )
+
+
 def _refresh_outputs(cluster_id: str, profile_key: str, runner, result: PassResult) -> None:
     from db import pg_transaction
 
-    for xid, stream, sid, settled in _due_outputs(cluster_id, OUTPUT_FETCHES_PER_PASS):
+    profile = sa._get_profile(profile_key)
+    check_size = sa.output_size_check(profile)
+    reads_whole_file = profile.get("output_reader") == "cat"
+    for xid, stream, sid, settled, known_size, have_copy in _due_outputs(
+        cluster_id, OUTPUT_FETCHES_PER_PASS
+    ):
+        size = None
+        if check_size:
+            # Where reading means cat, ask ls -l first: read only when the
+            # file changed, and never past the cap.
+            sized = sa.get_slurm_job_output_size(
+                sid, xid, profile_name=profile_key, runner=runner, stream=stream
+            )
+            if "error" in sized:
+                _record_output_error(xid, stream, sized)
+                result.output_errors.append((xid, stream, sized.get("error_code")))
+                if sized.get("error_code") in _TRANSPORT_ERRORS:
+                    break
+                continue
+            size = sized["size_bytes"]
+            if have_copy and known_size == size:
+                with pg_transaction() as conn:
+                    conn.execute(
+                        "UPDATE slurm_job_outputs SET attempted_at = clock_timestamp(), "
+                        "fetched_at = clock_timestamp(), final = %s, error_code = NULL, "
+                        "error = NULL WHERE xcelsior_job_id = %s AND stream = %s",
+                        (settled, xid, stream),
+                    )
+                result.outputs_unchanged.append((xid, stream))
+                continue
+            if reads_whole_file and size > sa.OUTPUT_CAT_MAX_BYTES:
+                too_big = {
+                    "error_code": "output_too_large",
+                    "error": f"{size} bytes; this cluster can only cat, and the cap is "
+                    f"{sa.OUTPUT_CAT_MAX_BYTES}",
+                }
+                _record_output_error(xid, stream, too_big, size)
+                result.output_errors.append((xid, stream, "output_too_large"))
+                continue
         got = sa.get_slurm_job_output(
             sid,
             xid,
@@ -736,39 +828,34 @@ def _refresh_outputs(cluster_id: str, profile_key: str, runner, result: PassResu
             stream=stream,
             max_bytes=sa.PROGRESS_MAX_BYTES if stream == "progress" else sa.OUTPUT_TAIL_BYTES,
         )
-        with pg_transaction() as conn:
-            if "error" in got:
-                conn.execute(
-                    "UPDATE slurm_job_outputs SET attempted_at = clock_timestamp(), "
-                    "error_code = %s, error = %s WHERE xcelsior_job_id = %s AND stream = %s",
-                    (got.get("error_code"), got["error"][:500], xid, stream),
-                )
-            else:
-                # PostgreSQL text can't hold NUL, and a job may print one.
-                content = got["content"].replace("\x00", "")
-                conn.execute(
-                    """
-                    UPDATE slurm_job_outputs
-                       SET content = %s, truncated = %s, slurm_job_id = %s,
-                           attempted_at = clock_timestamp(), fetched_at = clock_timestamp(),
-                           final = %s, error_code = NULL, error = NULL
-                     WHERE xcelsior_job_id = %s AND stream = %s
-                    """,
-                    (
-                        content,
-                        len(content.encode()) >= sa.OUTPUT_TAIL_BYTES,
-                        sid,
-                        settled,
-                        xid,
-                        stream,
-                    ),
-                )
         if "error" in got:
+            _record_output_error(xid, stream, got)
             result.output_errors.append((xid, stream, got.get("error_code")))
             if got.get("error_code") in _TRANSPORT_ERRORS:
                 break  # the cluster stopped answering; the rest wait for the next pass
-        else:
-            result.outputs_fetched.append((xid, stream))
+            continue
+        # PostgreSQL text can't hold NUL, and a job may print one.
+        content = got["content"].replace("\x00", "")
+        with pg_transaction() as conn:
+            conn.execute(
+                """
+                UPDATE slurm_job_outputs
+                   SET content = %s, truncated = %s, slurm_job_id = %s, size_bytes = %s,
+                       attempted_at = clock_timestamp(), fetched_at = clock_timestamp(),
+                       final = %s, error_code = NULL, error = NULL
+                 WHERE xcelsior_job_id = %s AND stream = %s
+                """,
+                (
+                    content,
+                    len(content.encode()) >= sa.OUTPUT_TAIL_BYTES,
+                    sid,
+                    size,
+                    settled,
+                    xid,
+                    stream,
+                ),
+            )
+        result.outputs_fetched.append((xid, stream))
 
 
 def reconcile_due_clusters() -> list[dict]:
@@ -778,6 +865,8 @@ def reconcile_due_clusters() -> list[dict]:
         try:
             with _runner_for(cluster) as runner:
                 result = reconcile_cluster(cluster["cluster_id"], cluster["profile_key"], runner=runner)
+                if result.ok and _facts_due(cluster.get("facts")):
+                    _refresh_facts(cluster, runner, result)
         except sa.SlurmAdapterError as e:  # a profile or registry row that doesn't resolve
             result = PassResult(
                 cluster_id=cluster["cluster_id"], ok=False, error_code=e.code, error=str(e)

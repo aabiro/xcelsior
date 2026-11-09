@@ -263,3 +263,20 @@ metrics come from what it records in `slurm_clusters` and
   `check_cluster_connection`.
 - `XcelsiorSlurmMetricsUnavailable`: the API couldn't read those tables, so
   the other three can't fire. Check database connectivity first.
+
+### Registering a Slurm cluster
+
+1. Put the adapter's private key where the API may name it: an environment
+   variable `XCELSIOR_SLURM_KEY_<NAME>` in the API's environment, or a file in
+   `XCELSIOR_SLURM_KEY_DIR` (default `/etc/xcelsior/slurm-keys`). The key must
+   be one the cluster restricts to its forced-command wrapper.
+2. Get the cluster's host key out of band (the site's documentation or admins,
+   or a console), never from a first connection.
+3. `POST /api/v1/hpc/clusters` as a platform admin with `profile_key`,
+   `ssh_host`, `remote_user`, `known_hosts_line` and `credential_ref`. It is
+   registered disabled.
+4. `POST /api/v1/hpc/clusters/{id}/connection-check`. `ok: true` means the
+   controller answered and every config fact was captured; `host_key_mismatch`
+   means the pin is wrong or something else answered.
+5. Register again with `"enabled": true`. The reconciler polls it from its next
+   tick and refreshes its config facts weekly.

@@ -89,6 +89,7 @@ class TestAdapterAndGateAgree:
         _sa.get_slurm_job_output("41", "g-1", profile_name=lab_profile, stream="err")
         _sa.get_slurm_job_output("41", "g-1", profile_name=lab_profile, stream="progress")
         _sa.cluster_config_facts(profile_name=lab_profile)
+        _sa.get_slurm_job_output_size("41", "g-1", profile_name=lab_profile)
         _sa.cancel_slurm_job("41", profile_name=lab_profile)
         _sa.poll_cluster_jobs(profile_name=lab_profile)
         _sa.accounting_window(["41", "42"], since_minutes=90, profile_name=lab_profile)
@@ -97,7 +98,7 @@ class TestAdapterAndGateAgree:
             cmd.split()[0] if not cmd.startswith("env ") else cmd.split()[2]
             for cmd, _ in remote.sent
         }
-        assert progs == {"sinfo", "scontrol", "sbatch", "squeue", "sacct", "tail", "scancel"}
+        assert progs == {"sinfo", "scontrol", "sbatch", "squeue", "sacct", "tail", "scancel", "ls"}
         for cmd, stdin in remote.sent:
             gate.parse(cmd)  # raises Deny on any mismatch
             if stdin is not None:
@@ -179,6 +180,12 @@ class TestRefusedCommands:
             f"tail -c 10 -- {JOBS}/xcl-a-1.progress.tmp",
             f"tail -c 10 -- {JOBS}/xcl-a-1.json",
             f"tail -c 10 -- {JOBS}/xcl-progress-a.json",
+            # the size check: ls -l of one adapter file, nothing else
+            f"ls -l {JOBS}/xcl-a-1.out",
+            f"ls -la -- {JOBS}/xcl-a-1.out",
+            f"ls -l -- {JOBS}",
+            "ls -l -- /etc/shadow",
+            f"ls -l -- {JOBS}/xcl-a-1.out {JOBS}/xcl-b-2.out",
             f"tail -n 10 -- {JOBS}/xcl-a-1.out",
             f"cat {JOBS}/xcl-a-1.out",
         ],

@@ -48,6 +48,9 @@ ADAPTER_VERSION = "3.0.0"
 #                            most clusters reject QoS names they don't define)
 #   accounting_time/timezone how sacct times are read (see _PROFILE_DEFAULTS)
 #   output_reader            "tail" or "cat" for get_slurm_job_output
+#   output_size_check        ask `ls -l` before reading output, and read only
+#                            when it changed and is under a cap (default: on
+#                            when output_reader is "cat")
 #   mem_base_gb, mem_per_gpu_gb  memory request = base + per_gpu * gpus
 #   modules, container_runtime ("apptainer" | "docker" | "none")
 #   scratch_dir, project_dir, output_dir ({user}/{account} templates)
@@ -103,6 +106,7 @@ CLUSTER_PROFILES = {
         "accounting_time": "iso_local",
         "timezone": "America/Toronto",
         "output_reader": "cat",
+        "output_size_check": True,
     },
     "graham": {
         # Retired 1 September 2025 ("service now ended"); Nibi replaced it. Kept
@@ -1696,6 +1700,58 @@ def accounting_to_meter_fields(acct: dict) -> dict:
 #: The files the reconciler may read for a job, by stream name.
 OUTPUT_STREAMS = ("out", "err", "progress")
 
+#: With output_reader "cat" the whole file crosses the wire on every read
+#: (Alliance's wrapper allows cat, not tail), so past this size it isn't read.
+OUTPUT_CAT_MAX_BYTES = 2 * 1024 * 1024
+
+
+def output_size_check(profile: dict) -> bool:
+    """Whether to ask ``ls -l`` for a file's size before reading it."""
+    return bool(profile.get("output_size_check", profile.get("output_reader") == "cat"))
+
+
+def _output_path(profile, runner, xcelsior_job_id, slurm_job_id, stream) -> str:
+    _require(_JOB_ID_RE, str(xcelsior_job_id), "job_id")
+    account = os.environ.get(profile["account_env"], "")
+    base = _output_dir(profile, _remote_user(profile, runner), account)
+    return f"{base}/xcl-{xcelsior_job_id}-{slurm_job_id}.{stream}"
+
+
+def get_slurm_job_output_size(
+    slurm_job_id, xcelsior_job_id, *, profile_name=None, runner=None, stream="out"
+):
+    """A job's output file size from ``ls -l``: {"size_bytes": n} or an error.
+
+    For clusters where reading means ``cat``: comparing sizes lets the
+    reconciler skip a read when nothing was written, and refuse one past
+    OUTPUT_CAT_MAX_BYTES.
+    """
+    if not _SLURM_JOB_ID_RE.match(str(slurm_job_id)):
+        return _error("invalid_job_id", f"invalid Slurm job id: {slurm_job_id!r}")
+    if stream not in OUTPUT_STREAMS:
+        return _error("invalid_request", "stream must be 'out', 'err' or 'progress'")
+    try:
+        profile, runner = _resolve(profile_name, runner)
+        path = _output_path(profile, runner, xcelsior_job_id, slurm_job_id, stream)
+        r = runner.run(["ls", "-l", "--", path], timeout=30)
+    except SlurmAdapterError as e:
+        return _error(e.code, str(e))
+    except subprocess.TimeoutExpired:
+        return _error("timeout", "ls timed out")
+    except FileNotFoundError:
+        return _error("io_error", "ls not available")
+    failure = _transport_failure(r, runner)
+    if failure:
+        return failure
+    if r.returncode != 0:
+        return _error("output_unavailable", r.stderr.strip() or f"cannot stat {path}", path=path)
+    fields = (r.stdout or "").split()
+    if len(fields) < 5 or not fields[4].isdigit() or not fields[0].startswith("-"):
+        # Not a regular file (a link, a directory) or not ls output at all.
+        return _error("output_unavailable", f"ls printed no size for {path}", path=path)
+    return {"slurm_job_id": str(slurm_job_id), "path": path, "size_bytes": int(fields[4])}
+
+
 #: How a job reports its own progress. Slurm has no notion of it, and
 #: ``sstat`` costs a controller RPC, so the job writes a small file and the
 #: reconciler reads it the way it reads output, at most once per interval.
@@ -1739,10 +1795,8 @@ def get_slurm_job_output(
     if stream not in OUTPUT_STREAMS:
         return _error("invalid_request", "stream must be 'out', 'err' or 'progress'")
     try:
-        _require(_JOB_ID_RE, str(xcelsior_job_id), "job_id")
         profile, runner = _resolve(profile_name, runner)
-        account = os.environ.get(profile["account_env"], "")
-        path = f"{_output_dir(profile, _remote_user(profile, runner), account)}/xcl-{xcelsior_job_id}-{slurm_job_id}.{stream}"
+        path = _output_path(profile, runner, xcelsior_job_id, slurm_job_id, stream)
     except SlurmAdapterError as e:
         return _error(e.code, str(e))
     if profile.get("output_reader") == "cat":
