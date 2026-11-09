@@ -1391,7 +1391,9 @@ def api_v1_hpc_clusters(request: Request):
                    marketplace, agent_access, poll_interval_seconds, last_poll_at,
                    transport_ok_at, controller_ok_at, accounting_ok_at,
                    consecutive_failures, breaker_open_until, last_error_code,
-                   COALESCE(facts->'orphans', '[]'::jsonb)
+                   COALESCE(facts->'orphans', '[]'::jsonb),
+                   ssh_host, ssh_port, remote_user, known_hosts_line, credential_ref,
+                   facts->'config', facts->>'config_captured_at'
               FROM slurm_clusters ORDER BY cluster_id
             """
         )
@@ -1418,9 +1420,141 @@ def api_v1_hpc_clusters(request: Request):
                     "last_error_code": r[14],
                 },
                 "orphan_slurm_job_ids": list(r[15] or []),
+                "transport": _hpc_transport(r[16], r[17], r[18], r[19], r[20]),
+                "config_facts": r[21],
+                "config_captured_at": r[22],
             }
         )
     return {"ok": True, "clusters": clusters}
+
+
+def _hpc_transport(host, port, user, known_hosts_line, credential_ref) -> dict:
+    """How the reconciler reaches the cluster. The key line is shown as its
+    fingerprint, and the credential only as the reference it is."""
+    from slurm_transport import fingerprint
+
+    if not host:
+        return {"kind": "profile"}
+    try:
+        print_ = fingerprint(known_hosts_line or "")
+    except Exception:
+        print_ = None
+    return {
+        "kind": "registry",
+        "ssh_host": host,
+        "ssh_port": port or 22,
+        "remote_user": user,
+        "host_key_fingerprint": print_,
+        "credential_ref": credential_ref,
+    }
+
+
+def _require_hpc_admin(request: Request) -> dict:
+    """A human platform admin. Registering a cluster names a host and a key
+    the control plane will use, so no machine principal may do it."""
+    user = _require_auth(request)
+    if str(user.get("grant_type", "")) == "client_credentials" or not _is_platform_admin(user):
+        raise ProblemException(
+            status=403, code="forbidden", detail="a platform admin is required"
+        )
+    return user
+
+
+class _HpcClusterIn(BaseModel):
+    profile_key: str = Field(min_length=1, max_length=64)
+    cluster_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+    # Off until a connection check has proven the transport.
+    enabled: bool = False
+    ssh_host: str | None = Field(default=None, max_length=253)
+    ssh_port: int | None = Field(default=None, ge=1, le=65535)
+    remote_user: str | None = Field(default=None, max_length=32)
+    known_hosts_line: str | None = Field(default=None, max_length=8192)
+    credential_ref: str | None = Field(default=None, max_length=4096)
+
+
+@router.post("/api/v1/hpc/clusters", status_code=201)
+def api_v1_register_hpc_cluster(request: Request, body: _HpcClusterIn):
+    """Register (or update) a Slurm cluster the reconciler polls.
+
+    Platform admin only, and audited. With `ssh_host`, give the host key to
+    pin (a known_hosts or ssh-keyscan line verified out of band) and a
+    `credential_ref`: `env:XCELSIOR_SLURM_KEY_<NAME>`, or `file:` under the
+    API's key directory. Registered disabled unless `enabled` is set; run
+    the connection check, then register again with `enabled: true`. The
+    research-only, marketplace and agent flags come from the profile.
+    """
+    import psycopg
+
+    import slurm_adapter as sa
+    import slurm_reconciler as rc
+    from slurm_transport import api_credential_allowed
+
+    user = _require_hpc_admin(request)
+    if body.ssh_host and not api_credential_allowed(body.credential_ref or ""):
+        raise ProblemException(
+            status=422,
+            code="credential_ref_not_allowed",
+            detail="credential_ref must be env:XCELSIOR_SLURM_KEY_<NAME> or a file in the "
+            "API's Slurm key directory",
+        )
+    try:
+        registered = rc.register_cluster(
+            body.profile_key,
+            enabled=body.enabled,
+            cluster_id=body.cluster_id,
+            ssh_host=body.ssh_host,
+            ssh_port=body.ssh_port,
+            remote_user=body.remote_user,
+            known_hosts_line=body.known_hosts_line,
+            credential_ref=body.credential_ref,
+        )
+    except sa.SlurmAdapterError as e:
+        raise ProblemException(status=422, code=e.code, detail=str(e))
+    except psycopg.errors.CheckViolation as e:
+        raise ProblemException(
+            status=422, code="invalid_cluster", detail=str(e).splitlines()[0]
+        )
+    append_user_audit_event(
+        "hpc.cluster.registered",
+        "slurm_cluster",
+        registered["cluster_id"],
+        user,
+        data={
+            "profile_key": body.profile_key,
+            "enabled": body.enabled,
+            "transport": registered["transport"],
+            "ssh_host": body.ssh_host,
+            "credential_ref": body.credential_ref,
+        },
+    )
+    return {"ok": True, "cluster": registered}
+
+
+@router.post("/api/v1/hpc/clusters/{cluster_id}/connection-check")
+def api_v1_check_hpc_cluster(cluster_id: str, request: Request):
+    """Connect to a registered cluster the way the reconciler will.
+
+    Runs `scontrol ping` and `scontrol show config`, and stores the config
+    facts on the cluster. Platform admin only, and audited. A failure is the
+    result (`ok: false` with an `error_code` such as `host_key_mismatch`),
+    not an error status; an unknown cluster is 404.
+    """
+    import slurm_reconciler as rc
+
+    user = _require_hpc_admin(request)
+    result = rc.check_cluster_connection(cluster_id)
+    if result.get("error_code") == "not_found":
+        raise ProblemException(
+            status=404, code="hpc_cluster_not_found", detail=f"cluster {cluster_id} not found"
+        )
+    append_user_audit_event(
+        "hpc.cluster.connection_checked",
+        "slurm_cluster",
+        cluster_id,
+        user,
+        data={"ok": result.get("ok"), "error_code": result.get("error_code")},
+    )
+    return {"ok": True, "check": result}
 
 
 @router.get("/api/v1/hpc/jobs")

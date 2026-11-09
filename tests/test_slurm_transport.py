@@ -173,6 +173,35 @@ class TestEnvironmentKey:
         assert e.value.code == "credential_unavailable"
 
 
+def test_the_fingerprint_is_the_one_ssh_keygen_prints():
+    import hashlib
+
+    want = "SHA256:" + base64.b64encode(
+        hashlib.sha256(base64.b64decode(KEY)).digest()
+    ).decode().rstrip("=")
+    assert st.fingerprint(PIN) == want
+
+
+def test_the_api_may_name_only_dedicated_credentials(tmp_path, monkeypatch):
+    monkeypatch.setenv(st.API_KEY_DIR_ENV, str(tmp_path))
+    (tmp_path / "keys").mkdir()
+    assert st.api_credential_allowed("env:XCELSIOR_SLURM_KEY_NIBI")
+    assert st.api_credential_allowed(f"file:{tmp_path}/lab.key")
+    assert st.api_credential_allowed(f"file:{tmp_path}/keys/lab.key")
+    for ref in (
+        "env:XCELSIOR_STRIPE_SECRET_KEY",
+        "env:XCELSIOR_SLURM_KEY",  # the prefix alone names nothing
+        f"file:{tmp_path}/../other.key",
+        f"file:{tmp_path}",
+        "file:/etc/ssh/ssh_host_ed25519_key",
+        "vault:x",
+        "",
+    ):
+        assert not st.api_credential_allowed(ref), ref
+    (tmp_path / "link.key").symlink_to("/etc/ssh/ssh_host_ed25519_key")
+    assert not st.api_credential_allowed(f"file:{tmp_path}/link.key")
+
+
 def test_an_unsafe_runtime_dir_is_refused(tmp_path, monkeypatch):
     monkeypatch.setenv("XCELSIOR_SLURM_RUNTIME_DIR", str(tmp_path))
     base = tmp_path / f"xcelsior-slurm-{os.getuid()}"

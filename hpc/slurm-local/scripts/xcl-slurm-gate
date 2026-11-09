@@ -81,6 +81,8 @@ SHAPES = {
     "scancel": (("-v", JOB_ID), (JOB_ID,)),
     "sbatch": (("--parsable",),),
     "tail": (("-c", BYTES, "--", JOBS_FILE),),
+    # A size check before a read, as on Alliance, where reading means cat.
+    "ls": (("-l", "--", JOBS_FILE),),
 }
 # The only environment a request may set, and only for these programs.
 ALLOWED_ENV = {"SLURM_TIME_FORMAT": (re.compile(r"%s|standard"), {"sacct"})}

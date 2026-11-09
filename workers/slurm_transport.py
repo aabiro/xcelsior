@@ -111,6 +111,32 @@ def pinned_key(line: str) -> tuple[str, str]:
     raise sa.SlurmAdapterError("invalid_host_key", "known_hosts_line holds no recognisable key")
 
 
+def fingerprint(line: str) -> str:
+    """The pinned key's SHA256 fingerprint, as ``ssh-keygen -l`` prints it."""
+    _ktype, key = pinned_key(line)
+    digest = hashlib.sha256(base64.b64decode(key)).digest()
+    return "SHA256:" + base64.b64encode(digest).decode().rstrip("=")
+
+
+#: Where a credential registered through the API may live. An operator
+#: calling register_cluster in Python can name any path or variable; the API
+#: can't, so a registration request can't point the control plane at some
+#: other key or secret it happens to hold.
+API_KEY_ENV_PREFIX = "XCELSIOR_SLURM_KEY_"
+API_KEY_DIR_ENV = "XCELSIOR_SLURM_KEY_DIR"
+API_KEY_DIR_DEFAULT = "/etc/xcelsior/slurm-keys"
+
+
+def api_credential_allowed(credential_ref: str) -> bool:
+    kind, _, ref = (credential_ref or "").partition(":")
+    if kind == "env":
+        return bool(_ENV_NAME.fullmatch(ref)) and ref.startswith(API_KEY_ENV_PREFIX)
+    if kind == "file" and _PATH.fullmatch(ref):
+        base = os.path.realpath(os.environ.get(API_KEY_DIR_ENV) or API_KEY_DIR_DEFAULT)
+        return os.path.realpath(ref).startswith(base + os.sep)
+    return False
+
+
 def _identity(credential_ref: str, workdir: str) -> str:
     """The IdentityFile for this use, writing an env-held key into workdir."""
     kind, _, ref = (credential_ref or "").partition(":")

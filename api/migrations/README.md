@@ -97,7 +97,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `155_slurm_registry_transport_and_progress.py`.**
+**Repository head: `156_slurm_output_size.py`.**
+
+156 adds `slurm_job_outputs.size_bytes`: the size a job's output file had when its tail was last read. On clusters whose wrapper allows `cat` but not `tail` (Alliance), the reconciler asks `ls -l` first and reads only when the file changed and is under a cap; this is what it compares against. One idempotent unit through `lock_safe`; downgrade drops the column. The runtime floor is unchanged.
 
 155 lets a Slurm cluster be reached from the registry (plan item 1.2): `slurm_clusters` gains `ssh_host`, `ssh_port`, `remote_user`, a pinned `known_hosts_line` and a `credential_ref` (`env:NAME` or `file:/path`, never the key), and a CHECK requires the last two whenever `ssh_host` is set; rows without it keep their profile's transport. `failure_counts` keeps failed passes, accounting calls and output fetches by stage and error code for the metrics. `slurm_job_mappings` gains `derived_exit_code` (for the success verdict), `time_limit_seconds` (scheduler progress) and `left_controller_at` (what the `ending_awaiting_accounting` alert watches), and `slurm_job_outputs` accepts a `progress` stream (plan item 1.7). Three idempotent units through `lock_safe`. Downgrade deletes cached progress rows, restores 154's stream constraint and drops the columns. The runtime floor is unchanged.
 

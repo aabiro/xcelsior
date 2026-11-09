@@ -1589,6 +1589,85 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Register Hpc Cluster",
+        "description": "Register (or update) a Slurm cluster the reconciler polls.\n\nPlatform admin only, and audited. With `ssh_host`, give the host key to\npin (a known_hosts or ssh-keyscan line verified out of band) and a\n`credential_ref`: `env:XCELSIOR_SLURM_KEY_<NAME>`, or `file:` under the\nAPI's key directory. Registered disabled unless `enabled` is set; run\nthe connection check, then register again with `enabled: true`. The\nresearch-only, marketplace and agent flags come from the profile.",
+        "operationId": "api_v1_register_hpc_cluster_api_v1_hpc_clusters_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_HpcClusterIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hpc/clusters/{cluster_id}/connection-check": {
+      "post": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Check Hpc Cluster",
+        "description": "Connect to a registered cluster the way the reconciler will.\n\nRuns `scontrol ping` and `scontrol show config`, and stores the config\nfacts on the cluster. Platform admin only, and audited. A failure is the\nresult (`ok: false` with an `error_code` such as `host_key_mismatch`),\nnot an error status; an unknown cluster is 404.",
+        "operationId": "api_v1_check_hpc_cluster_api_v1_hpc_clusters__cluster_id__connection_check_post",
+        "parameters": [
+          {
+            "name": "cluster_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cluster Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/hpc/jobs": {
@@ -7769,6 +7848,99 @@
           "container_port"
         ],
         "title": "_ExposeIn"
+      },
+      "_HpcClusterIn": {
+        "properties": {
+          "profile_key": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Profile Key"
+          },
+          "cluster_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cluster Id"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "ssh_host": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 253
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ssh Host"
+          },
+          "ssh_port": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 65535.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ssh Port"
+          },
+          "remote_user": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote User"
+          },
+          "known_hosts_line": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8192
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Hosts Line"
+          },
+          "credential_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Ref"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profile_key"
+        ],
+        "title": "_HpcClusterIn"
       },
       "_HttpPortsReport": {
         "properties": {
