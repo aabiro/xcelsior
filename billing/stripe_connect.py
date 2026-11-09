@@ -702,7 +702,12 @@ class StripeConnectManager:
         ciphertext = encrypt_secret(tax_id) if tax_id else ""
         last4 = tax_id[-4:] if tax_id else ""
         provider_type = "company" if cleaned["tax_id_kind"] == "bn" else "individual"
-        business_number = tax_id if cleaned["tax_id_kind"] == "bn" and tax_id else ""
+        if cleaned["tax_id_kind"] == "bn" and tax_id:
+            business_number = tax_id
+        elif cleaned["tax_id_kind"] == "gst" and tax_id:
+            business_number = tax_id[:9]
+        else:
+            business_number = ""
         now = time.time()
         with self._conn() as conn:
             conn.execute(
@@ -729,7 +734,13 @@ class StripeConnectManager:
                      province = EXCLUDED.province,
                      postal_code = EXCLUDED.postal_code,
                      country = EXCLUDED.country,
-                     gst_hst_number = EXCLUDED.gst_hst_number,
+                     gst_hst_number = CASE
+                         WHEN EXCLUDED.tax_id_kind = 'gst'
+                          AND EXCLUDED.gst_hst_number = ''
+                          AND EXCLUDED.tax_id_ciphertext = ''
+                         THEN provider_accounts.gst_hst_number
+                         ELSE EXCLUDED.gst_hst_number
+                     END,
                      seller_terms_accepted_at = EXCLUDED.seller_terms_accepted_at,
                      business_number = CASE
                          WHEN EXCLUDED.business_number = '' THEN provider_accounts.business_number
@@ -772,6 +783,33 @@ class StripeConnectManager:
                 (provider_id,),
             ).fetchone()
         return present_provider(dict(row))
+
+    def sync_seller_address(self, provider_id: str, address: dict) -> None:
+        """Copy the account address onto an existing seller record.
+
+        Provider setup collects the address once. A missing seller row is left
+        alone; payout setup creates it later.
+        """
+        provider_id = str(provider_id or "").strip()
+        line1 = str(address.get("address_line1") or "").strip()
+        if not provider_id or not line1:
+            return
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE provider_accounts SET
+                       address_line1=%s, address_line2=%s, city=%s,
+                       province=%s, postal_code=%s, country=%s
+                   WHERE provider_id=%s""",
+                (
+                    line1,
+                    str(address.get("address_line2") or ""),
+                    str(address.get("city") or ""),
+                    str(address.get("province") or ""),
+                    str(address.get("postal_code") or ""),
+                    str(address.get("country") or ""),
+                    provider_id,
+                ),
+            )
 
     def get_provider(self, provider_id: str) -> Optional[dict]:
         """Get provider account details."""

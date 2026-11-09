@@ -39,8 +39,46 @@ services:
   bg-worker:
     env_file:
       - .env.staging
+    # The full worker registers billing_cycle and mail. Staging runs only the
+    # read-only Slurm poll here. It does not submit, charge, or send mail.
+    # Once an hour it records the shadow drift comparison for yesterday.
+    command:
+      - python
+      - -c
+      - |
+        import logging
+        import time
+
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s [slurm-poll] %(message)s",
+        )
+        from slurm_reconciler import reconcile_due_clusters, report_shadow_drift
+
+        next_drift = 0.0
+        while True:
+            try:
+                reconcile_due_clusters()
+            except Exception:
+                logging.exception("slurm poll failed")
+            if time.monotonic() >= next_drift:
+                try:
+                    report_shadow_drift()
+                except Exception:
+                    logging.exception("slurm drift report failed")
+                next_drift = time.monotonic() + 3600
+            time.sleep(30)
     environment:
       XCELSIOR_ENV: staging
+      # Alliance names are built in. xcl-local is this file, already in the image.
+      # Without it the poll records unknown_profile and writes no shadow row.
+      XCELSIOR_SLURM_PROFILES_FILE: /app/hpc/slurm-local/conf/xcelsior-profiles.json
+    healthcheck:
+      test: ["CMD", "python", "-c", "import slurm_reconciler"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
 
   # Renamed since this overlay was written: the base compose has
   # `scheduler-worker`. Naming a service the base does not define does not

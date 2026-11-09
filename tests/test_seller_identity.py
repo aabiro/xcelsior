@@ -84,12 +84,24 @@ def test_a_sin_must_pass_luhn_and_a_business_number_is_nine_digits():
     assert other["tax_id"] == "AB12CD"
 
 
+def test_a_gst_hst_number_is_a_tax_identifier():
+    cleaned = normalize_seller_profile(
+        _profile(tax_id_kind="gst", tax_id="123456789 RT 0001"),
+        require_tax_id=True,
+    )
+    assert cleaned["tax_id"] == "123456789RT0001"
+    assert cleaned["gst_hst_number"] == "123456789RT0001"
+    assert seller_profile_complete({**cleaned, "tax_id_last4": "0001", "seller_terms_accepted_at": 1700000000.0})
+    with pytest.raises(ValueError, match="123456789RT0001"):
+        normalize_seller_profile(_profile(tax_id_kind="gst", tax_id="123456789"), require_tax_id=True)
+
+
 def test_the_supplier_confirmation_and_the_address_are_required():
     with pytest.raises(ValueError, match="independent supplier"):
         normalize_seller_profile(_profile(accepted_terms=False), require_tax_id=True)
     with pytest.raises(ValueError, match="postal code"):
         normalize_seller_profile(_profile(postal_code="12345"), require_tax_id=True)
-    with pytest.raises(ValueError, match="SIN or business number"):
+    with pytest.raises(ValueError, match="SIN, business number, or GST/HST number"):
         normalize_seller_profile(_profile(tax_id=""), require_tax_id=True)
     kept = normalize_seller_profile(_profile(tax_id=""), require_tax_id=False)
     assert kept["tax_id"] == ""

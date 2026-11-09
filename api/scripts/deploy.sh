@@ -686,6 +686,71 @@ guard_prod_env() {
     success "Production .env kept as-is (local .env not pushed)"
 }
 
+# Slurm on a production deploy.
+#
+# Every deploy ships the ledger migration, the adapter, and the profile file,
+# and leaves placement off. XCELSIOR_DEPLOY_SLURM_PLACEMENT=1 is the only way
+# this script writes XCELSIOR_SLURM_PLACEMENT=1. Compose forwards that line into
+# the scheduler, so a leftover value would place jobs. Charging is not a flag
+# here: no deploy starts settle_finished_attempt. This function does not write
+# a cluster key and does not print the env file.
+rewrite_slurm_placement_env() {
+    local file="$1"
+    local flag="${XCELSIOR_DEPLOY_SLURM_PLACEMENT:-0}"
+    case "$flag" in
+        0|false|no|off) flag=0 ;;
+        1|true|yes|on) flag=1 ;;
+        *)
+            echo "XCELSIOR_DEPLOY_SLURM_PLACEMENT must be 0 or 1" >&2
+            return 2
+            ;;
+    esac
+    python3 - "$file" "$flag" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+flag = sys.argv[2]
+if not path.is_file():
+    print("slurm_placement missing_env")
+    raise SystemExit(0)
+original = path.read_text(encoding="utf-8")
+kept = []
+for line in original.splitlines(keepends=True):
+    body = line.strip()
+    key = body[7:] if body.startswith("export ") else body
+    if key.startswith("XCELSIOR_SLURM_PLACEMENT="):
+        continue
+    kept.append(line)
+text = "".join(kept)
+if flag == "1":
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += "XCELSIOR_SLURM_PLACEMENT=1\n"
+if text != original:
+    path.write_text(text, encoding="utf-8")
+print("slurm_placement", "on" if flag == "1" else "off")
+PY
+}
+
+apply_slurm_placement_policy() {
+    local flag="${XCELSIOR_DEPLOY_SLURM_PLACEMENT:-0}"
+    case "$flag" in
+        0|false|no|off) flag=0 ;;
+        1|true|yes|on) flag=1 ;;
+        *) error "XCELSIOR_DEPLOY_SLURM_PLACEMENT must be 0 or 1" ;;
+    esac
+    if [[ "$flag" == "1" ]]; then
+        log "Slurm placement flag is on for this deploy"
+    else
+        log "Slurm placement stays off for this deploy"
+    fi
+    ssh_cmd "XCELSIOR_DEPLOY_SLURM_PLACEMENT=$flag bash -s" <<EOF || error "Could not apply the Slurm placement policy"
+$(declare -f rewrite_slurm_placement_env)
+rewrite_slurm_placement_env ${DEPLOY_DIR}/.env
+EOF
+}
+
 # Build args of the frontend image; compose fills the ones not passed from the
 # host's `.env`.
 frontend_build_arg_names() {
@@ -1460,7 +1525,8 @@ api_build_hash() {
     hash_repo_subset .dockerignore Dockerfile requirements.txt alembic.ini pyproject.toml uv.lock \
         "*.py" analytics control_plane routes serverless spot templates migrations \
         "scripts/*.py" "scripts/*.sh" "scripts/*.pub" "scripts/*.sig" \
-        api auth billing core hosts privacy workers
+        api auth billing core hosts privacy workers \
+        hpc/slurm-local/conf/xcelsior-profiles.json
 }
 
 runtime_build_hash() {
@@ -2212,6 +2278,7 @@ ${CYAN}Environment variables:${NC}
   XCELSIOR_DEPLOY_BUILD_CACHE  1 (default) keep BuildKit cache between deploys
   XCELSIOR_DOCKER_BUILD_CACHE_DIR  Remote cache dir (default: /opt/xcelsior-backups/docker-build-cache)
   XCELSIOR_SSH_CONTROL_PATH  SSH mux socket (default: ~/.ssh/cm-xcelsior-%r@%h:%p)
+  XCELSIOR_DEPLOY_SLURM_PLACEMENT  1 places jobs on Slurm. Every other value leaves placement off. Charging is not a deploy switch.
 
 ${CYAN}Examples:${NC}
   # First-time setup
@@ -2302,6 +2369,7 @@ main() {
             TARGET_ENV="prod"
             resolve_env
             check_ssh
+            apply_slurm_placement_policy
             detect_deploy_inputs
             sync_code
             if [[ "$DEPLOY_INSTALL_NGINX" == true ]]; then
@@ -2349,6 +2417,7 @@ main() {
             resolve_env
             ensure_prod_worker_if_test
             check_ssh
+            apply_slurm_placement_policy
             detect_deploy_inputs
             backup_current
             sync_code
@@ -2368,6 +2437,7 @@ main() {
             TARGET_ENV="prod"
             resolve_env
             check_ssh
+            apply_slurm_placement_policy
             backup_current
             sync_code
             install_nginx_configs
@@ -2398,6 +2468,7 @@ main() {
             resolve_env
             ensure_prod_worker_if_test
             check_ssh
+            apply_slurm_placement_policy
             detect_deploy_inputs
 
             # ── Smart conditional steps ──

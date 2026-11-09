@@ -336,7 +336,8 @@ def test_an_open_slurm_submission_counts_against_the_team_cap(fleet, limit):
     assert _job_row(second)["active_attempt_id"] is None
 
 
-def test_a_settled_slurm_mapping_releases_the_team_gpu_cap(fleet):
+@pytest.mark.parametrize("limit", [dict(max_allocated_gpus=1), dict(max_concurrent_jobs=1)])
+def test_an_open_slurm_mapping_holds_the_cap_until_it_is_terminal(fleet, limit):
     marker = uuid.uuid4().hex[:8]
     model = f"SLURM-{marker}"
     owner = f"slurm-rel-{marker}"
@@ -346,7 +347,7 @@ def test_a_settled_slurm_mapping_releases_the_team_gpu_cap(fleet):
     second = f"job{marker}b"
     _host(fleet, f"host{marker}", model)
     _cluster(fleet, cluster_id)
-    _publish_cap(key, max_allocated_gpus=1)
+    _publish_cap(key, **limit)
     try:
         _job(fleet, first, gpu_model=model, cluster_id=cluster_id, owner=owner)
         held = _tick(model, slurm_placement=True)
@@ -403,6 +404,56 @@ def test_a_settled_slurm_mapping_releases_the_team_gpu_cap(fleet):
             conn.commit()
         released = _tick(model, slurm_placement=True)
         assert [item.job_id for item in released.slurm_placements] == [second]
+    finally:
+        _drop_cap(key)
+
+
+def test_one_attempt_is_not_counted_twice_against_the_team_cap(fleet):
+    """A device row and a Slurm row for the same attempt are one hold.
+
+    Caps of 2 admit the next 1-GPU job. Counting the attempt twice would
+    already be at the cap and refuse it.
+    """
+    marker = uuid.uuid4().hex[:8]
+    model = f"SLURM-{marker}"
+    owner = f"slurm-once-{marker}"
+    key = f"owner:{owner}"
+    cluster_id = f"c{marker}"
+    host_id = f"host{marker}"
+    first = f"job{marker}a"
+    second = f"job{marker}b"
+    _host(fleet, host_id, model)
+    _cluster(fleet, cluster_id)
+    _publish_cap(key, max_concurrent_jobs=2, max_allocated_gpus=2)
+    try:
+        _job(fleet, first, gpu_model=model, cluster_id=cluster_id, owner=owner)
+        held = _tick(model, slurm_placement=True)
+        assert [item.job_id for item in held.slurm_placements] == [first]
+        with _pool.connection() as conn:
+            attempt_id = conn.execute(
+                "SELECT attempt_id FROM slurm_submissions WHERE xcelsior_job_id = %s",
+                (first,),
+            ).fetchone()[0]
+            device_id = conn.execute(
+                """
+                SELECT gpu_device_id FROM host_gpu_devices
+                 WHERE host_id = %s AND retired_at IS NULL
+                 LIMIT 1
+                """,
+                (host_id,),
+            ).fetchone()[0]
+            conn.execute(
+                """
+                INSERT INTO gpu_device_allocations (attempt_id, job_id, host_id, gpu_device_id)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (attempt_id, first, host_id, device_id),
+            )
+            conn.commit()
+        _job(fleet, second, gpu_model=model, cluster_id=cluster_id, owner=owner)
+        nxt = _tick(model, slurm_placement=True)
+        assert [item.job_id for item in nxt.slurm_placements] == [second]
+        assert [job_id for job_id, code in nxt.released if code == "team_quota_exceeded"] == []
     finally:
         _drop_cap(key)
 

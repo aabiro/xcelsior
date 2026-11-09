@@ -2458,7 +2458,6 @@ class TestUserAuth:
             "name",
             "country",
             "account_type",
-            "onboarding_intent",
             "address_line1",
         }
         saved = client.patch(
@@ -2469,7 +2468,6 @@ class TestUserAuth:
                 "country": "ca",
                 "province": "on",
                 "account_type": "individual",
-                "onboarding_intent": "rent",
                 "address_line1": "1 Test Street",
                 "city": "London",
                 "postal_code": "N6A 1A1",

@@ -1,12 +1,20 @@
-"""Shadow billing rules for one Slurm accounting run (decision D8, blueprint 2.3).
+"""Shadow billing rules and settlement for one Slurm attempt (decision D8).
 
-These checks do not touch the database. The ledger row is written when a
-mapping settles; that path is covered with the reconciler.
+The rule checks do not touch the database. Settlement checks call
+``settle_finished_attempt`` on ledger rows ``write_segments`` stored.
 """
 
 from __future__ import annotations
 
+import inspect
+import json
+import uuid
+
+from psycopg.types.json import Jsonb
+
+import slurm_adapter as sa
 import slurm_billing as sb
+from db import pg_connection, pg_transaction
 
 
 def _run(**overrides):
@@ -81,3 +89,366 @@ def test_a_gpu_hour_rate_prices_the_billable_seconds():
         sb.segment_cost_micros({"cpu_hour_micros": 100}, billable_sec=70, gpu_count=1, cpu_count=4)
         is None
     )
+
+
+def _run_row(**overrides):
+    record = {
+        "state": "COMPLETED",
+        "started_at": 1_794_000_005,
+        "ended_at": 1_794_000_065,
+        "elapsed_sec": 60,
+        "suspended_sec": 0,
+        "time_limit_sec": 600,
+        "alloc_tres": "cpu=4,gres/gpu=1,node=1",
+        "submitted_at": 1_794_000_000,
+        "name": "x",
+        "raw_state": "COMPLETED",
+        "exit_code": "0:0",
+        "derived_exit_code": "0:0",
+        "node_list": "tower",
+    }
+    record.update(overrides)
+    return record
+
+
+def _settle(runs, *, holds=True):
+    """Write the shipped ledger rows, then settle them. Returns the outcome."""
+    marker = uuid.uuid4().hex[:8]
+    job_id = f"jsettle{marker}"
+    cluster_id = f"csettle{marker}"
+    customer = f"settle-{marker}"
+    card = {"gpu_hour_micros": 3_600_000}
+    with pg_transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, status, priority, submitted_at, payload, phase, desired_state,
+                effective_priority, spec
+            )
+            VALUES (%s, 'assigned', 10, 1794000000, %s, 'scheduled', 'running', 10, %s)
+            """,
+            (
+                job_id,
+                json.dumps({"owner": customer, "num_gpus": 1}),
+                Jsonb({"num_gpus": 1, "name": job_id}),
+            ),
+        )
+        attempt_id = conn.execute(
+            """
+            INSERT INTO job_attempts
+                (job_id, attempt_number, status, fencing_token, job_generation, created_by)
+            VALUES (%s, 1, 'reserved', nextval('placement_fencing_token_seq'), 1, 'test')
+            RETURNING attempt_id
+            """,
+            (job_id,),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE jobs SET active_attempt_id = %s WHERE job_id = %s",
+            (attempt_id, job_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO slurm_clusters (
+                cluster_id, profile_key, display_name, enabled, research_only,
+                marketplace, agent_access, poll_interval_seconds, rate_card,
+                suspend_holds_gres
+            )
+            VALUES (%s, 'generic', 'test', false, false, false, false, 60, %s, %s)
+            """,
+            (cluster_id, Jsonb(card), holds),
+        )
+        conn.execute(
+            """
+            INSERT INTO wallets (customer_id, balance_micros, status, created_at, updated_at)
+            VALUES (%s, %s, 'active', 1794000000, 1794000000)
+            """,
+            (customer, 100_000_000),
+        )
+    sa.register_slurm_job(
+        job_id,
+        "4242",
+        cluster_id=cluster_id,
+        attempt_id=str(attempt_id),
+        submission_name=job_id,
+    )
+    try:
+        with pg_connection() as conn:
+            mapping = conn.execute(
+                """
+                SELECT mapping_id, cluster_id, slurm_job_id, xcelsior_job_id,
+                       xcelsior_attempt_id, tenant_id
+                  FROM slurm_job_mappings WHERE xcelsior_job_id = %s
+                """,
+                (job_id,),
+            ).fetchone()
+        mapping = {
+            "mapping_id": mapping[0],
+            "cluster_id": mapping[1],
+            "slurm_job_id": mapping[2],
+            "xcelsior_job_id": mapping[3],
+            "xcelsior_attempt_id": mapping[4],
+            "tenant_id": mapping[5],
+        }
+        with pg_transaction() as conn:
+            sb.write_segments(
+                conn,
+                mapping,
+                runs,
+                {"rate_card": card, "suspend_holds_gres": holds},
+            )
+            before = sb.settle_finished_attempt(conn, str(attempt_id))
+        with pg_connection() as conn:
+            job = conn.execute(
+                "SELECT status, phase FROM jobs WHERE job_id = %s", (job_id,)
+            ).fetchone()
+            attempt = conn.execute(
+                "SELECT status FROM job_attempts WHERE attempt_id = %s", (attempt_id,)
+            ).fetchone()
+            segments = conn.execute(
+                """
+                SELECT run_index, billable_sec, billing_rule, shadow_cost_micros, charged
+                  FROM slurm_billing_segments WHERE attempt_id = %s ORDER BY run_index
+                """,
+                (attempt_id,),
+            ).fetchall()
+            debit = conn.execute(
+                """
+                SELECT COALESCE(SUM(-amount_micros), 0)
+                  FROM wallet_transactions
+                 WHERE customer_id = %s AND tx_type = 'charge'
+                """,
+                (customer,),
+            ).fetchone()[0]
+        return {
+            "result": before,
+            "job": job,
+            "attempt": attempt[0],
+            "segments": segments,
+            "debit_micros": int(debit),
+            "attempt_id": str(attempt_id),
+        }
+    finally:
+        with pg_transaction() as conn:
+            conn.execute("DELETE FROM wallet_transactions WHERE customer_id = %s", (customer,))
+            conn.execute("DELETE FROM slurm_job_mappings WHERE cluster_id = %s", (cluster_id,))
+            conn.execute("DELETE FROM slurm_clusters WHERE cluster_id = %s", (cluster_id,))
+            conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
+            conn.execute("DELETE FROM wallets WHERE customer_id = %s", (customer,))
+
+
+def test_a_job_that_never_started_settles_at_zero_and_leaves_reserved():
+    outcome = _settle(
+        [
+            _run_row(
+                state="CANCELLED",
+                raw_state="CANCELLED",
+                started_at=None,
+                ended_at=None,
+                elapsed_sec=0,
+            )
+        ]
+    )
+    assert outcome["result"]["charged_micros"] == 0
+    assert outcome["debit_micros"] == 0
+    assert outcome["segments"] == [(0, 0, "never_started", 0, True)]
+    assert outcome["job"] == ("cancelled", "stopped")
+    assert outcome["attempt"] == "cancelled"
+
+
+def test_a_timeout_with_held_gpus_charges_seventy_seconds():
+    outcome = _settle(
+        [
+            _run_row(
+                state="TIMEOUT",
+                raw_state="TIMEOUT",
+                elapsed_sec=78,
+                suspended_sec=10,
+                time_limit_sec=60,
+                ended_at=1_794_000_083,
+            )
+        ]
+    )
+    assert outcome["segments"] == [
+        (0, 70, "timeout_capped_to_limit+suspended_gres_held", 70_000, True)
+    ]
+    assert outcome["result"]["charged_micros"] == 70_000
+    assert outcome["debit_micros"] == 70_000
+    assert outcome["job"] == ("failed", "failed")
+    assert outcome["attempt"] == "failed"
+
+
+def test_suspended_time_is_free_when_the_cluster_releases_gres():
+    outcome = _settle(
+        [
+            _run_row(
+                state="TIMEOUT",
+                raw_state="TIMEOUT",
+                elapsed_sec=78,
+                suspended_sec=10,
+                time_limit_sec=60,
+            )
+        ],
+        holds=False,
+    )
+    assert outcome["segments"][0][1:4] == (
+        60,
+        "timeout_capped_to_limit+suspended_gres_released",
+        60_000,
+    )
+    assert outcome["debit_micros"] == 60_000
+    assert outcome["segments"][0][4] is True
+
+
+def test_a_requeued_job_charges_each_run_on_its_own_record():
+    outcome = _settle(
+        [
+            _run_row(
+                state="NODE_FAIL",
+                raw_state="NODE_FAIL",
+                elapsed_sec=9,
+                ended_at=1_794_000_014,
+                exit_code="1:0",
+            ),
+            _run_row(
+                state="COMPLETED",
+                raw_state="COMPLETED",
+                submitted_at=1_794_000_100,
+                started_at=1_794_000_110,
+                ended_at=1_794_000_125,
+                elapsed_sec=15,
+            ),
+        ]
+    )
+    assert [row[1:4] for row in outcome["segments"]] == [
+        (9, "requeued_run", 9_000),
+        (15, "ran_to_end", 15_000),
+    ]
+    assert all(row[4] is True for row in outcome["segments"])
+    assert outcome["debit_micros"] == 24_000
+    assert outcome["job"] == ("completed", "succeeded")
+    assert outcome["attempt"] == "succeeded"
+
+
+def test_settling_twice_does_not_charge_again():
+    marker = uuid.uuid4().hex[:8]
+    job_id = f"jtwice{marker}"
+    cluster_id = f"ctwice{marker}"
+    customer = f"twice-{marker}"
+    card = {"gpu_hour_micros": 3_600_000}
+    with pg_transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, status, priority, submitted_at, payload, phase, desired_state,
+                effective_priority, spec
+            )
+            VALUES (%s, 'assigned', 10, 1794000000, %s, 'scheduled', 'running', 10, %s)
+            """,
+            (
+                job_id,
+                json.dumps({"owner": customer}),
+                Jsonb({"num_gpus": 1}),
+            ),
+        )
+        attempt_id = conn.execute(
+            """
+            INSERT INTO job_attempts
+                (job_id, attempt_number, status, fencing_token, job_generation, created_by)
+            VALUES (%s, 1, 'reserved', nextval('placement_fencing_token_seq'), 1, 'test')
+            RETURNING attempt_id
+            """,
+            (job_id,),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE jobs SET active_attempt_id = %s WHERE job_id = %s", (attempt_id, job_id)
+        )
+        conn.execute(
+            """
+            INSERT INTO slurm_clusters (
+                cluster_id, profile_key, display_name, enabled, research_only,
+                marketplace, agent_access, poll_interval_seconds, rate_card
+            )
+            VALUES (%s, 'generic', 'test', false, false, false, false, 60, %s)
+            """,
+            (cluster_id, Jsonb(card)),
+        )
+        conn.execute(
+            """
+            INSERT INTO wallets (customer_id, balance_micros, status, created_at, updated_at)
+            VALUES (%s, 100000000, 'active', 1794000000, 1794000000)
+            """,
+            (customer,),
+        )
+    sa.register_slurm_job(job_id, "5151", cluster_id=cluster_id, attempt_id=str(attempt_id))
+    try:
+        with pg_connection() as conn:
+            mapping_row = conn.execute(
+                """
+                SELECT mapping_id, cluster_id, slurm_job_id, xcelsior_job_id,
+                       xcelsior_attempt_id, tenant_id
+                  FROM slurm_job_mappings WHERE submission_name = %s
+                """,
+                (job_id,),
+            ).fetchone()
+        mapping = dict(
+            zip(
+                (
+                    "mapping_id",
+                    "cluster_id",
+                    "slurm_job_id",
+                    "xcelsior_job_id",
+                    "xcelsior_attempt_id",
+                    "tenant_id",
+                ),
+                mapping_row,
+            )
+        )
+        with pg_transaction() as conn:
+            sb.write_segments(
+                conn,
+                mapping,
+                [_run_row(elapsed_sec=10, ended_at=1_794_000_015)],
+                {"rate_card": card, "suspend_holds_gres": True},
+            )
+            first = sb.settle_finished_attempt(conn, str(attempt_id))
+            second = sb.settle_finished_attempt(conn, str(attempt_id))
+        assert first["charged_micros"] == 10_000
+        assert second["already_settled"] is True
+        assert second["charged_micros"] == 0
+        with pg_connection() as conn:
+            debit = conn.execute(
+                """
+                SELECT COALESCE(SUM(-amount_micros), 0)
+                  FROM wallet_transactions
+                 WHERE customer_id = %s AND tx_type = 'charge'
+                """,
+                (customer,),
+            ).fetchone()[0]
+        assert int(debit) == 10_000
+    finally:
+        with pg_transaction() as conn:
+            conn.execute("DELETE FROM wallet_transactions WHERE customer_id = %s", (customer,))
+            conn.execute("DELETE FROM slurm_job_mappings WHERE cluster_id = %s", (cluster_id,))
+            conn.execute("DELETE FROM slurm_clusters WHERE cluster_id = %s", (cluster_id,))
+            conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
+            conn.execute("DELETE FROM wallets WHERE customer_id = %s", (customer,))
+
+
+def test_placement_and_the_shadow_write_do_not_call_charging():
+    import bg_worker
+    import slurm_reconciler
+    from control_plane.scheduler import slurm_placement
+
+    for source in (
+        inspect.getsource(slurm_placement.place_on_cluster),
+        inspect.getsource(slurm_reconciler._write),
+        inspect.getsource(bg_worker),
+    ):
+        assert "settle_finished_attempt" not in source
+        assert "mark_charged" not in source
+        assert "_charge_on_connection" not in source
+    drift = inspect.getsource(slurm_reconciler.report_shadow_drift)
+    assert "report_due_clusters" in drift
+    assert "settle_finished_attempt" not in drift
+    assert "mark_charged" not in drift
+    assert "_charge_on_connection" not in drift

@@ -91,6 +91,9 @@ class TestAdapterAndGateAgree:
         _sa.cluster_config_facts(profile_name=lab_profile)
         _sa.get_slurm_job_output_size("41", "g-1", profile_name=lab_profile)
         _sa.cancel_slurm_job("41", profile_name=lab_profile)
+        _sa.suspend_slurm_job("41", profile_name=lab_profile)
+        _sa.resume_slurm_job("41", profile_name=lab_profile)
+        _sa.requeue_slurm_job("41", profile_name=lab_profile)
         _sa.poll_cluster_jobs(profile_name=lab_profile)
         _sa.accounting_window(["41", "42"], since_minutes=90, profile_name=lab_profile)
         _sa.accounting_by_name(["g-1-a1", "g-2-a3"], since_minutes=90, profile_name=lab_profile)
@@ -125,6 +128,26 @@ class TestAdapterAndGateAgree:
         gate.check_script(script)
 
 
+class TestJobControlVerbs:
+    def test_suspend_resume_and_requeue_send_one_id(self, lab_profile, monkeypatch):
+        remote = _Remote()
+        monkeypatch.setattr(subprocess, "run", remote)
+        assert _sa.suspend_slurm_job("41", profile_name=lab_profile)["verb"] == "suspend"
+        assert _sa.resume_slurm_job("41", profile_name=lab_profile)["verb"] == "resume"
+        assert _sa.requeue_slurm_job("41", profile_name=lab_profile)["verb"] == "requeue"
+        cmds = [cmd for cmd, _stdin in remote.sent]
+        assert cmds == [
+            "scontrol suspend 41",
+            "scontrol resume 41",
+            "scontrol requeue 41",
+        ]
+        for cmd in cmds:
+            gate.parse(cmd)
+        refused = _sa.suspend_slurm_job("1;id", profile_name=lab_profile)
+        assert refused["error_code"] == "invalid_job_id"
+        assert [cmd for cmd, _stdin in remote.sent] == cmds
+
+
 class TestRefusedCommands:
     @pytest.mark.parametrize(
         "cmd",
@@ -136,8 +159,18 @@ class TestRefusedCommands:
             "sinfo $(id)",
             "sinfo  --version",
             "squeue -j 1 --noheader -o '%i'",
-            # scontrol: ping, --version and show config; option values can't smuggle verbs
+            # scontrol: ping, version, show config, and one-id suspend/resume/requeue.
+            # update and a list of ids stay refused.
             "scontrol -M show update NodeName=tower State=DOWN",
+            "scontrol suspend",
+            "scontrol suspend 1 2",
+            "scontrol suspend all",
+            "scontrol resume",
+            "scontrol requeue",
+            "scontrol requeue 1 Partition=xcl",
+            "scontrol requeuehold 1",
+            "scontrol hold 1",
+            "scontrol uhold 1",
             "scontrol -u show update",
             "scontrol show job 1",
             "scontrol show config extra",

@@ -418,8 +418,6 @@ def profile_missing_fields(profile: dict[str, Any]) -> list[str]:
         )
     if profile.get("account_type") not in {"individual", "business"}:
         missing.append("account_type")
-    if profile.get("onboarding_intent") not in {"rent", "provide", "both"}:
-        missing.append("onboarding_intent")
     if (
         profile.get("account_type") == "business"
         and not str(profile.get("business_name") or "").strip()
