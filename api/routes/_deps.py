@@ -197,6 +197,13 @@ PUBLIC_PATHS = {
     # itself. The code is the credential. The handler returns 404 for an
     # unknown code and does not include account or sink evidence.
     "/api/privacy/deletion-status",
+    # The unsubscribe link in a product-update email and the mail client's
+    # one-click button (RFC 8058) POST here with no session. The signed token is
+    # the credential: it can withdraw only the one purpose it names for the one
+    # account it names, and the handler answers 400 to anything else. Public
+    # paths skip the general rate limiter, so the handler applies the auth rate
+    # limit itself.
+    "/api/v2/privacy/unsubscribe",
 }
 PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/", "/static/")
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")

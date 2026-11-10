@@ -345,6 +345,26 @@ def test_the_link_unsubscribes_without_signing_in_and_twice_is_fine(client, subs
     assert again.status_code == 200
 
 
+def test_the_unsubscribe_path_is_open_to_a_caller_with_no_session():
+    """The half the in-process suite cannot see.
+
+    These tests run with auth enforcement relaxed, where an anonymous request
+    reaches the handler anyway. With enforcement on (staging, production) the
+    middleware answered 401 before the handler ran, so every link and every
+    one-click unsubscribe failed. Found on staging on 2026-11-10.
+    """
+    from routes._deps import PUBLIC_PATH_PREFIXES, PUBLIC_PATHS
+
+    path = "/api/v2/privacy/unsubscribe"
+    assert path in PUBLIC_PATHS or path.startswith(PUBLIC_PATH_PREFIXES)
+    # The handler limits itself because public paths skip the general limiter.
+    import inspect
+
+    from routes.privacy import api_privacy_unsubscribe
+
+    assert "_check_auth_rate_limit" in inspect.getsource(api_privacy_unsubscribe)
+
+
 def test_a_bad_link_unsubscribes_nobody(client, subscriber):
     _email, user_id = subscriber
     for body in ({"token": "not-a-token"}, {"token": ""}, {}):
