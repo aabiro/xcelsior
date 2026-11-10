@@ -129,6 +129,10 @@
   100% { opacity: 1; transform: translateY(0); }
 }
 
+/* Anything pinned to the viewport (position: fixed) that has controls must sit
+   above this z-index or clear the navbar's 67px: content scrolls back out from
+   under the navbar, pinned layers never do. e2e/marketing-navbar-overlap.spec.ts
+   checks every marketing page. */
 .site-nav {
   position: sticky;
   top: 0;
@@ -136,6 +140,12 @@
   border-bottom: 1px solid var(--line);
   background: var(--panel);
   backdrop-filter: blur(22px);
+}
+
+/* Whatever the browser scrolls to, an in-page #link or a control reached with
+   Tab, stops below the navbar instead of under it. 66px bar + 1px border. */
+html:has(.site-nav) {
+  scroll-padding-top: 67px;
 }
 
 .site-container {
