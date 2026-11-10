@@ -216,10 +216,22 @@ def test_funded_bridge_cannot_reach_host_services():
     ]
 
 
+def test_forward_dispatch_is_anchored_in_forward_itself_and_in_docker_user():
+    """CVP-01 T2 (2026-11-10): a host had ``-A FORWARD -o tailscale0 -j ACCEPT``
+    ahead of the DOCKER-USER jump, and tenant containers reached every mesh
+    address. The dispatch must be the first rule of FORWARD, so nothing a
+    VPN, ufw or an operator inserts can run before the tenant chains; the
+    DOCKER-USER copy stays because Docker recreates that chain."""
+    hooks = [(chain, rule) for cmd, chain, rule in egress.HOOKS if cmd is egress.IPT]
+    assert hooks[0] == ("FORWARD", ["-j", egress.DISPATCH_FWD])
+    assert ("DOCKER-USER", ["-j", egress.DISPATCH_FWD]) in hooks
+    assert ("INPUT", ["-j", egress.DISPATCH_IN]) in hooks
+
+
 def test_hooks_dispatch_only_our_bridges():
     rules = egress.chain_rules()
     assert egress.HOOKS[0][2] == ["-j", egress.DISPATCH_FWD]
-    assert egress.HOOKS[1][2] == ["-j", egress.DISPATCH_IN]
+    assert egress.HOOKS[2][2] == ["-j", egress.DISPATCH_IN]
     assert rules[egress.DISPATCH_FWD] == [
         ["-i", egress.BRIDGE, "-j", egress.OUT_CHAIN],
         ["-i", egress.FUNDED_BRIDGE, "-j", egress.FUNDED_OUT_CHAIN],
