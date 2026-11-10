@@ -242,3 +242,47 @@ def test_the_production_export_setup_is_the_root_cause_and_is_documented():
     """
     script = Path(__file__).resolve().parents[1] / "api" / "scripts" / "setup_nfs_vps.sh"
     assert "no_root_squash" in script.read_text()
+
+
+# ── D1: single-row lookups where a whole-table scan used to be ──────────
+
+
+def test_agent_ssh_keys_looks_the_job_up_by_id(monkeypatch):
+    """A whole-table ``list_jobs()`` here timed out on a 137k-row database and
+    made the worker skip key injection silently (T1 defect D1)."""
+    from fastapi.testclient import TestClient
+
+    import routes.agent as agent
+    import scheduler
+    from api import app
+
+    monkeypatch.setattr(agent, "_require_agent_auth", lambda *a, **k: {"host_id": "h"})
+    monkeypatch.setattr(agent, "list_jobs", mock.Mock(side_effect=AssertionError("scanned")))
+    monkeypatch.setattr(scheduler, "get_job", lambda job_id: None)
+    assert TestClient(app).get("/agent/ssh-keys/nope").status_code == 404
+    monkeypatch.setattr(scheduler, "get_job", lambda job_id: {"job_id": job_id, "owner": ""})
+    assert TestClient(app).get("/agent/ssh-keys/j1").json() == {"ok": True, "keys": []}
+
+
+def test_terminal_ticket_looks_the_instance_up_by_id(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import routes.terminal as terminal
+    import scheduler
+    from api import app
+
+    monkeypatch.setattr(terminal, "_require_auth", lambda request: {"email": "c@example.test"})
+    monkeypatch.setattr(terminal, "_require_scope", lambda *a, **k: None)
+    monkeypatch.setattr(terminal, "list_jobs", mock.Mock(side_effect=AssertionError("scanned")))
+    seen = []
+
+    def check(user, instance, instance_id=None):
+        seen.append((instance, instance_id))
+        from fastapi import HTTPException
+
+        raise HTTPException(404, "stop here")
+
+    monkeypatch.setattr(terminal, "_check_terminal_access", check)
+    monkeypatch.setattr(scheduler, "get_job", lambda job_id: {"job_id": job_id})
+    r = TestClient(app).post("/api/terminal/ticket", json={"instance_id": "abc12345"})
+    assert r.status_code == 404 and seen == [({"job_id": "abc12345"}, "abc12345")]
