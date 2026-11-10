@@ -291,6 +291,31 @@ class TestWhenAJobIsFinished:
         r = row(xid)
         assert r["observed"] == "completed" and r["terminal"]
 
+    def test_a_requeued_run_keeps_its_end_in_the_ledger(self, cluster):
+        # Found in the 2.3 shadow week: the requeued run of Slurm job 298 was
+        # stored with no ended_at, so the daily drift (which picks runs by end
+        # time) skipped it on both sides and could not see a requeue at all.
+        xid = cluster(305)
+        runs = [
+            cluster.a("305", "REQUEUED", submit=1794000000, start=1794000000, end=1794000075, elapsed=75),
+            cluster.a("305", "COMPLETED", submit=1794000077, start=1794000090, end=1794000391, elapsed=301),
+        ]
+        run_pass(cluster, FakeCluster(squeue=[], sacct=runs))
+        with pg_connection() as conn:
+            ends = conn.execute(
+                """
+                SELECT s.run_index, s.slurm_state, EXTRACT(EPOCH FROM s.ended_at)
+                  FROM slurm_billing_segments s
+                  JOIN slurm_job_mappings m ON m.mapping_id = s.mapping_id
+                 WHERE m.xcelsior_job_id = %s ORDER BY s.run_index
+                """,
+                (xid,),
+            ).fetchall()
+        assert [(i, st, float(e)) for i, st, e in ends] == [
+            (0, "REQUEUED", 1794000075.0),
+            (1, "COMPLETED", 1794000391.0),
+        ]
+
     def test_running_in_accounting_but_not_in_squeue_stays_open(self, cluster):
         xid = cluster(304)
         run_pass(

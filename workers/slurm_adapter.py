@@ -1507,9 +1507,11 @@ def _window_records(stdout: str, profile: dict, keep) -> dict:
         if epoch_env:
             submitted = _epoch_or_none(row["Submit"])
             started = _epoch_or_none(row["Start"])
-            ended = _epoch_or_none(row["End"]) if finished else None
+            end_if_over = _epoch_or_none(row["End"])
+            ended = end_if_over if finished else None
         else:
             submitted, started, ended = _local_times(row, tz_name, elapsed, finished)
+            end_if_over = ended if finished else _local_times(row, tz_name, elapsed, True)[2]
         limit = row["TimelimitRaw"].strip()
         records.setdefault(row["JobIDRaw"], []).append(
             {
@@ -1529,10 +1531,22 @@ def _window_records(stdout: str, profile: dict, keep) -> dict:
                 "derived_exit_code": row["DerivedExitCode"],
                 "alloc_tres": row["AllocTRES"],
                 "node_list": row["NodeList"],
+                "_end_if_over": end_if_over,
             }
         )
     for runs in records.values():
         runs.sort(key=lambda rec: rec["submitted_at"] or 0.0)
+        # A run with a later run under the same id is over, whatever its state
+        # says: REQUEUED (or a requeued PREEMPTED/NODE_FAIL) names the job's
+        # fate, not the run's. Without its End the ledger stored the run with no
+        # ended_at, and the daily drift, which selects runs by end time, skipped
+        # every requeued run on both sides (found in the 2.3 shadow week). The
+        # latest run keeps the rule above; settling reads only that one.
+        for earlier in runs[:-1]:
+            if earlier["ended_at"] is None:
+                earlier["ended_at"] = earlier["_end_if_over"]
+        for run in runs:
+            run.pop("_end_if_over", None)
     return records
 
 
