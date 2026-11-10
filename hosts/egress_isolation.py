@@ -7,7 +7,7 @@ private ranges and host services dropped. ``egress: "open"`` remains an
 administrator decision and is the only mode that leaves the isolated bridges
 (``abuse_policy.egress_for_owner``). On the restricted bridge the host:
 
-* drops every connection a container starts towards another machine (FORWARD,
+* drops every connection a container starts towards another machine (first rule of FORWARD, and again
   via DOCKER-USER) but passes replies to connections made *to* it, so renter
   SSH and exposed ports keep working;
 * drops everything a container sends to the host itself except the proxy port
@@ -195,7 +195,16 @@ def chain_rules() -> dict[str, list[list[str]]]:
 
 
 # (command, chain, rule): each must be the first rule of its chain.
+#
+# The forward dispatch is anchored in FORWARD itself, not only in DOCKER-USER.
+# Docker jumps to DOCKER-USER early, but anything inserted ahead of that jump
+# decides first: on 2026-11-10 (CVP-01 T2) a host carried
+# ``-A FORWARD -o tailscale0 -j ACCEPT`` above DOCKER-USER, and every tenant
+# container could open TCP connections to every mesh address (control plane,
+# storage, other providers) with the tenant chains never consulted. The
+# DOCKER-USER hook stays as well, because Docker recreates that chain.
 HOOKS = (
+    (IPT, "FORWARD", ["-j", DISPATCH_FWD]),
     (IPT, "DOCKER-USER", ["-j", DISPATCH_FWD]),
     (IPT, "INPUT", ["-j", DISPATCH_IN]),
     (IP6T, "FORWARD", ["-j", DISPATCH_V6]),
