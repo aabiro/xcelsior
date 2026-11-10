@@ -502,3 +502,23 @@ def test_placement_and_the_shadow_write_do_not_call_charging():
     assert "settle_finished_attempt" not in drift
     assert "mark_charged" not in drift
     assert "_charge_on_connection" not in drift
+
+
+def test_the_parser_ends_every_run_but_the_latest_by_its_successor():
+    # REQUEUED names the job's fate; a run with a later run under the same id
+    # is over. The latest run still follows the finished-state rule.
+    fields = "JobIDRaw|JobName|State|Submit|Start|End|ElapsedRaw|ExitCode|AllocTRES|NodeList|DerivedExitCode|Suspended|TimelimitRaw"
+    assert fields.split("|") == list(sa._WINDOW_FIELDS)
+    lines = "\n".join(
+        [
+            "7|xcl-j-a1|REQUEUED|1000|1000|1075|75|0:0|gres/gpu=1|tower|0:0|00:00:00|10",
+            "7|xcl-j-a1|PENDING|1077|Unknown|Unknown|0|0:0||None|0:0|00:00:00|10",
+            "8|xcl-k-a1|REQUEUED|1100|1100|1130|30|0:0|gres/gpu=1|tower|0:0|00:00:00|10",
+        ]
+    )
+    records = sa._window_records(lines, {}, lambda row: True)
+    first, pending = records["7"]
+    assert first["ended_at"] == 1075.0 and pending["ended_at"] is None
+    # A lone REQUEUED run is the latest one: no successor yet, no end.
+    assert records["8"][0]["ended_at"] is None
+    assert all("_end_if_over" not in run for runs in records.values() for run in runs)
