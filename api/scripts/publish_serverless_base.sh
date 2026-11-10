@@ -144,15 +144,29 @@ echo "pushed: ${digest:-$versioned}"
 
 step "anonymous pull check"
 repo="${IMAGE#ghcr.io/}"
-token="$(curl -fsS "https://ghcr.io/token?scope=repository:$repo:pull" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token", ""))')"
-code="$(curl -s -o /dev/null -w '%{http_code}' \
-  -H "Authorization: Bearer $token" \
-  -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json' \
-  "https://ghcr.io/v2/$repo/manifests/$FLAVOUR-$short")"
+# GHCR refuses a private package at the token request itself (401), so that
+# refusal is this check's answer, not a reason to stop before reporting it.
+token_resp="$(curl -sS -w '\n%{http_code}' \
+  "https://ghcr.io/token?scope=repository:$repo:pull&service=ghcr.io")" || token_resp=$'\n000'
+code="${token_resp##*$'\n'}"
 if [[ "$code" == 200 ]]; then
-  echo "anonymous pull works: customer workers can use FROM $moving"
-else
-  echo "anonymous pull refused (HTTP $code): the package is still private." >&2
-  echo "Set it public once: $SETTINGS_URL" >&2
-  exit 3
+  token="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])' <<<"${token_resp%$'\n'*}")"
+  code="$(curl -s -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $token" \
+    -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+    "https://ghcr.io/v2/$repo/manifests/$FLAVOUR-$short")" || code=000
 fi
+case "$code" in
+  200)
+    echo "anonymous pull works: customer workers can use FROM $moving" ;;
+  401 | 403)
+    echo "anonymous pull refused (HTTP $code): the push worked, but the package is private." >&2
+    echo "The public aabiro/xcelsior repo does not make it public: the package lives under" >&2
+    echo "the xcelsior-gpu org, so it has its own visibility. Set it public once:" >&2
+    echo "  $SETTINGS_URL" >&2
+    exit 3 ;;
+  *)
+    echo "anonymous pull check got HTTP $code from ghcr.io, so it could not tell whether" >&2
+    echo "the package is public. The push worked; check by hand with a logged-out docker pull." >&2
+    exit 4 ;;
+esac
