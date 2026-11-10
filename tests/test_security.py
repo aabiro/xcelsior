@@ -14,6 +14,7 @@ from security import (
     admit_node,
     build_secure_docker_args,
     container_cpu_limit,
+    container_memory_limit,
     check_mining_heuristic,
     check_node_versions,
     is_gvisor_available,
@@ -214,21 +215,77 @@ class TestBuildSecureDockerArgs:
             "python:3.12", "test-job", runtime="runc", gpu_device_uuids=["GPU-test-1"]
         )
         idx = args.index("--cpus")
-        assert args[idx + 1] == "12"
+        assert args[idx + 1] == "11"
 
 
 class TestContainerCpuLimit:
-    def test_caps_to_host_when_below_ceiling(self, monkeypatch):
+    def test_host_keeps_one_cpu_for_itself(self, monkeypatch):
         monkeypatch.setattr("security.os.cpu_count", lambda: 12)
-        assert container_cpu_limit() == "12"
+        assert container_cpu_limit() == "11"
 
     def test_uses_explicit_host_cpus(self, monkeypatch):
         monkeypatch.setattr("security.os.cpu_count", lambda: 64)
-        assert container_cpu_limit(12) == "12"
+        assert container_cpu_limit(12) == "11"
 
     def test_ceiling_default_16(self, monkeypatch):
         monkeypatch.setattr("security.os.cpu_count", lambda: 32)
         assert container_cpu_limit() == "16"
+
+    def test_small_hosts_reserve_nothing_and_never_reach_zero(self):
+        assert container_cpu_limit(2) == "2"
+        assert container_cpu_limit(1) == "1"
+
+    def test_reserve_is_configurable(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_HOST_CPU_RESERVE", "4")
+        assert container_cpu_limit(12) == "8"
+        monkeypatch.setenv("XCELSIOR_HOST_CPU_RESERVE", "99")
+        assert container_cpu_limit(12) == "1"
+
+
+class TestContainerMemoryLimit:
+    GIB = 1024**3
+
+    def test_sixteen_gib_host_keeps_two_for_itself(self):
+        assert container_memory_limit(16 * self.GIB) == f"{14 * 1024}m"
+
+    def test_large_host_is_capped_at_the_ceiling(self):
+        assert container_memory_limit(256 * self.GIB) == f"{32 * 1024}m"
+
+    def test_reserve_grows_with_the_host(self):
+        # 32 GiB host: an eighth (4 GiB) is more than the 2 GiB floor.
+        assert container_memory_limit(32 * self.GIB) == f"{28 * 1024}m"
+
+    def test_share_divides_what_is_usable(self):
+        assert container_memory_limit(64 * self.GIB, share=0.25) == f"{14 * 1024}m"
+
+    def test_unknown_ram_keeps_the_ceiling(self, monkeypatch):
+        monkeypatch.setattr("security._host_memory_bytes", lambda: None)
+        assert container_memory_limit() == f"{32 * 1024}m"
+
+    def test_ceiling_is_configurable(self, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_CONTAINER_MEMORY_MAX_GB", "8")
+        assert container_memory_limit(64 * self.GIB) == f"{8 * 1024}m"
+
+    def test_limit_never_exceeds_the_host(self, monkeypatch):
+        monkeypatch.setattr("security._host_memory_bytes", lambda: 16 * self.GIB)
+        args = build_secure_docker_args(
+            "python:3.12", "test-job", runtime="runc", gpu_device_uuids=["GPU-test-1"]
+        )
+        assert args[args.index("--memory") + 1] == f"{14 * 1024}m"
+        assert args[args.index("--memory-swap") + 1] == f"{14 * 1024}m"
+        assert args[args.index("--cpu-shares") + 1] == "512"
+        assert "--storage-opt" not in args
+
+    def test_disk_quota_is_added_only_when_asked(self):
+        args = build_secure_docker_args(
+            "python:3.12",
+            "test-job",
+            runtime="runc",
+            gpu_device_uuids=["GPU-test-1"],
+            interactive=True,
+            disk_quota_gb=100,
+        )
+        assert args[args.index("--storage-opt") + 1] == "size=100g"
 
 
 # ── Egress Rules ─────────────────────────────────────────────────────
