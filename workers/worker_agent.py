@@ -7997,12 +7997,18 @@ def mining_detection_loop():
     The heuristic reads whole-GPU telemetry, so a hit is attributed to the
     job containers actually holding a compute context on that GPU. Load from
     non-job processes is ignored (no alert, no kill), and only the suspect
-    containers on the flagged GPU are ever killed. If attribution is
-    unavailable we fall back to treating every active job as a suspect,
-    which preserves the protection the detector existed for.
+    containers on the flagged GPU are ever killed.
+
+    If attribution is unavailable nothing is killed. The old fallback treated
+    every active job as a suspect, so one unreadable NVML process list could
+    end every tenant's job on the host and mark each account for mining
+    (blocked job, account review, funded egress revoked) for load none of them
+    may have caused. The control plane is still told, once per episode, so an
+    operator can look; the response stays with the workload that can be named.
     """
     consecutive = {}  # gpu index -> consecutive detections
     host_load_logged = set()
+    unattributed_reported = set()
 
     while not _shutdown.is_set():
         # Wait for the check interval (interruptible)
@@ -8018,16 +8024,27 @@ def mining_detection_loop():
             if not is_mining:
                 consecutive[idx] = max(0, consecutive.get(idx, 0) - 1)
                 host_load_logged.discard(idx)
+                unattributed_reported.discard(idx)
                 continue
 
             with _active_lock:
                 active = dict(_active_containers)
             suspects = _job_containers_on_gpu(idx, active) if active else {}
             if suspects is None:
-                log.debug(
-                    "GPU %d: process attribution unavailable; all active jobs are suspects", idx
-                )
-                suspects = active
+                consecutive[idx] = 0
+                if idx not in unattributed_reported:
+                    log.warning(
+                        "GPU %d matches the mining signature but its processes cannot be "
+                        "attributed to a job; reporting only, killing nothing (%s)",
+                        idx,
+                        reason,
+                    )
+                    report_mining_alert(
+                        idx, confidence, f"{reason}; attribution unavailable, no action taken"
+                    )
+                    unattributed_reported.add(idx)
+                continue
+            unattributed_reported.discard(idx)
             if not suspects:
                 consecutive[idx] = 0
                 if idx not in host_load_logged:
