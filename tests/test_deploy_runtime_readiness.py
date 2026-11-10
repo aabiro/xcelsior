@@ -63,6 +63,16 @@ def test_promotion_waits_for_dependencies(statuses: list[int], expected: int) ->
     assert requests == ["/readyz"] * len(statuses)
 
 
+def test_cache_preserving_deploy_prunes_dangling_cache_only() -> None:
+    script = _function("deploy_docker")
+    start = script.index('if [[ "$DEPLOY_BUILD_CACHE" == "1" ]]; then')
+    cache_on, cache_off = script[start:].split("else", 1)
+    assert "docker image prune -f" in cache_on
+    assert "docker builder prune -f" in cache_on
+    assert "prune -a" not in cache_on
+    assert "docker builder prune -af --keep-storage=1G" in cache_off
+
+
 def test_readiness_gates_the_swap_and_final_success() -> None:
     script = _function("deploy_docker")
     standby = script.index('if ! wait_for_api_readiness "$standby_port"; then')
