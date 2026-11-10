@@ -79,6 +79,56 @@ def test_drift_compares_raw_elapsed_gpu_seconds_not_the_suspension_rule():
     assert report["unmatched"]["differing"] == []
 
 
+def _acct_run(name, sid_submit, elapsed, gpus=1, ended=1_500.0):
+    return {
+        "name": name,
+        "ended_at": ended,
+        "submitted_at": sid_submit,
+        "elapsed_sec": elapsed,
+        "suspended_sec": 0,
+        "alloc_tres": f"cpu=2,gres/gpu={gpus},node=1" if gpus else "cpu=2,node=1",
+    }
+
+
+def test_drift_counts_only_what_the_platform_submitted():
+    # 2026-11-08 on staging read 100 %: every run that day was the validation
+    # kit's own suite, named xcl-… by the adapter but never submitted through
+    # the platform, so no ledger row could exist for it.
+    records = {
+        "7": [_acct_run("xcl-jabc-a1", 1_000, 120)],
+        "8": [_acct_run("xcl-scen-requeue", 1_010, 300)],
+        "9": [_acct_run("xcl-suite-v3", 1_020, 27)],
+    }
+    segments = [("7", 1_000, 120, 1)]
+    report = sb.compare_day(
+        records, segments, start=1_000.0, end=2_000.0, platform_names={"7": {"xcl-jabc-a1"}}
+    )
+    assert (report["sacct_gpu_seconds"], report["ledger_gpu_seconds"]) == (120, 120)
+    assert report["drift_pct"] == 0.0
+    assert report["unmatched"]["unattributed"] == ["8@1010", "9@1020"]
+    assert report["unmatched"]["unattributed_gpu_seconds"] == 327
+
+
+def test_a_platform_run_missing_from_the_ledger_is_still_drift():
+    records = {"7": [_acct_run("xcl-jabc-a1", 1_000, 120)]}
+    report = sb.compare_day(
+        records, [], start=1_000.0, end=2_000.0, platform_names={"7": {"xcl-jabc-a1"}}
+    )
+    assert report["drift_pct"] == 100.0
+    assert report["unmatched"]["only_in_sacct"] == ["7@1000"]
+
+
+def test_a_reused_slurm_id_is_matched_by_name_not_by_id_alone():
+    # A rebuilt controller renumbers from 1, so id 7 can be a kit job today and
+    # a platform job's id in the mappings table from another day.
+    records = {"7": [_acct_run("xcl-suite-v3", 1_000, 60)]}
+    report = sb.compare_day(
+        records, [], start=1_000.0, end=2_000.0, platform_names={"7": {"xcl-jabc-a1"}}
+    )
+    assert report["sacct_gpu_seconds"] == 0 and report["drift_pct"] == 0.0
+    assert report["unmatched"]["unattributed"] == ["7@1000"]
+
+
 def test_a_gpu_hour_rate_prices_the_billable_seconds():
     card = {"gpu_hour_micros": 3_600_000}
     assert sb.segment_cost_micros(card, billable_sec=70, gpu_count=1, cpu_count=4) == 70_000
