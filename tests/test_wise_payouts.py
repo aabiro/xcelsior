@@ -928,3 +928,131 @@ def test_no_wise_route_accepts_an_amount():
         seen.update(names)
     # The check above is only worth something if it saw the request bodies.
     assert {"recipient_id", "account_holder_name", "confirm_no_transfer"} <= seen
+
+
+# ── Funding position and the top-up notice ───────────────────────────
+
+
+@pytest.fixture
+def notices(monkeypatch):
+    import scheduler
+
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        scheduler,
+        "send_email",
+        lambda subject, body, to_email=None: sent.append((subject, body)) or True,
+    )
+    monkeypatch.setattr(wise, "_last_topup_notice", (0.0, 0))
+    return sent
+
+
+def test_funding_position_counts_what_is_approved_against_the_balance(wise_env, provider):
+    fake, client = wise_env
+    fake.balance = "0.00"
+    before = wise.funding_position(client=client)
+    _approved_payout(provider, fake, client)
+    after = wise.funding_position(client=client)
+    assert after["committed_micros"] - before["committed_micros"] == 102_000_000
+    assert after["shortfall_micros"] == after["committed_micros"]
+    fake.balance = "1000000.00"
+    assert wise.funding_position(client=client)["shortfall_micros"] == 0
+
+
+def test_a_payout_waiting_for_approval_is_not_a_shortfall_yet(wise_env, provider):
+    fake, client = wise_env
+    fake.balance = "0.00"
+    before = wise.funding_position(client=client)
+    _linked(provider, fake, client)
+    _end_cooloff(provider["provider_id"])
+    wise.batch_queued_settlements(provider_id=provider["provider_id"])
+    after = wise.funding_position(client=client)
+    assert after["committed_micros"] == before["committed_micros"]
+    assert after["pending_approval_micros"] - before["pending_approval_micros"] == 102_000_000
+    assert (
+        after["shortfall_if_all_approved_micros"] - before["shortfall_if_all_approved_micros"]
+        == 102_000_000
+    )
+
+
+def test_the_operator_is_told_once_how_much_to_add(wise_env, provider, notices):
+    fake, client = wise_env
+    fake.balance = "2.00"
+    _approved_payout(provider, fake, client)
+    first = wise.notify_topup_needed(client=client, now=1000.0)
+    assert first["notified"] is True
+    again = wise.notify_topup_needed(client=client, now=1100.0)
+    assert again["notified"] is False
+    assert len(notices) == 1
+    subject, body = notices[0]
+    assert wise.micros_to_amount(first["shortfall_micros"]) in subject
+    # An amount, and nothing that names a provider or an account.
+    assert provider["provider_id"] not in body and "recipient" not in body.lower()
+    # Still short six hours later: said again.
+    assert wise.notify_topup_needed(client=client, now=1000.0 + 6 * 3600 + 1)["notified"] is True
+
+
+def test_a_larger_shortfall_is_reported_without_waiting(wise_env, provider, notices):
+    fake, client = wise_env
+    fake.balance = "50.00"
+    _approved_payout(provider, fake, client)
+    wise.notify_topup_needed(client=client, now=1000.0)
+    fake.balance = "10.00"
+    assert wise.notify_topup_needed(client=client, now=1010.0)["notified"] is True
+    assert len(notices) == 2
+
+
+def test_a_covered_balance_sends_nothing_and_resets_the_notice(wise_env, provider, notices):
+    fake, client = wise_env
+    fake.balance = "2.00"
+    _approved_payout(provider, fake, client)
+    wise.notify_topup_needed(client=client, now=1000.0)
+    fake.balance = "1000000.00"
+    assert wise.notify_topup_needed(client=client, now=1010.0)["notified"] is False
+    fake.balance = "2.00"
+    assert wise.notify_topup_needed(client=client, now=1020.0)["notified"] is True
+    assert len(notices) == 2
+
+
+def test_admin_status_shows_the_amount_to_add(wise_env, provider):
+    fake, client = wise_env
+    fake.balance = "2.00"
+    _approved_payout(provider, fake, client)
+    status = wise.rail_status(client=client)
+    assert status["balance_cad"] == 2.0
+    assert status["top_up_needed_cad"] == status["committed_cad"] - 2.0
+    assert status["top_up_needed_cad"] >= 100.0
+
+
+def test_an_unfunded_transfer_is_funded_after_the_balance_is_topped_up(
+    wise_env, provider, monkeypatch
+):
+    fake, client = wise_env
+    fake.quoted(102.0)
+    monkeypatch.setenv("XCELSIOR_WISE_AUTO_FUND", "1")
+    fake.balance = "50.00"
+    payout = _approved_payout(provider, fake, client)
+    wise.execute_approved_payouts(client=client)
+
+    wise.reconcile_open_payouts(client=client)
+    assert not any(path.endswith("/payments") for _m, path in fake.calls)
+
+    fake.balance = "500.00"
+    wise.reconcile_open_payouts(client=client)
+    assert sum(path.endswith("/payments") for _m, path in fake.calls) == 1
+    row = _one("SELECT status, error FROM wise_payouts WHERE id = %s", (payout["id"],))
+    assert row["status"] == "funded" and not row["error"]
+
+
+def test_manual_funding_never_pays_from_the_balance_by_itself(wise_env, provider):
+    fake, client = wise_env
+    fake.quoted(102.0)
+    fake.balance = "500.00"
+    payout = _approved_payout(provider, fake, client)
+    wise.execute_approved_payouts(client=client)
+    wise.reconcile_open_payouts(client=client)
+    assert not any(path.endswith("/payments") for _m, path in fake.calls)
+    assert (
+        _one("SELECT status FROM wise_payouts WHERE id = %s", (payout["id"],))["status"]
+        == "awaiting_funding"
+    )
