@@ -920,9 +920,15 @@ def xcelsior_job_to_sbatch(
         mem_gb = int(profile["mem_base_gb"]) + int(profile["mem_per_gpu_gb"]) * gpus_per_node
     lines.append(f"#SBATCH --mem={mem_gb}G")
 
-    # Email notifications (optional)
+    # Email notifications (optional). A profile can turn them off: the xcl-local
+    # gate refuses --mail-user (the kit has no mail), and any environment that
+    # sets XCELSIOR_SLURM_EMAIL otherwise got every submission rejected there.
     email = os.environ.get("XCELSIOR_SLURM_EMAIL", "")
-    if email and re.match(r"^[^\s@]+@[^\s@]+$", email):
+    if (
+        email
+        and profile.get("mail_notifications", True)
+        and re.match(r"^[^\s@]+@[^\s@]+$", email)
+    ):
         lines.append(f"#SBATCH --mail-user={email}")
         lines.append("#SBATCH --mail-type=END,FAIL")
 
