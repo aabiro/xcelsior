@@ -661,6 +661,13 @@ def _brand_mark(name: str) -> str:
     return "data:image/svg+xml;base64," + base64.b64encode(svg).decode("ascii")
 
 
+#: How long the "Authentication complete" page stays up before it hands the
+#: browser back to the app. At 1.2 s the page flashed past and read as a jolt;
+#: the user asked for at least two seconds more. The handoff bar fills over the
+#: same time, so the wait reads as intentional rather than stalled.
+_OAUTH_RETURN_DELAY_MS = 3200
+
+
 def _oauth_page(*, title: str, content: str, wide: bool = False, script: str = "") -> str:
     """Use the site's canonical brand and auth theme without its application bundle."""
     import html as _html
@@ -769,16 +776,21 @@ def _oauth_page(*, title: str, content: str, wide: bool = False, script: str = "
   .returning { padding-top: 24px; margin: 25px 0 0; border-top: 1px solid var(--line);
     color: var(--text); font-size: 13px; }
   .returning span { color: var(--muted); }
-  .handoff { height: 2px; width: 96px; margin: 28px auto 0; border-radius: 3px;
-    background: linear-gradient(90deg, var(--cyan), var(--violet)); }
+  .handoff { position: relative; overflow: hidden; height: 2px; width: 96px;
+    margin: 28px auto 0; border-radius: 3px; background: var(--line); }
+  .handoff::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+    background: linear-gradient(90deg, var(--cyan), var(--violet));
+    transform-origin: left center; animation: handoff-fill __HANDOFF_MS__ms linear forwards; }
+  @keyframes handoff-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
   .result .foot { margin-top: 19px; }
   @media (max-width: 540px) { body { padding: 20px 14px; }
     main { padding: 28px 22px; border-radius: 20px; }
     .brand { margin-bottom: 27px; } .brand-mark { width: 38px; height: 38px; }
     .brand-wordmark { height: 21px; } .permissions { max-height: 42vh; }
     .permission-heading { align-items: flex-start; flex-direction: column; gap: 4px; } }
-  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
-"""
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; }
+    .handoff::after { animation: none; } }
+""".replace("__HANDOFF_MS__", str(_OAUTH_RETURN_DELAY_MS))
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -967,15 +979,28 @@ def _oauth_decision_page(
     # Escape '<' as well as JSON syntax so an unexpected metadata value cannot
     # close the inline script element while preserving the exact callback URL.
     callback_json = _json.dumps(callback_url).replace("<", "\\u003c")
+    # A desktop app or CLI receives the code on a port it opened for this
+    # sign-in. If it gave up waiting (some close it after a minute), the
+    # browser shows "can't be reached" and our page is gone, so say so first.
+    loopback_hint = (
+        f'<p class="foot">If your browser then says the page can’t be reached, {client_name} '
+        "stopped waiting for this sign-in. Start the connection again from the app.</p>"
+        if approved and is_loopback
+        else ""
+    )
     return _oauth_page(
         title=heading,
         content=f"""<section class="result">
   <h1>{heading}</h1>
   <p class="returning" role="status">Returning you to {client_name}…</p>
   <div class="handoff" aria-hidden="true"></div>
+  {loopback_hint}
   <noscript><p class="foot"><a href="{_html.escape(callback_url, quote=True)}">Continue to {client_name}</a></p></noscript>
 </section>""",
-        script=f"<script>window.setTimeout(function(){{window.location.replace({callback_json});}},1200);</script>",
+        script=(
+            "<script>window.setTimeout(function(){window.location.replace("
+            f"{callback_json});}},{_OAUTH_RETURN_DELAY_MS});</script>"
+        ),
     )
 
 
