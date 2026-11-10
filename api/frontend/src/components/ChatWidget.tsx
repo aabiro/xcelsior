@@ -22,6 +22,7 @@ import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { SITE_ASSETS } from "@/lib/brand-assets";
 import { formatMarkdown } from "@/lib/format-markdown";
 
 // ── Notification Sound (inline base64 tiny blip) ─────────────────────
@@ -434,9 +435,14 @@ function ChatWidgetSession({ showFab = true, externalOpen, onClose, onOpenAiPane
               y: !embedded && typeof window !== "undefined" && window.innerWidth < 640 ? dragY : undefined,
               opacity: !embedded && typeof window !== "undefined" && window.innerWidth < 640 ? panelOpacity : undefined,
             }}
+            // On phones the panel is a full-screen sheet, so it has to sit
+            // above the marketing navbar (z-60) or its header and close
+            // button end up under it. The floating panel never grows into the
+            // navbar's 67px either, so its header stays reachable on short
+            // windows and phones held sideways.
             className={embedded
               ? "flex flex-col w-full h-full rounded-xl border border-border bg-navy-light overflow-hidden"
-              : "fixed bottom-6 right-6 z-50 flex flex-col w-[360px] h-[500px] max-sm:inset-0 max-sm:w-full max-sm:h-full max-sm:bottom-0 max-sm:right-0 max-sm:rounded-none rounded-2xl border border-border bg-navy-light shadow-2xl overflow-hidden"
+              : "fixed bottom-6 right-6 z-50 flex flex-col w-[360px] h-[500px] max-h-[calc(100dvh_-_7rem)] max-sm:inset-0 max-sm:z-[100] max-sm:w-full max-sm:h-full max-sm:max-h-none max-sm:bottom-0 max-sm:right-0 max-sm:rounded-none rounded-2xl border border-border bg-navy-light shadow-2xl overflow-hidden"
             }
           >
             {/* Mobile swipe hint */}
@@ -454,9 +460,9 @@ function ChatWidgetSession({ showFab = true, externalOpen, onClose, onOpenAiPane
                 {/* Header */}
                 <div className="flex items-center justify-between border-b border-border px-4 py-3 bg-navy">
                   <div className="flex items-center gap-2">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-red">
-                      <span className="text-sm font-bold text-white">X</span>
-                    </div>
+                    {/* The navbar's gradient mark; the title next to it names it. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element -- static brand SVG, as in the navbar */}
+                    <img src={SITE_ASSETS.iconGradientTight} alt="" width={32} height={32} className="h-8 w-8 shrink-0 object-contain" />
                     <div>
                       <p className="text-sm font-semibold text-text-primary">{t("chat.title")}</p>
                       <p className="text-xs text-text-muted">{t("chat.subtitle")}</p>
@@ -519,8 +525,8 @@ function ChatWidgetSession({ showFab = true, externalOpen, onClose, onOpenAiPane
                   ) : messages.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-center">
                       {/* Pre-chat greeting */}
-                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-red/10 mb-3">
-                        <MessageCircle className="h-6 w-6 text-accent-red" />
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-red mb-3">
+                        <MessageCircle className="h-6 w-6 text-white" />
                       </div>
                       <p className="text-sm font-medium text-text-primary mb-1">
                         {t("chat.greeting")}
@@ -582,7 +588,9 @@ function ChatWidgetSession({ showFab = true, externalOpen, onClose, onOpenAiPane
                       <button
                         type="submit"
                         disabled={!input.trim() || isStreaming || loadingHistory}
-                        className="flex shrink-0 items-center justify-center h-10 w-10 rounded-lg bg-accent-red text-white hover:bg-accent-red/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        // Disabled dims only the arrow: fading the whole button
+                        // let the dark panel show through and turned it orange.
+                        className="flex shrink-0 items-center justify-center h-10 w-10 rounded-lg bg-accent-red text-white hover:bg-accent-red/90 transition-colors disabled:text-white/50 disabled:hover:bg-accent-red disabled:cursor-not-allowed"
                         aria-label={t("chat.send")}
                       >
                         {isStreaming ? (
