@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { DesktopAppPreferences } from "@/components/settings/DesktopAppPreferences";
+import { ProductUpdatesPreference } from "@/components/settings/ProductUpdatesPreference";
 import { NativeDesktopPreferences } from "@/components/settings/NativeDesktopPreferences";
 import { OAuthClientManager } from "@/components/settings/OAuthClientManager";
 import { McpAgentSetup } from "@/components/settings/McpAgentSetup";
@@ -1078,6 +1079,7 @@ function ProfileTab({
                 enabled={notifications}
                 onToggle={() => setNotifications(!notifications)}
               />
+              <ProductUpdatesPreference />
               <DesktopAppPreferences />
               <NativeDesktopPreferences />
             </div>

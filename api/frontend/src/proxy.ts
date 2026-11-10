@@ -10,6 +10,7 @@ const NO_STORE_PATHS = new Set([
   "/reset-password",
   "/setup-2fa",
   "/verify-email",
+  "/unsubscribe",
   "/accept-invite",
   "/delete-data",
   "/deactivate",

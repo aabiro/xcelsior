@@ -1,0 +1,51 @@
+{
+  "slug": "2026-10",
+  "status": "draft",
+  "month_label": "October 2026",
+  "subject": "What's new in Xcelsior: October 2026",
+  "preview": "Connect your AI agent to your GPUs, page through every transaction, and know a machine can host before you install.",
+  "intro": "October was about getting to your compute faster. You can now connect Claude, Cursor or any AI agent to your Xcelsior account, your billing history is easier to read, and listing a GPU tells you what to fix before the installer runs. Here's the rundown:",
+  "hero_image": "https://xcelsior.ca/email/product-updates/2026-10/hero.png",
+  "hero_alt": "Xcelsior, what's new in October 2026",
+  "features": [
+    {
+      "title": "Xcelsior MCP",
+      "body": "You can now connect Claude, Cursor or any AI agent to your Xcelsior account and run your compute by asking. Setup is one prompt: copy it from the MCP page in your dashboard and send it to your agent. Your MCP and CLI keys are now shown in full on that page, so you can copy one again without regenerating it.",
+      "image": "https://xcelsior.ca/email/product-updates/2026-10/mcp.png",
+      "image_alt": "The Xcelsior logo connected to an AI agent over MCP",
+      "cta_label": "Connect your agent",
+      "cta_url": "https://xcelsior.ca/dashboard/mcp"
+    },
+    {
+      "title": "Transaction history",
+      "body": "Your billing page now pages through your whole history, 20 transactions at a time, newest first, with a running count so you always know where you are. Agents connected over MCP can page through the same history.",
+      "image": "https://xcelsior.ca/email/product-updates/2026-10/billing.png",
+      "image_alt": "A billing page listing wallet transactions with Newer and Older buttons",
+      "cta_label": "View your billing",
+      "cta_url": "https://xcelsior.ca/dashboard/billing"
+    },
+    {
+      "title": "Know before you install",
+      "body": "Listing a GPU now tells you why a machine can't host before the installer fails. The dashboard, the setup wizard and the install script check the same requirements and say what to fix, whether that's a missing NVIDIA driver, the Docker runtime or a host that isn't running Linux.",
+      "image": "https://xcelsior.ca/email/product-updates/2026-10/host-check.gif",
+      "image_alt": "A checklist of host requirements being ticked off one by one",
+      "cta_label": "List your GPU",
+      "cta_url": "https://xcelsior.ca/dashboard/hosts"
+    }
+  ],
+  "improvements": [
+    {
+      "title": "Device sign-in",
+      "body": "approve a terminal or a headless machine from your browser. Open the link the CLI prints, compare the code and approve."
+    },
+    {
+      "title": "Wallet top-ups from your agent",
+      "body": "a connected agent can add funds to your wallet when you ask it to, and can't change anything else about your billing."
+    },
+    {
+      "title": "Cookie choices",
+      "body": "one line, one choice. Analytics and marketing cookies load only if you accept them."
+    }
+  ],
+  "outro": "Want the detail behind any of these? The docs at docs.xcelsior.ca have it."
+}
