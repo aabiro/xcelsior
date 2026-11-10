@@ -59,7 +59,7 @@ it is unrelated to the GPU onboarding wizard. You connect an assistant to it.
 - Local stdio, for a process that already holds a token: `XCELSIOR_ACCESS_TOKEN=... npx @xcelsior-gpu/mcp`
 - Health: `GET https://xcelsior.ca/mcp/health`
 - Scopes: `instances:read`, `instances:write`, `billing:read`, `gpu:read`, `marketplace:read`, or `api`
-- Tools: discovery, compute (`create_instance`, `watch_instance`), billing, guardrails (`should_i_run_this`), serverless, workflows
+- Tools: 87 customer tools across discovery, compute (`create_instance`, `watch_instance`), billing, guardrails (`should_i_run_this`), serverless, provider payouts (Stripe, PayPal, Wise), and workflows
 - Resources: `xcelsior://docs/llms`, `xcelsior://pricing/reference`
 - Setup guides for every client: https://xcelsior.ca/mcp
 

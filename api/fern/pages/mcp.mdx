@@ -1,0 +1,359 @@
+---
+title: Xcelsior MCP
+subtitle: Connect AI assistants and agentic tools to your Xcelsior account over Model Context Protocol.
+slug: mcp
+---
+
+Connect supported AI assistants and agentic tools to your Xcelsior account with our [Model Context Protocol](https://modelcontextprotocol.io/) server. The Xcelsior MCP lets an assistant securely inspect fleet availability, launch and manage GPU instances, attach storage volumes, run serverless inference, check wallet balances, and settle provider payouts on your behalf, using your existing Xcelsior login and scoped permissions.
+
+This guide covers connecting your AI client to your Xcelsior account (`https://mcp.xcelsior.ca/mcp`) as well as connecting AI assistants to Xcelsior documentation (`llms.txt`, OpenAPI, and built-in documentation search). For in-app natural-language orchestration without configuring an external MCP client, see [LLM Integration](/llm-integration#xcel-ai-the-in-app-assistant).
+
+## Xcelsior MCP capabilities
+
+You can use Xcelsior MCP to help an AI assistant:
+
+- Browse live GPU availability, spot prices, reference rates, and marketplace listings.
+- Quote, launch, monitor, and terminate interactive GPU instances, training jobs, pipelines, and image sweeps.
+- Manage SSH public keys and open authenticated terminal access to running instances.
+- Create, attach, detach, snapshot, and restore persistent storage volumes and promote job artifacts.
+- Deploy and invoke serverless inference endpoints and inspect endpoint health.
+- Check wallet balances, spend runway, invoices, payment methods, and funding options (Card, Bitcoin, Lightning, PayPal).
+- Track provider reputation, claim earned milestones, inspect earnings across Stripe Connect, PayPal, and Wise, and queue completed jobs for payout.
+
+### Built-in spend and safety boundaries
+
+Unlike read-only MCP servers, Xcelsior MCP can operate infrastructure — but **every action that spends money or destroys state is gated**:
+
+- **Binding quotes before spend**: Tools that launch compute (`create_instance`, `create_serverless_endpoint`, `run_pipeline`, `create_image_sweep`, `widening auto-top-up`) default to quoting a plan (`dry_run: true`) or returning an `approval_required` launch plan (`plan_id`) that a human approves before money is committed.
+- **Explicit confirmation for destructive actions**: Tools that terminate instances, delete volumes, overwrite a volume from a snapshot, or cancel inference jobs require `confirm: true` and carry `destructiveHint: true`.
+- **Human-only payout destination and approval controls**: An MCP client can check provider payout status (`get_provider_account`, `get_paypal_status`, `get_wise_status`) and settle a completed job onto an already-configured rail (`request_provider_payout`), but **cannot** change where payouts are sent (`POST /api/providers/{id}/wise/recipient`, Stripe/PayPal onboarding links) or approve Wise payout batches (`POST /api/admin/wise/payouts/{id}/approve`). Those actions require an interactive browser session.
+
+## Supported AI agents
+
+Xcelsior MCP works with any MCP client that supports **Streamable HTTP** (`2025-03-26`) and **OAuth 2.1 with PKCE**, including:
+
+- Claude Code
+- Claude Desktop
+- ChatGPT
+- Codex CLI
+- Cursor
+
+## Important: Before you begin
+
+When you connect an AI assistant, it can request information and invoke tools within the scopes you approve. Depending on the permissions granted, this may include running instances, SSH public keys, volume metadata, wallet balances, invoice history, and provider earnings.
+
+Xcelsior controls access to your account through MCP and validates scopes on every request. The AI assistant is operated by a separate provider, which handles information it receives under its own terms and privacy policy, including how conversation context and tool outputs may be stored or used.
+
+Only grant the scopes your workflow needs, and review your AI provider's privacy practices before connecting.
+
+**Never share Xcelsior passwords, one-time passcodes, MFA backup codes, or private SSH keys with an AI assistant.** A legitimate Xcelsior MCP connection redirects you to an Xcelsior-hosted page to sign in and grant consent.
+
+## Requirements
+
+- An Xcelsior account.
+- Access to a supported MCP client that allows remote Streamable HTTP servers and OAuth 2.1.
+- Network access to `https://mcp.xcelsior.ca/mcp` (and `https://xcelsior.ca` for OAuth discovery and token exchange).
+
+## Connect to Xcelsior MCP
+
+Use the following server URL in your MCP client: `https://mcp.xcelsior.ca/mcp`
+
+### Claude Code
+
+Run this command in your terminal:
+
+```bash
+claude mcp add --transport http xcelsior https://mcp.xcelsior.ca/mcp
+```
+
+### Codex CLI
+
+Run this command in your terminal:
+
+```bash
+codex mcp add xcelsior --url https://mcp.xcelsior.ca/mcp
+```
+
+### ChatGPT
+
+1. Go to **Settings → Plugins → MCPs** (or **Connectors**).
+2. Click **Add**, then **Add MCP server**.
+3. Use `xcelsior` as the name, select **Streamable HTTP**, and paste the server URL: `https://mcp.xcelsior.ca/mcp`
+4. Click **Save** and complete the Xcelsior-hosted authentication.
+5. Start chatting.
+
+### Claude Desktop
+
+1. Open **Settings → Developer → Edit Config**.
+2. Add the server configuration below, keeping any existing entries.
+3. Save the file and restart Claude Desktop.
+
+```json
+{
+  "mcpServers": {
+    "xcelsior": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.xcelsior.ca/mcp"
+      ]
+    }
+  }
+}
+```
+
+### Cursor
+
+Add `xcelsior` to `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "xcelsior": {
+      "url": "https://mcp.xcelsior.ca/mcp"
+    }
+  }
+}
+```
+
+After adding the server, start your client's MCP authentication flow (`/mcp` in Claude Code, or `codex mcp login xcelsior` in Codex CLI).
+
+## Sign in and grant access
+
+Xcelsior MCP uses OAuth 2.1 with PKCE and RFC 9728 Protected Resource Metadata (`https://mcp.xcelsior.ca/.well-known/oauth-protected-resource`). You do not need to manually paste an API token for interactive clients.
+
+When you connect, your client opens an Xcelsior-hosted sign-in and consent page:
+
+1. Sign in to Xcelsior and complete any required MFA checks.
+2. Review the client requesting access.
+3. Review and select the permission scopes you want to grant.
+4. Confirm the connection.
+
+For headless automation or CI pipelines that cannot open a browser, you can also mint a scoped machine client under **Dashboard → Settings → Connect AI Agents** (`client_credentials` grant with `resource=https://mcp.xcelsior.ca/mcp`).
+
+### Available permission groups
+
+The consent screen groups permissions by domain. Xcelsior checks the token's granted scopes on every tool call (`allOf` / `anyOf` enforcement with no wildcard scope):
+
+| Permission group | What the client can access | Scopes | Representative tools |
+| --- | --- | --- | --- |
+| **GPU & Marketplace Discovery** | Browse available GPUs, spot prices, reference rates, and service tiers. | `gpu:read`, `marketplace:read` | `list_available_gpus`, `get_spot_prices`, `get_pricing_reference`, `search_marketplace`, `list_tiers` |
+| **Instances & Placement (Read)** | View instances, logs, placement explanations, timelines, active leases, and user snapshots. | `instances:read` | `list_instances`, `get_instance`, `get_instance_logs`, `explain_instance_placement`, `get_instance_timeline`, `list_user_images` |
+| **Instances & Pipelines (Write / Operate)** | Quote, launch, cancel, terminate, retry, or reconcile instances, pipelines, and sweeps. | `instances:write`, `instances:operate` | `create_instance`, `run_training_job`, `schedule_under_budget`, `cancel_instance`, `terminate_instance`, `run_pipeline`, `revoke_launch_plan` |
+| **Instance Terminal & SSH** | Register/list/delete SSH public keys and open terminal access to running instances. | `instances:connect`, `ssh:write`, `ssh:read` | `open_instance_access`, `register_ssh_key`, `list_ssh_keys`, `delete_ssh_key` |
+| **Volumes & Artifacts** | List, create, attach, detach, delete, snapshot, and restore volumes; check artifact retention and promote artifacts. | `volumes:read`, `volumes:write`, `artifacts:read` | `list_volumes`, `create_volume`, `attach_volume`, `snapshot_volume`, `restore_volume_snapshot`, `promote_artifact_to_volume`, `get_artifact_expiry` |
+| **Serverless Inference** | List, create, inspect, and delete serverless endpoints; run and cancel inference jobs. | `inference:read`, `inference:write` | `list_serverless_endpoints`, `create_serverless_endpoint`, `run_serverless_job`, `get_serverless_job_status`, `cancel_serverless_job` |
+| **Billing & Wallet** | Read wallet balance, history, spend runway, invoices, and funding rails; top up or create crypto/Lightning deposits. | `billing:read`, `billing:topup` | `get_wallet_balance`, `get_wallet_history`, `get_spend_envelope`, `list_funding_options`, `top_up_wallet`, `create_crypto_deposit`, `create_lightning_deposit` |
+| **Providers & Payouts** | View provider accounts, earnings, and Stripe/PayPal/Wise status; register a provider or queue a job payout. | `providers:read`, `providers:write` | `list_providers`, `get_provider_account`, `get_provider_earnings`, `get_paypal_status`, `get_wise_status`, `register_provider`, `request_provider_payout` |
+| **Reputation & Trust Tiers** | Inspect reputation scores, trust tiers, leaderboards, and claim earned milestones. | `reputation:read`, `reputation:write` | `get_my_reputation`, `get_reputation_journey`, `get_trust_tiers`, `get_reputation_breakdown`, `claim_reputation_milestones` |
+| **Events** | View per-entity state-change history for instances and hosts. | `events:read` | `get_event_history` |
+
+> **Note on Quick Connect tokens:** The one-click Quick Connect credential intentionally withholds `billing:topup`, `billing:write`, `ssh:read`, `reputation:write`, and `providers:write` so a pasted connector token can inspect billing and provider status without charging a card, enumerating existing SSH keys, or moving a payout. Grant those scopes explicitly via OAuth consent or a dedicated client credential when needed.
+
+## Managing access
+
+You can stop an AI client from accessing Xcelsior at any time by revoking its OAuth session in your client or from **Dashboard → Settings → Connect AI Agents**.
+
+### Claude Code
+
+**To log out**:
+
+```bash
+claude mcp logout xcelsior
+```
+
+**To clear authentication interactively**:
+
+Run `/mcp` inside Claude Code and choose **Clear authentication**.
+
+**To remove the Xcelsior MCP server completely**:
+
+```bash
+claude mcp remove xcelsior
+```
+
+Run `claude mcp logout xcelsior` first so stored OAuth tokens are cleared before removing the server entry.
+
+**To manage tool permissions**:
+
+Run `/permissions` inside Claude Code to view, allow, or block specific Xcelsior MCP tool rules.
+
+### Codex CLI
+
+**To clear or sign out of the server's authentication tokens**:
+
+```bash
+codex mcp logout xcelsior
+```
+
+**To delete the Xcelsior MCP server configuration**:
+
+```bash
+codex mcp remove xcelsior
+```
+
+Always run `logout` first, as removing the server entry alone can leave stored tokens behind.
+
+### How access is protected
+
+- **Xcelsior-hosted authentication**: You sign in and grant access on an Xcelsior-controlled page, never inside the AI client.
+- **OAuth 2.1 with PKCE & RFC 9728**: Public clients authenticate with Proof Key for Code Exchange and resource-bound audience tokens (`https://mcp.xcelsior.ca/mcp`).
+- **Per-tool scope enforcement**: Every tool declares its exact `allOf` / `anyOf` scope requirement. There is no blanket wildcard scope.
+- **Idempotency & replay protection**: Spending and settlement tools (`request_provider_payout`, `top_up_wallet`, `claim_reputation_milestones`) are keyed in PostgreSQL so a network retry never double-pays or double-charges.
+- **Secret redaction at the boundary**: Provider and billing tools strip processor identifiers (`stripe_account_id`, `onboarding_url`, PayPal `merchant_id`/`payer_id`, Wise `wise_recipient_id`/`fingerprint`, and Stripe `client_secret`) before responses enter model context.
+
+## Available tools (87 customer tools)
+
+The customer profile at `https://mcp.xcelsior.ca/mcp` exposes 87 tools grouped below.
+
+### Discovery and marketplace
+
+| Tool | Description | Required scope |
+| --- | --- | --- |
+| `list_available_gpus` | List currently available GPUs with VRAM, region, and pricing. | `gpu:read` |
+| `get_spot_prices` | Get live spot prices across GPU models. | `marketplace:read` |
+| `get_pricing_reference` | Get reference on-demand and spot pricing by GPU model. | `gpu:read` |
+| `search_marketplace` | Search marketplace GPU listings with hardware and price filters. | `marketplace:read` |
+| `list_tiers` | List service tiers and SLA guarantees. | `gpu:read` |
+
+### Instances, placement, and sweeps
+
+| Tool | Description | Required scope |
+| --- | --- | --- |
+| `list_instances` | List your instances with status, GPU model, and cost. | `instances:read` |
+| `get_instance` | Retrieve details for a single instance by `job_id`. | `instances:read` |
+| `get_instance_logs` | Fetch recent container logs for an instance. | `instances:read` |
+| `watch_instance` | Poll an instance until it reaches a target state or timeout. | `instances:read` |
+| `get_active_lease` | Check active lease health and host assignment for an instance. | `instances:read` |
+| `explain_instance_placement` | Explain why an instance was placed on its host. | `instances:read` |
+| `simulate_instance_placement` | Simulate placement candidates without launching. | `instances:read`, `gpu:read` |
+| `evaluate_placement_preference` | Evaluate how placement constraints affect candidate hosts. | `instances:read`, `gpu:read` |
+| `get_instance_timeline` | Retrieve the placement and attempt timeline for an instance. | `instances:read` |
+| `should_i_run_this` | Check estimated job cost against current wallet balance and active burn. | `billing:read`, `instances:read` |
+| `create_instance` | Quote (`dry_run: true`) or launch an interactive GPU instance. | `instances:write` |
+| `run_training_job` | Quote or launch a batch training job with wallet pre-check. | `instances:write`, `billing:read` |
+| `schedule_under_budget` | Schedule a job when spot/marketplace pricing meets your budget. | `instances:write`, `gpu:read`, `marketplace:read` |
+| `cancel_instance` | Cancel a queued or running instance (`confirm: true`). | `instances:write` |
+| `terminate_instance` | Permanently terminate an instance (`confirm: true`). | `instances:write` |
+| `retry_instance` | Retry a failed instance placement. | `instances:operate` |
+| `reconcile_instance` | Trigger state reconciliation for an instance. | `instances:operate` |
+| `run_pipeline` | Quote or launch a multi-stage compute pipeline. | `instances:write` |
+| `get_pipeline_status` | Get status of a multi-stage pipeline. | `instances:read` |
+| `create_instance_snapshot` | Snapshot a running instance into a reusable user image. | `instances:write` |
+| `list_user_images` | List saved user container images. | `instances:read` |
+| `delete_user_image` | Delete a saved user image (`confirm: true`). | `instances:write` |
+| `create_image_sweep` | Quote or launch a parameter sweep from a saved `image_id`. | `instances:write` |
+| `get_image_sweep` | Get status and child jobs of an image sweep. | `instances:read` |
+| `revoke_launch_plan` | Withdraw a pending launch plan so it can no longer be approved. | `instances:write` or `inference:write` |
+| `get_mcp_action_status` | Check approval and execution status of an action plan (`plan_id`). | `instances:read`, `inference:read`, or `hosts:read` |
+
+### SSH and instance access
+
+| Tool | Description | Required scope |
+| --- | --- | --- |
+| `register_ssh_key` | Register an SSH public key (`ssh-ed25519`, `ecdsa`, `ssh-rsa`) for shell access. | `ssh:write` |
+| `list_ssh_keys` | List SSH public keys registered on your account. | `ssh:read` |
+| `delete_ssh_key` | Remove an SSH public key (`confirm: true`). | `ssh:write`, `ssh:read` |
+| `open_instance_access` | Mint a short-lived web terminal URL and SSH command for a running instance. | `instances:connect`, `instances:read` |
+
+### Volumes and artifacts
+
+| Tool | Description | Required scope |
+| --- | --- | --- |
+| `list_volumes` | List persistent storage volumes on your account. | `volumes:read` |
+| `get_volume` | Retrieve details and attachment state for a volume. | `volumes:read` |
+| `create_volume` | Create a new persistent volume. | `volumes:write` |
+| `attach_volume` | Attach a volume to an instance (`job_id`). | `volumes:write`, `instances:read` |
+| `detach_volume` | Detach a volume from its instance (`confirm: true`). | `volumes:write` |
+| `delete_volume` | Permanently delete a volume (`confirm: true`). | `volumes:write` |
+| `snapshot_volume` | Create a point-in-time snapshot of a volume. | `volumes:write` |
+| `list_volume_snapshots` | List snapshots for a volume. | `volumes:read` |
+| `restore_volume_snapshot` | Restore a volume from a snapshot (`confirm: true`). | `volumes:write` |
+| `get_artifact_expiry` | Check retention expiry timestamps for job artifacts. | `artifacts:read` |
+| `promote_artifact_to_volume` | Copy a job artifact into a persistent volume. | `volumes:write`, `artifacts:read` |
+| `get_promotion_status` | Check the progress of an artifact-to-volume promotion. | `volumes:read` |
+
+### Serverless inference
+
+| Tool | Description | Required scope |
+| --- | --- | --- |
+| `list_serverless_endpoints` | List your serverless inference endpoints. | `inference:read` |
+| `get_serverless_endpoint` | Retrieve configuration and scaling state for one endpoint. | `inference:read` |
+| `get_serverless_endpoint_health` | Check worker readiness and queue health for an endpoint. | `inference:read` |
+| `list_serverless_endpoint_jobs` | List recent inference jobs on an endpoint. | `inference:read` |
+| `create_serverless_endpoint` | Quote or deploy a serverless inference endpoint. | `inference:write` |
+| `delete_serverless_endpoint` | Delete a serverless endpoint (`confirm: true`). | `inference:write` |
+| `should_i_run_pel_job` | Estimate cost and wallet readiness for a serverless job. | `billing:read`, `inference:read` |
+| `run_serverless_job` | Submit an inference job to a serverless endpoint. | `inference:write` |
+| `get_serverless_job_status` | Check status and output of a serverless inference job. | `inference:read` |
+| `cancel_serverless_job` | Cancel an in-flight serverless inference job (`confirm: true`). | `inference:write` |
+
+### Billing and wallet
+
+| Tool | Description | Required scope |
+| --- | --- | --- |
+| `get_wallet_balance` | Get current wallet balance and active holds. | `billing:read` |
+| `get_wallet_history` | List recent wallet credits, holds, and charges. | `billing:read` |
+| `get_spend_envelope` | Calculate remaining runway and per-instance burn rate. | `billing:read`, `instances:read` |
+| `estimate_job_cost` | Estimate cost for a GPU model and duration. | `billing:read` |
+| `list_invoices` | List billing invoices for your account. | `billing:read` |
+| `list_payment_methods` | List saved card payment methods (brand and last4 only). | `billing:read` |
+| `list_pending_verifications` | List charges awaiting a 3DS bank challenge. | `billing:read` |
+| `list_funding_options` | Check available non-card funding rails (Bitcoin, Lightning, PayPal) and rates. | `billing:read` |
+| `get_auto_topup` | Read current auto-top-up threshold and amount. | `billing:read` |
+| `configure_auto_topup` | Configure or disable wallet auto-top-up (widening offers an approvable plan). | `billing:topup` |
+| `top_up_wallet` | Charge the default saved payment method to top up your wallet. | `billing:topup` |
+| `create_crypto_deposit` | Create a rate-locked Bitcoin deposit address. | `billing:topup` |
+| `get_crypto_deposit` | Check confirmation status of a Bitcoin deposit. | `billing:read` |
+| `create_lightning_deposit` | Create a Lightning Network BOLT11 deposit invoice. | `billing:topup` |
+| `get_lightning_deposit` | Check settlement status of a Lightning deposit. | `billing:read` |
+
+### Providers, payouts, and reputation
+
+| Tool | Description | Required scope |
+| --- | --- | --- |
+| `list_providers` | List provider accounts owned by the caller. | `providers:read` |
+| `get_provider_account` | Get provider account status and Stripe Connect requirement field names. | `providers:read` |
+| `get_provider_earnings` | Get aggregate provider earnings, payout history, and intro-fee status. | `providers:read` |
+| `get_paypal_status` | Get PayPal payout onboarding status (merchant/payer IDs redacted). | `providers:read` |
+| `get_wise_status` | Get Wise payout status: masked destination hint, cool-off state, queued earnings, minimum threshold, and latest batch payout. | `providers:read` |
+| `register_provider` | Register a provider account (onboarding completed in browser). | `providers:write` |
+| `request_provider_payout` | Settle one completed job onto the `stripe`, `paypal`, or `wise` rail. | `providers:write` |
+| `get_my_reputation` | Get the caller's current reputation score and tier. | `reputation:read` |
+| `get_reputation_journey` | Get milestone progress and claimable reputation points. | `reputation:read` |
+| `get_trust_tiers` | List the six reputation tiers, commission rates, and search boosts. | `reputation:read` |
+| `get_reputation_breakdown` | Get the four-part score breakdown (`verification`, `activity`, `penalties`, `reliability`). | `reputation:read` |
+| `get_reputation_leaderboard` | View the top-ranked hosts or users on the network. | `reputation:read` |
+| `get_reputation_history` | List itemised reputation score events for your provider or host. | `reputation:read` |
+| `claim_reputation_milestones` | Claim earned reputation milestones and verification badges. | `reputation:write` |
+
+### Events
+
+| Tool | Description | Required scope |
+| --- | --- | --- |
+| `get_event_history` | Retrieve state-change event history for one of your instances or hosts. | `events:read` |
+
+---
+
+## Troubleshooting
+
+| Problem | Cause & solution |
+| --- | --- |
+| **The client asks to authenticate again.** | Your access token expired, the session was revoked, or scopes changed. Re-run your client's authentication flow (`/mcp` in Claude Code or `codex mcp login xcelsior`). |
+| **A tool is listed but returns `insufficient_scope`.** | Your connection does not carry the scope required for that tool (for example, Quick Connect tokens omit `billing:topup`, `ssh:read`, `reputation:write`, and `providers:write`). Reconnect via OAuth and approve the required permission group. |
+| **A launch tool returns `approval_required` with a `plan_id`.** | Spending actions create a bounded launch plan first. Approve the plan in the Xcelsior dashboard (or check its status with `get_mcp_action_status`), then re-run with the approved `plan_id`. |
+| **A Wise payout is `queued` instead of paid immediately.** | Unlike Stripe and PayPal (which settle job-by-job), Wise payouts are batched once per provider and require platform admin approval after any 72-hour recipient cool-off expires. Use `get_wise_status` to check `queued_cad`, `minimum_payout_cad`, and `recipient.payable`. |
+| **The MCP server does not connect.** | Check that the URL is exactly `https://mcp.xcelsior.ca/mcp`, your client supports Streamable HTTP (`2025-03-26`) and OAuth 2.1, and your firewall/network allows outbound HTTPS to `mcp.xcelsior.ca` and `xcelsior.ca`. |
+
+---
+
+## Documentation for AI Agents (`llms.txt` & OpenAPI)
+
+If you want an AI assistant to read Xcelsior's public guides and API reference to plan an integration, look up endpoints, or generate SDK code — without connecting to your Xcelsior account — point it at our machine-readable documentation endpoints:
+
+- **LLM-Optimized Guide (`llms.txt`)**: `https://xcelsior.ca/llms.txt`
+- **OpenAPI 3.1 Specification**: `https://xcelsior.ca/openapi.json`
+
+No Xcelsior account, API token, or sign-in is required to read `llms.txt` or `openapi.json`. See [LLM Integration](/llm-integration) for code generation examples and details on the in-app **Xcel AI** assistant.
+

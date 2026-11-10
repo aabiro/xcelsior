@@ -98,6 +98,8 @@ navigation:
             path: ./pages/worker-agent.mdx
           - page: Security Model
             path: ./pages/security.mdx
+          - page: Xcelsior MCP
+            path: ./pages/mcp.mdx
           - page: LLM Integration
             path: ./pages/llm-integration.mdx
 

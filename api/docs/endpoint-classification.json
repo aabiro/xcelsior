@@ -263,6 +263,14 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "GET /api/admin/wise/payouts": {
+    "class": "internal",
+    "notes": "platform admin payout console; _require_wise_admin enforces _person_present and refuses machine, agent and connector credentials by design"
+  },
+  "GET /api/admin/wise/status": {
+    "class": "internal",
+    "notes": "platform admin payout console; _require_wise_admin enforces _person_present and refuses machine, agent and connector credentials by design"
+  },
   "GET /api/agent-keys": {
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
@@ -615,6 +623,10 @@
     "class": "covered",
     "notes": "get_paypal_status. Identifiers redacted to match the sibling provider reads."
   },
+  "GET /api/providers/{provider_id}/wise": {
+    "class": "covered",
+    "notes": "get_wise_status. Wise recipient id and fingerprint are not returned; only the masked hint, cool-off state, queued earnings and latest batch payout."
+  },
   "GET /api/reputation/leaderboard": {
     "class": "covered",
     "notes": "get_reputation_leaderboard. Gives a provider's own score a scale."
@@ -738,6 +750,22 @@
   "GET /api/v1/hosts/{host_id}/observations": {
     "class": "internal",
     "notes": "control-plane telemetry for a host; operator diagnostics"
+  },
+  "GET /api/v1/hpc/clusters": {
+    "class": "covered",
+    "notes": "MCP server calls this path (list_hpc_clusters); reads the reconciler's copy and never contacts a cluster"
+  },
+  "GET /api/v1/hpc/jobs": {
+    "class": "covered",
+    "notes": "MCP server calls this path (list_hpc_jobs); reads the reconciler's copy and never contacts a cluster"
+  },
+  "GET /api/v1/hpc/jobs/{xcelsior_job_id}": {
+    "class": "covered",
+    "notes": "MCP server calls this path (get_hpc_job); reads the reconciler's copy and never contacts a cluster"
+  },
+  "GET /api/v1/hpc/jobs/{xcelsior_job_id}/output": {
+    "class": "covered",
+    "notes": "MCP server calls this path (get_hpc_job_output); reads the reconciler's copy and never contacts a cluster"
   },
   "GET /api/v1/image-sweeps/{sweep_id}": {
     "class": "covered",
@@ -1415,6 +1443,30 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "POST /api/admin/wise/payouts/batch": {
+    "class": "internal",
+    "notes": "platform admin payout control; _require_wise_admin enforces _person_present and refuses machine, agent and connector credentials by design"
+  },
+  "POST /api/admin/wise/payouts/{payout_id}/approve": {
+    "class": "internal",
+    "notes": "platform admin payout approval; _require_wise_admin enforces _person_present so no agent, API key or connector token can approve a batch transfer"
+  },
+  "POST /api/admin/wise/payouts/{payout_id}/reject": {
+    "class": "internal",
+    "notes": "platform admin payout control; _require_wise_admin enforces _person_present and refuses machine, agent and connector credentials by design"
+  },
+  "POST /api/admin/wise/payouts/{payout_id}/release": {
+    "class": "internal",
+    "notes": "platform admin payout control; _require_wise_admin enforces _person_present and refuses machine, agent and connector credentials by design"
+  },
+  "POST /api/admin/wise/payouts/{payout_id}/sync": {
+    "class": "internal",
+    "notes": "platform admin payout control; _require_wise_admin enforces _person_present and refuses machine, agent and connector credentials by design"
+  },
+  "POST /api/admin/wise/providers/{provider_id}/recipient": {
+    "class": "internal",
+    "notes": "platform admin destination binding; _require_wise_admin enforces _person_present so no agent can redirect where a provider is paid"
+  },
   "POST /api/ai/analytics": {
     "class": "internal",
     "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
@@ -1623,6 +1675,10 @@
     "class": "internal",
     "notes": "operator, testing and compliance surface — refunds, the billing sweep, test-state reset; not a tenant capability"
   },
+  "POST /api/billing/wise/webhook": {
+    "class": "internal",
+    "notes": "processor webhook; machine-to-machine and RSA-SHA256 signature-verified against Wise's pinned public key, the caller is Wise and never an agent"
+  },
   "POST /api/chat": {
     "class": "internal",
     "notes": "the platform's own assistant and support chat; exposing it as a tool would nest one agent inside another rather than add a capability"
@@ -1775,6 +1831,14 @@
     "class": "internal",
     "notes": "Deliberately not a tool. Unlinks the payout destination so the connect flow can be re-run. The agent cannot connect one — onboarding is a browser handoff because the AccountLink is a bearer credential — so it has no business disconnecting one. The exit belongs to whoever holds the entrance."
   },
+  "POST /api/providers/{provider_id}/wise/disconnect": {
+    "class": "internal",
+    "notes": "Deliberately not a tool. Same as Stripe and PayPal disconnect: the agent never sets the payout destination, and the route requires _person_present."
+  },
+  "POST /api/providers/{provider_id}/wise/recipient": {
+    "class": "internal",
+    "notes": "Deliberately not a tool. Setting a payout destination requires a human at a first-party session (_person_present) and starts a cool-off."
+  },
   "POST /api/reputation/me/claim": {
     "class": "covered",
     "notes": "claim_reputation_milestones. Own account, earned-only, idempotent."
@@ -1842,6 +1906,14 @@
   "POST /api/v1/hosts/{host_id}/undrain": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "POST /api/v1/hpc/clusters": {
+    "class": "internal",
+    "notes": "operator action on the HPC console: it names a host and a key the control plane will use, so the route refuses every machine principal and takes a human platform admin only"
+  },
+  "POST /api/v1/hpc/clusters/{cluster_id}/connection-check": {
+    "class": "internal",
+    "notes": "operator action on the HPC console: it names a host and a key the control plane will use, so the route refuses every machine principal and takes a human platform admin only"
   },
   "POST /api/v1/image-sweep-plans/{plan_id}/execute": {
     "class": "covered",
@@ -1970,6 +2042,10 @@
   "POST /api/v2/privacy/erase": {
     "class": "internal",
     "notes": "consent and erasure records under privacy law. Two generations of the API sit side by side; both are the account holder's own compliance surface and no phase asks an agent to consent or erase on someone's behalf"
+  },
+  "POST /api/v2/privacy/unsubscribe": {
+    "class": "internal",
+    "notes": "the unsubscribe link in a product-update email: a signed token withdraws one consent purpose for one account, with no session. The account holder's own compliance surface (CASL); no phase asks an agent to unsubscribe someone"
   },
   "POST /api/v2/scheduler/process-binpack": {
     "class": "internal",
@@ -2302,33 +2378,5 @@
   "PUT /host": {
     "class": "gap",
     "notes": "Provider axis. Registering or updating a rig is how supply reaches the marketplace, and docs/mcp-provider-axis-plan.md records that the provider class has zero tools today."
-  },
-  "GET /api/v1/hpc/clusters": {
-    "class": "covered",
-    "notes": "MCP server calls this path (list_hpc_clusters); reads the reconciler's copy and never contacts a cluster"
-  },
-  "GET /api/v1/hpc/jobs": {
-    "class": "covered",
-    "notes": "MCP server calls this path (list_hpc_jobs); reads the reconciler's copy and never contacts a cluster"
-  },
-  "GET /api/v1/hpc/jobs/{xcelsior_job_id}": {
-    "class": "covered",
-    "notes": "MCP server calls this path (get_hpc_job); reads the reconciler's copy and never contacts a cluster"
-  },
-  "GET /api/v1/hpc/jobs/{xcelsior_job_id}/output": {
-    "class": "covered",
-    "notes": "MCP server calls this path (get_hpc_job_output); reads the reconciler's copy and never contacts a cluster"
-  },
-  "POST /api/v1/hpc/clusters": {
-    "class": "internal",
-    "notes": "operator action on the HPC console: it names a host and a key the control plane will use, so the route refuses every machine principal and takes a human platform admin only"
-  },
-  "POST /api/v1/hpc/clusters/{cluster_id}/connection-check": {
-    "class": "internal",
-    "notes": "operator action on the HPC console: it names a host and a key the control plane will use, so the route refuses every machine principal and takes a human platform admin only"
-  },
-  "POST /api/v2/privacy/unsubscribe": {
-    "class": "internal",
-    "notes": "the unsubscribe link in a product-update email: a signed token withdraws one consent purpose for one account, with no session. The account holder's own compliance surface (CASL); no phase asks an agent to unsubscribe someone"
   }
 }

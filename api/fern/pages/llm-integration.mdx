@@ -67,9 +67,19 @@ spec = httpx.get("https://xcelsior.ca/openapi.json").json()
 
 ### MCP Integration
 
-Xcelsior ships a **hosted MCP server** at `https://mcp.xcelsior.ca/mcp` (Streamable HTTP). Agents connect with OAuth 2.1 + PKCE or a Bearer token from an OAuth machine client, no local install required.
+Xcelsior ships a **hosted MCP server** at `https://mcp.xcelsior.ca/mcp` (Streamable HTTP). Agents connect with OAuth 2.1 + PKCE or a Bearer token from an OAuth machine client, no local install required. For full setup instructions (Claude Code, Codex CLI, ChatGPT, Claude Desktop, Cursor), permission groups, and the complete 87-tool reference, see the [Xcelsior MCP guide](/mcp).
 
-**Setup:** Dashboard → Settings → **Connect AI Agents** (or visit [xcelsior.ca/mcp](https://xcelsior.ca/mcp)).
+**Quick setup:**
+
+```bash
+# Claude Code
+claude mcp add --transport http xcelsior https://mcp.xcelsior.ca/mcp
+
+# Codex CLI
+codex mcp add xcelsior --url https://mcp.xcelsior.ca/mcp
+```
+
+Or configure via Dashboard → Settings → **Connect AI Agents** ([xcelsior.ca/mcp](https://xcelsior.ca/mcp)).
 
 **Cursor config:**
 

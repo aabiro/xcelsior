@@ -1,11 +1,11 @@
 """The tool count in the README headline must match the published surface.
 
-The headline claims *"through 86 MCP tools"*. That number was **84** in August
-and 75 before that — it moves whenever the surface does, and a headline nobody
-regenerates goes quietly false. This repository already gates every other
-generated number for exactly that reason; a marketing claim deserves the same
-treatment, because it is the first thing a reader believes and the last thing
-anyone re-checks.
+The headline claims *"through 87 MCP tools"*. That number was **86** before Wise,
+**84** in August and 75 before that — it moves whenever the surface does, and a
+headline nobody regenerates goes quietly false. This repository already gates
+every other generated number for exactly that reason; a marketing claim deserves
+the same treatment, because it is the first thing a reader believes and the last
+thing anyone re-checks.
 
 `mcp/tool-surface.json` is the source of truth — the same file
 `tests/test_generated_artifacts_are_current.py` treats as authoritative.
@@ -20,6 +20,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
 SURFACE = ROOT / "api" / "mcp" / "tool-surface.json"
+I18N_FILES = [
+    ROOT / "api" / "frontend" / "src" / "lib" / "i18n" / "en.ts",
+    ROOT / "api" / "frontend" / "src" / "lib" / "i18n" / "en-public.ts",
+    ROOT / "api" / "frontend" / "src" / "lib" / "i18n" / "fr.ts",
+    ROOT / "api" / "frontend" / "src" / "lib" / "i18n" / "fr-public.ts",
+]
 
 
 def _published_count() -> int:
@@ -55,4 +61,18 @@ def test_every_tool_count_in_the_readme_matches_the_published_surface() -> None:
             f"README.md advertises {claimed} MCP tools; {SURFACE.name} publishes "
             f"{published}. The headline is the first thing a reader believes and "
             f"the last thing anyone re-checks — update it, or update the surface."
+        )
+
+
+def test_home_comparison_table_tool_count_matches_the_published_surface() -> None:
+    """Gate `home.cmp_agents_x` across EN and FR translation bundles."""
+    published = _published_count()
+    for path in I18N_FILES:
+        text = path.read_text(encoding="utf-8")
+        match = re.search(r'"home\.cmp_agents_x":\s*"(\d+)\s+(?:tools|outils)\b', text)
+        assert match, f'{path.relative_to(ROOT)} is missing a numeric "home.cmp_agents_x" claim'
+        claimed = int(match.group(1))
+        assert claimed == published, (
+            f"{path.relative_to(ROOT)} advertises {claimed} tools in home.cmp_agents_x; "
+            f"{SURFACE.name} publishes {published}."
         )
