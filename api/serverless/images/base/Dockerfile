@@ -15,7 +15,8 @@ FROM python:3.12-slim-bookworm AS runtime
 
 LABEL org.opencontainers.image.title="xcelsior serverless-base" \
       org.opencontainers.image.description="Base image for Xcelsior serverless custom workers: the worker SDK (queue handler, ASGI mode, /healthz, fitness checks) on Python 3.12." \
-      org.opencontainers.image.source="https://github.com/aabiro/xcelsior" \
+      org.opencontainers.image.source="https://github.com/xcelsior-gpu/serverless-base" \
+      org.opencontainers.image.documentation="https://docs.xcelsior.ca" \
       org.opencontainers.image.url="https://xcelsior.ca" \
       org.opencontainers.image.licenses="MIT"
 
