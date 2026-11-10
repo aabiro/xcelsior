@@ -53,6 +53,7 @@ def claim_next_job(
     replica_id: str,
     claim_ttl_sec: int = DEFAULT_CLAIM_TTL_SEC,
     scope_gpu_models: Sequence[str] | None = None,
+    slurm_only: bool = False,
 ) -> ClaimedJob | None:
     """Claim the single highest-ranked schedulable job, or None.
 
@@ -64,6 +65,10 @@ def claim_next_job(
     ``scope_gpu_models=None`` claims from the whole queue (active mode);
     a sequence — even an empty one — restricts claims to the canary
     partition (matching gpu_model or explicit v2 opt-in).
+
+    ``slurm_only`` further restricts claims to jobs whose admitted spec names
+    an ``hpc_cluster_id``, so a scheduler run for Slurm alone can never claim,
+    and so never delay, a job bound for a host.
     """
     if claim_ttl_sec <= 0:
         raise ValueError("claim_ttl_sec must be positive")
@@ -74,6 +79,7 @@ def claim_next_job(
             "ttl_sec": claim_ttl_sec,
             "scope_all": scope_gpu_models is None,
             "scope_models": [m.strip().lower() for m in (scope_gpu_models or [])],
+            "slurm_only": bool(slurm_only),
         },
     ).fetchone()
     if row is None:

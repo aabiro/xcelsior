@@ -407,6 +407,44 @@ class SchedulerService:
 
     # ── the tick ─────────────────────────────────────────────────────
 
+    def tick_slurm_only(self) -> TickReport:
+        """Place queued jobs that name a Slurm cluster, and nothing else.
+
+        For an environment that must exercise Slurm placement without
+        owning its host queue: the staging shadow week (blueprint 2.3) runs
+        on a database it shares with the dev pool, whose host jobs it must
+        neither place nor delay. So, unlike ``tick``: it claims only jobs
+        whose spec names ``hpc_cluster_id``, runs no claim, lease or command
+        sweeps, takes no inventory snapshot, and does not depend on the mode.
+        An expired claim needs no sweep; the claim query skips it by expiry.
+        Placement still goes through ``_place_one``, so the switch, the team
+        caps and the cluster's own checks apply exactly as in ``tick``.
+        """
+        cfg = self.config
+        if not cfg.slurm_placement or not cfg.claims_enabled:
+            return TickReport(mode=cfg.mode.value)
+        slurm_placements: list[SlurmPlacement] = []
+        released: list[tuple[str, str]] = []
+        for _ in range(cfg.tick_max_placements):
+            claimed = run_transaction(
+                lambda c: claim_next_job(
+                    c, replica_id=cfg.replica_id, scope_gpu_models=None, slurm_only=True
+                ),
+                what="sched_claim_slurm",
+            )
+            if claimed is None:
+                break
+            outcome = self._place_one(claimed)
+            if isinstance(outcome, SlurmPlacement):
+                slurm_placements.append(outcome)
+            elif isinstance(outcome, Reservation):  # pragma: no cover - slurm_only claims
+                raise AssertionError(f"slurm-only tick reserved host work: {outcome.job_id}")
+            else:
+                released.append(outcome)
+        return TickReport(
+            mode=cfg.mode.value, slurm_placements=slurm_placements, released=released
+        )
+
     def tick(self) -> TickReport:
         cfg = self.config
         if cfg.mode not in (SchedulerMode.CANARY, SchedulerMode.ACTIVE):

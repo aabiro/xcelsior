@@ -62,13 +62,20 @@ def test_every_overlaid_service_is_pinned_to_staging():
     assert not unpinned, f"these staging services do not set XCELSIOR_ENV=staging: {unpinned}"
 
 
-def test_staging_background_process_only_polls_slurm():
-    """The full worker bills and sends mail. Staging must not start it."""
+def test_staging_background_process_only_runs_the_slurm_shadow_loop():
+    """The full worker bills and sends mail. Staging must not start it.
+
+    It places and submits Slurm jobs for the shadow week, but only through the
+    narrow tick: the full ``tick`` would claim the dev pool's host jobs on the
+    database staging shares with it, and run sweeps over them.
+    """
     command = _services(OVERLAY)["bg-worker"].get("command")
     text = command if isinstance(command, str) else "\n".join(command)
     assert "workers/bg_worker.py" not in text
     assert "reconcile_due_clusters" in text
     assert "report_shadow_drift" in text
+    assert "tick_slurm_only" in text and "submit_due" in text
+    assert ".tick()" not in text and "placer.tick," not in text
     assert "billing" not in text.lower()
     assert "billing_cycle" not in text
     assert "mark_charged" not in text
@@ -77,6 +84,14 @@ def test_staging_background_process_only_polls_slurm():
         "/app/hpc/slurm-local/conf/xcelsior-profiles.json"
     )
     assert "settle_finished_attempt" not in text
+    # Placement is on for this process alone.
+    assert env.get("XCELSIOR_SLURM_PLACEMENT") == "1"
+    others = {
+        name: (spec or {}).get("environment", {}).get("XCELSIOR_SLURM_PLACEMENT")
+        for name, spec in _services(OVERLAY).items()
+        if name != "bg-worker"
+    }
+    assert not any(others.values()), f"placement switched on outside the shadow loop: {others}"
 
 
 def test_the_services_that_decide_enforcement_are_covered():

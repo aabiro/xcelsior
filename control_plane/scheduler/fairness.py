@@ -175,6 +175,7 @@ def claim_sql():
           AND (j.schedule_claim_expires_at IS NULL OR j.schedule_claim_expires_at<statement_timestamp())
           AND (%(scope_all)s OR lower(COALESCE(j.spec->>'gpu_model',''))=ANY(%(scope_models)s)
                OR lower(COALESCE(j.spec->>'scheduler',''))='v2')
+          AND (NOT %(slurm_only)s OR btrim(COALESCE(j.spec->>'hpc_cluster_id',''))<>'')
     ), candidate AS (
         SELECT j.job_id FROM jobs j JOIN ranks r USING(job_id)
         ORDER BY r.admin_class*1000+r.base_priority+r.age_boost DESC,

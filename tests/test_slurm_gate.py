@@ -112,6 +112,15 @@ class TestAdapterAndGateAgree:
             if stdin is not None:
                 gate.check_script(stdin)
 
+    def test_a_notification_address_does_not_put_mail_in_the_script(self, lab_profile, monkeypatch):
+        # Staging sets XCELSIOR_SLURM_EMAIL. The gate refuses --mail-user, so the
+        # first shadow-week job was rejected at sbatch (2026-11-10) until the
+        # xcl-local profile turned mail off.
+        monkeypatch.setenv("XCELSIOR_SLURM_EMAIL", "ops@example.com")
+        script, _ = _sa.xcelsior_job_to_sbatch(_job(num_gpus=1, command="nvidia-smi -L"), lab_profile)
+        assert "--mail" not in script
+        gate.check_script(script)
+
     @pytest.mark.parametrize(
         "job",
         [
