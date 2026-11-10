@@ -40,8 +40,12 @@ services:
     env_file:
       - .env.staging
     # The full worker registers billing_cycle and mail. Staging runs only the
-    # read-only Slurm poll here. It does not submit, charge, or send mail.
-    # Once an hour it records the shadow drift comparison for yesterday.
+    # Slurm shadow loop here (blueprint 2.3): place jobs that name a cluster,
+    # submit them, poll, and once an hour record yesterday's drift between the
+    # shadow ledger and the cluster's accounting. It never charges and never
+    # sends mail. The placement is the narrow tick: it claims only jobs that
+    # name hpc_cluster_id, because this database is shared with the dev pool,
+    # whose host jobs staging must neither place nor delay.
     command:
       - python
       - -c
@@ -53,14 +57,23 @@ services:
             level=logging.INFO,
             format="%(asctime)s %(levelname)s [slurm-poll] %(message)s",
         )
+        from control_plane.scheduler.config import SchedulerConfig
+        from control_plane.scheduler.service import SchedulerService
         from slurm_reconciler import reconcile_due_clusters, report_shadow_drift
+        from slurm_submitter import submit_due
 
+        placer = SchedulerService(SchedulerConfig.from_env())
         next_drift = 0.0
         while True:
-            try:
-                reconcile_due_clusters()
-            except Exception:
-                logging.exception("slurm poll failed")
+            for step, fn in (
+                ("place", placer.tick_slurm_only),
+                ("submit", submit_due),
+                ("poll", reconcile_due_clusters),
+            ):
+                try:
+                    fn()
+                except Exception:
+                    logging.exception("slurm %s failed", step)
             if time.monotonic() >= next_drift:
                 try:
                     report_shadow_drift()
@@ -70,6 +83,9 @@ services:
             time.sleep(30)
     environment:
       XCELSIOR_ENV: staging
+      # Places jobs that name a cluster, through tick_slurm_only only. The
+      # API and every other staging service leave it unset.
+      XCELSIOR_SLURM_PLACEMENT: "1"
       # Alliance names are built in. xcl-local is this file, already in the image.
       # Without it the poll records unknown_profile and writes no shadow row.
       XCELSIOR_SLURM_PROFILES_FILE: /app/hpc/slurm-local/conf/xcelsior-profiles.json
