@@ -11,6 +11,8 @@ TASK_SERVICES = {
     "billing_control_cycle": "api",  # fenced lifecycle and volume housekeeping
     "stripe_meter_outbox": "billing",
     "provider_settlement_daily": "billing",
+    "wise_payout_cycle": "billing",  # transfers for approved payouts; reads state back
+    "wise_payout_batch": "billing",  # queued Wise settlements into pending payouts
     "billing_meter_reconcile": "api",  # enforcing repair can write meters
     "job_reconciliation_recovery": "reconciler",
     "audit_checkpoint": "projector",
