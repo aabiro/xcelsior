@@ -1614,6 +1614,10 @@ def submit_job(
     serverless_config=None,
     conn=None,
     admitted_launch_spec=None,
+    # Internal: bind the job to a registered Slurm cluster (blueprint 2.2).
+    # No customer route passes it; the staging shadow week does. Only set when
+    # given, so the spec and its hash are unchanged for every other job.
+    hpc_cluster_id=None,
     service_tier_price_id=None,
     gpu_exclusive_price_id=None,
     queue_bid_price_id=None,
@@ -1635,6 +1639,12 @@ def submit_job(
     Interactive: If True, container stays running with SSH access until stopped.
     """
     from control_plane.launch.canonicalize import canonicalize
+
+    hpc_cluster_id = str(hpc_cluster_id or "").strip() or None
+    if hpc_cluster_id and str(preferred_host_id or "").strip():
+        # Placement refuses this too (slurm_and_host_pin); refusing it here
+        # keeps the job from queueing only to be released forever.
+        raise ValueError("a job cannot name both a Slurm cluster and a host")
 
     if trace_id is None:
         from control_plane.request_context import event_context
@@ -1696,6 +1706,7 @@ def submit_job(
                 "preferred_host_id": preferred_host_id or None,
                 "placement_preference": placement_preference or None,
                 "serverless_config": serverless_config,
+                **({"hpc_cluster_id": hpc_cluster_id} if hpc_cluster_id else {}),
             },
             allow_nan=False,
         )
@@ -1836,6 +1847,8 @@ def submit_job(
         "trace_id": trace_id,
         "preferred_host_id": preferred_host_id,
     }
+    if hpc_cluster_id:
+        job["hpc_cluster_id"] = hpc_cluster_id
 
     if job["job_type"] == "serverless_worker" or serverless_config is not None:
         allowed = {
