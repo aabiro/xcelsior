@@ -60,9 +60,6 @@ def _test_sources() -> list[tuple[Path, str]]:
 #: Generators whose output has no currency check yet. Each entry is debt.
 #: Adding to this list is not allowed — see the count assertion below.
 UNGATED_BACKLOG = {
-    "generate_ai_onboarding_svgs.py": (
-        "output has diverged from the committed assets (1 file differs, measured\n        2026-09-19); like the dashboard set these are hand-evolved, so a currency\n        gate would demand regenerating over them"
-    ),
     "generate_dashboard_svgs.py": (
         "NOT currency-gateable, and this is the interesting one. Its output "
         "diverges from the committed assets, but the committed assets are what "
@@ -80,7 +77,9 @@ UNGATED_BACKLOG = {
     ),
 }
 
-#: Pinned to the measured count. 7 -> 6 when `regenerate_untested_endpoints.py`
+#: Pinned to the measured count. 4 -> 3 when `generate_ai_onboarding_svgs` was
+#: rewritten to the gpu/bolt illustration style and gated (2026-11-09).
+#: 7 -> 6 when `regenerate_untested_endpoints.py`
 #: gained a gate, 6 -> 4 when `generate_features_svgs` and
 #: `generate_gpu_page_svgs` turned out to match their committed assets exactly
 #: and were gated by `tests/test_svg_generators_that_can_be_gated_are.py`.
@@ -92,7 +91,7 @@ UNGATED_BACKLOG = {
 #: never go up. A ratchet with slack is not a ratchet — an earlier version of
 #: this pattern in this repo was written with headroom and passed its own
 #: control.
-MAX_UNGATED = 4
+MAX_UNGATED = 3
 
 
 #: Generator name shapes. `generate_*` alone missed

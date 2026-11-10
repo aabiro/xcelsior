@@ -8,7 +8,7 @@ Measured 2026-09-19 by running each against a clean tree:
 
     generate_features_svgs      0 modified, 0 untracked  -> matches
     generate_gpu_page_svgs      0 modified, 0 untracked  -> matches
-    generate_ai_onboarding_svgs 1 modified               -> diverged
+    generate_ai_onboarding_svgs 1 modified               -> diverged (rewritten and gated 2026-11-09)
     generate_mcp_page_svgs      1 modified, 1 untracked  -> diverged
     generate_dashboard_svgs     2 modified, 4 untracked  -> diverged
 
@@ -42,6 +42,7 @@ ROOT = Path(__file__).resolve().parents[1]
 #: matches their committed assets belong here; adding a diverged one would
 #: demand regeneration that destroys hand-evolved artwork.
 GATED = {
+    "generate_ai_onboarding_svgs.py": ROOT / "api" / "frontend" / "public" / "ai-onboarding",
     "generate_features_svgs.py": ROOT / "api" / "frontend" / "public" / "features",
     "generate_gpu_page_svgs.py": ROOT / "api" / "frontend" / "public" / "gpu-fleet",
 }
@@ -103,3 +104,36 @@ def test_every_gated_generator_and_output_directory_exists() -> None:
     for generator, out_dir in GATED.items():
         assert (ROOT / "api" / "scripts" / generator).is_file(), f"{generator} no longer exists"
         assert out_dir.is_dir(), f"{out_dir} no longer exists"
+
+
+#: The social cards are derived from the OG card: the generator reads
+#: `public/og-agent-native.svg` and writes each card's SVG (plus an HTML page
+#: for screenshotting, which is not committed) into the directory it is given.
+#: The PNGs beside them are screenshots and are not checked here.
+SOCIAL_SOURCE = ROOT / "api" / "frontend" / "public" / "og-agent-native.svg"
+SOCIAL_SVGS = ROOT / "api" / "frontend" / "public" / "brand-system" / "assets" / "social"
+
+
+def test_the_social_cards_match_a_fresh_generation_from_the_og_card(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "api" / "scripts" / "generate_social_cards.py"), str(SOCIAL_SOURCE), str(tmp_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"generate_social_cards.py could not run, so nothing is checking the social cards: "
+        f"rc={result.returncode} {result.stderr[-300:]}"
+    )
+    generated = sorted(p.name for p in tmp_path.glob("*.svg"))
+    assert generated, "generate_social_cards.py wrote no SVGs"
+    differing = [
+        n for n in generated
+        if not (SOCIAL_SVGS / n).is_file() or not filecmp.cmp(tmp_path / n, SOCIAL_SVGS / n, shallow=False)
+    ]
+    assert not differing, (
+        f"brand-system/assets/social/ no longer matches the OG card: {differing}. Run "
+        "`python api/scripts/generate_social_cards.py api/frontend/public/og-agent-native.svg "
+        "api/frontend/public/brand-system/assets/social`, re-shoot the PNGs, and commit."
+    )
