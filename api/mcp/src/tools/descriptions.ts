@@ -500,15 +500,16 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "providers:write, which the default connector does not carry.",
 
   request_provider_payout:
-    "Settle one completed job and pay the provider their share, creating a Stripe transfer or a " +
-    "PayPal order. Use when a provider asks to be paid for finished work and get_provider_account " +
-    "shows payouts enabled — if it does not, name what is outstanding instead, because this will " +
+    "Settle one completed job and pay or queue the provider's share, creating a Stripe transfer, " +
+    "a PayPal order, or a queued Wise batch settlement. Use when a provider asks to be paid for " +
+    "finished work and get_provider_account, get_paypal_status, or get_wise_status shows the " +
+    "chosen rail ready — if it does not, name what is outstanding instead, because this will " +
     "refuse. Calling it costs nothing: the amount, the platform cut and the tax are computed from " +
     "the job in the database, not supplied by you, and the destination is the provider's own " +
     "account. Safe to repeat: settlement is keyed per job, so a retry after a timeout returns the " +
-    "existing settlement rather than paying twice. **Amounts on the stripe rail are integer " +
-    "micros — divide by 1,000,000 for CAD — while the paypal rail returns fields already named " +
-    "_cad.** Reporting a micros figure as dollars overstates it a millionfold. Needs " +
+    "existing settlement rather than paying twice. **Amounts on the stripe and wise rails are " +
+    "integer micros — divide by 1,000,000 for CAD — while the paypal rail returns fields already " +
+    "named _cad.** Reporting a micros figure as dollars overstates it a millionfold. Needs " +
     "providers:write. Completed transfers are irreversible through this tool.",
 
   get_paypal_status:
@@ -518,6 +519,15 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "whether their PayPal side is the reason — Stripe and PayPal are separate destinations with " +
     "separate onboarding. The merchant and payer identifiers are deliberately not returned. " +
     "Read-only and free; the provider_id comes from list_providers.",
+
+  get_wise_status:
+    "Get a provider's Wise payout state: whether Wise payouts are enabled on the platform, the " +
+    "masked destination hint and target currency, whether the post-change cool-off is still " +
+    "active, queued earnings waiting for the next batch, the minimum payout threshold, and the " +
+    "latest batch payout status. Use when a provider asks about Wise payouts, why their Wise " +
+    "earnings are still queued, or when a newly linked Wise destination will become payable. " +
+    "Wise recipient identifiers and fingerprints are deliberately not returned. Read-only and " +
+    "free; the provider_id comes from list_providers.",
 
   get_active_lease:
     "Get the current attempt and lease health for an instance — which host holds it and whether " +

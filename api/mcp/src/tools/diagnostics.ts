@@ -105,7 +105,7 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
     z.object({
       provider_id: id.describe("From list_providers, or the caller's own"),
       job_id: id.describe("A completed instance from list_instances"),
-      payment_rail: z.enum(["stripe", "paypal"]).default("stripe"),
+      payment_rail: z.enum(["stripe", "paypal", "wise"]).default("stripe"),
     }),
     a => client.post(
       `/api/providers/${encodeURIComponent(String(a.provider_id))}/payout`
@@ -149,6 +149,9 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
   registerRead(server, client, user, "get_paypal_status",
     z.object({ provider_id: id.describe("From list_providers, or the caller's own") }),
     a => client.get(`/api/providers/${encodeURIComponent(String(a.provider_id))}/paypal`));
+  registerRead(server, client, user, "get_wise_status",
+    z.object({ provider_id: id.describe("From list_providers, or the caller's own") }),
+    a => client.get(`/api/providers/${encodeURIComponent(String(a.provider_id))}/wise`));
   registerRead(server, client, user, "get_my_reputation",
     z.object({}),
     () => client.get("/api/reputation/me"));

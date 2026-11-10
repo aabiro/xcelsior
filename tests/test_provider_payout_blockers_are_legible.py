@@ -254,3 +254,17 @@ def test_the_paypal_route_redacts_what_its_siblings_redact(provider_row):
             f"api_provider_paypal_status no longer redacts {identifier}, so the "
             "PayPal payout destination is readable through get_paypal_status"
         )
+
+
+def test_the_wise_status_route_omits_recipient_id_and_fingerprint():
+    """`GET /api/providers/{id}/wise` backs `get_wise_status` and must never
+    return `wise_recipient_id` or `fingerprint` to model context."""
+    import wise_payouts
+
+    source = pathlib.Path(wise_payouts.__file__).read_text(encoding="utf-8")
+    block = source.split("def get_recipient_status", 1)[1].split("\ndef ", 1)[0]
+    for secret_col in ("wise_recipient_id", "fingerprint"):
+        assert secret_col not in block, (
+            f"get_recipient_status selects {secret_col}, which would expose it "
+            "through get_wise_status"
+        )
