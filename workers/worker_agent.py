@@ -5895,6 +5895,8 @@ def run_job(job):
             command=effective_command,
             extra_args=extra_docker_args if extra_docker_args else None,
             interactive=is_interactive,
+            memory_share=_memory_share(num_gpus),
+            disk_quota_gb=container_disk_quota_gb(is_interactive),
         )
 
         # 4. Start container — remove stale container with same name (e.g. requeue)
@@ -8082,6 +8084,210 @@ def mining_detection_loop():
                 consecutive[idx] = 0
 
 
+def _memory_share(num_gpus) -> float:
+    """This job's share of the host's RAM: GPUs leased over GPUs on the host."""
+    try:
+        total = len(get_gpu_telemetry() or [])
+        leased = int(num_gpus or 1)
+    except Exception:
+        return 1.0
+    if total <= 0 or leased <= 0:
+        return 1.0
+    return min(1.0, leased / total)
+
+
+# ── Disk guard ───────────────────────────────────────────────────────
+#
+# CVP-01 T-17. An interactive container has a writable layer and nothing
+# bounded it: one tenant could fill Docker's disk, which stalls every other
+# container on the host and the worker's own journal. Where the storage driver
+# can enforce a quota Docker is given one at create. Everywhere else (ext4,
+# which is most provider machines) this loop is the bound. The unit of action
+# is one container: the one over its quota, or, when the disk is nearly full,
+# the largest writable layer if it is large enough to be the cause. A full disk
+# no tenant caused ends no tenant's work.
+
+DISK_GUARD_INTERVAL = int(os.environ.get("XCELSIOR_DISK_GUARD_INTERVAL", "30"))
+DISK_GUARD_MEASURE_EVERY = 10  # passes between full measurements while space is fine
+CONTAINER_DISK_GB = int(os.environ.get("XCELSIOR_CONTAINER_DISK_GB", "100"))
+HOST_DISK_FLOOR_GB = int(os.environ.get("XCELSIOR_HOST_DISK_FLOOR_GB", "10"))
+DISK_QUOTA_REASON = "disk_quota_exceeded"
+_GIB = 1024**3
+_docker_storage: dict | None = None
+
+
+def _docker_storage_info() -> dict:
+    """Docker's data directory and whether it can enforce a per-container size."""
+    global _docker_storage
+    if _docker_storage is not None:
+        return _docker_storage
+    info = {"root": "/var/lib/docker", "quota": False}
+    try:
+        out = subprocess.run(
+            ["docker", "info", "--format", "{{.DockerRootDir}}|{{.Driver}}|{{json .DriverStatus}}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if out.returncode:
+            return info  # not cached: Docker may only be starting
+        root, driver, status = (out.stdout.strip().split("|", 2) + ["", ""])[:3]
+        if root:
+            info["root"] = root
+        on_xfs = driver == "overlay2" and '"xfs"' in status.lower()
+        if on_xfs:
+            mount = subprocess.run(
+                ["findmnt", "-no", "OPTIONS", "-T", info["root"]],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            options = set(mount.stdout.strip().split(","))
+            info["quota"] = mount.returncode == 0 and bool(options & {"prjquota", "pquota"})
+    except (OSError, subprocess.SubprocessError):
+        return info
+    _docker_storage = info
+    return info
+
+
+def container_disk_quota_gb(interactive: bool) -> int | None:
+    """The size Docker itself can hold a container's writable layer to, or None.
+
+    Batch containers have a read-only root and bounded tmpfs, so only an
+    interactive one needs it. Passing --storage-opt where the driver cannot
+    enforce it makes Docker refuse the container, so the answer is None unless
+    the host is known to support it.
+    """
+    if not interactive or CONTAINER_DISK_GB <= 0:
+        return None
+    return CONTAINER_DISK_GB if _docker_storage_info()["quota"] else None
+
+
+def _container_writable_bytes(container_name: str) -> int | None:
+    try:
+        out = subprocess.run(
+            ["docker", "inspect", "--size", "--format", "{{.SizeRw}}", container_name],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        return int(out.stdout.strip()) if out.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def disk_guard_decide(
+    free_bytes: int, sizes: dict[str, int], *, quota_bytes: int, floor_bytes: int
+) -> tuple[list[str], bool]:
+    """Which jobs to stop, and whether the disk is low with no tenant to name.
+
+    Pure, so the rule can be tested without a disk.
+    """
+    over = sorted(job for job, size in sizes.items() if quota_bytes > 0 and size > quota_bytes)
+    if over:
+        return over, False
+    if floor_bytes > 0 and free_bytes < floor_bytes:
+        if sizes:
+            job = max(sizes, key=lambda j: sizes[j])
+            if sizes[job] >= floor_bytes:
+                return [job], False
+        return [], True
+    return [], False
+
+
+def _stop_for_disk(job_id: str, container_name: str, used_bytes: int, message: str) -> None:
+    """End one container for its disk use; the outcome is journaled first.
+
+    Without the journaled outcome the exit monitor finds the container
+    missing, which is not proof of failure (see _v2_fail_serverless_health).
+    """
+    with _v2_attempts_lock:
+        auth = _v2_attempts.get(job_id)
+        if auth is None or auth.get("container_name") != container_name:
+            return
+        auth["pending_terminal_report"] = {"status": "failed", "failure_code": DISK_QUOTA_REASON}
+        if not _v2_journal_save():
+            log.error("Disk stop for job %s could not be journaled", job_id)
+    log.error(
+        "Stopping job %s (%s): writable layer is %.1f GiB — %s",
+        job_id,
+        container_name,
+        used_bytes / _GIB,
+        message,
+    )
+    _kill_container(container_name)
+    report_job_status(
+        job_id,
+        "failed",
+        error_message=message,
+        policy_reason=DISK_QUOTA_REASON,
+        expected_v2_auth=auth,
+    )
+    with _active_lock:
+        if _active_containers.get(job_id) == container_name:
+            _active_containers.pop(job_id, None)
+
+
+def disk_guard_pass(*, measure: bool) -> bool:
+    """One look at the disk. Returns True when the next pass should measure too."""
+    try:
+        free = shutil.disk_usage(_docker_storage_info()["root"]).free
+    except OSError:
+        return False
+    floor = HOST_DISK_FLOOR_GB * _GIB
+    quota = CONTAINER_DISK_GB * _GIB
+    tight = floor > 0 and free < 2 * floor
+    if not (measure or tight):
+        return False
+    with _active_lock:
+        active = dict(_active_containers)
+    sizes = {}
+    for job_id, cname in active.items():
+        size = _container_writable_bytes(cname)
+        if size is not None:
+            sizes[job_id] = size
+    stop, unattributed = disk_guard_decide(free, sizes, quota_bytes=quota, floor_bytes=floor)
+    for job_id in stop:
+        if sizes[job_id] > quota > 0:
+            message = (
+                f"This instance wrote more than {CONTAINER_DISK_GB} GB to its own disk and was "
+                "stopped to protect the machine. Keep large files on a volume."
+            )
+        else:
+            message = (
+                "The machine ran out of disk space and this instance held the most; it was "
+                "stopped to protect the machine. Keep large files on a volume."
+            )
+        _stop_for_disk(job_id, active[job_id], sizes[job_id], message)
+    if unattributed:
+        log.error(
+            "Docker disk has %.1f GiB free (floor %d GiB) and no job's writable layer accounts "
+            "for it; stopping nothing",
+            free / _GIB,
+            HOST_DISK_FLOOR_GB,
+        )
+    return tight
+
+
+def disk_guard_loop():
+    """Background thread: bound what a tenant can write to Docker's disk."""
+    passes = 0
+    measure_next = True
+    while not _shutdown.is_set():
+        for _ in range(DISK_GUARD_INTERVAL):
+            if _shutdown.is_set():
+                return
+            time.sleep(1)
+        passes += 1
+        try:
+            measure_next = disk_guard_pass(
+                measure=measure_next or passes % DISK_GUARD_MEASURE_EVERY == 0
+            )
+        except Exception as exc:  # the guard must outlive one bad pass
+            log.warning("disk guard pass failed: %s", exc)
+            measure_next = False
+
+
 # ── Heartbeat Thread ─────────────────────────────────────────────────
 
 
@@ -8644,6 +8850,11 @@ def main():
     )
     mining_thread.start()
     threads.append(mining_thread)
+
+    # Disk guard thread: bounds a tenant's writable layer (CVP-01 T-17)
+    disk_thread = threading.Thread(target=disk_guard_loop, name="disk-guard", daemon=True)
+    disk_thread.start()
+    threads.append(disk_thread)
 
     # Periodic volume orphan cleanup thread (every 30 min)
     def _volume_orphan_cleanup_loop():

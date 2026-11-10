@@ -519,14 +519,66 @@ DEFAULT_EGRESS_ALLOWLIST = [
 
 
 def container_cpu_limit(host_cpus: int | None = None) -> str:
-    """Docker --cpus value capped to what the host actually has.
+    """Docker --cpus value: what the host has, less what it keeps for itself.
 
-    Defaults to min(16, os.cpu_count()) so towers with 12 logical CPUs do not
-    fail container create with "range of CPUs is from 0.01 to 12.00".
+    The ceiling is min(16, os.cpu_count()) so towers with 12 logical CPUs do
+    not fail container create with "range of CPUs is from 0.01 to 12.00". A
+    host with four or more CPUs then holds one back (CVP-01 T-20): with none
+    held back a single tenant could peg every core, and the worker, its
+    heartbeat and the provider's own desktop compete with it for time.
+    `XCELSIOR_HOST_CPU_RESERVE` overrides the reserve.
     """
     ceiling = int(os.environ.get("XCELSIOR_CONTAINER_CPUS_MAX", "16"))
     available = host_cpus if host_cpus and host_cpus > 0 else (os.cpu_count() or ceiling)
-    return str(max(1, min(ceiling, int(available))))
+    available = int(available)
+    try:
+        reserve = int(os.environ["XCELSIOR_HOST_CPU_RESERVE"])
+    except (KeyError, ValueError):
+        reserve = 1 if available >= 4 else 0
+    return str(max(1, min(ceiling, available - max(0, reserve))))
+
+
+#: Relative CPU weight of a tenant container. Docker's default is 1024, the
+#: same as every other service on the host; half of that means the worker and
+#: the provider's own processes win when cores are contended, and tenants
+#: still share fairly among themselves.
+CONTAINER_CPU_SHARES = 512
+
+_GIB = 1024**3
+
+
+def _host_memory_bytes() -> int | None:
+    try:
+        with open("/proc/meminfo", encoding="ascii") as fh:
+            for line in fh:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def container_memory_limit(host_bytes: int | None = None, share: float = 1.0) -> str:
+    """Docker --memory value sized from the host's RAM (CVP-01 T-18).
+
+    The limit used to be a constant 32 GiB. On a 16 GiB provider machine that
+    is no limit: the kernel OOM killer, not Docker, chose what died, and it
+    could choose the worker or the provider's session. The host now keeps
+    max(2 GiB, 1/8 of RAM) and a container gets its `share` of the rest
+    (GPUs leased / GPUs on the host), never more than
+    `XCELSIOR_CONTAINER_MEMORY_MAX_GB` (32). Unknown RAM keeps the ceiling.
+    """
+    try:
+        ceiling = max(1, int(os.environ.get("XCELSIOR_CONTAINER_MEMORY_MAX_GB", "32"))) * _GIB
+    except ValueError:
+        ceiling = 32 * _GIB
+    total = host_bytes if host_bytes and host_bytes > 0 else _host_memory_bytes()
+    if not total:
+        return f"{ceiling // (1024**2)}m"
+    usable = total - max(2 * _GIB, total // 8)
+    share = min(1.0, max(0.0, float(share))) or 1.0
+    limit = min(ceiling, int(usable * share))
+    return f"{max(512, limit // (1024**2))}m"
 
 
 def build_secure_docker_args(
@@ -543,6 +595,8 @@ def build_secure_docker_args(
     command=None,
     interactive=False,
     gpu_device_uuids=None,
+    memory_share=1.0,
+    disk_quota_gb=None,
 ):
     """Build Docker run arguments with defense-in-depth security.
 
@@ -633,10 +687,17 @@ def build_secure_docker_args(
         args.extend(["--runtime", runtime])
 
     # Resource limits
-    args.extend(["--memory", "32g"])
-    args.extend(["--memory-swap", "32g"])
+    memory = container_memory_limit(share=memory_share)
+    args.extend(["--memory", memory])
+    args.extend(["--memory-swap", memory])
     args.extend(["--pids-limit", "4096"])
     args.extend(["--cpus", container_cpu_limit()])
+    args.extend(["--cpu-shares", str(CONTAINER_CPU_SHARES)])
+    # Only where the host's storage driver enforces it (overlay2 on xfs with
+    # project quotas); anywhere else Docker refuses to create the container.
+    # The caller decides: see worker_agent.container_disk_quota_gb.
+    if disk_quota_gb:
+        args.extend(["--storage-opt", f"size={int(disk_quota_gb)}g"])
     args.extend(["--ulimit", "nofile=65535:65535"])
     args.extend(["--ulimit", "nproc=4096:4096"])
 
