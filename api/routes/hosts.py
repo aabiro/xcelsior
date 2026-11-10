@@ -75,6 +75,20 @@ def _address_lookup_country(value: str) -> str:
     return country
 
 
+def _visitor_country_hint(request: Request) -> str:
+    """Cloudflare's country for the visitor, used only to rank a search with no country.
+
+    A forged header can only reorder the caller's own suggestions. Cloudflare
+    sends XX for unknown and T1 for Tor; neither is a country, so both are dropped.
+    """
+    import pycountry
+
+    value = request.headers.get("cf-ipcountry", "").strip().upper()
+    if len(value) != 2 or pycountry.countries.get(alpha_2=value) is None:
+        return ""
+    return value
+
+
 def _loqate_capture(operation: str, values: dict[str, str]) -> list[dict]:
     """Keep credentials and addresses out of URLs, logs, and error messages."""
     import httpx
@@ -136,9 +150,13 @@ def api_address_search(body: AddressSearchRequest, request: Request):
     text = body.text.strip()
     if len(text) < 3:
         raise HTTPException(422, "Enter at least three address characters")
-    query = {"Text": text, "Container": body.container, "Limit": "8"}
+    # The request comes from our server, so tell Loqate not to bias results
+    # toward the server's IP. Without a country that bias would be the main one.
+    query = {"Text": text, "Container": body.container, "Limit": "8", "IsMiddleware": "true"}
     if country:
         query["Countries"] = country
+    elif hint := _visitor_country_hint(request):
+        query["Origin"] = hint
     items = _loqate_capture("Find", query)
     return {
         "ok": True,
