@@ -1162,10 +1162,10 @@ def api_terminal_ticket(body: TerminalTicketIn, request: Request) -> dict:
     """
     user = _require_auth(request)
     _require_scope(user, "instances:connect")
-    instance = next(
-        (j for j in list_jobs() if j.get("job_id") == body.instance_id),
-        None,
-    )
+    from scheduler import get_job
+
+    # One row by id, not a scan of the whole jobs table (CVP-01 T1, D1 class).
+    instance = get_job(body.instance_id) if body.instance_id else None
     _check_terminal_access(user, instance, instance_id=body.instance_id)
     ticket = _issue_ws_ticket(
         user,

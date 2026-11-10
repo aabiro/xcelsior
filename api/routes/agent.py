@@ -1317,14 +1317,12 @@ def api_agent_ssh_keys(job_id: str, request: Request):
     """
     _require_agent_auth(request)
     from db import UserStore
+    from scheduler import get_job
 
-    # Look up the job to find its owner
-    all_jobs = list_jobs()
-    job = None
-    for j in all_jobs:
-        if j.get("job_id") == job_id:
-            job = j
-            break
+    # One row by id. This used to load the whole jobs table and hit the
+    # statement timeout on large databases; the worker then logged "No SSH
+    # keys" and silently skipped key injection (CVP-01 T1, defect D1).
+    job = get_job(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
 
