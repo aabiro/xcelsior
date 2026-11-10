@@ -472,7 +472,14 @@ def day_window(day: dt.date, tz_name: str) -> tuple[float, float]:
     return start.timestamp(), (start + dt.timedelta(days=1)).timestamp()
 
 
-def compare_day(records: dict, segments: list[tuple], *, start: float, end: float) -> dict:
+def compare_day(
+    records: dict,
+    segments: list[tuple],
+    *,
+    start: float,
+    end: float,
+    platform_names: dict[str, set[str]] | None = None,
+) -> dict:
     """Accounting's records against the ledger's rows for one window.
 
     ``records`` is ``accounting_between``'s ``records`` (every run of every
@@ -480,19 +487,36 @@ def compare_day(records: dict, segments: list[tuple], *, start: float, end: floa
     ``(slurm_job_id, submitted_at epoch, elapsed_sec, gpu_count)`` whose
     ``ended_at`` falls in the window. Both sides are keyed by (Slurm id,
     Submit), the key ``sacct -D`` itself distinguishes runs by. Only runs that
-    ended in the window and carry the adapter's name prefix count.
+    ended in the window and carry the adapter's name prefix are looked at.
+
+    ``platform_names`` maps a Slurm id to the names the platform submitted
+    under it (``xcl-<submission_name>`` of each mapping). When given, only
+    those runs count toward drift. Every adapter-named run is ``xcl-…``,
+    including the validation kit's own suite and scenario jobs, which never go
+    through the submitter and so can never have a ledger row: counting them
+    made 2026-11-08 read 100 % drift (117 kit runs, 327 GPU-seconds, no
+    platform job at all). They are listed under ``unattributed`` instead,
+    with their GPU-seconds, so a platform job that lost its mapping still
+    shows up somewhere. A platform run with no ledger row still counts as
+    drift, which is the gap this report exists to catch.
     """
     acct: dict[tuple[str, int], int] = {}
+    unattributed: dict[tuple[str, int], int] = {}
     for sid, runs in records.items():
         for run in runs:
             ended = run.get("ended_at")
             if ended is None or not start <= float(ended) < end:
                 continue
-            if not str(run.get("name") or "").startswith("xcl-"):
+            name = str(run.get("name") or "")
+            if not name.startswith("xcl-"):
                 continue
             gpus = sa.parse_alloc_tres(run.get("alloc_tres") or "")["gpu"]
             key = (str(sid), int(run.get("submitted_at") or 0))
-            acct[key] = acct.get(key, 0) + int(run.get("elapsed_sec") or 0) * gpus
+            seconds = int(run.get("elapsed_sec") or 0) * gpus
+            if platform_names is not None and name not in platform_names.get(str(sid), ()):
+                unattributed[key] = unattributed.get(key, 0) + seconds
+                continue
+            acct[key] = acct.get(key, 0) + seconds
     ledger: dict[tuple[str, int], int] = {}
     for sid, submitted, elapsed, gpus in segments:
         key = (str(sid), int(submitted or 0))
@@ -515,8 +539,27 @@ def compare_day(records: dict, segments: list[tuple], *, start: float, end: floa
             "differing": sorted(
                 f"{k[0]}@{k[1]}" for k in acct.keys() & ledger.keys() if acct[k] != ledger[k]
             ),
+            "unattributed": sorted(f"{k[0]}@{k[1]}" for k in unattributed),
+            "unattributed_gpu_seconds": sum(unattributed.values()),
         },
     }
+
+
+def _platform_names(conn, cluster_id: str, slurm_ids: list[str]) -> dict[str, set[str]]:
+    """The Slurm names the platform submitted under these ids on this cluster."""
+    names: dict[str, set[str]] = {}
+    if not slurm_ids:
+        return names
+    for sid, submission_name, job_id in conn.execute(
+        """
+        SELECT slurm_job_id, submission_name, xcelsior_job_id
+          FROM slurm_job_mappings
+         WHERE cluster_id = %s AND slurm_job_id = ANY(%s)
+        """,
+        (cluster_id, slurm_ids),
+    ).fetchall():
+        names.setdefault(str(sid), set()).add(f"xcl-{submission_name or job_id}")
+    return names
 
 
 def _ledger_rows(conn, cluster_id: str, start: float, end: float) -> list[tuple]:
@@ -552,7 +595,10 @@ def report_day(cluster: dict, day: dt.date, *, runner=None) -> dict:
         return acct
     with pg_connection() as conn:
         segments = _ledger_rows(conn, cluster["cluster_id"], start, end)
-    result = compare_day(acct["records"], segments, start=start, end=end)
+        platform = _platform_names(conn, cluster["cluster_id"], [str(k) for k in acct["records"]])
+    result = compare_day(
+        acct["records"], segments, start=start, end=end, platform_names=platform
+    )
     with pg_transaction() as conn:
         conn.execute(
             """
