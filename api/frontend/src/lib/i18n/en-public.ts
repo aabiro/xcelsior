@@ -321,7 +321,7 @@ const en_public: Record<string, string> = {
   "security.s2_scopes": "The full scope vocabulary is published in",
   "security.s2_scopes_link": "the authentication documentation",
   "security.s3_title": "What we record",
-  "security.s3_p1": "One audit record per tool call: which principal, which tenant, which scopes were evaluated, which action plan, the upstream route and status, latency, trace id, and outcome.",
+  "security.s3_p1": "One audit record per tool call: which principal, which tenant, which scopes were evaluated, which action plan, the upstream route and status, latency, trace ID, and outcome.",
   "security.s3_p2": "Arguments are never stored. What is recorded is a SHA-256 hash of the canonicalised arguments, with secret-bearing fields removed before hashing.",
   "security.s3_p3": "You can read your own trail: `GET /api/v1/mcp/tool-audit` returns your tenant's records, filterable and paged. There is no cross-tenant view at any privilege level.",
   "security.s3_p4": "Tool output is filtered on the way back to the model. Auth material, debug payloads such as tracebacks or SQL, and undisclosed user fields are removed before anything reaches a third party's context window, and a removal is recorded as a metric because the filter is the safety net, not the fix.",

@@ -120,7 +120,7 @@ export function JobsPanel(props: Props) {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
           <Input
             aria-label="Filter loaded jobs"
-            placeholder="Filter by job id, Slurm id or name"
+            placeholder="Filter by job ID, Slurm ID or name"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="h-9 pl-9"
