@@ -132,6 +132,8 @@ api/docs/*
 !api/docs/paypal-marketplace-e2e.md
 !docs/VOLUMES_RUNBOOK.md
 !api/docs/VOLUMES_RUNBOOK.md
+# The Wise payout rail's operator steps; `billing/wise_payouts.py` points here.
+!api/docs/WISE_PAYOUTS_RUNBOOK.md
 !docs/VOLUMES_COMPLETION_PLAN.md
 !api/docs/VOLUMES_COMPLETION_PLAN.md
 !docs/NEXT_PRIORITIES_ROADMAP.md

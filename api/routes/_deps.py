@@ -181,6 +181,10 @@ PUBLIC_PATHS = {
     "/api/billing/lightning/rate",
     "/api/billing/paypal/enabled",
     "/api/billing/paypal/webhook",
+    # Wise sends no bearer either. `wise_payouts.handle_webhook` refuses any
+    # body whose RSA signature does not verify against the pinned Wise key, and
+    # the handler only records the delivery: state is read back from Wise.
+    "/api/billing/wise/webhook",
     # Stripe Connect thin events. Stripe sends no bearer, so demanding one meant
     # every delivery got 401 from this middleware before the handler ran — the
     # endpoint has been unreachable for as long as it has existed, which the

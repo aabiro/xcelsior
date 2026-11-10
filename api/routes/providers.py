@@ -625,8 +625,29 @@ def api_provider_payout(
             "provider_share_cad": result["provider_share_cad"],
             "message": "Approve and capture via /api/billing/paypal/marketplace/capture-order",
         }
+    if rail == "wise":
+        # Wise is paid in batches: this records the exact settlement and leaves
+        # it queued for the next approved payout. No money moves here.
+        import wise_payouts
+        from provider_settlement import prepare_settlement, settlement_response
+
+        if not wise_payouts.wise_configured():
+            raise HTTPException(400, "Wise payouts are not available")
+        try:
+            with wise_payouts._conn() as conn:
+                prepared = prepare_settlement(
+                    conn, job_id=job_id, provider_id=provider_id, rail="wise"
+                )
+        except SettlementError as exc:
+            raise HTTPException(exc.status_code, str(exc)) from exc
+        return {
+            "ok": True,
+            "payment_rail": "wise",
+            **settlement_response(prepared),
+            "message": "Queued for the next Wise payout",
+        }
     if rail != "stripe":
-        raise HTTPException(400, "payment_rail must be stripe or paypal")
+        raise HTTPException(400, "payment_rail must be stripe, paypal or wise")
     try:
         result = mgr.split_payout(job_id, provider_id)
     except SettlementError as exc:

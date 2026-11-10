@@ -24,7 +24,8 @@ from typing import Any, Iterable
 from money import MICROS_PER_CAD, micros_to_cad
 
 MICROS_PER_CENT = MICROS_PER_CAD // 100
-_ALLOWED_RAILS = {"stripe", "paypal"}
+_ALLOWED_RAILS = {"stripe", "paypal", "wise"}
+_CLAIMABLE_RAILS = {"stripe", "paypal"}
 _ELIGIBLE_JOB_STATUSES = {"completed", "terminated"}
 _ELIGIBLE_JOB_PHASES = {"succeeded"}
 
@@ -247,7 +248,9 @@ def prepare_settlement(
     if not job_id or not provider_id:
         raise SettlementNotEligible("invalid_identity", "job_id and provider_id are required")
     if rail not in _ALLOWED_RAILS:
-        raise SettlementNotEligible("unsupported_rail", "payment rail must be stripe or paypal")
+        raise SettlementNotEligible(
+            "unsupported_rail", "payment rail must be stripe, paypal or wise"
+        )
 
     authority = conn.execute(
         """
@@ -453,10 +456,16 @@ def claim_settlements(
     job_id: str | None = None,
     allowed_statuses: Iterable[str] = ("pending", "queued", "failed"),
 ) -> list[dict]:
-    """Atomically claim settlement rows with ``FOR UPDATE SKIP LOCKED``."""
+    """Atomically claim settlement rows with ``FOR UPDATE SKIP LOCKED``.
+
+    Wise rows are never claimed one at a time: they are added up into one
+    transfer per provider by ``wise_payouts.batch_queued_settlements``, which
+    takes its own row locks. A per-job claim of a Wise row would let a lease
+    expire under a transfer that is already on its way.
+    """
 
     rail = str(rail).lower()
-    if rail not in _ALLOWED_RAILS:
+    if rail not in _CLAIMABLE_RAILS:
         raise ValueError("unsupported settlement rail")
     safe_limit = max(1, min(int(limit), 500))
     safe_lease = max(30, min(int(lease_seconds), 3600))
@@ -664,6 +673,7 @@ def settlement_response(row: dict) -> dict:
         "stripe_transfer_id",
         "paypal_order_id",
         "paypal_capture_id",
+        "wise_payout_id",
         "created_at",
         "updated_at",
         "settled_at",

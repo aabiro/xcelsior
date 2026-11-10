@@ -31,6 +31,7 @@ from routes.reputation import router as reputation_router
 from routes.sla import router as sla_router
 from routes.spot import router as spot_router
 from routes.ssh import router as ssh_router
+from routes.wise import router as wise_router
 from routes.teams import router as teams_router
 from routes.transparency import router as transparency_router
 from routes.verification import router as verification_router
@@ -70,6 +71,7 @@ ALL_ROUTERS = [
     sla_router,
     spot_router,
     ssh_router,
+    wise_router,
     static_router,
     stripe_connect_v2_router,
     teams_router,
