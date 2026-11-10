@@ -1456,7 +1456,10 @@ const fr: Record<string, string> = {
   /* ── Tableau de bord, HPC ───────────────────────────────────────────── */
   "dash.hpc.title": "HPC / Slurm",
   "dash.hpc.tab_submit": "Soumettre une tâche",
-  "dash.hpc.tab_jobs": "Mes tâches",
+  "dash.hpc.tab_jobs": "Tâches",
+  "dash.hpc.tab_clusters": "Grappes",
+  "dash.hpc.internal_badge": "Interne · opérateurs seulement",
+  "dash.hpc.subtitle": "Chaque valeur est la dernière observation du réconciliateur. Actualiser cette page ne contacte jamais une grappe.",
   "dash.hpc.submit_title": "Soumettre une tâche HPC",
 
   /* ── Tableau de bord, Événements ────────────────────────────────────── */

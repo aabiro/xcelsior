@@ -1,53 +1,30 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Clock, Lock, Play, RefreshCw, Server, Activity, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input, Label, Select, NumberInput } from "@/components/ui/input";
-import { Cpu, RefreshCw, Play, XCircle, Loader2, Server, Clock, FileCode, Eye } from "lucide-react";
+import { StatCard } from "@/components/ui/stat-card";
 import * as api from "@/lib/api";
-import type { SlurmMapping, SlurmProfileDetail } from "@/lib/api";
-import { toast } from "sonner";
-import { useLocale } from "@/lib/locale";
+import type { HpcCluster, HpcJob, HpcJobScope } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useRouter } from "next/navigation";
+import { useLocale } from "@/lib/locale";
+import { cn } from "@/lib/utils";
+import { attentionItems, formatDuration, summarise } from "./hpc-format";
+import { ClustersPanel } from "./clusters-panel";
+import { JobsPanel } from "./jobs-panel";
+import { SubmitPanel } from "./submit-panel";
 
-interface ProfileCard extends SlurmProfileDetail {
-  id: string;
-}
+/** The read model is the reconciler's copy, so polling it costs a cluster nothing. */
+const AUTO_REFRESH_MS = 30_000;
 
-/** A row in the jobs list: the mapping as the Slurm reconciler last observed it. */
-interface JobRow extends SlurmMapping {
-  status: string;
-  reason?: string | null;
-}
-
-// slurm_job_mappings.observed_state and the adapter's job states → one label.
-const STATUS_LABEL: Record<string, string> = {
-  pending: "pending",
-  queued: "pending",
-  running: "running",
-  completed: "completed",
-  failed: "failed",
-  cancelled: "cancelled",
-  preempted: "preempted",
-  held: "held",
-  suspended: "suspended",
-  unknown: "unknown",
-};
-
-const WALLTIME = /^(\d+-)?\d{1,2}:\d{2}:\d{2}$|^\d+$/;
-
-function formatEpoch(epoch: number | null): string {
-  return epoch ? new Date(epoch * 1000).toLocaleString() : "—";
-}
+type Tab = "clusters" | "jobs" | "submit";
 
 export default function HpcPage() {
   const { user } = useAuth();
   const router = useRouter();
-  // The /api/slurm/* routes are admin-only; providers used to reach this page
-  // and get nothing but 403s.
+  // Internal operator console: every route behind it is platform-admin only.
   const hasHpcAccess = !!user?.is_admin;
 
   useEffect(() => {
@@ -56,316 +33,244 @@ export default function HpcPage() {
 
   if (!user || !hasHpcAccess) return null;
 
-  return <HpcContent />;
+  return <HpcConsole />;
 }
 
-function HpcContent() {
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
+function HpcConsole() {
   const { t } = useLocale();
-  const [profiles, setProfiles] = useState<ProfileCard[]>([]);
-  const [jobs, setJobs] = useState<JobRow[]>([]);
+  const [tab, setTab] = useState<Tab>("clusters");
+  const [clusters, setClusters] = useState<HpcCluster[]>([]);
+  const [clustersError, setClustersError] = useState<string | null>(null);
+  // Open jobs feed the summary whatever the Jobs tab is filtered to.
+  const [openJobs, setOpenJobs] = useState<HpcJob[]>([]);
+  const [openHasMore, setOpenHasMore] = useState(false);
+  const [jobs, setJobs] = useState<HpcJob[]>([]);
+  const [jobsError, setJobsError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [scope, setScope] = useState<HpcJobScope>("open");
+  const [clusterFilter, setClusterFilter] = useState("");
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"submit" | "jobs">("submit");
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
+  // A slow response for an old filter must not overwrite a newer one.
+  const request = useRef(0);
 
-  // Submit form
-  const [selectedProfile, setSelectedProfile] = useState("");
-  const [jobName, setJobName] = useState("");
-  const [command, setCommand] = useState("nvidia-smi");
-  const [nodes, setNodes] = useState("1");
-  const [gpus, setGpus] = useState("1");
-  const [walltime, setWalltime] = useState("01:00:00");
-  const [submitting, setSubmitting] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    const id = ++request.current;
+    setRefreshing(true);
+    const filtered = scope !== "open" || clusterFilter !== "";
+    const [c, open, list] = await Promise.allSettled([
+      api.fetchHpcClusters(),
+      api.fetchHpcJobs({ state: "open", limit: 200 }),
+      filtered
+        ? api.fetchHpcJobs({ state: scope, clusterId: clusterFilter || undefined })
+        : Promise.resolve(null),
+    ]);
+    if (id !== request.current) return;
 
-  const load = useCallback(() => {
-    setLoading(true);
-    Promise.allSettled([api.fetchSlurmProfiles(), api.fetchSlurmInstances()]).then(([p, j]) => {
-      if (p.status === "fulfilled") {
-        const details = p.value.details || {};
-        const cards: ProfileCard[] = Object.entries(details).map(([id, d]) => ({ id, ...d }));
-        setProfiles(cards);
-        setSelectedProfile((cur) => cur || cards.find((c) => !c.retired)?.id || "");
-      }
-      if (j.status === "fulfilled") {
-        const rows = Array.isArray(j.value.jobs) ? j.value.jobs : [];
-        setJobs(rows.map((m) => ({
-          ...m,
-          status: STATUS_LABEL[m.observed_state || "unknown"] || "unknown",
-          reason: m.state_reason,
-        })));
-      }
-      setLoading(false);
-    });
+    if (c.status === "fulfilled") {
+      setClusters(c.value.clusters ?? []);
+      setClustersError(null);
+    } else {
+      setClustersError(errorMessage(c.reason, "Could not load clusters"));
+    }
+
+    if (open.status === "fulfilled") {
+      setOpenJobs(open.value.jobs ?? []);
+      setOpenHasMore(!!open.value.next_cursor);
+    }
+
+    const shown = filtered ? list : open;
+    if (shown.status === "fulfilled" && shown.value) {
+      setJobs(shown.value.jobs ?? []);
+      setNextCursor(shown.value.next_cursor ?? null);
+      setJobsError(null);
+    } else if (shown.status === "rejected") {
+      setJobsError(errorMessage(shown.reason, "Could not load jobs"));
+    }
+
+    const at = Date.now();
+    setNow(at);
+    setLoadedAt(at);
+    setLoading(false);
+    setRefreshing(false);
+  }, [scope, clusterFilter]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, AUTO_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [autoRefresh, load]);
+
+  // Ages on screen keep counting between loads.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 5_000);
+    return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
-
-  const buildRequest = (dryRun: boolean): api.SlurmSubmitRequest | null => {
-    if (!jobName.trim()) { toast.error("Enter a job name"); return null; }
-    if (!selectedProfile) { toast.error("Select a cluster profile"); return null; }
-    if (walltime && !WALLTIME.test(walltime.trim())) {
-      toast.error("Wall time must look like HH:MM:SS, D-HH:MM:SS or minutes");
-      return null;
-    }
-    return {
-      name: jobName.trim(),
-      profile: selectedProfile,
-      priority: 0,
-      num_gpus: Math.max(0, Number(gpus)) * Math.max(1, Number(nodes)),
-      walltime: walltime.trim() || undefined,
-      command: command.trim() || undefined,
-      dry_run: dryRun,
-    };
-  };
-
-  const handlePreview = async () => {
-    const req = buildRequest(true);
-    if (!req) return;
+  const loadMore = useCallback(async () => {
+    if (!nextCursor) return;
+    setLoadingMore(true);
     try {
-      const res = await api.submitSlurmInstance(req);
-      setPreview(res.script || "");
+      const page = await api.fetchHpcJobs({
+        state: scope,
+        clusterId: clusterFilter || undefined,
+        cursor: nextCursor,
+      });
+      setJobs((prev) => {
+        const seen = new Set(prev.map((j) => j.mapping_id));
+        return [...prev, ...(page.jobs ?? []).filter((j) => !seen.has(j.mapping_id))];
+      });
+      setNextCursor(page.next_cursor ?? null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Preview failed");
-    }
-  };
-
-  const handleSubmit = async () => {
-    const req = buildRequest(false);
-    if (!req) return;
-    setSubmitting(true);
-    try {
-      const res = await api.submitSlurmInstance(req);
-      toast.success(`Submitted: Slurm job ${res.slurm_job_id} on ${res.cluster_id || selectedProfile}`);
-      setJobName("");
-      setPreview(null);
-      setTab("jobs");
-      load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to submit job");
+      setJobsError(errorMessage(err, "Could not load more jobs"));
     } finally {
-      setSubmitting(false);
+      setLoadingMore(false);
     }
-  };
+  }, [nextCursor, scope, clusterFilter]);
 
-  const handleCancel = async (job: JobRow) => {
-    try {
-      await api.cancelSlurmJob(job.slurm_job_id, job.cluster_id);
-      toast.success(`Cancel sent for Slurm job ${job.slurm_job_id}`);
-      await handleRefreshStatus(job);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to cancel job");
-    }
-  };
+  const summary = useMemo(() => summarise(clusters, openJobs, now), [clusters, openJobs, now]);
+  const attention = useMemo(() => attentionItems(clusters, openJobs, now), [clusters, openJobs, now]);
+  const plus = openHasMore ? "+" : "";
 
-  const handleRefreshStatus = async (job: JobRow) => {
-    try {
-      const res = await api.fetchSlurmJobStatus(job.slurm_job_id, job.cluster_id);
-      // The reconciler's copy, not a live poll: refreshing costs the cluster nothing.
-      setJobs((prev) => prev.map((j) => j.job_id === job.job_id
-        ? {
-            ...j,
-            status: STATUS_LABEL[res.xcelsior_state] || "unknown",
-            slurm_state: res.slurm_state,
-            reason: res.reason,
-            last_observed_at: res.last_observed_at ?? j.last_observed_at,
-          }
-        : j));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to refresh status");
-    }
-  };
-
-  const tabs = [
-    { id: "submit" as const, label: t("dash.hpc.tab_submit"), icon: Play },
-    { id: "jobs" as const, label: t("dash.hpc.tab_jobs"), icon: Clock, count: jobs.filter((j) => j.status === "running" || j.status === "pending").length },
+  const tabs: { id: Tab; label: string; icon: typeof Server; count?: number }[] = [
+    { id: "clusters", label: t("dash.hpc.tab_clusters"), icon: Server, count: clusters.length },
+    { id: "jobs", label: t("dash.hpc.tab_jobs"), icon: Clock, count: summary.open },
+    { id: "submit", label: t("dash.hpc.tab_submit"), icon: Play },
   ];
-  const selected = profiles.find((p) => p.id === selectedProfile);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t("dash.hpc.title")}</h1>
-        <Button variant="outline" size="sm" onClick={load}>
-          <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
-        </Button>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold">{t("dash.hpc.title")}</h1>
+            <Badge variant="warning" className="text-xs">
+              <Lock className="h-3 w-3" /> {t("dash.hpc.internal_badge")}
+            </Badge>
+          </div>
+          <p className="mt-1 max-w-2xl text-sm text-text-secondary">{t("dash.hpc.subtitle")}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-text-muted" aria-live="polite">
+            {loadedAt ? `Updated ${formatDuration(Math.round((now - loadedAt) / 1000))} ago` : "Loading…"}
+          </span>
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-text-secondary">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-[var(--color-accent-cyan,#00d4ff)]"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+            />
+            Auto-refresh
+          </label>
+          <Button variant="outline" size="sm" onClick={() => void load()} disabled={refreshing}>
+            <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} /> {t("common.refresh")}
+          </Button>
+        </div>
       </div>
 
-      {/* Cluster Profiles */}
-      {profiles.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {profiles.map((p) => (
-            <Card
-              key={p.id}
-              className={`p-4 transition-all ${p.retired ? "opacity-60" : "cursor-pointer"} ${
-                selectedProfile === p.id ? "ring-2 ring-ice-blue border-ice-blue" : "hover:border-text-muted"
-              }`}
-              onClick={() => { if (!p.retired) setSelectedProfile(p.id); }}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <Server className="h-4 w-4 text-ice-blue" />
-                <span className="text-sm font-bold">{p.name}</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
-                <span>Partition: {p.partition_gpu ?? "assigned by cluster"}</span>
-                {p.max_walltime && <span>Max: {p.max_walltime}</span>}
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1">
-                {p.gpu_type && (
-                  <Badge variant="info" className="text-[10px]">
-                    {p.gpu_type}{p.gpus_per_node ? ` × ${p.gpus_per_node}/node` : ""}
-                  </Badge>
-                )}
-                {p.retired && <Badge variant="default" className="text-[10px]">retired</Badge>}
-              </div>
-            </Card>
-          ))}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard
+          label="Clusters healthy"
+          value={loading ? "—" : `${summary.clustersHealthy}/${summary.clustersEnabled}`}
+          icon={Server}
+          glow={summary.clustersHealthy === summary.clustersEnabled ? "emerald" : "gold"}
+        />
+        <StatCard label="Open jobs" value={loading ? "—" : `${summary.open}${plus}`} icon={Layers} glow="cyan" />
+        <StatCard label="Running" value={loading ? "—" : `${summary.running}${plus}`} icon={Activity} glow="violet" />
+        <StatCard
+          label="Needs attention"
+          value={loading ? "—" : attention.length}
+          icon={AlertTriangle}
+          glow={attention.length > 0 ? "gold" : "emerald"}
+        />
+      </div>
+
+      {attention.length > 0 && (
+        <div role="status" className="rounded-xl border border-accent-gold/30 bg-accent-gold/10 p-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-accent-gold">
+            <AlertTriangle className="h-4 w-4" /> Needs attention
+          </div>
+          <ul className="space-y-1 text-sm text-text-primary">
+            {attention.map((item) => (
+              <li key={item} className="flex gap-2">
+                <span aria-hidden className="text-accent-gold">•</span>
+                <span className="min-w-0 break-words">{item}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
-      {/* Tab bar */}
-      <div className="flex gap-1 rounded-lg bg-surface p-1">
+      <div role="tablist" aria-label="HPC console sections" className="flex gap-1 overflow-x-auto rounded-lg bg-surface p-1">
         {tabs.map((tb) => (
           <button
             key={tb.id}
+            role="tab"
+            aria-selected={tab === tb.id}
             onClick={() => setTab(tb.id)}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              tab === tb.id ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"
-            }`}
+            className={cn(
+              "flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              tab === tb.id ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary",
+            )}
           >
             <tb.icon className="h-3.5 w-3.5" /> {tb.label}
-            {tb.count ? <span className="ml-1 bg-ice-blue text-white text-[10px] px-1.5 py-0.5 rounded-full">{tb.count}</span> : null}
+            {tb.count ? (
+              <span className="ml-1 rounded-full bg-ice-blue px-1.5 py-0.5 text-[10px] text-white">{tb.count}</span>
+            ) : null}
           </button>
         ))}
       </div>
 
-      {/* ── Submit Job Tab ── */}
-      {tab === "submit" && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><FileCode className="h-4 w-4" /> {t("dash.hpc.submit_title")}</CardTitle>
-            <CardDescription>
-              {selected ? `Submitting to ${selected.name}` : "Select a cluster profile above"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Job Name</Label>
-                <Input placeholder="my-training-run" value={jobName} onChange={(e) => setJobName(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Cluster Profile</Label>
-                <Select value={selectedProfile} onChange={(e) => setSelectedProfile(e.target.value)}>
-                  {profiles.filter((p) => !p.retired).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Nodes</Label>
-                <NumberInput min={1} value={nodes} onChange={(v) => setNodes(String(v))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">GPUs per Node (0 = CPU only)</Label>
-                <NumberInput min={0} value={gpus} onChange={(v) => setGpus(String(v))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Wall Time</Label>
-                <Input placeholder="HH:MM:SS" value={walltime} onChange={(e) => setWalltime(e.target.value)} />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">Command (the adapter writes the batch script around it)</Label>
-              <textarea
-                value={command}
-                onChange={(e) => setCommand(e.target.value)}
-                rows={4}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-text-primary focus:ring-2 focus:ring-ice-blue/50 focus:border-ice-blue outline-none resize-y"
-                spellCheck={false}
-              />
-            </div>
-
-            {preview !== null && (
-              <pre className="max-h-72 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-[11px] text-text-secondary">
-                {preview}
-              </pre>
-            )}
-
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={handlePreview} disabled={!selectedProfile || !jobName.trim()}>
-                <Eye className="h-4 w-4" /> Preview script
-              </Button>
-              <Button onClick={handleSubmit} disabled={submitting || !selectedProfile || !jobName.trim()}>
-                {submitting ? <><Loader2 className="h-4 w-4 animate-spin" /> Submitting…</> : <><Play className="h-4 w-4" /> Submit Job</>}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {tab === "clusters" && (
+        <ClustersPanel
+          clusters={clusters}
+          loading={loading}
+          error={clustersError}
+          now={now}
+          onChanged={() => void load()}
+        />
       )}
 
-      {/* ── Jobs Tab ── */}
       {tab === "jobs" && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Clock className="h-4 w-4" /> HPC Jobs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-text-muted" /></div>
-            ) : jobs.length === 0 ? (
-              <div className="text-center py-8">
-                <Cpu className="mx-auto h-8 w-8 text-text-muted mb-2" />
-                <p className="text-sm text-text-muted">No HPC jobs submitted yet</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {jobs.map((job) => (
-                  <div key={job.job_id} className="rounded-lg border border-border p-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <p className="text-sm font-medium">Slurm job {job.slurm_job_id}</p>
-                          <Badge variant={
-                            job.status === "completed" ? "completed" :
-                            job.status === "running" ? "active" :
-                            job.status === "failed" ? "failed" :
-                            job.status === "pending" ? "warning" : "default"
-                          }>
-                            {job.slurm_state ? `${job.status} (${job.slurm_state})` : job.status}
-                          </Badge>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
-                          <span>Xcelsior: {job.job_id}</span>
-                          <span>Cluster: {job.cluster_id || "unknown"}</span>
-                          <span>Submitted: {formatEpoch(job.submitted_at)}</span>
-                          {job.terminal_at && <span>Ended: {formatEpoch(job.terminal_at)}</span>}
-                          {job.last_observed_at && <span>Observed: {formatEpoch(job.last_observed_at)}</span>}
-                          {job.reason && <span>Reason: {job.reason}</span>}
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => handleRefreshStatus(job)} title="Refresh status">
-                          <RefreshCw className="h-3.5 w-3.5" />
-                        </Button>
-                        {(job.status === "running" || job.status === "pending") && (
-                          <Button
-                            variant="ghost" size="icon"
-                            onClick={() => handleCancel(job)}
-                            className="text-accent-red hover:text-accent-red"
-                            title="Cancel job"
-                          >
-                            <XCircle className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <JobsPanel
+          jobs={jobs}
+          clusters={clusters}
+          loading={loading}
+          error={jobsError}
+          now={now}
+          scope={scope}
+          onScope={setScope}
+          clusterFilter={clusterFilter}
+          onClusterFilter={setClusterFilter}
+          hasMore={!!nextCursor}
+          loadingMore={loadingMore}
+          onLoadMore={() => void loadMore()}
+          onChanged={() => void load()}
+        />
+      )}
+
+      {tab === "submit" && (
+        <SubmitPanel
+          onSubmitted={() => {
+            setScope("open");
+            setClusterFilter("");
+            setTab("jobs");
+            void load();
+          }}
+        />
       )}
     </div>
   );

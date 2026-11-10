@@ -1628,7 +1628,10 @@ const en: Record<string, string> = {
   /* ── Dashboard, HPC ────────────────────────────────────────────────── */
   "dash.hpc.title": "HPC / Slurm",
   "dash.hpc.tab_submit": "Submit Job",
-  "dash.hpc.tab_jobs": "My Jobs",
+  "dash.hpc.tab_jobs": "Jobs",
+  "dash.hpc.tab_clusters": "Clusters",
+  "dash.hpc.internal_badge": "Internal · operators only",
+  "dash.hpc.subtitle": "Every figure here is the reconciler's last observation. Refreshing this page never contacts a cluster.",
   "dash.hpc.submit_title": "Submit HPC Job",
 
   /* ── Dashboard, Events ─────────────────────────────────────────────── */

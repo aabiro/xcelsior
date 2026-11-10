@@ -197,7 +197,7 @@ This turns the adapter from an admin tool into a placement target for real jobs.
   - `GET /api/v1/hpc/clusters`.
 - These are scoped to the tenant, not admin-only. Map `error_code` onto HTTP status: 400 `invalid_*`, 409 `already_terminal`, 422 `unsatisfiable_request` or `walltime_exceeds_limit`, 503 `transport_error` or `controller_unreachable`.
 - MCP tools `submit_hpc_job`, `get_hpc_job`, `cancel_hpc_job`, `get_hpc_job_output` and `list_hpc_clusters`. They return `error_code` verbatim so agents can branch. Regenerate `mcp/openapi-v1.json` and run `npm run generate:api`.
-- Move the HPC dashboard page onto the v1 endpoints. The page itself was fixed on 2026-11-07 against the legacy routes, with a component test (`hpc-page.test.tsx`) and backend contract tests (`TestHpcDashboardContract`) pinning the shared shapes.
+- ~~Move the HPC dashboard page onto the v1 endpoints.~~ Done 2026-11-09: `/dashboard/hpc` was rebuilt as an internal operator console on `/api/v1/hpc/*` (cluster health, connection check, jobs by state and cluster, cached output and reported progress). Submit and cancel still go through the admin-only `/api/slurm/*` bridge. `hpc-page.test.tsx` pins the page; `TestHpcDashboardContract` still pins the bridge shapes. Not yet looked at in a browser against staging data.
 - Keep the old `/api/slurm/*` admin routes until the UI moves, then remove them.
 - Acceptance: an agent books, polls, cancels and fetches output through MCP alone, and the UI shows the same states as the API.
 

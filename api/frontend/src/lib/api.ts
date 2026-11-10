@@ -3026,6 +3026,161 @@ export async function fetchSlurmInstances() {
   return apiFetch<{ ok: boolean; jobs: SlurmMapping[] }>("/api/slurm/instances");
 }
 
+// ── HPC read model (v1) ──────────────────────────────────────────────
+// api/routes/control_plane_v1.py. These read the reconciler's copy and
+// never contact a cluster, so the operator console can poll them freely.
+
+export interface HpcClusterHealth {
+  last_poll_at: string | null;
+  transport_ok_at: string | null;
+  controller_ok_at: string | null;
+  accounting_ok_at: string | null;
+  consecutive_failures: number;
+  backing_off_until: string | null;
+  last_error_code: string | null;
+}
+
+export interface HpcClusterTransport {
+  /** `profile`: reached through the profile's own settings, nothing registered. */
+  kind: "profile" | "registry";
+  ssh_host?: string;
+  ssh_port?: number;
+  remote_user?: string | null;
+  host_key_fingerprint?: string | null;
+  /** The reference only (env:… or file:…), never the key. */
+  credential_ref?: string | null;
+}
+
+export interface HpcCluster {
+  cluster_id: string;
+  display_name: string | null;
+  profile: string;
+  enabled: boolean;
+  research_only: boolean;
+  marketplace: boolean;
+  agent_access: boolean;
+  poll_interval_seconds: number;
+  health: HpcClusterHealth;
+  orphan_slurm_job_ids: string[];
+  transport: HpcClusterTransport;
+  config_facts: Record<string, unknown> | null;
+  config_captured_at: string | null;
+}
+
+export async function fetchHpcClusters() {
+  return apiFetch<{ ok: boolean; clusters: HpcCluster[] }>("/api/v1/hpc/clusters");
+}
+
+export interface HpcConnectionCheck {
+  ok: boolean;
+  error_code?: string | null;
+  error?: string;
+  controller?: Record<string, unknown>;
+  facts?: Record<string, unknown>;
+  missing?: string[];
+}
+
+/** Audited: runs `scontrol ping` and `scontrol show config` on the cluster. */
+export async function checkHpcClusterConnection(clusterId: string) {
+  return apiFetch<{ ok: boolean; check: HpcConnectionCheck }>(
+    `/api/v1/hpc/clusters/${encodeURIComponent(clusterId)}/connection-check`,
+    { method: "POST" },
+  );
+}
+
+export interface HpcReportedProgress {
+  source: "job";
+  valid: boolean;
+  fraction?: number | null;
+  message?: string | null;
+  updated_at?: number;
+  stale?: boolean;
+  error?: string;
+  fetched_at: number;
+  refresh_pending: boolean;
+}
+
+/** One submission of a job, as the reconciler last observed it. */
+export interface HpcJob {
+  xcelsior_job_id: string;
+  mapping_id: string;
+  submission_name: string | null;
+  attempt_id: string | null;
+  cluster_id: string | null;
+  slurm_job_id: string;
+  /** pending | running | held | suspended | completed | failed | cancelled | preempted | unknown */
+  observed_state: string | null;
+  slurm_state: string | null;
+  state_reason: string | null;
+  exit_code: string | null;
+  derived_exit_code: string | null;
+  /** null until settled; then succeeded | failed | cancelled | unknown. */
+  verdict: "succeeded" | "failed" | "cancelled" | "unknown" | null;
+  desired_state: string | null;
+  settled: boolean;
+  scheduler_progress: {
+    elapsed_seconds: number | null;
+    time_limit_seconds: number | null;
+    fraction: number | null;
+  };
+  awaiting_accounting_since: string | null;
+  submitted_at: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  settled_at: string | null;
+  last_observed_at: string | null;
+  last_changed_at: string | null;
+  missing_since: string | null;
+  observed_age_seconds: number | null;
+  stale: boolean;
+  /** Only on the single-job read. */
+  reported_progress?: HpcReportedProgress | null;
+}
+
+export type HpcJobScope = "open" | "settled" | "all";
+
+export async function fetchHpcJobs(
+  opts: { state?: HpcJobScope; clusterId?: string; cursor?: string | null; limit?: number } = {},
+) {
+  const query = new URLSearchParams({ state: opts.state ?? "open" });
+  if (opts.clusterId) query.set("cluster_id", opts.clusterId);
+  if (opts.cursor) query.set("cursor", opts.cursor);
+  if (opts.limit) query.set("limit", String(opts.limit));
+  return apiFetch<{ ok: boolean; jobs: HpcJob[]; next_cursor: string | null }>(
+    `/api/v1/hpc/jobs?${query.toString()}`,
+  );
+}
+
+export async function fetchHpcJob(xcelsiorJobId: string) {
+  return apiFetch<{ ok: boolean; job: HpcJob }>(
+    `/api/v1/hpc/jobs/${encodeURIComponent(xcelsiorJobId)}`,
+  );
+}
+
+export interface HpcJobOutput {
+  xcelsior_job_id: string;
+  cluster_id: string | null;
+  slurm_job_id: string;
+  stream: "out" | "err";
+  content: string;
+  truncated: boolean;
+  /** The settled job's last copy: it will not change again. */
+  final: boolean;
+  settled: boolean;
+  fetched_at: string | null;
+  fetched_age_seconds: number | null;
+  /** A fetch is queued for the reconciler's next pass; read again after the interval. */
+  refresh_pending: boolean;
+  poll_interval_seconds: number;
+  fetch_error_code: string | null;
+}
+
+export async function fetchHpcJobOutput(xcelsiorJobId: string, stream: "out" | "err" = "out") {
+  return apiFetch<{ ok: boolean; output: HpcJobOutput }>(
+    `/api/v1/hpc/jobs/${encodeURIComponent(xcelsiorJobId)}/output?stream=${stream}`,
+  );
+}
+
 // ── Events SSE ────────────────────────────────────────────────────────
 export function createEventSource(url: string = "/api/stream"): EventSource {
   return new EventSource(url, { withCredentials: true });
