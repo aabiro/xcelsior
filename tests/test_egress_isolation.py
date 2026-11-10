@@ -208,6 +208,37 @@ def test_funded_internet_reaches_public_addresses_only():
     assert all("--dport" not in rule for rule in rules)
 
 
+def test_funded_upload_is_rate_limited_per_container(monkeypatch):
+    monkeypatch.setattr(egress, "_hashlimit", True)
+    monkeypatch.setenv("XCELSIOR_CONTAINER_BW_MBPS", "100")
+    rules = egress.chain_rules()[egress.FUNDED_OUT_CHAIN]
+    limit = rules[-2]
+    assert limit[:2] == ["-m", "hashlimit"] and limit[-2:] == ["-j", "DROP"]
+    # Per source address: one tenant over its ceiling costs no other tenant.
+    assert limit[limit.index("--hashlimit-mode") + 1] == "srcip"
+    assert limit[limit.index("--hashlimit-above") + 1] == "12207kb/s"
+    # After the private-range drops and the reply return, before the accept.
+    assert rules[0] == ["-m", "conntrack", "--ctdir", "REPLY", "-j", "RETURN"]
+    assert rules[-1] == ["-j", "ACCEPT"]
+
+
+def test_rate_limit_off_or_unsupported_leaves_the_isolation_rules_alone(monkeypatch):
+    monkeypatch.setattr(egress, "_hashlimit", True)
+    monkeypatch.setenv("XCELSIOR_CONTAINER_BW_MBPS", "0")
+    off = egress.chain_rules()[egress.FUNDED_OUT_CHAIN]
+    monkeypatch.setenv("XCELSIOR_CONTAINER_BW_MBPS", "100")
+    monkeypatch.setattr(egress, "_hashlimit", False)
+    unsupported = egress.chain_rules()[egress.FUNDED_OUT_CHAIN]
+    assert off == unsupported
+    assert all("hashlimit" not in rule for rule in off)
+    assert len(off) == 1 + len(egress.PRIVATE_DESTS) + 1
+
+
+def test_the_restricted_bridge_has_no_rate_rule(monkeypatch):
+    monkeypatch.setattr(egress, "_hashlimit", True)
+    assert all("hashlimit" not in rule for rule in egress.chain_rules()[egress.OUT_CHAIN])
+
+
 def test_funded_bridge_cannot_reach_host_services():
     rules = egress.chain_rules()[egress.FUNDED_IN_CHAIN]
     assert rules == [

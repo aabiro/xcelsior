@@ -156,12 +156,73 @@ def job_egress(job: dict | None) -> str:
     return RESTRICTED
 
 
+def funded_rate_limit_mbps() -> int:
+    """Upload ceiling for one funded container, in Mbit/s. 0 means no limit."""
+    try:
+        mbps = int(os.environ.get("XCELSIOR_CONTAINER_BW_MBPS", "100"))
+    except ValueError:
+        mbps = 100
+    return max(0, min(mbps, 100_000))
+
+
+_hashlimit: bool | None = None
+
+
+def _hashlimit_available() -> bool:
+    """Whether this host's iptables has the hashlimit match.
+
+    Asked once. A host without it keeps its isolation and loses only the rate
+    limit: failing provision over it would take the host out of service.
+    """
+    global _hashlimit
+    if _hashlimit is None:
+        try:
+            _hashlimit = _run([*IPT, "-m", "hashlimit", "-h"], check=False).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            _hashlimit = False
+    return _hashlimit
+
+
+def _funded_rate_rule() -> list[str] | None:
+    """Drop what one container sends above its ceiling (CVP-01 T-19).
+
+    Funded egress had no rate limit at all, so one tenant could saturate the
+    provider's uplink or take part in a volumetric attack. The limit is kept
+    per source address, which on this bridge is per container: one tenant
+    over the ceiling costs no other tenant anything. It needs no hook at
+    container start and no veth lookup, so it cannot be skipped by a launch
+    path. Replies to connections made *to* the container (SSH, exposed ports)
+    return before this rule and are not limited.
+    """
+    mbps = funded_rate_limit_mbps()
+    if not mbps or not _hashlimit_available():
+        return None
+    kb_per_s = max(1, mbps * 1_000_000 // 8 // 1024)
+    return [
+        "-m",
+        "hashlimit",
+        "--hashlimit-above",
+        f"{kb_per_s}kb/s",
+        "--hashlimit-burst",
+        f"{kb_per_s * 2}kb",
+        "--hashlimit-mode",
+        "srcip",
+        "--hashlimit-name",
+        "xcl-funded",
+        "-j",
+        "DROP",
+    ]
+
+
 def _funded_out_rules() -> list[list[str]]:
     rules = [
         ["-m", "conntrack", "--ctdir", "REPLY", "-j", "RETURN"],
     ]
     for cidr in PRIVATE_DESTS:
         rules.append(["-d", cidr, "-j", "DROP"])
+    rate = _funded_rate_rule()
+    if rate:
+        rules.append(rate)
     rules.append(["-j", "ACCEPT"])
     return rules
 
@@ -382,6 +443,8 @@ def verify() -> dict:
         "problems": problems,
         "checked_at": time.time(),
         "network_id": (net or {}).get("Id", ""),
+        # 0 when the limit is switched off or this host cannot enforce it.
+        "funded_rate_limit_mbps": funded_rate_limit_mbps() if _funded_rate_rule() else 0,
     }
 
 
