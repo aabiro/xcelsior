@@ -105,11 +105,27 @@ def test_no_kill_before_five_consecutive_hits(monkeypatch, active_jobs):
     worker._kill_container.assert_not_called()
 
 
-def test_without_attribution_falls_back_to_all_active_jobs(monkeypatch, active_jobs):
+def test_without_attribution_nothing_is_killed_and_the_operator_is_told_once(
+    monkeypatch, active_jobs
+):
+    # CVP brief 01, T-16 collateral: the old fallback killed every active job
+    # on the host and reported each as mining when NVML could not list the
+    # GPU's processes. A response may only act on a workload it can name.
     monkeypatch.setattr(worker, "_job_containers_on_gpu", lambda idx, active: None)
-    _run_loop(monkeypatch, iterations=5, telemetry=[MINING])
-    assert {c.args[0] for c in worker._kill_container.call_args_list} == set(active_jobs.values())
-    assert worker._active_containers == {}
+    _run_loop(monkeypatch, iterations=12, telemetry=[MINING])
+    worker._kill_container.assert_not_called()
+    worker.report_job_status.assert_not_called()
+    assert worker._active_containers == active_jobs
+    assert worker.report_mining_alert.call_count == 1
+    assert "attribution unavailable" in worker.report_mining_alert.call_args.args[2]
+
+
+def test_attribution_coming_back_resumes_the_normal_ladder(monkeypatch, active_jobs):
+    answers = iter([None, None] + [{"job-on-gpu": "xcl-on-gpu"}] * 5)
+    monkeypatch.setattr(worker, "_job_containers_on_gpu", lambda idx, active: next(answers))
+    _run_loop(monkeypatch, iterations=7, telemetry=[MINING])
+    assert [c.args[0] for c in worker._kill_container.call_args_list] == ["xcl-on-gpu"]
+    assert worker._active_containers == {"job-elsewhere": "xcl-elsewhere"}
 
 
 def test_counters_are_per_gpu(monkeypatch, active_jobs):
