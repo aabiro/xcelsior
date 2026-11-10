@@ -266,7 +266,12 @@ def _registered_tool_names() -> set[str]:
 #: **95** with the snapshot pair. `snapshot_volume` could take a snapshot and
 #: nothing could list them or put one back — a backup you cannot restore is not a
 #: backup, which is the act-without-an-exit shape recorded here twice already.
-EXPECTED_TOOL_TOTAL = 95
+#: **99** with the four HPC reads (2417c873, 2026-11-08): `list_hpc_clusters`,
+#: `list_hpc_jobs`, `get_hpc_job` and `get_hpc_job_output` read the Slurm
+#: reconciler's copy, so an agent never polls a cluster itself. All four are
+#: operator-audience and need `control_plane:read`, so the customer profile still
+#: publishes 86 and the eval's customer blast radius is unchanged.
+EXPECTED_TOOL_TOTAL = 99
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
@@ -281,6 +286,10 @@ OPERATOR_TOOLS = {
     "get_scheduler_health",
     "list_reconciliation_findings",
     "retry_agent_command",
+    "list_hpc_clusters",
+    "list_hpc_jobs",
+    "get_hpc_job",
+    "get_hpc_job_output",
 }
 COMPANY_KNOWLEDGE_TOOLS = {"search", "fetch"}
 
