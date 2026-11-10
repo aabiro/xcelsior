@@ -4431,6 +4431,43 @@ export async function approveDeviceCode(userCode: string) {
 
 // ── Email Verification ────────────────────────────────────────────────
 
+// ── Email consent (CASL) ─────────────────────────────────────────────
+// api/routes/privacy.py. `product_updates` is the monthly what's-new email.
+
+export interface EmailConsent {
+  purpose: string;
+  consent_type: "express" | "implied";
+  granted_at: string | null;
+  expires_at: string | null;
+  withdrawn_at: string | null;
+  active: boolean;
+}
+
+export async function fetchEmailConsents() {
+  return apiFetch<{ ok: boolean; consents: EmailConsent[] }>("/api/v2/privacy/consents");
+}
+
+export async function grantEmailConsent(purpose: string) {
+  return apiFetch<{ ok: boolean }>("/api/v2/privacy/consent", {
+    method: "POST",
+    body: JSON.stringify({ purpose, consent_type: "express" }),
+  });
+}
+
+export async function withdrawEmailConsent(purpose: string) {
+  return apiFetch<{ ok: boolean }>(`/api/v2/privacy/consent/${encodeURIComponent(purpose)}`, {
+    method: "DELETE",
+  });
+}
+
+/** Unsubscribe with the signed token from an email's link. No sign-in. */
+export async function unsubscribeWithToken(token: string) {
+  return apiFetch<{ ok: boolean; purpose: string }>("/api/v2/privacy/unsubscribe", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
 export async function verifyEmail(token: string) {
   return apiFetch<{
     ok: boolean;

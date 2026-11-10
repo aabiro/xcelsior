@@ -203,6 +203,41 @@ def api_privacy_withdraw_consent(purpose: str, request: Request):
     return {"ok": True}
 
 
+class UnsubscribeRequest(BaseModel):
+    token: str | None = None
+
+
+@router.post("/api/v2/privacy/unsubscribe", tags=["Privacy"])
+async def api_privacy_unsubscribe(request: Request, token: str | None = None):
+    """Withdraw consent to a kind of email with the signed link from a message.
+
+    No sign-in: the token in the link is the authority, and all it can do is
+    withdraw the one purpose it names for the one account it names. The web
+    page sends the token as JSON; a mail client's one-click unsubscribe
+    (RFC 8058) POSTs a form to the same URL with the token in the query.
+    Withdrawing twice is not an error.
+    """
+    from product_updates import ProductUpdateError, read_unsubscribe_token
+    from routes._deps import _check_auth_rate_limit
+
+    _check_auth_rate_limit(request)
+    if not token and "json" in request.headers.get("content-type", ""):
+        try:
+            token = UnsubscribeRequest.model_validate(await request.json()).token
+        except ValueError:
+            token = None
+    try:
+        claim = read_unsubscribe_token(token or "")
+    except ProductUpdateError as e:
+        log.error("unsubscribe is not configured: %s", e)
+        raise HTTPException(503, "Unsubscribe is temporarily unavailable. Email support@xcelsior.ca.")
+    if claim is None:
+        raise HTTPException(400, "This unsubscribe link is not valid.")
+    user_id, purpose = claim
+    get_consent_manager().withdraw_consent(user_id, purpose)
+    return {"ok": True, "purpose": purpose}
+
+
 @router.get("/api/v2/privacy/consents", tags=["Privacy"])
 def api_privacy_list_consents(request: Request):
     """List all consent records for the current user."""

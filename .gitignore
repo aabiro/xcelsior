@@ -337,3 +337,8 @@ private_handoff.md
 # Batch-run evidence belongs in archive/batches/evidence/, not the repo root
 /*.json
 !/pyrightconfig.json
+
+# Monthly product-update email: the runbook is tracked, the send log is not
+# (it lists recipients' addresses).
+!api/docs/PRODUCT_UPDATES.md
+data/product_updates/
