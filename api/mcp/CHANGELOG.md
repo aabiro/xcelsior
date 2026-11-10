@@ -425,6 +425,12 @@ reflected here and version-bumped fails the build.
 
 ### Changed
 
+- **The server is titled "Xcelsior MCP".** `serverInfo.title` was "Xcelsior".
+  VS Code builds its tool prefix from the title, so tools now appear as
+  `mcp_xcelsior_mcp_…` instead of `mcp_xcelsior_…`; a prompt or tool set that
+  names the old prefix needs the new one. Tool names themselves are unchanged.
+  The registry listing keeps its longer title, "Xcelsior GPU Cloud".
+
 - **The resource metadata advertises only scopes a connector can be granted.**
   `scopes_supported` drops `billing:write`, `providers:write` and
   `reputation:write`. The authorization server never grants those to an OAuth
