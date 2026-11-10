@@ -7,8 +7,16 @@ import { ArrowRight, ChevronLeft, Rocket, Server, Sparkles, Terminal, Wallet, X 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale";
+import { useTheme } from "@/lib/theme";
 
 const STORAGE_KEY = "xcelsior-ai-onboarding-v1";
+
+/** Each slide has a light twin, `<name>-light.svg` (api/scripts/generate_ai_onboarding_svgs.py).
+ * The modal is portalled to <body>, outside `.dashboard-shell[data-theme]`, so the
+ * `site-theme-*` classes can't swap it; the theme context still reaches it. */
+function slideImage(image: string, theme: "dark" | "light") {
+  return theme === "light" ? image.replace(/\.svg$/, "-light.svg") : image;
+}
 
 type Slide = {
   id: string;
@@ -84,6 +92,7 @@ export function XcelAiOnboarding({
   onComplete?: () => void;
 }) {
   const { t } = useLocale();
+  const { theme } = useTheme();
   const [step, setStep] = useState(0);
 
   const finish = useCallback(() => {
@@ -128,7 +137,7 @@ export function XcelAiOnboarding({
               <div className="relative flex h-44 w-full items-center justify-center overflow-hidden bg-navy/70 p-4 sm:h-52 sm:p-5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={slide.image}
+                  src={slideImage(slide.image, theme)}
                   alt=""
                   className="relative z-0 max-h-full max-w-full object-contain"
                 />
