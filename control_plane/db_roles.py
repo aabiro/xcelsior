@@ -217,6 +217,11 @@ BILLING_TABLES = frozenset(
         "stripe_meter_event_outbox",
         "stripe_compute_prices",
         "storage_billing_rates",
+        # Wise payout rail (159): where a provider is paid, one row per
+        # transfer, and the webhook delivery log. Same writer as payout_splits.
+        "provider_wise_recipients",
+        "wise_payouts",
+        "wise_webhook_inbox",
     }
 )
 
