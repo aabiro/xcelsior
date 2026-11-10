@@ -2003,10 +2003,12 @@ docker compose build $build_args frontend
 
     # The container table is printed once, by the health checks that follow.
 
-    # Prune dangling images; preserve BuildKit layer cache when enabled.
+    # Dangling images and dangling build cache are unreferenced. Prune those
+    # on every deploy. With the cache left on, keep records the next build
+    # can still hit; `builder prune` without -a does not delete those.
     if [[ "$DEPLOY_BUILD_CACHE" == "1" ]]; then
-        log "Pruning dangling Docker images (keeping BuildKit cache)..."
-        ssh_cmd "docker image prune -f 2>/dev/null" || true
+        log "Pruning dangling Docker images and build cache..."
+        ssh_cmd "docker image prune -f >/dev/null 2>&1; docker builder prune -f >/dev/null 2>&1" || true
     else
         log "Pruning unused Docker images and build cache..."
         ssh_cmd "docker image prune -af 2>/dev/null; docker builder prune -af --keep-storage=1G 2>/dev/null" || true
@@ -2275,7 +2277,7 @@ ${CYAN}Environment variables:${NC}
   XCELSIOR_DEPLOY_COMPRESS  zstd (default) | gzip | none — installs zstd/pigz/rsync as needed
   XCELSIOR_DEPLOY_TIMING  Set to 1 to log per-step durations
   XCELSIOR_DEPLOY_SYNC_HOSTS  Comma-separated mirror hosts (rsync-only, parallel)
-  XCELSIOR_DEPLOY_BUILD_CACHE  1 (default) keep BuildKit cache between deploys
+  XCELSIOR_DEPLOY_BUILD_CACHE  1 (default) keep BuildKit cache between deploys; still prune dangling images and dangling build cache
   XCELSIOR_DOCKER_BUILD_CACHE_DIR  Remote cache dir (default: /opt/xcelsior-backups/docker-build-cache)
   XCELSIOR_SSH_CONTROL_PATH  SSH mux socket (default: ~/.ssh/cm-xcelsior-%r@%h:%p)
   XCELSIOR_DEPLOY_SLURM_PLACEMENT  1 places jobs on Slurm. Every other value leaves placement off. Charging is not a deploy switch.
