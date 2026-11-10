@@ -364,6 +364,7 @@ def test_lookup_uses_post_body_keeps_key_private_and_handles_address_groups(user
     assert kwargs["data"]["Key"] == "unit-only-not-a-service-key"
     assert kwargs["data"]["Container"] == "group-parent"
     assert kwargs["data"]["Countries"] == "CA"
+    assert kwargs["data"]["IsMiddleware"] == "true"
     assert "unit-only" not in response.text
 
 
@@ -381,6 +382,33 @@ def test_address_search_without_a_country_does_not_limit_loqate(user_headers, mo
     response = client.post("/api/locations/search", headers=user_headers["headers"], json={"text": "Test Street"})
     assert response.status_code == 200, response.text
     assert "Countries" not in calls[0]["data"]
+    # With no country, the server's own IP must not decide the ranking.
+    assert calls[0]["data"]["IsMiddleware"] == "true"
+    assert "Origin" not in calls[0]["data"]
+
+
+@pytest.mark.parametrize("body,header,origin", [
+    ({"text": "Test Street"}, "gb", "GB"),          # no country: rank near the visitor
+    ({"text": "Test Street"}, "T1", None),          # Tor is not a country
+    ({"text": "Test Street"}, "XX", None),          # Cloudflare could not tell
+    ({"text": "Test Street"}, "CA; x", None),       # malformed
+    ({"country": "CA", "text": "Test Street"}, "GB", None),  # a chosen country wins
+])
+def test_address_search_ranks_near_the_visitor_only_without_a_country(user_headers, monkeypatch, body, header, origin):
+    import httpx
+
+    calls = []
+
+    def provider(url, **kwargs):
+        calls.append(kwargs)
+        return httpx.Response(200, json={"Items": []}, request=httpx.Request("POST", url))
+
+    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY", "unit-only-not-a-service-key")
+    monkeypatch.setattr(httpx, "post", provider)
+    headers = {**user_headers["headers"], "CF-IPCountry": header}
+    response = client.post("/api/locations/search", headers=headers, json=body)
+    assert response.status_code == 200, response.text
+    assert calls[0]["data"].get("Origin") == origin
 
 
 def test_address_retrieve_without_a_country_uses_the_returned_country(user_headers, monkeypatch):
