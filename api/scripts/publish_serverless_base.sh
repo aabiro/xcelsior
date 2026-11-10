@@ -25,6 +25,8 @@ set -euo pipefail
 
 IMAGE="ghcr.io/xcelsior-gpu/serverless-base"
 FLAVOUR="py3.12"
+SOURCE_REPO="xcelsior-gpu/serverless-base"
+SOURCE_URL="https://github.com/$SOURCE_REPO"
 SETTINGS_URL="https://github.com/orgs/xcelsior-gpu/packages/container/serverless-base/settings"
 PLATFORM="linux/amd64"
 
@@ -78,14 +80,49 @@ trap cleanup EXIT
 
 git archive HEAD -- "${image_inputs[@]}" | tar -x -C "$ctx"
 
+# Materialize the standalone xcelsior-gpu/serverless-base repository layout and
+# build directly from it so the published source repo is guaranteed to build
+# with a plain `docker build .`.
+mkdir -p "$ctx/repo/serverless" "$ctx/repo/examples"
+cp "$ctx/api/serverless/images/base/README.md" "$ctx/repo/README.md"
+cp "$ctx/api/serverless/images/base/Dockerfile" "$ctx/repo/Dockerfile"
+cp "$ctx/api/serverless/__init__.py" "$ctx/repo/serverless/__init__.py"
+cp -R "$ctx/api/serverless/worker_sdk" "$ctx/repo/serverless/worker_sdk"
+cp -R "$ctx/api/serverless/examples/echo" "$ctx/repo/examples/echo"
+
+source_sha="$sha"
+if (( PUSH )); then
+  step "sync $SOURCE_REPO from HEAD $short"
+  if ! gh repo view "$SOURCE_REPO" >/dev/null 2>&1; then
+    gh repo create "$SOURCE_REPO" --public \
+      --description "Official base image and Python Worker SDK (serverless.worker_sdk) for custom workers on Xcelsior Serverless — FROM ghcr.io/xcelsior-gpu/serverless-base:py3.12" \
+      --homepage "https://docs.xcelsior.ca"
+  fi
+  git init -q -b main "$ctx/sync"
+  git -C "$ctx/sync" remote add origin "https://github.com/$SOURCE_REPO.git"
+  if git -C "$ctx/sync" fetch -q origin main 2>/dev/null; then
+    git -C "$ctx/sync" checkout -q -B main FETCH_HEAD
+    git -C "$ctx/sync" rm -rf -q . >/dev/null 2>&1 || true
+  fi
+  cp -R "$ctx/repo/." "$ctx/sync/"
+  git -C "$ctx/sync" add -A
+  if ! git -C "$ctx/sync" diff --cached --quiet; then
+    git -C "$ctx/sync" commit -q -m "chore(serverless-base): sync from monorepo $short"
+    git -C "$ctx/sync" push -q -u origin main
+  fi
+  source_sha="$(git -C "$ctx/sync" rev-parse HEAD)"
+  echo "synced $SOURCE_REPO @ $(git -C "$ctx/sync" rev-parse --short=12 HEAD)"
+fi
+
 step "build $versioned ($PLATFORM, from HEAD $short)"
 docker build --pull --platform "$PLATFORM" \
-  --label "org.opencontainers.image.revision=$sha" \
+  --label "org.opencontainers.image.source=$SOURCE_URL" \
+  --label "org.opencontainers.image.revision=$source_sha" \
   --label "org.opencontainers.image.version=$FLAVOUR-$short" \
   --label "org.opencontainers.image.created=$created" \
-  -f "$ctx/api/serverless/images/base/Dockerfile" \
+  -f "$ctx/repo/Dockerfile" \
   -t "$versioned" -t "$moving" \
-  "$ctx/api"
+  "$ctx/repo"
 
 step "import check: the SDK loads without the API's dependencies"
 docker run --rm --network none "$versioned" \
@@ -94,7 +131,7 @@ docker run --rm --network none "$versioned" \
 # The echo example is FROM "$moving", which now resolves to the image just
 # built (no --pull here, so nothing is fetched from the registry).
 step "smoke: boot the echo example, probe /healthz, drain on SIGTERM"
-docker build --platform "$PLATFORM" -t "$echo_tag" "$ctx/api/serverless/examples/echo"
+docker build --platform "$PLATFORM" -t "$echo_tag" "$ctx/repo/examples/echo"
 docker run -d --name "$cname" \
   --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
   --user 65534:65534 --cpus 1 --memory 256m \
