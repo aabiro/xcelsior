@@ -214,6 +214,7 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // effect, because the engine skips already-claimed milestones.
   claim_reputation_milestones: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   get_paypal_status: { readOnly: true, destructive: false, audience: "customer" },
+  get_wise_status: { readOnly: true, destructive: false, audience: "customer" },
   // `keyed` in the sense the type documents: the provider identity resolves
   // from the caller, so a repeat regenerates a link rather than creating a
   // second account.

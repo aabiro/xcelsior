@@ -280,6 +280,7 @@ const TOOL_SCOPE_REGISTRY = {
   // A provider whose agent should do this issues a credential carrying it.
   claim_reputation_milestones: { allOf: ["reputation:write"] },
   get_paypal_status: { allOf: ["providers:read"] },
+  get_wise_status: { allOf: ["providers:read"] },
   // P6's first step: register → admit → publish → earn → payout. Safe to build
   // only since the API stopped letting the caller name `provider_id` — before
   // that a retry on a timeout minted a **second** Stripe Connect account and

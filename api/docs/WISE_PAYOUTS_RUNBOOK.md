@@ -96,4 +96,4 @@ To stop everything: set `XCELSIOR_WISE_PAYOUTS_ENABLED=0` and restart. Nothing i
 - A dashboard screen. The routes exist; the provider and admin pages do not call them yet.
 - Bank-detail entry by the provider (Wise's dynamic account-requirements form).
 - Payouts in a source currency other than CAD: settlement itself requires CAD.
-- MCP tools. Approval is deliberately not available to agents.
+- Admin batch approval or recipient linking as MCP tools: `get_wise_status` and `request_provider_payout(payment_rail="wise")` are on the MCP surface, while destination changes and batch approvals require a human session (`_person_present`) and are deliberately not available to agents.

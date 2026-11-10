@@ -271,7 +271,12 @@ def _registered_tool_names() -> set[str]:
 #: reconciler's copy, so an agent never polls a cluster itself. All four are
 #: operator-audience and need `control_plane:read`, so the customer profile still
 #: publishes 86 and the eval's customer blast radius is unchanged.
-EXPECTED_TOOL_TOTAL = 99
+#: **100** with `get_wise_status`. Wise is the third provider payout rail (paid
+#: in approved batches), and `request_provider_payout` queues a job onto the
+#: `wise` rail; `get_wise_status` exposes the read half (masked destination hint,
+#: cool-off, queued earnings and latest batch payout) without returning the Wise
+#: recipient id or fingerprint. Customer profile publishes 87.
+EXPECTED_TOOL_TOTAL = 100
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

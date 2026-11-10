@@ -4,7 +4,7 @@
 
 ### GPU compute your agent can run end to end
 
-**Launch it, connect to it, spend on it and tear it down — through 86 MCP tools,
+**Launch it, connect to it, spend on it and tear it down — through 87 MCP tools,
 without ever opening a browser. Every host admission-gated before it takes work.**
 
 [![CI](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml/badge.svg)](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml)
@@ -62,8 +62,8 @@ graph TB
 |---|---|
 | **Global supply** | Capacity from independent hosts worldwide, ranked on price, availability, hardware, and host reputation. |
 | **4-Layer Security** | Version gating → least-privilege Docker → egress firewall → gVisor / Kata sandbox. |
-| **Agent-Native Surface** | 86 MCP tools with per-tool scopes — launch, connect, spend, snapshot, terminate. No dashboard step in any of it. |
-| **Metered Billing** | Per-second metering against wallet holds that expire; Stripe and PayPal payout rails; spending widened only through an approvable plan. |
+| **Agent-Native Surface** | 87 MCP tools with per-tool scopes — launch, connect, spend, snapshot, terminate. No dashboard step in any of it. |
+| **Metered Billing** | Per-second metering against wallet holds that expire; Stripe, PayPal, and Wise payout rails; spending widened only through an approvable plan. |
 | **Reputation Engine** | Multi-factor scoring with 7-day grace decay. Bronze → Silver → Gold → Platinum → Diamond tiers. |
 | **Private Mesh** | Headscale overlay network — GPU workers never exposed to the public internet. |
 | **Admission Gating** | Hosts must pass version checks + GPU fingerprinting before receiving any work. |

@@ -58,7 +58,7 @@ const fr: Record<string, string> = {
   "home.compare_vast": "Vast.ai",
   "home.compare_runpod": "RunPod",
   "home.cmp_agents": "Natif pour agents (MCP)",
-  "home.cmp_agents_x": "86 outils, natifs · 1er, juin 2026",
+  "home.cmp_agents_x": "87 outils, natifs · 1er, juin 2026",
   "home.cmp_agents_aws": "Officiel",
   "home.cmp_agents_vast": "Tiers",
   "home.cmp_agents_rp": "Officiel",
