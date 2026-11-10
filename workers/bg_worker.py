@@ -100,6 +100,36 @@ def main():
 
     register_task("provider_settlement_daily", _provider_settlement_daily, 86_400)
 
+    # 1a-i3. Wise payout rail. The cycle applies recorded webhook deliveries,
+    # polls open transfers and creates transfers for payouts an admin has
+    # approved; it does nothing until Wise is configured, and sends nothing
+    # until XCELSIOR_WISE_PAYOUTS_ENABLED is set. Batching only groups queued
+    # ledger rows into pending payouts for approval and moves no money.
+    def _wise_payout_cycle():
+        import wise_payouts
+
+        result = wise_payouts.run_cycle()
+        executed = result.get("executed") or {}
+        if executed.get("created") or executed.get("unknown") or executed.get("review"):
+            __import__("logging").getLogger("xcelsior.bg_worker").info(
+                "wise payout cycle: %s", result
+            )
+
+    register_task("wise_payout_cycle", _wise_payout_cycle, 120)
+
+    def _wise_payout_batch():
+        import wise_payouts
+
+        if not wise_payouts.wise_configured():
+            return
+        result = wise_payouts.batch_queued_settlements()
+        if result.get("created"):
+            __import__("logging").getLogger("xcelsior.bg_worker").info(
+                "wise payout batch: created %s", result["created"]
+            )
+
+    register_task("wise_payout_batch", _wise_payout_batch, 86_400)
+
     # 1a-ii. Billing controller (§12.4, Track B B3.3): surface meter invariants
     # — a ran attempt with no meter (billing leak) or an orphaned open meter.
     # Report-only by default; enforcing billing_missing_meter is opt-in via

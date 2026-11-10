@@ -97,7 +97,10 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `158_slurm_submissions_and_billing_ledger.py`.**
+**Repository head: `159_wise_payout_rail.py`.**
+
+159 adds Wise as a third provider payout rail, paid in approved batches. `provider_wise_recipients` is where a provider is paid: Wise's recipient id, a masked hint and a fingerprint, never bank details, plus `payouts_enabled_after`, the cool-off after a destination is set or changed. `wise_payouts` is one row per transfer, written with its idempotency id before Wise is called, with the destination copied onto it; a partial unique index allows one open payout per provider. `wise_webhook_inbox` records each delivery once. `payout_splits` gains `wise_payout_id`, the rail `wise` and the status `in_transit`, which no claim query selects. Idempotent units through `lock_safe`; downgrade refuses while any Wise payout exists. The runtime floor is unchanged.
+
 
 158 adds the Slurm submit log, the per-run billing ledger and its daily drift report (blueprint rows 2.2 to 2.4, decision D8). `slurm_submissions` is one row per submission intent, written before any `sbatch`, so a crash between `sbatch` and the mapping insert, or a timed-out `sbatch`, is resolved by the job's name rather than resubmitted. `slurm_billing_segments` keeps one row per `sacct -D -X` record of a settled job with the raw fields and the seconds each bills under the written rules; `shadow_cost_micros` is computed from the cluster's rate card and charged only once `charged` is set. `slurm_billing_drift` is the ledger against the cluster's own accounting, per cluster per day. `slurm_clusters` gains `rate_card` and `suspend_holds_gres`. Four idempotent units through `lock_safe`; downgrade drops the tables and columns. The runtime floor is unchanged.
 
