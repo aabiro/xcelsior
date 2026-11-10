@@ -47,7 +47,7 @@ const COPY: Record<"en" | "fr", Copy> = {
     whatTitle: "What deletion removes",
     what: [
       "Your name, email address, password, and sign-in links for Facebook, Google, GitHub, and Hugging Face.",
-      "Sessions, passkeys, API credentials, and the Facebook user id stored for sign-in.",
+      "Sessions, passkeys, API credentials, and the Facebook user ID stored for sign-in.",
       "Profile details you saved in the dashboard.",
     ],
     keepTitle: "What deletion keeps",
