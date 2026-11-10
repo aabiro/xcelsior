@@ -475,3 +475,108 @@ def test_a_research_only_cluster_does_not_take_the_job(fleet):
             "SELECT count(*) FROM slurm_submissions WHERE xcelsior_job_id = %s",
             (job_id,),
         ).fetchone() == (0,)
+
+
+# ── The Slurm-only tick (the staging shadow week, blueprint 2.3) ──────
+
+
+def _slurm_only(*, slurm_placement=True):
+    return SchedulerService(
+        SchedulerConfig(
+            mode=SchedulerMode.SHADOW,  # the mode staging runs; the narrow tick ignores it
+            replica_id=f"slurm-only-{uuid.uuid4().hex[:6]}",
+            tick_max_placements=5,
+            slurm_placement=slurm_placement,
+        )
+    ).tick_slurm_only()
+
+
+def _claim_state(job_id):
+    with _pool.connection() as conn:
+        row = conn.execute(
+            "SELECT schedule_claim_owner, schedule_attempt_count, reason_code FROM jobs WHERE job_id = %s",
+            (job_id,),
+        ).fetchone()
+    return row[0], row[1], row[2]
+
+
+def test_a_slurm_only_tick_places_cluster_jobs_and_never_claims_host_work(fleet):
+    marker = uuid.uuid4().hex[:8]
+    model = f"SLURM-{marker}"
+    cluster_id = f"c{marker}"
+    host_job, cluster_job = f"jobh{marker}", f"jobc{marker}"
+    _host(fleet, f"host{marker}", model)
+    _cluster(fleet, cluster_id)
+    _job(fleet, host_job, gpu_model=model, cluster_id=None)
+    before = _claim_state(host_job)
+    _job(fleet, cluster_job, gpu_model=model, cluster_id=cluster_id)
+
+    report = _slurm_only()
+
+    assert cluster_job in [p.job_id for p in report.slurm_placements]
+    assert report.placements == []
+    assert _job_row(cluster_job)["status"] == "assigned"
+    # The host job was never claimed, so it was neither placed nor delayed.
+    assert _claim_state(host_job) == before
+    assert _job_row(host_job)["status"] == "queued"
+    assert all(job_id != host_job for job_id, _ in report.released)
+
+
+def test_a_slurm_only_tick_does_nothing_with_the_switch_off(fleet):
+    marker = uuid.uuid4().hex[:8]
+    cluster_id = f"c{marker}"
+    job_id = f"job{marker}"
+    _cluster(fleet, cluster_id)
+    _job(fleet, job_id, gpu_model=f"SLURM-{marker}", cluster_id=cluster_id)
+    before = _claim_state(job_id)
+
+    report = _slurm_only(slurm_placement=False)
+
+    assert report.slurm_placements == [] and report.released == []
+    assert _claim_state(job_id) == before
+
+
+def test_submit_job_admits_the_cluster_and_the_narrow_tick_places_it(fleet):
+    import scheduler
+
+    marker = uuid.uuid4().hex[:8]
+    cluster_id = f"c{marker}"
+    _cluster(fleet, cluster_id)
+    job = scheduler.submit_job(
+        name=f"shadow-{marker}",
+        vram_needed_gb=0,
+        num_gpus=1,
+        gpu_model=f"SLURM-{marker}",
+        command="nvidia-smi -L; sleep 1",
+        hpc_cluster_id=cluster_id,
+    )
+    fleet["jobs"].append(job["job_id"])
+    with _pool.connection() as conn:
+        spec = conn.execute("SELECT spec FROM jobs WHERE job_id = %s", (job["job_id"],)).fetchone()[0]
+    assert spec["hpc_cluster_id"] == cluster_id
+    assert spec["admission_request"]["hpc_cluster_id"] == cluster_id
+
+    report = _slurm_only()
+
+    assert [p.job_id for p in report.slurm_placements] == [job["job_id"]]
+
+
+def test_submit_job_refuses_a_cluster_and_a_host_pin_together():
+    import scheduler
+
+    with pytest.raises(ValueError, match="both a Slurm cluster and a host"):
+        scheduler.submit_job(
+            name="both", vram_needed_gb=0, hpc_cluster_id="c1", preferred_host_id="h1"
+        )
+
+
+def test_a_job_without_a_cluster_gets_no_cluster_key(fleet):
+    # Added only when set, so no other job's spec, and so its hash, moves.
+    import scheduler
+
+    job = scheduler.submit_job(name=f"plain-{uuid.uuid4().hex[:8]}", vram_needed_gb=0)
+    fleet["jobs"].append(job["job_id"])
+    with _pool.connection() as conn:
+        spec = conn.execute("SELECT spec FROM jobs WHERE job_id = %s", (job["job_id"],)).fetchone()[0]
+    assert "hpc_cluster_id" not in spec
+    assert "hpc_cluster_id" not in spec["admission_request"]
