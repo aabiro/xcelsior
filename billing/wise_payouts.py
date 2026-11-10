@@ -43,6 +43,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
@@ -1546,8 +1547,25 @@ def reconcile_open_payouts(*, limit: int = 50, client: WiseClient | None = None)
     try:
         for row in rows:
             try:
-                _apply_transfer(dict(row), wise.get_transfer(int(row["wise_transfer_id"])))
+                transfer = wise.get_transfer(int(row["wise_transfer_id"]))
+                after = _apply_transfer(dict(row), transfer)
                 checked += 1
+                # A transfer left unfunded because the balance was short is
+                # funded here once the balance has been topped up. _fund reads
+                # the balance first, so a balance still short costs one read.
+                if (
+                    auto_fund_enabled()
+                    and payouts_enabled()
+                    and after.get("status") == "awaiting_funding"
+                    and str(transfer.get("status") or "") == "incoming_payment_waiting"
+                ):
+                    _fund(
+                        wise,
+                        int(row["id"]),
+                        int(row["wise_transfer_id"]),
+                        str(row["source_currency"]),
+                        int(row["amount_micros"]),
+                    )
             except WiseError as exc:
                 failed += 1
                 log.warning("wise reconcile payout=%s: %s", row["id"], exc.reason)
@@ -1681,7 +1699,101 @@ def run_cycle() -> dict:
             "inbox": drain_webhook_inbox(client=wise),
             "reconciled": reconcile_open_payouts(client=wise),
             "executed": execute_approved_payouts(client=wise),
+            "funding": _funding_check(wise),
         }
+
+
+def _funding_check(wise: WiseClient) -> dict:
+    try:
+        return notify_topup_needed(client=wise)
+    except WiseError as exc:
+        return {"error": exc.reason}
+
+
+# ── Funding position ─────────────────────────────────────────────────
+#
+# Wise gives a personal token no way to pull money into the balance: the
+# balance is topped up by a person, in the Wise app or by bank transfer to the
+# account details. What can be automatic is knowing, to the cent, how much is
+# missing and telling the operator once, before a transfer sits unfunded.
+
+#: Approved or already at Wise and not yet paid for: money the balance owes.
+_COMMITTED_STATES = ("approved", "creating", "unknown", "awaiting_funding")
+_TOPUP_NOTICE_INTERVAL_S = 6 * 3600
+_last_topup_notice: tuple[float, int] = (0.0, 0)
+
+
+def funding_position(*, client: WiseClient | None = None) -> dict:
+    """Balance against what approved payouts need. Amounts in micros."""
+
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT status, COALESCE(SUM(amount_micros), 0)::bigint AS micros "
+            "FROM wise_payouts WHERE status = ANY(%s) GROUP BY status",
+            ([*_COMMITTED_STATES, "pending_approval"],),
+        ).fetchall()
+    by_status = {row["status"]: int(row["micros"]) for row in rows}
+    committed = sum(by_status.get(state, 0) for state in _COMMITTED_STATES)
+    pending = by_status.get("pending_approval", 0)
+    owns_client = client is None
+    wise = client or WiseClient()
+    try:
+        balance = wise.available_micros("CAD")
+    finally:
+        if owns_client:
+            wise.close()
+    return {
+        "balance_micros": balance,
+        "committed_micros": committed,
+        "pending_approval_micros": pending,
+        "shortfall_micros": max(0, committed - balance),
+        # What to add so that everything waiting for approval could be paid too.
+        "shortfall_if_all_approved_micros": max(0, committed + pending - balance),
+    }
+
+
+def notify_topup_needed(*, client: WiseClient | None = None, now: float | None = None) -> dict:
+    """Email the operator when approved payouts exceed the Wise balance.
+
+    Sent when a shortfall first appears or grows, and otherwise at most every
+    six hours. The message carries an amount and nothing that identifies a
+    provider or an account.
+    """
+
+    global _last_topup_notice
+    position = funding_position(client=client)
+    shortfall = position["shortfall_micros"]
+    if shortfall <= 0:
+        _last_topup_notice = (0.0, 0)
+        return {**position, "notified": False}
+    now = time.time() if now is None else now
+    sent_at, sent_for = _last_topup_notice
+    if shortfall <= sent_for and now - sent_at < _TOPUP_NOTICE_INTERVAL_S:
+        return {**position, "notified": False}
+    notified = False
+    try:
+        from scheduler import send_email
+
+        notified = bool(
+            send_email(
+                f"Wise balance is short by {micros_to_amount(shortfall)} CAD",
+                "Approved provider payouts need "
+                f"{micros_to_amount(position['committed_micros'])} CAD and the Wise CAD balance "
+                f"holds {micros_to_amount(position['balance_micros'])} CAD.\n\n"
+                f"Add at least {micros_to_amount(shortfall)} CAD to the Wise balance"
+                + (
+                    f" ({micros_to_amount(position['shortfall_if_all_approved_micros'])} CAD to "
+                    "also cover the payouts still waiting for approval)"
+                    if position["pending_approval_micros"]
+                    else ""
+                )
+                + ".\n\nWise cancels a transfer that is not funded within 14 days.",
+            )
+        )
+    except Exception as exc:
+        log.warning("wise top-up notice failed: %s", exc)
+    _last_topup_notice = (now, shortfall)
+    return {**position, "notified": notified}
 
 
 # ── Operator view ────────────────────────────────────────────────────
@@ -1716,7 +1828,13 @@ def rail_status(*, client: WiseClient | None = None) -> dict:
         try:
             wise = client or WiseClient()
             try:
-                status["balance_cad"] = wise.available_micros("CAD") / MICROS_PER_CAD
+                position = funding_position(client=wise)
+                status["balance_cad"] = position["balance_micros"] / MICROS_PER_CAD
+                status["committed_cad"] = position["committed_micros"] / MICROS_PER_CAD
+                status["top_up_needed_cad"] = position["shortfall_micros"] / MICROS_PER_CAD
+                status["top_up_needed_if_all_approved_cad"] = (
+                    position["shortfall_if_all_approved_micros"] / MICROS_PER_CAD
+                )
             finally:
                 if owns_client:
                     wise.close()

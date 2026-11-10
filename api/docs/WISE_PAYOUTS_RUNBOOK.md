@@ -15,6 +15,16 @@ It runs on a Wise **business** account with a personal API token. No partner agr
 
 The provider bears Wise's fee: the transfer's source amount is the provider's share, and Wise takes its fee from that. The fee quoted is stored on the payout (`fee_micros`).
 
+## Funding and top-ups
+
+Wise gives a personal token no way to pull money into the balance. The balance is topped up by a person: in the Wise app, or by bank transfer to the account details Wise shows for the CAD balance.
+
+What is automatic:
+
+- Every two minutes the worker compares the CAD balance with the payouts that are approved or already created at Wise. When the balance is short it emails the admin address the exact amount to add. It says so again only if the shortfall grows, or after six hours.
+- `GET /api/admin/wise/status` shows `balance_cad`, `committed_cad`, `top_up_needed_cad` and `top_up_needed_if_all_approved_cad`, so the amount is known before approving.
+- With `XCELSIOR_WISE_AUTO_FUND=1`, a transfer whose amount the balance covers is funded without a person. A transfer the balance does not cover waits; it is funded on a later pass once the balance is topped up. Default is off: a person funds each transfer in the Wise app.
+
 ## Controls
 
 | Control | Where | Default |
