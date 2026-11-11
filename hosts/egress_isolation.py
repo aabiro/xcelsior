@@ -59,6 +59,12 @@ FUNDED_SUBNET = "172.30.243.0/24"
 FUNDED_GATEWAY = "172.30.243.1"
 FUNDED_OUT_CHAIN = "XCL-FUNDED-OUT"
 FUNDED_IN_CHAIN = "XCL-FUNDED-IN"
+# Per-container limits the worker's resource-abuse response asks the root
+# helper to add and remove (CVP-01 §3, throttle rung). Dispatched to first, so
+# a limited container is limited whatever bridge it is on; never declared in
+# the restore below, because its rules are not ours to replace. Only the root
+# helper writes it (worker_privileged.op_tenant_rate_limit).
+THROTTLE_CHAIN = "XCL-TENANT-THROTTLE"
 # One first rule per host chain. It jumps into the bridge chains above.
 DISPATCH_FWD = "XCL-EGRESS-FWD"
 DISPATCH_IN = "XCL-EGRESS-IN"
@@ -245,6 +251,7 @@ def chain_rules() -> dict[str, list[list[str]]]:
             ["-j", "DROP"],
         ],
         DISPATCH_FWD: [
+            ["-j", THROTTLE_CHAIN],
             ["-i", BRIDGE, "-j", OUT_CHAIN],
             ["-i", FUNDED_BRIDGE, "-j", FUNDED_OUT_CHAIN],
         ],
@@ -362,6 +369,14 @@ def _chain_problems() -> list[str]:
     return problems
 
 
+def _throttle_chain_exists() -> bool:
+    return _run([*IPT, "-S", THROTTLE_CHAIN], check=False).returncode == 0
+
+
+def _throttle_chain_problems() -> list[str]:
+    return [] if _throttle_chain_exists() else [f"{THROTTLE_CHAIN} does not exist"]
+
+
 def _config_problems() -> list[str]:
     problems = []
     for path in (CONFIG_DIR, CONFIG_DIR / "squid.conf", CONFIG_DIR / "domains.txt"):
@@ -431,6 +446,7 @@ def verify() -> dict:
                 gateway=FUNDED_GATEWAY,
             )
             + _chain_problems()
+            + _throttle_chain_problems()
             + _hook_problems()
             + _v6_problems()
             + _config_problems()
@@ -517,6 +533,12 @@ def provision() -> dict:
             status = verify()
             write_status(status)
             return status
+
+    # The throttle chain is created once and never flushed: the dispatch jumps
+    # to it, so it must exist before the restore, and the per-container rules
+    # the root helper put there outlive every re-check.
+    if not _throttle_chain_exists():
+        _run([*IPT, "-N", THROTTLE_CHAIN])
 
     # Both chains are replaced in one iptables-restore transaction, so there is
     # no moment where a chain exists but is empty. --noflush leaves every other

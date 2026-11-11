@@ -2112,6 +2112,42 @@ def api_admin_list_host_agent_tokens(host_id: str, request: Request):
     return {"ok": True, "host_id": host_id, "tokens": tokens}
 
 
+# ── Resource-abuse review (CVP-01 §3) ─────────────────────────────────────
+@router.get("/api/admin/security/mining", tags=["Admin"])
+def api_admin_mining_episodes(request: Request, include_closed: bool = False):
+    """Containers a worker has flagged, throttled or suspended, newest first."""
+    _require_admin(request)
+    from mining_review import list_episodes
+
+    return {"episodes": list_episodes(include_closed=include_closed)}
+
+
+@router.post("/api/admin/security/mining/{job_id}/decision", tags=["Admin"])
+def api_admin_mining_decision(job_id: str, request: Request, body: dict):
+    """``clear`` lifts every limit on that container for a day; ``terminate`` ends it.
+
+    The worker applies the decision on its next pass (within its check
+    interval). Nothing here reaches into the host directly.
+    """
+    user = _require_admin(request)
+    from mining_review import decide
+
+    decision = str((body or {}).get("decision") or "")
+    reason = str((body or {}).get("reason") or "")
+    try:
+        record = decide(
+            job_id,
+            decision,
+            actor=user.get("email") or user.get("user_id") or "admin",
+            reason=reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except KeyError:
+        raise HTTPException(404, "no episode for that job")
+    return {"ok": True, "episode": record}
+
+
 @router.post("/api/admin/hosts/{host_id}/agent-tokens", tags=["Admin"])
 def api_admin_issue_host_agent_token(host_id: str, request: Request):
     """Issue (or rotate) this host's agent token. Returns the secret once.

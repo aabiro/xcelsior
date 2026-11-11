@@ -1574,6 +1574,7 @@ _SIBLING_MODULES = (
     "worker_nvme_cache.py",
     "worker_luks_volumes.py",
     "hardware_isolation.py",
+    "mining_response.py",
 )
 
 

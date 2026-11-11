@@ -778,6 +778,13 @@ def build_secure_docker_args(
     return args
 
 
+#: TCP ports that mining pools conventionally listen on. The restricted
+#: egress rules drop them, and the worker's resource-abuse response
+#: (mining_response.py, CVP-01 §3 signal S3) reads them to recognise a
+#: long-lived connection from a funded container to a pool.
+MINING_POOL_PORTS = (3333, 4444, 5555, 7777, 8888, 9999, 14444, 14433)
+
+
 def build_egress_iptables_rules(container_id, allowlist=None, strict=True):
     """Generate iptables rules for default-deny egress with allowlist.
 
@@ -826,7 +833,7 @@ def build_egress_iptables_rules(container_id, allowlist=None, strict=True):
     rules.append(f"docker exec {container_id} " "iptables -A OUTPUT -p tcp --dport 80 -j ACCEPT")
 
     # Block common mining pool ports (Stratum protocol)
-    for port in [3333, 4444, 5555, 7777, 8888, 9999, 14444, 14433]:
+    for port in MINING_POOL_PORTS:
         rules.append(
             f"docker exec {container_id} " f"iptables -A OUTPUT -p tcp --dport {port} -j DROP"
         )

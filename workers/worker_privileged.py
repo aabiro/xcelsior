@@ -2,8 +2,9 @@
 
 The worker runs as the unprivileged ``xcelsior`` user. Everything that needs root
 is a named operation here: mounting volumes, the LUKS lifecycle, attaching a
-volume inside a running job's mount namespace, and pausing other users' GPU
-processes for an exclusive-GPU job.
+volume inside a running job's mount namespace, pausing other users' GPU
+processes for an exclusive-GPU job, and the resource-abuse response (a GPU
+power cap, a per-container upload limit, a read-only connection snapshot).
 
 ``xcelsior-privd.socket`` (root; ``/run/xcelsior-privd.sock``, group ``xcelsior``)
 starts one instance of this file per connection. The instance reads one JSON
@@ -495,6 +496,211 @@ def op_gpu_tenants(args: dict, conf: dict[str, str]) -> dict:
     raise Refused(f"invalid action: {action!r}")
 
 
+# ── resource-abuse response: GPU power cap, per-container upload limit, ──
+# ── and a read-only view of one container's connections (CVP-01 §3) ────
+#
+# The worker names a GPU index or a container address; the limits and the
+# firewall chain are fixed here. Nothing below reads or touches a tenant's
+# filesystem or processes.
+
+FUNDED_SUBNET = ipaddress.ip_network("172.30.243.0/24")  # = egress_isolation.FUNDED_SUBNET
+TENANT_SUBNET = ipaddress.ip_network("172.30.242.0/24")  # = egress_isolation.SUBNET
+THROTTLE_CHAIN = "XCL-TENANT-THROTTLE"  # = egress_isolation.THROTTLE_CHAIN
+_IPT = ("iptables", "-w", "5")
+_CONNTRACK = "/proc/net/nf_conntrack"
+_DROP_LOG = re.compile(r"XCL-TENANT-DROP.*?SRC=(\S+) DST=(\S+).*?DPT=(\d+)")
+
+
+def _gpu_index(value: object) -> int:
+    if type(value) is not int or not 0 <= value < 64:
+        raise Refused(f"invalid GPU index: {value!r}")
+    return value
+
+
+def _query_power(index: int) -> tuple[int, int, int]:
+    """(current, min, max) power limit in watts for one GPU, from nvidia-smi."""
+    out = subprocess.run(
+        [
+            "nvidia-smi",
+            "-i",
+            str(index),
+            "--query-gpu=power.limit,power.min_limit,power.max_limit",
+            "--format=csv,noheader,nounits",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    parts = [x.strip() for x in (out.stdout or "").strip().split(",")]
+    if out.returncode != 0 or len(parts) != 3:
+        raise Refused(f"power limits unavailable for GPU {index}")
+    try:
+        current, low, high = (int(float(x)) for x in parts)
+    except ValueError as exc:
+        raise Refused(f"power limits unreadable for GPU {index}: {parts!r}") from exc
+    return current, low, high
+
+
+def op_gpu_power_limit(args: dict, conf: dict[str, str]) -> dict:
+    """``min``: cap one GPU at its minimum power limit; ``restore``: put it back.
+
+    The cap is per GPU, and the worker only asks for a GPU leased exclusively
+    to the container it is throttling. ``restore`` accepts only a value inside
+    the device's own [min, max] range.
+    """
+    index = _gpu_index(args.get("index"))
+    action = args.get("action")
+    current, low, high = _query_power(index)
+    if action == "min":
+        target = low
+    elif action == "restore":
+        watts = args.get("watts")
+        if type(watts) is not int or not low <= watts <= high:
+            raise Refused(f"watts must be an integer in [{low}, {high}]")
+        target = watts
+    else:
+        raise Refused(f"invalid action: {action!r}")
+    if target != current:
+        _run(["nvidia-smi", "-i", str(index), "-pl", str(target)], timeout=20)
+    return {"previous_w": current, "limit_w": target}
+
+
+def _funded_ip(value: object) -> str:
+    try:
+        ip = ipaddress.ip_address(str(value))
+    except ValueError as exc:
+        raise Refused(f"invalid address: {value!r}") from exc
+    if ip not in FUNDED_SUBNET:
+        raise Refused(f"{ip} is not a funded tenant address")
+    return str(ip)
+
+
+def _throttle_rule(ip: str, mbps: int) -> list[str]:
+    kb_per_s = max(1, mbps * 1_000_000 // 8 // 1024)
+    return [
+        "-s",
+        f"{ip}/32",
+        "-m",
+        "conntrack",
+        "--ctdir",
+        "ORIGINAL",
+        "-m",
+        "hashlimit",
+        "--hashlimit-above",
+        f"{kb_per_s}kb/s",
+        "--hashlimit-burst",
+        f"{kb_per_s * 2}kb",
+        "--hashlimit-mode",
+        "srcip",
+        "--hashlimit-name",
+        f"xcl-thr-{ip.rsplit('.', 1)[-1]}",
+        "-j",
+        "DROP",
+    ]
+
+
+def _throttle_rules_for(ip: str) -> list[list[str]]:
+    out = subprocess.run([*_IPT, "-S", THROTTLE_CHAIN], capture_output=True, text=True, timeout=15)
+    if out.returncode != 0:
+        raise Refused(f"{THROTTLE_CHAIN} is not provisioned on this host")
+    return [
+        ln.split()[2:]
+        for ln in out.stdout.splitlines()
+        if ln.startswith("-A ") and f"-s {ip}/32" in ln
+    ]
+
+
+def op_tenant_rate_limit(args: dict, conf: dict[str, str]) -> dict:
+    """``apply``: drop what one funded container sends above ``mbps``; ``clear``: lift it.
+
+    One rule, keyed by the container's address, in the throttle chain that
+    egress_isolation.py dispatches to ahead of the funded rules. No other
+    container matches it.
+    """
+    ip = _funded_ip(args.get("ip"))
+    action = args.get("action")
+    existing = _throttle_rules_for(ip)
+    if action == "apply":
+        mbps = args.get("mbps")
+        if type(mbps) is not int or not 1 <= mbps <= 1000:
+            raise Refused("mbps must be an integer in [1, 1000]")
+        for rule in existing:
+            _run([*_IPT, "-D", THROTTLE_CHAIN, *rule], timeout=15)
+        _run([*_IPT, "-I", THROTTLE_CHAIN, "1", *_throttle_rule(ip, mbps)], timeout=15)
+        return {"mbps": mbps}
+    if action == "clear":
+        for rule in existing:
+            _run([*_IPT, "-D", THROTTLE_CHAIN, *rule], timeout=15)
+        return {"removed": len(existing)}
+    raise Refused(f"invalid action: {action!r}")
+
+
+def _tenant_ip(value: object) -> str:
+    try:
+        ip = ipaddress.ip_address(str(value))
+    except ValueError as exc:
+        raise Refused(f"invalid address: {value!r}") from exc
+    if ip not in FUNDED_SUBNET and ip not in TENANT_SUBNET:
+        raise Refused(f"{ip} is not a tenant address")
+    return str(ip)
+
+
+def _conntrack_lines() -> list[str]:
+    try:
+        with open(_CONNTRACK, encoding="ascii", errors="replace") as fh:
+            return fh.read().splitlines()
+    except OSError:
+        pass
+    out = subprocess.run(
+        ["conntrack", "-L", "-p", "tcp"], capture_output=True, text=True, timeout=15
+    )
+    return out.stdout.splitlines() if out.returncode == 0 else []
+
+
+def _parse_conntrack(lines: list[str], ip: str) -> list[dict]:
+    """Original-direction TCP entries whose source is ``ip``: ``{dst, dport, state}``."""
+    found = []
+    for ln in lines:
+        if " tcp " not in f" {ln} " and not ln.startswith("tcp"):
+            continue
+        fields = ln.split()
+        # The first src=/dst=/dport= are the original direction; the reply
+        # direction repeats them and is ignored.
+        src = next((f[4:] for f in fields if f.startswith("src=")), "")
+        if src != ip:
+            continue
+        dst = next((f[4:] for f in fields if f.startswith("dst=")), "")
+        dport = next((f[6:] for f in fields if f.startswith("dport=")), "")
+        state = next((f for f in fields if f.isupper() and f.isalpha() and len(f) > 3), "")
+        if dst and dport.isdigit():
+            found.append({"dst": dst, "dport": int(dport), "state": state})
+    return found
+
+
+def _dropped_attempts(ip: str) -> list[dict]:
+    out = subprocess.run(
+        ["journalctl", "-k", "--since", "-10min", "-o", "cat", "-g", "XCL-TENANT-DROP"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if out.returncode != 0:
+        return []
+    found = []
+    for m in _DROP_LOG.finditer(out.stdout):
+        if m.group(1) == ip:
+            found.append({"dst": m.group(2), "dport": int(m.group(3))})
+    return found[-50:]
+
+
+def op_tenant_net_snapshot(args: dict, conf: dict[str, str]) -> dict:
+    """Read-only: the connections one tenant address holds, and its recent dropped attempts."""
+    ip = _tenant_ip(args.get("ip"))
+    connections = _parse_conntrack(_conntrack_lines(), ip)
+    dropped = _dropped_attempts(ip) if ipaddress.ip_address(ip) in TENANT_SUBNET else []
+    return {"connections": connections[:500], "dropped": dropped}
+
+
 OPS = {
     "nfs_mount": op_nfs_mount,
     "umount": op_umount,
@@ -506,6 +712,9 @@ OPS = {
     "container_attach": op_container_attach,
     "container_detach": op_container_detach,
     "gpu_tenants": op_gpu_tenants,
+    "gpu_power_limit": op_gpu_power_limit,
+    "tenant_rate_limit": op_tenant_rate_limit,
+    "tenant_net_snapshot": op_tenant_net_snapshot,
 }
 
 
