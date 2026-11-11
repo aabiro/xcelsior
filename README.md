@@ -226,10 +226,10 @@ See [docs.xcelsior.ca](https://docs.xcelsior.ca) for full API reference and inte
 
 <div align="center">
 
-[![Xcelsior Compute MCP on mcprush](https://mcprush.com/badge/xcelsior-compute-mcp/score.svg)](https://mcprush.com/to/xcelsior-compute-mcp?ref=badge)
 [![mcptry](https://mcptry.com/badge/io.github.aabiro/xcelsior)](https://mcptry.com/servers/io.github.aabiro/xcelsior)
+[![Xcelsior Compute MCP on mcprush](https://mcprush.com/badge/xcelsior-compute-mcp/score.svg)](https://mcprush.com/to/xcelsior-compute-mcp?ref=badge)
+[![M8ven Verified](https://m8ven.ai/badge/mcp/aabiro-xcelsior-012k18?variant=verified&v=50aba6c76a0e3c0b62a585d9013b13ec)](https://m8ven.ai/mcp/aabiro-xcelsior-012k18?s=readme)    
 
-    
 **MIT License** · [LICENSE](LICENSE)
 
 Built with 🍁 in Canada — **Ever upward.**
