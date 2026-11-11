@@ -131,8 +131,19 @@ function LoginPageContent() {
     );
   }
 
+  function navigateToRedirectTarget(target: string) {
+    if (
+      typeof window !== "undefined" &&
+      (target.startsWith("/oauth/authorize") || target.startsWith("/api/"))
+    ) {
+      window.location.replace(target);
+      return;
+    }
+    router.replace(target);
+  }
+
   if (!mfaRequired && user) {
-    router.replace(redirectTarget);
+    navigateToRedirectTarget(redirectTarget);
     return null;
   }
 
@@ -141,7 +152,7 @@ function LoginPageContent() {
     if (loggedIn) {
       posthog.capture("user_logged_in", { method });
     }
-    router.replace(redirectTarget);
+    navigateToRedirectTarget(redirectTarget);
   }
 
   async function handleLogin(e: React.FormEvent) {

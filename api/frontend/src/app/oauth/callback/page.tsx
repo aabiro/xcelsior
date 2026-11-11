@@ -37,7 +37,17 @@ function OAuthCallbackContent() {
         for (let attempt = 0; attempt < 5; attempt += 1) {
           const ok = await login();
           if (ok) {
-            if (!cancelled) router.replace(result.redirectPath);
+            if (!cancelled) {
+              if (
+                typeof window !== "undefined" &&
+                (result.redirectPath.startsWith("/oauth/authorize") ||
+                  result.redirectPath.startsWith("/api/"))
+              ) {
+                window.location.replace(result.redirectPath);
+              } else {
+                router.replace(result.redirectPath);
+              }
+            }
             return;
           }
           await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)));
