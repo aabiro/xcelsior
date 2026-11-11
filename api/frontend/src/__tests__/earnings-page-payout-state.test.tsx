@@ -193,17 +193,48 @@ it("account setup saves the account type without a renter or provider choice", a
 
 it("says a renter or provider choice can change in settings and asks for business details only for a business account", async () => {
   authState.user = { name: "Original Name", account_type: "", onboarding_intent: "" };
-  render(<AccountProfileForm step="account" />);
+  const { container } = render(<AccountProfileForm step="account" />);
+  const continueButton = screen.getByRole("button", { name: "Continue" });
+  expect(container.querySelector("form")).toHaveAttribute("novalidate");
+  expect(continueButton).toBeDisabled();
   expect(screen.queryByText("How will you use Xcelsior?")).not.toBeInTheDocument();
   expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Legal business name")).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Account type"), { target: { value: "individual" } });
+  expect(continueButton).toBeEnabled();
   expect(screen.getByText("A personal account does not need a business name, even if you provide GPUs.")).toBeInTheDocument();
   expect(screen.queryByLabelText("Legal business name")).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Account type"), { target: { value: "business" } });
-  expect(screen.getByLabelText("Legal business name")).toBeInTheDocument();
+  expect(continueButton).toBeDisabled();
+  const businessInput = screen.getByLabelText("Legal business name");
+  expect(businessInput).toBeInTheDocument();
+  expect(businessInput).toHaveAttribute("aria-invalid", "false");
+  fireEvent.blur(businessInput);
+  expect(businessInput).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByText("Enter your legal business name.")).toBeInTheDocument();
+  fireEvent.change(businessInput, { target: { value: "Port Dover Marine Inc." } });
+  expect(businessInput).toHaveAttribute("aria-invalid", "false");
+  expect(screen.queryByText("Enter your legal business name.")).not.toBeInTheDocument();
+  expect(continueButton).toBeEnabled();
   expect(screen.getByLabelText("GST/HST registration number (optional)")).toBeInTheDocument();
   expect(screen.queryByText("A personal account does not need a business name, even if you provide GPUs.")).not.toBeInTheDocument();
+});
+
+
+it("disables Continue on the address step until all required address fields are filled", async () => {
+  authState.user = { name: "Original Name", country: "CA", province: "", address_line1: "", city: "", postal_code: "", account_type: "individual" };
+  render(<AccountProfileForm step="address" />);
+  const continueButton = screen.getByRole("button", { name: "Continue" });
+  await screen.findByRole("option", { name: "Ontario" });
+  expect(continueButton).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("State, province, or territory"), { target: { value: "ON" } });
+  expect(continueButton).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Street address"), { target: { value: "123 Harbour St" } });
+  expect(continueButton).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("City or locality"), { target: { value: "Port Dover" } });
+  expect(continueButton).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Postal code"), { target: { value: "N0A 1N0" } });
+  expect(continueButton).toBeEnabled();
 });
 
 
@@ -244,6 +275,9 @@ it.each([false,true])("address retrieval survives tabbing but respects manual ed
     const input=screen.getByRole("combobox",{name:"Search address"});
     fireEvent.change(input,{target:{value:"Test Street"}});
     await act(async () => { await vi.advanceTimersByTimeAsync(310); });
+    const listbox = screen.getByRole("listbox", { name: "Address suggestions" });
+    expect(listbox.className).toContain("bg-[var(--popover-solid)]");
+    expect(listbox.className).not.toContain("bg-surface");
     fireEvent.click(screen.getByRole("option",{name:/1 Test Street/}));
     fireEvent.blur(input);
     if(manualEdit) view.rerender(<AddressLookup country="CA" onSelect={onSelect} editRevision={1} />);

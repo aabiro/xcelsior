@@ -34,6 +34,15 @@ export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsP
   const [preview, setPreview] = useState<SpotRatePreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savedSpot, setSavedSpot] = useState(() => ({
+    spotEnabled: host.spot_enabled !== false,
+    spotSlots: host.spot_gpu_slots ?? gpuCount,
+    spotMinCents: host.spot_min_cents ?? 0,
+  }));
+  const isDirty =
+    spotEnabled !== savedSpot.spotEnabled ||
+    spotSlots !== savedSpot.spotSlots ||
+    spotMinCents !== savedSpot.spotMinCents;
 
   const loadPreview = useCallback(async (floorCents: number) => {
     if (!host.gpu_model) return;
@@ -60,6 +69,7 @@ export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsP
         setSuggestedMin(res.suggested_min_cents);
         if (!host.spot_min_cents) {
           setSpotMinCents(res.suggested_min_cents);
+          setSavedSpot((prev) => ({ ...prev, spotMinCents: res.suggested_min_cents }));
         }
       })
       .catch(() => {});
@@ -79,6 +89,11 @@ export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsP
         spot_enabled: spotEnabled,
         spot_gpu_slots: spotSlots,
         spot_min_cents: spotMinCents,
+      });
+      setSavedSpot({
+        spotEnabled,
+        spotSlots,
+        spotMinCents,
       });
       setPreview(res.spot_preview);
       onUpdated?.(res.host);
@@ -189,7 +204,7 @@ export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsP
           className="w-full mt-4"
           size="sm"
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || !isDirty}
         >
           {saving ? (
             <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>

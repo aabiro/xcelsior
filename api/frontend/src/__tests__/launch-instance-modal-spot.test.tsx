@@ -274,4 +274,45 @@ describe("LaunchInstanceModal", () => {
     expect(await screen.findByText(/Unable to load service-tier prices/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^continue$/i })).toBeDisabled();
   });
+
+  it("disables Dedicated and falls back to Standard when no qualified physical hosts are available", async () => {
+    apiMocks.fetchAvailableGPUs.mockResolvedValue({
+      gpus: [
+        { gpu_model: "RTX 3090", vram_gb: 24, count_available: 1, price_per_hour_cad: 0.55, region: "ca-on", province: "ON" },
+        { gpu_model: "RTX 3060", vram_gb: 12, count_available: 1, price_per_hour_cad: 0.14, region: "ca-on", province: "ON" },
+      ],
+    });
+    apiMocks.fetchServiceTierCatalog.mockImplementation(async (gpuModel: string, mode = "on_demand") => ({
+      gpu_model: gpuModel,
+      vram_gb: gpuModel === "RTX 3060" ? 12 : 24,
+      mode,
+      currency: "cad",
+      base_rate_micros: gpuModel === "RTX 3060" ? 140_000 : 550_000,
+      tiers: [
+        { tier: "standard", label: "Standard", priority: 1, stripe_price_id: `price_std_${gpuModel}`, unit_amount_micros: gpuModel === "RTX 3060" ? 140_000 : 550_000, tier_addition_micros: 0 },
+        { tier: "premium", label: "Premium", priority: 2, stripe_price_id: `price_prem_${gpuModel}`, unit_amount_micros: gpuModel === "RTX 3060" ? 224_000 : 880_000, tier_addition_micros: gpuModel === "RTX 3060" ? 84_000 : 330_000 },
+        { tier: "dedicated", label: "Dedicated", priority: 3, stripe_price_id: `price_ded_${gpuModel}`, unit_amount_micros: gpuModel === "RTX 3060" ? 392_000 : 1_540_000, tier_addition_micros: gpuModel === "RTX 3060" ? 252_000 : 990_000 },
+      ],
+      gpu_exclusive_addon: { stripe_price_id: `price_excl_${gpuModel}`, unit_amount_micros: 56_000 },
+      queue_bid_unit: { stripe_price_id: "price_queue_bid", unit_amount_micros: 10_000 },
+      physical_hosts: gpuModel === "RTX 3060" ? [] : [{ host_id: "host-3090", num_gpus: 2, region: "ca-on", available: true }],
+    }));
+
+    render(<LaunchInstanceModal open onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.14/hr"));
+    const dedicatedBtn = screen.getByRole("button", { name: /^dedicated/i });
+    expect(dedicatedBtn).toBeDisabled();
+    expect(dedicatedBtn).toHaveTextContent("No qualified physical hosts available");
+    expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("GPU Model"), { target: { value: "RTX 3090" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: /^dedicated/i })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /^dedicated/i }));
+    expect(screen.getByLabelText("GPUs")).toHaveValue(2);
+
+    fireEvent.change(screen.getByLabelText("GPU Model"), { target: { value: "RTX 3060" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: /^standard/i })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("button", { name: /^dedicated/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
+  });
 });

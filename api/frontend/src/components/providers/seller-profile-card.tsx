@@ -119,9 +119,20 @@ export function SellerProfileCard({
   const taxGroup = useId();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [savedState, setSavedState] = useState(() => ({
+    legalName: (provider?.legal_name || "").trim(),
+    kind: provider?.tax_id_kind || "",
+    gst: (provider?.gst_hst_number || "").trim(),
+  }));
   const onboarding = mode === "onboarding";
   const address = accountAddress(user, provider);
   const readyAddress = addressReady(address);
+  const effectiveGst = kind === "gst" ? taxId.trim() : kind === "sin" || kind === "bn" ? gst.trim() : "";
+  const isDirty =
+    legalName.trim() !== savedState.legalName ||
+    kind !== savedState.kind ||
+    Boolean(taxId.trim()) ||
+    effectiveGst !== savedState.gst;
 
   const save = async () => {
     const name = legalName.trim();
@@ -152,6 +163,11 @@ export function SellerProfileCard({
         tax_id: taxId,
         gst_hst_number: gstNumber,
         accepted_terms: true,
+      });
+      setSavedState({
+        legalName: name,
+        kind,
+        gst: gstNumber,
       });
       setTaxId("");
       toast.success(t("dash.earnings.seller_saved"));
@@ -229,7 +245,7 @@ export function SellerProfileCard({
       )}
       {error && <p role="alert" className="rounded-xl border border-red-400/25 bg-red-400/5 px-4 py-3 text-sm text-red-400">{error}</p>}
       <div className="space-y-3">
-        <Button className={onboarding ? "h-12 w-full text-base" : ""} type="submit" disabled={saving}>
+        <Button className={onboarding ? "h-12 w-full text-base" : ""} type="submit" disabled={saving || (!onboarding && !isDirty)}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {saving ? t("dash.earnings.seller_saving") : onboarding ? t("dash.earnings.seller_continue") : t("dash.earnings.seller_save")}
           {onboarding && !saving ? <ArrowRight className="h-4 w-4" /> : null}

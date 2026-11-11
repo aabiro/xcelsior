@@ -318,7 +318,7 @@ function CreateClientDialog({
           <Button variant="outline" size="sm" onClick={onClose} disabled={creating}>
             {t("dash.settings.oauth.edit_cancel")}
           </Button>
-          <Button onClick={handleCreate} disabled={creating} size="sm">
+          <Button onClick={handleCreate} disabled={creating || !name.trim() || scopes.size === 0} size="sm">
             {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
             {t("dash.settings.oauth.create")}
           </Button>
@@ -345,6 +345,10 @@ function EditClientDialog({
   const [name, setName] = useState(client.client_name);
   const [scopes, setScopes] = useState<Set<string>>(new Set(client.scopes));
   const [saving, setSaving] = useState(false);
+  const isDirty =
+    name.trim() !== client.client_name.trim() ||
+    scopes.size !== client.scopes.length ||
+    client.scopes.some((s) => !scopes.has(s));
 
   useEffect(() => {
     setName(client.client_name);
@@ -385,7 +389,7 @@ function EditClientDialog({
         </div>
         <div className="flex justify-end gap-3 pt-2">
           <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>{t("dash.settings.oauth.edit_cancel")}</Button>
-          <Button size="sm" onClick={handleSave} disabled={saving}>
+          <Button size="sm" onClick={handleSave} disabled={saving || !name.trim() || scopes.size === 0 || !isDirty}>
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
             {t("dash.settings.oauth.edit_save")}
           </Button>

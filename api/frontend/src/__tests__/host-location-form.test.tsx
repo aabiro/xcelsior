@@ -38,12 +38,14 @@ describe("host relocation", () => {
   it("edits an active host's location with a single save", async () => {
     render(<Screen />);
     await screen.findByRole("option", { name: "United States" });
+    expect(screen.getByRole("button", { name: "Save location" })).toBeDisabled();
     fireEvent.change(screen.getByRole("combobox", { name: "Country" }), { target: { value: "US" } });
     await screen.findByRole("option", { name: "New York" });
     fireEvent.change(screen.getByRole("combobox", { name: /state|province/i }), { target: { value: "NY" } });
     await waitFor(() => expect(screen.getByRole("button", { name: "Save location" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Save location" }));
     await screen.findByText("Host location saved.");
+    expect(screen.getByRole("button", { name: "Save location" })).toBeDisabled();
     expect(host.region).toBe("us-ny");
     expect(host.status).toBe("active");
     expect(host.version).toBe(2);
