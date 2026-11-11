@@ -13,6 +13,7 @@ without ever opening a browser. Every host admission-gated before it takes work.
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![TypeScript SDK](https://img.shields.io/badge/SDK-TypeScript-3178C6.svg)](https://docs.xcelsior.ca)
 [![Docs](https://img.shields.io/badge/docs-xcelsior.ca-0891b2.svg)](https://docs.xcelsior.ca)
+[![npm version](https://img.shields.io/npm/v/@xcelsior-gpu/mcp)](https://www.npmjs.com/package/@xcelsior-gpu/mcp)
 
 [Website](https://xcelsior.ca) · [API Docs](https://docs.xcelsior.ca) · [Blog](https://xcelsior.ca/blog) · [Pricing](https://xcelsior.ca/pricing)
 
