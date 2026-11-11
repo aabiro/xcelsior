@@ -11,6 +11,27 @@ npx @xcelsior-gpu/mcp
 
 Create a token: **Dashboard → Settings → Connect AI Agents** (or visit [xcelsior.ca/mcp](https://xcelsior.ca/mcp)).
 
+## Or sign in with your browser
+
+No token to copy: `connect` signs you in through your browser and connects to the hosted server at `https://mcp.xcelsior.ca/mcp`, using [mcp-remote](https://www.npmjs.com/package/mcp-remote) for the OAuth sign-in. The sign-in is saved, so it asks only once.
+
+```bash
+npx @xcelsior-gpu/mcp connect
+```
+
+```json
+{
+  "mcpServers": {
+    "xcelsior": {
+      "command": "npx",
+      "args": ["-y", "@xcelsior-gpu/mcp", "connect"]
+    }
+  }
+}
+```
+
+Set `XCELSIOR_MCP_URL` (or pass a URL after `connect`) to use another server.
+
 ## Cursor config
 
 ```json
