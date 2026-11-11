@@ -7300,6 +7300,36 @@ def _log_container_host_key_fingerprint(container_name: str, job_id: str) -> Non
         pass
 
 
+SSHD_INSTALL_BUDGET_DIRECT_SEC = 90.0
+SSHD_INSTALL_BUDGET_PROXIED_SEC = 240.0
+
+
+def _sshd_install_budget(container_name: str) -> float:
+    """Seconds allowed for installing openssh-server in one container.
+
+    A container on the restricted egress class reaches its package mirror
+    through the filtering proxy, which is several times slower than a direct
+    route; it is recognised by the proxy variables that class sets.
+    """
+    try:
+        probe = subprocess.run(
+            [
+                "docker",
+                "exec",
+                container_name,
+                "sh",
+                "-c",
+                'test -n "$http_proxy$HTTP_PROXY$https_proxy$HTTPS_PROXY"',
+            ],
+            capture_output=True,
+            timeout=5,
+        )
+        proxied = probe.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        proxied = False
+    return SSHD_INSTALL_BUDGET_PROXIED_SEC if proxied else SSHD_INSTALL_BUDGET_DIRECT_SEC
+
+
 def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False):
     """Fetch the job owner's SSH public keys from the API and inject into the container.
 
@@ -7448,8 +7478,14 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             # Install openssh-server on demand so SSH keys actually work on
             # images that ship without it (pytorch, cuda, etc). Detect package
             # manager; install quietly; re-check for sshd. Extends the budget
-            # by 45s only when we actually have to install.
-            _extend_budget(45.0)
+            # by the install's own allowance only when we actually have to install.
+            # The install used to get a 30 s slice of a 90 s total. Through the
+            # restricted class's filtering proxy `apt-get update` alone takes
+            # longer, so the customer's key was written and no sshd ever listened
+            # (CVP-01 D8). The allowance now depends on how the container reaches
+            # its package mirror.
+            install_budget = _sshd_install_budget(container_name)
+            _extend_budget(install_budget)
             _note("Installing OpenSSH server in container (one-time setup)…")
             install_script = (
                 "set -e; "
@@ -7475,7 +7511,7 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             install = subprocess.run(
                 ["docker", "exec", container_name, "sh", "-c", install_script],
                 capture_output=True,
-                timeout=_remaining(30),
+                timeout=_remaining(install_budget),
             )
             sshd_present = install.returncode == 0
             if sshd_present:
@@ -7587,13 +7623,14 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                     "  >/tmp/xcelsior-apk.log 2>&1; "
                     "fi"
                 )
-                tools = subprocess.run(
-                    ["docker", "exec", container_name, "sh", "-c", tools_script],
+                # Detached: these are conveniences, not readiness. Run in the
+                # foreground they shared the SSH budget, and on a slow mirror
+                # were cut off half-installed (CVP-01 D9).
+                subprocess.run(
+                    ["docker", "exec", "-d", container_name, "sh", "-c", tools_script],
                     capture_output=True,
-                    timeout=_remaining(90),
+                    timeout=_remaining(10),
                 )
-                if tools.returncode == 0:
-                    log.info("CLI tools ready in %s", container_name)
             except Exception as e:
                 log.debug("CLI tools install skipped for %s: %s", container_name, e)
 
@@ -8115,23 +8152,118 @@ def _job_containers_on_gpu(gpu_index, active):
     return on_gpu
 
 
-def mining_detection_loop():
-    """Background thread: periodically check for mining signatures.
+def _gpu_sample_key(gpu: dict) -> str:
+    """The key mining_response.Responder.record_gpu_samples files a GPU under."""
+    return str(gpu.get("gpu_uuid") or gpu.get("uuid") or gpu.get("index"))
 
-    The heuristic reads whole-GPU telemetry, so a hit is attributed to the
-    job containers actually holding a compute context on that GPU. Load from
-    non-job processes is ignored (no alert, no kill), and only the suspect
-    containers on the flagged GPU are ever killed.
 
-    If attribution is unavailable nothing is killed. The old fallback treated
-    every active job as a suspect, so one unreadable NVML process list could
-    end every tenant's job on the host and mark each account for mining
-    (blocked job, account review, funded egress revoked) for load none of them
-    may have caused. The control plane is still told, once per episode, so an
-    operator can look; the response stays with the workload that can be named.
+def _gpu_shared_with_host(gpu_index) -> bool:
+    """True when a process outside every container holds a compute context on this GPU.
+
+    The power rung lowers the whole device, so it is skipped on a GPU the
+    provider's own services are using. Unknown counts as shared.
     """
-    consecutive = {}  # gpu index -> consecutive detections
-    host_load_logged = set()
+    pids = get_gpu_compute_pids(gpu_index)
+    if pids is None:
+        return True
+    return any(not _container_id_for_pid(pid) for pid in pids)
+
+
+def _mining_docker(args: list[str], timeout: int) -> tuple[int, str]:
+    try:
+        r = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as e:
+        log.debug("docker %s failed: %s", args[:1], e)
+        return 1, ""
+    return r.returncode, r.stdout or ""
+
+
+def _mining_privd(op: str, **args) -> dict:
+    try:
+        return worker_privileged.call(op, **args) or {"ok": False}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _mining_report(episode, evidence: dict) -> dict:
+    """One pass of an episode to the control plane; its reply, or {} when unreachable."""
+    signals = evidence.get("signals") or []
+    reason = "; ".join(str(sig.get("detail") or sig.get("name") or "") for sig in signals)[:500]
+    data = {
+        "host_id": HOST_ID,
+        "job_id": episode.job_id,
+        "container_name": episode.container_name,
+        "rung": episode.rung or None,
+        "confidence": max(0.0, min(1.0, float(episode.confidence or 0.0))),
+        "reason": reason,
+        "evidence": evidence,
+        "timestamp": time.time(),
+    }
+    try:
+        resp = _api_request(
+            "post",
+            _api_url("/agent/mining-alert"),
+            json=data,
+            headers=_api_headers(),
+            timeout=10,
+        )
+        reply = resp.json() if resp is not None and resp.status_code == 200 else {}
+    except (requests.RequestException, ValueError):
+        return {}
+    return reply if isinstance(reply, dict) else {}
+
+
+def _mining_notify(job_id: str, text: str) -> None:
+    with suppress(Exception):
+        _push_log_lines(job_id, [{"message": text, "level": "warning", "timestamp": time.time()}])
+
+
+def _mining_terminate(job_id: str, container_name: str) -> None:
+    # Never under _active_lock: the terminal report settles the attempt, and
+    # forgetting it takes that (non-reentrant) lock again.
+    _kill_container(container_name)
+    report_job_status(job_id, "terminated", policy_reason="mining_detected")
+    with _active_lock:
+        if _active_containers.get(job_id) == container_name:
+            _active_containers.pop(job_id, None)
+
+
+def _build_mining_responder():
+    """The §3 responder bound to this host, or None when its module is missing."""
+    try:
+        import mining_response
+        from security import MINING_POOL_PORTS
+    except ImportError as e:
+        log.error("Resource-abuse response unavailable (%s); reporting only", e)
+        return None
+    return mining_response.Responder(
+        docker=_mining_docker,
+        privd=_mining_privd,
+        report=_mining_report,
+        notify=_mining_notify,
+        terminate=_mining_terminate,
+        pool_ports=tuple(MINING_POOL_PORTS),
+    )
+
+
+def mining_detection_loop():
+    """Background thread: watch each job container for resource abuse (CVP-01 §3).
+
+    Every pass records GPU telemetry and then looks at one container at a
+    time: the GPUs it holds a compute context on, its processes, its
+    connections and its CPU. `mining_response.Responder` scores that and moves
+    that one container along flag, throttle, suspend, terminate. The GPU
+    profile alone tops out below the suspend threshold, so nothing is ended on
+    a load pattern that single-GPU training also produces.
+
+    A response acts only on a workload it can name. Load from processes that
+    are not job containers is ignored. When GPU-process attribution is
+    unavailable no container is given that GPU's samples, so nothing is done
+    on them; the control plane is told once per episode so an operator can
+    look. (The old fallback treated every active job as a suspect.)
+    """
+    responder = _build_mining_responder()
+    restored = False
     unattributed_reported = set()
 
     while not _shutdown.is_set():
@@ -8142,24 +8274,27 @@ def mining_detection_loop():
             time.sleep(1)
 
         telemetry = get_gpu_telemetry()
+        if _shutdown.is_set():
+            return
+        with _active_lock:
+            active = dict(_active_containers)
+        if responder is not None and not restored:
+            responder.restore_after_restart(set(active.values()))
+            restored = True
+        if responder is not None:
+            responder.record_gpu_samples(telemetry, time.time())
+
+        held: dict[str, dict[str, int]] = {}  # container name -> {gpu key: nvml index}
+        shared: dict[str, bool] = {}
         for gpu in telemetry:
             idx = gpu["index"]
-            is_mining, confidence, reason = check_mining_heuristic(gpu)
-            if not is_mining:
-                consecutive[idx] = max(0, consecutive.get(idx, 0) - 1)
-                host_load_logged.discard(idx)
-                unattributed_reported.discard(idx)
-                continue
-
-            with _active_lock:
-                active = dict(_active_containers)
             suspects = _job_containers_on_gpu(idx, active) if active else {}
             if suspects is None:
-                consecutive[idx] = 0
-                if idx not in unattributed_reported:
+                is_mining, confidence, reason = check_mining_heuristic(gpu)
+                if is_mining and idx not in unattributed_reported:
                     log.warning(
                         "GPU %d matches the mining signature but its processes cannot be "
-                        "attributed to a job; reporting only, killing nothing (%s)",
+                        "attributed to a job; reporting only, nothing is acted on (%s)",
                         idx,
                         reason,
                     )
@@ -8167,43 +8302,34 @@ def mining_detection_loop():
                         idx, confidence, f"{reason}; attribution unavailable, no action taken"
                     )
                     unattributed_reported.add(idx)
+                elif not is_mining:
+                    unattributed_reported.discard(idx)
                 continue
             unattributed_reported.discard(idx)
             if not suspects:
-                consecutive[idx] = 0
-                if idx not in host_load_logged:
-                    log.info(
-                        "GPU %d matches the mining signature but no job container is using it "
-                        "(host workload) — not alerting (%s)",
-                        idx,
-                        reason,
-                    )
-                    host_load_logged.add(idx)
                 continue
+            gpu_shared = _gpu_shared_with_host(idx)
+            for cname in suspects.values():
+                held.setdefault(cname, {})[_gpu_sample_key(gpu)] = idx
+                shared[cname] = shared.get(cname, False) or gpu_shared
 
-            consecutive[idx] = consecutive.get(idx, 0) + 1
-            log.warning(
-                "MINING DETECTED GPU=%d confidence=%.0f%% (%s) [%d consecutive] jobs=%s",
-                idx,
-                confidence * 100,
-                reason,
-                consecutive[idx],
-                sorted(suspects),
-            )
-            report_mining_alert(idx, confidence, reason)
-
-            # After sustained detection, kill only the suspect containers on this GPU.
-            # Never under _active_lock: the terminal report settles the attempt,
-            # and forgetting it takes that (non-reentrant) lock again.
-            if consecutive[idx] >= 5:
-                log.error("Sustained mining on GPU %d — killing %s", idx, sorted(suspects))
-                for job_id, cname in suspects.items():
-                    _kill_container(cname)
-                    report_job_status(job_id, "terminated", policy_reason="mining_detected")
-                    with _active_lock:
-                        if _active_containers.get(job_id) == cname:
-                            _active_containers.pop(job_id, None)
-                consecutive[idx] = 0
+        if responder is None:
+            continue
+        for job_id, cname in active.items():
+            gpus = held.get(cname, {})
+            try:
+                responder.observe(
+                    job_id,
+                    cname,
+                    gpu_keys=list(gpus),
+                    shared_gpu=shared.get(cname, True),
+                    gpu_indices=dict(gpus),
+                )
+            except Exception as e:
+                # One container's failed pass must not end the watch on the others.
+                log.warning("Resource-abuse pass failed for %s: %s", cname, e)
+        for cname in set(responder.episodes) - set(active.values()):
+            responder.forget(cname)
 
 
 def _memory_share(num_gpus) -> float:

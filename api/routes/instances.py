@@ -762,6 +762,20 @@ def api_submit_instance(j: JobIn, request: Request):
         j = j.model_copy(update={"image": trow[0]})
         source_template_id = j.template_image_id
 
+    # ── A private snapshot belongs to its owner ───────────────────────
+    # `template_image_id` is ownership-checked above; the same reference typed
+    # into `image` must be too. submit_job enforces it for every caller, this
+    # is the readable refusal for this route.
+    from routes._deps import _snapshot_principals
+
+    image_principals = _snapshot_principals(user)
+    if j.image:
+        from snapshot_image_access import foreign_snapshot_problem
+
+        problem = foreign_snapshot_problem(j.image, image_principals)
+        if problem:
+            raise HTTPException(status_code=404, detail=problem)
+
     # ── Marketplace flow requires a Docker image ──────────────────────
     if target_host_id and not j.image:
         raise HTTPException(
@@ -925,6 +939,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 command=j.command,
                 ssh_port=j.ssh_port,
                 owner=customer_id,
+                image_principals=image_principals,
                 volume_ids=validated_volume_ids,
                 encrypted_workspace=j.encrypted_workspace,
                 exclusive_gpu=j.exclusive_gpu,

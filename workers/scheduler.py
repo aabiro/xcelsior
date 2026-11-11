@@ -1623,6 +1623,10 @@ def submit_job(
     queue_bid_price_id=None,
     queue_bid_units=0,
     wallet_hold_id=None,
+    # Identities allowed to launch a private snapshot image besides `owner`
+    # (which is the billing customer, and can be a team): the caller's own
+    # user id and email. See core/snapshot_image_access.py.
+    image_principals=None,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1638,6 +1642,14 @@ def submit_job(
     NFS: Optionally specify NFS server/path for shared storage.
     Interactive: If True, container stays running with SSH access until stopped.
     """
+
+    # Every job is created here, so this is the one place a snapshot reference
+    # typed straight into `image` cannot get past (CVP-01 T-22 residual).
+    from snapshot_image_access import foreign_snapshot_problem
+
+    _image_problem = foreign_snapshot_problem(image, [owner, *(image_principals or ())])
+    if _image_problem:
+        raise PermissionError(_image_problem)
     from control_plane.launch.canonicalize import canonicalize
 
     hpc_cluster_id = str(hpc_cluster_id or "").strip() or None
@@ -1886,7 +1898,9 @@ def submit_job(
         from control_plane.scheduler.config import SchedulerConfig
 
         if not owner or not SchedulerConfig.from_env().owns_job(job):
-            raise TierSchedulingUnavailable("Paid service tiers require a customer and native scheduler ownership")
+            raise TierSchedulingUnavailable(
+                "Paid service tiers require a customer and native scheduler ownership"
+            )
         job["wallet_hold_id"] = fund_tier_submission(
             owner, job["job_id"], service_tier_quote, hold_id=wallet_hold_id
         )
