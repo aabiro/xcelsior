@@ -336,3 +336,121 @@ def test_resume_only_continues_ollama_pids(conf, monkeypatch):
     assert sent == [(11, 18)]
     assert wp.handle(_req("gpu_tenants", action="resume", pids=["1"]), conf)["refused"]
     assert wp.handle(_req("gpu_tenants", action="kill"), conf)["refused"]
+
+
+# ── resource-abuse response ops (CVP-01 §3) ──────────────────────────
+
+
+@pytest.fixture
+def host_cmds(monkeypatch):
+    """subprocess.run with canned stdout per executable, calls recorded."""
+    rec = SimpleNamespace(calls=[], stdout={}, rc={})
+
+    def run(cmd, **kwargs):
+        rec.calls.append(cmd)
+        out = rec.stdout.get(cmd[0], "")
+        out = out(cmd) if callable(out) else out
+        return SimpleNamespace(returncode=rec.rc.get(cmd[0], 0), stdout=out, stderr="")
+
+    monkeypatch.setattr(wp.subprocess, "run", run)
+    return rec
+
+
+def test_gpu_power_cap_goes_to_the_device_minimum_and_restores_inside_its_range(conf, host_cmds):
+    host_cmds.stdout["nvidia-smi"] = "200.00, 100.00, 240.00\n"
+    reply = wp.handle(_req("gpu_power_limit", index=0, action="min"), conf)
+    assert reply == {"ok": True, "previous_w": 200, "limit_w": 100}
+    assert ["nvidia-smi", "-i", "0", "-pl", "100"] in host_cmds.calls
+    host_cmds.stdout["nvidia-smi"] = "100.00, 100.00, 240.00\n"
+    reply = wp.handle(_req("gpu_power_limit", index=0, action="restore", watts=200), conf)
+    assert reply["ok"] and ["nvidia-smi", "-i", "0", "-pl", "200"] in host_cmds.calls
+    # Already at the target: nothing is written.
+    n = len(host_cmds.calls)
+    assert wp.handle(_req("gpu_power_limit", index=0, action="min"), conf)["ok"]
+    assert [c for c in host_cmds.calls[n:] if "-pl" in c] == []
+    for bad in (
+        {"index": 0, "action": "restore", "watts": 300},
+        {"index": "0", "action": "min"},
+        {"index": 0, "action": "max"},
+        {"index": 0, "action": "restore", "watts": 99},
+    ):
+        assert wp.handle(_req("gpu_power_limit", **bad), conf)["refused"]
+
+
+def test_upload_limit_is_one_rule_for_one_funded_address(conf, host_cmds):
+    host_cmds.stdout["iptables"] = lambda cmd: "-N XCL-TENANT-THROTTLE\n" if "-S" in cmd else ""
+    reply = wp.handle(_req("tenant_rate_limit", ip="172.30.243.7", mbps=5, action="apply"), conf)
+    assert reply == {"ok": True, "mbps": 5}
+    inserted = next(c for c in host_cmds.calls if "-I" in c)
+    assert inserted[:6] == ["iptables", "-w", "5", "-I", "XCL-TENANT-THROTTLE", "1"]
+    assert inserted[6:8] == ["-s", "172.30.243.7/32"]
+    assert "--ctdir" in inserted and inserted[inserted.index("--ctdir") + 1] == "ORIGINAL"
+    assert inserted[inserted.index("--hashlimit-above") + 1] == "610kb/s"
+    assert inserted[-2:] == ["-j", "DROP"]
+    # clear removes exactly the rules carrying that address
+    host_cmds.stdout["iptables"] = lambda cmd: (
+        "-N XCL-TENANT-THROTTLE\n-A XCL-TENANT-THROTTLE -s 172.30.243.7/32 -j DROP\n"
+        "-A XCL-TENANT-THROTTLE -s 172.30.243.8/32 -j DROP\n"
+        if "-S" in cmd
+        else ""
+    )
+    reply = wp.handle(_req("tenant_rate_limit", ip="172.30.243.7", action="clear"), conf)
+    assert reply == {"ok": True, "removed": 1}
+    deleted = [c for c in host_cmds.calls if "-D" in c]
+    assert deleted == [
+        ["iptables", "-w", "5", "-D", "XCL-TENANT-THROTTLE", "-s", "172.30.243.7/32", "-j", "DROP"]
+    ]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"ip": "172.30.242.7", "mbps": 5, "action": "apply"},  # restricted bridge: no limit there
+        {"ip": "100.64.0.3", "mbps": 5, "action": "apply"},
+        {"ip": "172.30.243.7", "mbps": 0, "action": "apply"},
+        {"ip": "172.30.243.7", "mbps": "5", "action": "apply"},
+        {"ip": "172.30.243.7", "action": "flush"},
+    ],
+)
+def test_upload_limit_refuses_other_addresses_and_shapes(conf, host_cmds, args):
+    host_cmds.stdout["iptables"] = "-N XCL-TENANT-THROTTLE\n"
+    assert wp.handle(_req("tenant_rate_limit", **args), conf)["refused"]
+    assert not any("-I" in c or "-D" in c for c in host_cmds.calls)
+
+
+def test_upload_limit_needs_the_provisioned_chain(conf, host_cmds):
+    host_cmds.rc["iptables"] = 1
+    reply = wp.handle(_req("tenant_rate_limit", ip="172.30.243.7", mbps=5, action="apply"), conf)
+    assert reply["refused"] and "not provisioned" in reply["error"]
+
+
+CONNTRACK = (
+    "ipv4 2 tcp 6 431999 ESTABLISHED src=172.30.243.7 dst=203.0.113.9 sport=51000 dport=3333 "
+    "src=203.0.113.9 dst=172.30.243.7 sport=3333 dport=51000 [ASSURED] mark=0 use=1\n"
+    "ipv4 2 tcp 6 10 TIME_WAIT src=172.30.243.8 dst=203.0.113.9 sport=51001 dport=443 "
+    "src=203.0.113.9 dst=172.30.243.8 sport=443 dport=51001 mark=0 use=1\n"
+    "ipv4 2 udp 17 29 src=172.30.243.7 dst=1.1.1.1 sport=4000 dport=53 "
+    "src=1.1.1.1 dst=172.30.243.7 sport=53 dport=4000 mark=0 use=1\n"
+)
+
+
+def test_net_snapshot_lists_only_that_address_tcp_original_direction(conf, host_cmds, monkeypatch):
+    monkeypatch.setattr(wp, "_conntrack_lines", lambda: CONNTRACK.splitlines())
+    reply = wp.handle(_req("tenant_net_snapshot", ip="172.30.243.7"), conf)
+    assert reply == {
+        "ok": True,
+        "connections": [{"dst": "203.0.113.9", "dport": 3333, "state": "ESTABLISHED"}],
+        "dropped": [],
+    }
+    assert not any(c[0] == "journalctl" for c in host_cmds.calls)  # funded: no drop log
+
+
+def test_net_snapshot_reads_drop_log_for_the_restricted_bridge(conf, host_cmds, monkeypatch):
+    monkeypatch.setattr(wp, "_conntrack_lines", lambda: [])
+    host_cmds.stdout["journalctl"] = (
+        "XCL-TENANT-DROP IN=xcl-tenant0 OUT=eth0 SRC=172.30.242.5 DST=203.0.113.9 PROTO=TCP SPT=4 DPT=3333\n"
+        "XCL-TENANT-DROP IN=xcl-tenant0 OUT=eth0 SRC=172.30.242.6 DST=203.0.113.9 PROTO=TCP SPT=4 DPT=3333\n"
+    )
+    reply = wp.handle(_req("tenant_net_snapshot", ip="172.30.242.5"), conf)
+    assert reply["dropped"] == [{"dst": "203.0.113.9", "dport": 3333}]
+    assert wp.handle(_req("tenant_net_snapshot", ip="10.0.0.1"), conf)["refused"]

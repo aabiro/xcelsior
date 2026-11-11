@@ -51,6 +51,8 @@ _ALLOWED: dict[str, Path] = {
     # Root helper (client for the worker; also installed root-owned as xcelsior-privd).
     "worker_privileged.py": _locate("workers", "worker_privileged.py"),
     "hardware_isolation.py": _locate("workers", "hardware_isolation.py"),
+    # Resource-abuse signals and the per-container response ladder (CVP-01 §3).
+    "mining_response.py": _locate("workers", "mining_response.py"),
     "worker-requirements.txt": _SCRIPTS / "worker-requirements.txt",
 }
 
@@ -68,6 +70,7 @@ _SIGNABLE = frozenset(
         "egress_isolation.py",
         "worker_privileged.py",
         "hardware_isolation.py",
+        "mining_response.py",
         "worker-requirements.txt",
     }
 )
