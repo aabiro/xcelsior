@@ -237,6 +237,15 @@ ensure_service_user() {
     fi
     sudo install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0755 "$INSTALL_DIR" "$LIB_DIR"
     sudo install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 /var/lib/xcelsior
+    # A worker that used to run as root left its state root-owned. The service
+    # user must own it: an unreadable attempt journal means journaled work
+    # cannot be fenced and no new records are saved.
+    local state
+    for state in v2_attempts.json mining_response.json docker-config tools; do
+        if sudo test -e "/var/lib/xcelsior/$state"; then
+            sudo chown -R "$SERVICE_USER:$SERVICE_USER" "/var/lib/xcelsior/$state"
+        fi
+    done
     # tailscale up/status without root (only when tailscale is installed)
     if command -v tailscale >/dev/null 2>&1; then
         local ts_socket

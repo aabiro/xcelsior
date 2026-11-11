@@ -494,3 +494,28 @@ def test_rented_container_protection_is_installed_with_the_worker(tmp_path):
     assert "Network protection for rented containers is active" in result.stdout
     # The worker unit is still installed after it.
     assert (units / "xcelsior-worker.service").exists()
+
+
+def test_migrating_a_root_run_worker_hands_its_state_to_the_service_user(tmp_path):
+    """The old layout ran the worker as root, so /var/lib/xcelsior/v2_attempts.json
+    was root-owned; the service user then could not read its own attempt journal."""
+    calls = tmp_path / "sudo.log"
+    result = _run_installer_function(
+        "ensure_service_user",
+        {
+            "sudo": (
+                f'echo "$*" >> {calls}; '
+                'if [ "$1" = test ]; then case "$3" in */v2_attempts.json|*/docker-config) exit 0;; *) exit 1;; esac; fi'
+            ),
+            "id": "exit 0",
+            "getent": "exit 1",
+            "tailscale": "exit 0",
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    log = calls.read_text()
+    assert "chown -R xcelsior:xcelsior /var/lib/xcelsior/v2_attempts.json\n" in log
+    assert "chown -R xcelsior:xcelsior /var/lib/xcelsior/docker-config\n" in log
+    # Nothing that is absent is touched, and never the whole directory.
+    assert "mining_response.json" not in log.replace("test -e /var/lib/xcelsior/mining_response.json", "")
+    assert "chown -R xcelsior:xcelsior /var/lib/xcelsior\n" not in log
