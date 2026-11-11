@@ -710,6 +710,14 @@ def _effective_billing_customer_id(user: dict) -> str:
     return _canonical_owner_id(user)
 
 
+def _snapshot_principals(user: dict) -> list[str]:
+    """Every id a snapshot image of this caller's could be recorded under."""
+    ids = set(_customer_ids_accessible_by_user(user))
+    ids.update(str(user.get(k) or "").strip() for k in ("user_id", "email"))
+    ids.discard("")
+    return sorted(ids)
+
+
 def _customer_ids_accessible_by_user(user: dict) -> set[str]:
     """Customer IDs the caller may read (own wallet + team wallet when a member)."""
     ids = set(_caller_owner_ids(user))

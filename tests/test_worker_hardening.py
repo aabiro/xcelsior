@@ -270,24 +270,57 @@ def test_a_successful_renewal_is_journaled_for_the_next_restart(agent, monkeypat
 # ── 3. The mining kill must not deadlock on _active_lock ───────────────
 
 
-def test_sustained_mining_kill_settles_the_attempt_without_deadlock(agent, monkeypatch):
+def test_a_mining_terminate_settles_the_attempt_without_deadlock(agent, monkeypatch):
     # The loop used to hold the non-reentrant _active_lock while the terminal
     # report forgot the attempt, which takes that lock again: the thread froze.
+    # The terminate rung (here: an administrator's decision) runs from the same
+    # loop, so the guarantee is checked through it.
     monkeypatch.setattr(agent, "_active_lock", threading.Lock())
     auth = live_auth()
+    cname = auth["container_name"]
     agent._v2_attempts["job-1"] = auth
-    agent._active_containers["job-1"] = auth["container_name"]
+    agent._active_containers["job-1"] = cname
     agent._adopted_containers.add("job-1")
     agent._v2_journal_save()
     monkeypatch.setattr(agent, "_v2_post", mock.Mock(return_value=(200, {})))
     for name in ("_kill_container", "report_mining_alert"):
         monkeypatch.setattr(agent, name, mock.Mock())
-    monkeypatch.setattr(agent, "_job_containers_on_gpu", lambda idx, active: dict(active))
+    monkeypatch.setattr(agent, "_job_containers_on_gpu", lambda idx, active: {})
+    monkeypatch.setattr(agent, "get_gpu_compute_pids", lambda idx: set())
     monkeypatch.setattr(agent, "MINING_CHECK_INTERVAL", 0)
+
+    def docker(args, timeout):
+        if args[0] == "inspect":
+            return 0, "c" * 64 + "|4000000000|false|bridge=172.17.0.2 "
+        if args[0] == "top":
+            return (
+                0,
+                "PID RSS COMMAND COMMAND\n41 9000 w w -o stratum+tcp://pool.example.test:3333\n",
+            )
+        return 0, "3.0%|4"
+
+    monkeypatch.setattr(agent, "_mining_docker", docker)
+    monkeypatch.setattr(agent, "_mining_privd", lambda op, **a: {"ok": False})
+    monkeypatch.setattr(agent, "_mining_notify", lambda job, text: None)
+    monkeypatch.setattr(agent, "_mining_report", lambda ep, ev: {"decision": "terminate"})
+    import mining_response
+
+    state = os.path.join(os.path.dirname(agent._V2_JOURNAL_PATH), "mining_state.json")
+    monkeypatch.setattr(mining_response, "STATE_PATH", state)
+    real = mining_response.Responder
+    monkeypatch.setattr(
+        mining_response,
+        "Responder",
+        lambda **kw: real(
+            **kw,
+            state_path=state,
+            signatures={"names": (), "arg_patterns": list(mining_response.DEFAULT_ARG_PATTERNS)},
+        ),
+    )
     passes = iter(range(100))
 
     def telemetry():
-        if next(passes) >= 5:
+        if next(passes) >= 2:
             agent._shutdown.set()
             return []
         return [{"index": 0, "utilization": 100, "memory_util": 19, "pcie_tx_mb_s": 0.5}]
@@ -297,7 +330,7 @@ def test_sustained_mining_kill_settles_the_attempt_without_deadlock(agent, monke
     loop.start()
     loop.join(10)
     assert not loop.is_alive(), "mining loop deadlocked on _active_lock"
-    agent._kill_container.assert_called_once_with(auth["container_name"])
+    agent._kill_container.assert_called_once_with(cname)
     assert agent._v2_post.call_args.args[1]["failure_code"] == "mining_detected"
     assert "job-1" not in agent._v2_attempts
     assert "job-1" not in agent._active_containers
