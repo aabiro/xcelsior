@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ObfuscationSafeMailto } from "@/components/marketing/ObfuscationSafeMailto";
 import { useLocale } from "@/lib/locale";
 
@@ -83,6 +84,12 @@ export function PrivacyContent() {
                 privacy@xcelsior.ca
               </ObfuscationSafeMailto>{" "}
               {t("privacy.s8_contact_suffix")}
+            </p>
+            <p className="site-legal-paragraph-gap">
+              {t("privacy.s8_self_serve")}{" "}
+              <Link href="/delete-data" className="site-inline-link">{t("privacy.s8_delete_data")}</Link>
+              {" · "}
+              <Link href="/deactivate" className="site-inline-link">{t("privacy.s8_deactivate")}</Link>
             </p>
           </Section>
 

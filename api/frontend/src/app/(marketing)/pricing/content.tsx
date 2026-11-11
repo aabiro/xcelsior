@@ -42,15 +42,6 @@ const plans = [
     features: ["pricing.tier_reserved_i1", "pricing.tier_reserved_i2", "pricing.tier_reserved_i3", "pricing.tier_reserved_i4"],
     featured: true,
   },
-  {
-    icon: "shield-check",
-    title: "pricing.tier_enterprise_title",
-    desc: "pricing.tier_enterprise_desc",
-    price: "pricing.tier_enterprise_from",
-    unit: "",
-    features: ["pricing.tier_enterprise_i1", "pricing.tier_enterprise_i2", "pricing.tier_enterprise_i3", "pricing.tier_enterprise_i4"],
-    featured: false,
-  },
 ] as const;
 
 function ThemeIcon({ name }: { name: string }) {

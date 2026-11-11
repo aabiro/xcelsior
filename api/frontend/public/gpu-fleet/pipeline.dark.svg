@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 190" fill="none">
+  <defs>
+    <linearGradient id="pipeline-dark-fill" x1=".14" y1=".06" x2=".8" y2=".96">
+      <stop stop-color="#38dbff"/><stop offset=".58" stop-color="#9b6dff"/><stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <linearGradient id="pipeline-dark-cyan" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#38dbff"/><stop offset="1" stop-color="#9b6dff"/></linearGradient>
+    <linearGradient id="pipeline-dark-violet" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#9b6dff"/><stop offset="1" stop-color="#ff8f8f"/></linearGradient>
+    <linearGradient id="pipeline-dark-green" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#34d399"/><stop offset="1" stop-color="#38dbff"/></linearGradient>
+    <linearGradient id="pipeline-dark-warm" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#ffbf5e"/><stop offset="1" stop-color="#ff8f8f"/></linearGradient>
+    <radialGradient id="pipeline-dark-floor"><stop stop-color="#38dbff" stop-opacity=".34"/><stop offset="1" stop-color="#9b6dff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="pipeline-dark-rail" x1="38.4" y1="0" x2="601.6" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38dbff" stop-opacity=".05"/><stop offset=".5" stop-color="#38dbff" stop-opacity="1"/><stop offset="1" stop-color="#9b6dff" stop-opacity=".08"/>
+    </linearGradient>
+    <filter id="pipeline-dark-glow" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#38dbff" flood-opacity=".72"/><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#9b6dff" flood-opacity=".38"/></filter>
+    <filter id="pipeline-dark-soft" x="-50%" y="-50%" width="200%" height="210%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#38dbff" flood-opacity=".6"/><feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#9b6dff" flood-opacity=".3"/></filter>
+  </defs>
+  <path d="M34 148H258l10-10H372l9 10H606" stroke="url(#pipeline-dark-rail)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M43 158H597" stroke="#38dbff" stroke-opacity=".24" stroke-width="2" stroke-linecap="round"/>
+  <g stroke="#38dbff" stroke-opacity=".34" stroke-width="2" stroke-linecap="round">
+    <path d="M112 151v12M320 151v17M528 151v12"/>
+    <circle cx="112" cy="167" r="2.5" fill="#38dbff" fill-opacity=".5"/>
+    <circle cx="320" cy="172" r="2.5" fill="#9b6dff" fill-opacity=".55"/>
+    <circle cx="528" cy="167" r="2.5" fill="#34d399" fill-opacity=".5"/>
+  </g>
+  <g stroke="#38dbff" stroke-opacity=".34" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M40 46h20l12 12"/><circle cx="40" cy="46" r="2.5" fill="#38dbff" fill-opacity=".5"/>
+    <path d="M604 60h-20l-12 12"/><circle cx="604" cy="60" r="2.5" fill="#34d399" fill-opacity=".5"/>
+  </g>
+  <ellipse cx="112" cy="150" rx="90" ry="14.4" fill="url(#pipeline-dark-floor)"/>
+  <ellipse cx="320" cy="150" rx="110" ry="17.6" fill="url(#pipeline-dark-floor)"/>
+  <ellipse cx="528" cy="150" rx="90" ry="14.4" fill="url(#pipeline-dark-floor)"/>
+  <path d="M196.4 145.5L205.9 145.5L205.3 149L203.6 150.5L194.1 150.5L194.7 147Z" fill="#38dbff" filter="url(#pipeline-dark-soft)"/>
+  <path d="M232.4 145.5L241.9 145.5L241.3 149L239.6 150.5L230.1 150.5L230.7 147Z" fill="#34d399" filter="url(#pipeline-dark-soft)"/>
+  <path d="M416.4 145.5L425.9 145.5L425.3 149L423.6 150.5L414.1 150.5L414.7 147Z" fill="#ffbf5e" filter="url(#pipeline-dark-soft)"/>
+  <path d="M452.4 145.5L461.9 145.5L461.3 149L459.6 150.5L450.1 150.5L450.7 147Z" fill="#9b6dff" filter="url(#pipeline-dark-soft)"/>
+  <path d="M198.6 65.4L208.5 65.4L224.6 84L208.5 102.6L198.6 102.6L214.7 84Z" fill="url(#pipeline-dark-warm)" filter="url(#pipeline-dark-soft)"/>
+  <path d="M198.6 65.4L208.5 65.4L224.6 84L208.5 102.6L198.6 102.6L214.7 84Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M222.6 65.4L232.5 65.4L248.6 84L232.5 102.6L222.6 102.6L238.7 84Z" fill="url(#pipeline-dark-warm)" filter="url(#pipeline-dark-soft)"/>
+  <path d="M222.6 65.4L232.5 65.4L248.6 84L232.5 102.6L222.6 102.6L238.7 84Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M424.6 65.4L434.5 65.4L450.6 84L434.5 102.6L424.6 102.6L440.7 84Z" fill="url(#pipeline-dark-warm)" filter="url(#pipeline-dark-soft)"/>
+  <path d="M424.6 65.4L434.5 65.4L450.6 84L434.5 102.6L424.6 102.6L440.7 84Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M448.6 65.4L458.5 65.4L474.6 84L458.5 102.6L448.6 102.6L464.7 84Z" fill="url(#pipeline-dark-warm)" filter="url(#pipeline-dark-soft)"/>
+  <path d="M448.6 65.4L458.5 65.4L474.6 84L458.5 102.6L448.6 102.6L464.7 84Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M100.2 19.6L97.3 38M82.6 130L79.6 148.4M51.1 61.9h18.4M161.5 61.9h18.4M122.3 19.6L119.4 38M104.6 130L101.7 148.4M47.6 84h18.4M158 84h18.4M144.4 19.6L141.4 38M126.7 130L123.8 148.4M44.1 106.1h18.4M154.5 106.1h18.4" stroke="#38dbff" stroke-opacity=".7" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M91.8 38L147 38L162.4 56.4L153.6 111.6L132.2 130L77 130L61.6 111.6L70.4 56.4Z" fill="url(#pipeline-dark-cyan)" filter="url(#pipeline-dark-glow)"/>
+  <path d="M91.8 38L147 38L162.4 56.4L153.6 111.6L132.2 130L77 130L61.6 111.6L70.4 56.4Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M99.5 55.5L133.7 55.5L143.3 66.9L137.8 101.1L124.5 112.5L90.3 112.5L80.7 101.1L86.2 66.9Z" fill="#ecfeff" fill-opacity=".14"/>
+  <path d="M106.7 72L121.1 72L125.1 76.8L122.8 91.2L117.3 96L102.9 96L98.9 91.2L101.2 76.8Z" fill="#ecfeff" fill-opacity=".92" filter="url(#pipeline-dark-soft)"/>
+  <path d="M126 92L166 108L148 114L160 134L150 140L138 120L126 132Z" fill="#ecfeff" filter="url(#pipeline-dark-soft)"/>
+  <path d="M126 92L166 108L148 114L160 134L150 140L138 120L126 132Z" stroke="#9b6dff" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M267.4 31L386.4 31L383 52L372.6 61L253.6 61L257 40Z" fill="url(#pipeline-dark-violet)" filter="url(#pipeline-dark-soft)"/>
+  <path d="M267.4 31L386.4 31L383 52L372.6 61L253.6 61L257 40Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M265 34L380.6 34L379.7 39.6L377 42L261.4 42L262.3 36.4Z" fill="#ecfeff" fill-opacity=".14"/>
+  <path d="M275.9 46.5L310.4 46.5L309.8 50L308.1 51.5L273.6 51.5L274.2 48Z" fill="#ecfeff" fill-opacity=".85" filter="url(#pipeline-dark-soft)"/>
+  <path d="M360.2 44L365 44L366.4 45.6L365.6 50.4L363.8 52L359 52L357.6 50.4L358.4 45.6Z" fill="#ecfeff" fill-opacity=".92" filter="url(#pipeline-dark-soft)"/>
+  <path d="M267.4 69L386.4 69L383 90L372.6 99L253.6 99L257 78Z" fill="url(#pipeline-dark-violet)" filter="url(#pipeline-dark-glow)"/>
+  <path d="M267.4 69L386.4 69L383 90L372.6 99L253.6 99L257 78Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M265 72L380.6 72L379.7 77.6L377 80L261.4 80L262.3 74.4Z" fill="#ecfeff" fill-opacity=".14"/>
+  <path d="M275.9 84.5L310.4 84.5L309.8 88L308.1 89.5L273.6 89.5L274.2 86Z" fill="#ecfeff" fill-opacity=".85" filter="url(#pipeline-dark-soft)"/>
+  <path d="M360.2 82L365 82L366.4 83.6L365.6 88.4L363.8 90L359 90L357.6 88.4L358.4 83.6Z" fill="#ecfeff" fill-opacity=".92" filter="url(#pipeline-dark-soft)"/>
+  <path d="M267.4 107L386.4 107L383 128L372.6 137L253.6 137L257 116Z" fill="url(#pipeline-dark-violet)" filter="url(#pipeline-dark-soft)"/>
+  <path d="M267.4 107L386.4 107L383 128L372.6 137L253.6 137L257 116Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M265 110L380.6 110L379.7 115.6L377 118L261.4 118L262.3 112.4Z" fill="#ecfeff" fill-opacity=".14"/>
+  <path d="M275.9 122.5L310.4 122.5L309.8 126L308.1 127.5L273.6 127.5L274.2 124Z" fill="#ecfeff" fill-opacity=".85" filter="url(#pipeline-dark-soft)"/>
+  <path d="M360.2 120L365 120L366.4 121.6L365.6 126.4L363.8 128L359 128L357.6 126.4L358.4 121.6Z" fill="#ecfeff" fill-opacity=".92" filter="url(#pipeline-dark-soft)"/>
+  <path d="M584 84L548.2 132.5L492.2 132.5L472 84L507.8 35.5L563.8 35.5Z" fill="url(#pipeline-dark-green)" filter="url(#pipeline-dark-glow)"/>
+  <path d="M584 84L548.2 132.5L492.2 132.5L472 84L507.8 35.5L563.8 35.5Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M563.8 84L541 115L505.1 115L492.2 84L515 53L550.9 53Z" fill="#ecfeff" fill-opacity=".14"/>
+  <path d="M494 89.8L514.6 89.8L520.7 71.7L534.9 117.7L546 86.9L548.9 91.8L564 91.8L564 84.2L553.1 84.2L544 69.1L535.1 98.3L521.3 52.3L509.4 82.2L494 82.2Z" fill="#ecfeff" fill-opacity=".92" filter="url(#pipeline-dark-soft)"/>
+</svg>

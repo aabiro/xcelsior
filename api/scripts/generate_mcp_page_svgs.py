@@ -2,8 +2,11 @@
 """Generate MCP marketing + settings SVG assets.
 
 Premium agent->MCP->GPU visuals matching the gpu-fleet / features style
-(glass panels, radial lighting, glows). Flow-step assets carry NO baked-in
-titles — the page renders Discover / Launch / Monitor labels itself.
+(glass panels, radial lighting, glows).
+
+The three "How it works" illustrations come from generate_site_illustrations.py,
+and the client marks (Claude, Cursor, VS Code) are the real logos in
+frontend/public/logos/clients, tinted by the page with a CSS mask.
 """
 
 from pathlib import Path
@@ -123,46 +126,6 @@ SLIDES = {
   {gpu_node(418, 140)}
 """, 480, 280, 24),
 
-    # Discover: magnifier over glass GPU price cards
-    "flow-discover.svg": frame("""
-  <circle cx="96" cy="80" r="60" fill="#22e0ff" filter="url(#bloom)" opacity="0.14"/>
-  <g filter="url(#cardShadow)">
-    <rect x="150" y="44" width="120" height="34" rx="8" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
-    <rect x="150" y="44" width="120" height="34" rx="8" fill="url(#glass)"/>
-    <rect x="162" y="56" width="40" height="6" rx="3" fill="#7cf2ff" opacity="0.8"/><rect x="232" y="56" width="26" height="6" rx="3" fill="#34d399"/>
-    <rect x="150" y="86" width="120" height="34" rx="8" fill="url(#panel)" stroke="#26405f" stroke-width="1"/>
-    <rect x="162" y="98" width="34" height="6" rx="3" fill="#7cf2ff" opacity="0.6"/><rect x="232" y="98" width="26" height="6" rx="3" fill="#34d399" opacity="0.7"/>
-    <rect x="150" y="128" width="120" height="34" rx="8" fill="url(#panel)" stroke="#26405f" stroke-width="1"/>
-    <rect x="162" y="140" width="46" height="6" rx="3" fill="#7cf2ff" opacity="0.45"/><rect x="232" y="140" width="26" height="6" rx="3" fill="#34d399" opacity="0.5"/>
-  </g>
-  <g transform="translate(96,96)" filter="url(#glow)">
-    <circle r="34" fill="#0c1526" stroke="url(#brand)" stroke-width="3"/>
-    <circle r="34" fill="url(#glass)"/>
-    <circle r="16" fill="none" stroke="#7cf2ff" stroke-width="2.5" opacity="0.8"/>
-    <path d="M24,24 L42,42" stroke="url(#brand)" stroke-width="6" stroke-linecap="round"/>
-  </g>
-""", 320, 200),
-
-    # Launch: prompt -> running instance
-    "flow-launch.svg": frame("""
-  <circle cx="250" cy="150" r="64" fill="#34d399" filter="url(#bloom)" opacity="0.12"/>
-  <g filter="url(#cardShadow)">
-    <rect x="40" y="40" width="240" height="52" rx="12" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
-    <rect x="40" y="40" width="240" height="52" rx="12" fill="url(#glass)"/>
-    <circle cx="56" cy="52" r="3" fill="#f43f5e"/><circle cx="66" cy="52" r="3" fill="#fbbf24"/><circle cx="76" cy="52" r="3" fill="#34d399"/>
-    <text x="56" y="78" fill="#7cf2ff" font-family="ui-monospace,monospace" font-size="11">$ launch 4x A100</text>
-  </g>
-  <path d="M160,92 V116" stroke="url(#brand)" stroke-width="2.5" stroke-linecap="round" filter="url(#glow)"/>
-  <path d="M152,108 L160,118 L168,108" stroke="#22e0ff" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-  <g filter="url(#cardShadow)">
-    <rect x="72" y="122" width="176" height="52" rx="12" fill="#0c1526" stroke="url(#emerald)" stroke-width="1.5"/>
-    <rect x="72" y="122" width="176" height="52" rx="12" fill="url(#glass)"/>
-    <circle cx="92" cy="148" r="6" fill="#34d399" filter="url(#glow)"/>
-    <rect x="108" y="138" width="84" height="7" rx="3.5" fill="#7cf2ff" opacity="0.8"/>
-    <rect x="108" y="152" width="56" height="6" rx="3" fill="#64748b"/>
-  </g>
-""", 320, 200),
-
     # Guardrails: shield + wallet/estimate gauges
     "flow-guardrails.svg": frame("""
   <circle cx="160" cy="70" r="64" fill="#fbbf24" filter="url(#bloom)" opacity="0.12"/>
@@ -176,40 +139,6 @@ SLIDES = {
   <rect x="184" y="160" width="84" height="10" rx="5" fill="#1a2740"/>
   <rect x="184" y="160" width="66" height="10" rx="5" fill="url(#brand)"/>
 """, 320, 200),
-
-    # Monitor: live util chart + readout
-    "flow-monitor.svg": frame("""
-  <circle cx="250" cy="60" r="60" fill="#22e0ff" filter="url(#bloom)" opacity="0.12"/>
-  <g filter="url(#cardShadow)">
-    <rect x="36" y="36" width="248" height="128" rx="14" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
-    <rect x="36" y="36" width="248" height="128" rx="14" fill="url(#glass)"/>
-    <path d="M36,60 H284" stroke="#22324d" stroke-width="1"/>
-    <circle cx="52" cy="48" r="3" fill="#34d399"/><rect x="62" y="45" width="40" height="6" rx="3" fill="#7cf2ff" opacity="0.7"/>
-    <path d="M56,124 L92,104 L120,112 L152,82 L184,92 L216,66 L252,76 L268,70" stroke="url(#brand)" stroke-width="2.6" fill="none" stroke-linecap="round" filter="url(#glow)"/>
-    <path d="M56,140 L100,134 L150,138 L210,130 L268,134" stroke="#34d399" stroke-width="1.6" fill="none" stroke-linecap="round" opacity="0.7"/>
-  </g>
-  <circle cx="268" cy="70" r="4.5" fill="#34d399" filter="url(#glow)"/>
-""", 320, 200),
-
-    # Client icons (kept compact; subtle polish)
-    "agent-cursor.svg": frame("""
-  <g transform="translate(32,32)">
-    <rect x="-18" y="-16" width="36" height="28" rx="6" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
-    <path d="M-12,8 L-2,-2 L4,4 L14,-8" stroke="#22e0ff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
-""", 64, 64, 14),
-    "agent-claude.svg": frame("""
-  <g transform="translate(32,32)">
-    <circle r="17" fill="url(#panel)" stroke="url(#brand)" stroke-width="1.25"/>
-    <path d="M-10,4 Q0,-12 10,4 Q0,12 -10,4 Z" fill="url(#brand)" opacity="0.45"/>
-  </g>
-""", 64, 64, 14),
-    "agent-vscode.svg": frame("""
-  <g transform="translate(32,32)">
-    <path d="M-16,-12 L8,0 L-16,12 Z" fill="url(#brand)" opacity="0.55"/>
-    <path d="M8,-12 L16,0 L8,12" stroke="#22e0ff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
-""", 64, 64, 14),
 
     # Settings + OG keep their text (standalone banners)
     "settings-hero.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 160" fill="none">

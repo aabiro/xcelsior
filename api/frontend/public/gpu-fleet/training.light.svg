@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 172" fill="none">
+  <defs>
+    <linearGradient id="training-light-fill" x1=".14" y1=".06" x2=".8" y2=".96">
+      <stop stop-color="#0891b2"/><stop offset=".56" stop-color="#7c3aed"/><stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="training-light-cyan" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#0891b2"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <linearGradient id="training-light-violet" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#7c3aed"/><stop offset="1" stop-color="#e11d48"/></linearGradient>
+    <linearGradient id="training-light-green" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#059669"/><stop offset="1" stop-color="#0891b2"/></linearGradient>
+    <linearGradient id="training-light-warm" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#d97706"/><stop offset="1" stop-color="#e11d48"/></linearGradient>
+    <radialGradient id="training-light-floor"><stop stop-color="#0891b2" stop-opacity=".34"/><stop offset="1" stop-color="#7c3aed" stop-opacity="0"/></radialGradient>
+    <linearGradient id="training-light-rail" x1="28.8" y1="0" x2="451.2" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0891b2" stop-opacity=".08"/><stop offset=".5" stop-color="#0891b2" stop-opacity=".7"/><stop offset="1" stop-color="#7c3aed" stop-opacity=".1"/>
+    </linearGradient>
+    <filter id="training-light-glow" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="9" stdDeviation="10" flood-color="#0f172a" flood-opacity=".2"/><feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#0891b2" flood-opacity=".32"/></filter>
+    <filter id="training-light-soft" x="-50%" y="-50%" width="200%" height="210%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#0f172a" flood-opacity=".18"/><feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="#0891b2" flood-opacity=".3"/></filter>
+  </defs>
+  <path d="M30 132H178l10-10H296l9 10H450" stroke="url(#training-light-rail)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M39 142H441" stroke="#0f172a" stroke-opacity=".14" stroke-width="2" stroke-linecap="round"/>
+  <g stroke="#0891b2" stroke-opacity=".45" stroke-width="2" stroke-linecap="round">
+    <path d="M100 135v12M240 135v17M380 135v12"/>
+    <circle cx="100" cy="151" r="2.5" fill="#0891b2" fill-opacity=".65"/>
+    <circle cx="240" cy="156" r="2.5" fill="#7c3aed" fill-opacity=".65"/>
+    <circle cx="380" cy="151" r="2.5" fill="#059669" fill-opacity=".65"/>
+  </g>
+  <g stroke="#0891b2" stroke-opacity=".45" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M40 44h22l12 12"/><circle cx="40" cy="44" r="2.5" fill="#0891b2" fill-opacity=".65"/>
+    <path d="M440 52h-22l-12 12"/><circle cx="440" cy="52" r="2.5" fill="#059669" fill-opacity=".65"/>
+  </g>
+  <g stroke="url(#training-light-rail)" stroke-width="3" stroke-linecap="round"><path d="M150 78h38M150 92h38M292 78h38M292 92h38"/></g>
+  <ellipse cx="240" cy="134" rx="150" ry="24" fill="url(#training-light-floor)"/>
+  <path d="M58.4 129.5L67.9 129.5L67.3 133L65.6 134.5L56.1 134.5L56.7 131Z" fill="#0891b2" filter="url(#training-light-soft)"/>
+  <path d="M164.4 129.5L173.9 129.5L173.3 133L171.6 134.5L162.1 134.5L162.7 131Z" fill="#059669" filter="url(#training-light-soft)"/>
+  <path d="M314.4 129.5L323.9 129.5L323.3 133L321.6 134.5L312.1 134.5L312.7 131Z" fill="#d97706" filter="url(#training-light-soft)"/>
+  <path d="M416.4 129.5L425.9 129.5L425.3 133L423.6 134.5L414.1 134.5L414.7 131Z" fill="#7c3aed" filter="url(#training-light-soft)"/>
+  <path d="M102.3 44L100.4 56M90.8 116L88.9 128M70.3 71.6h12M142.3 71.6h12M116.7 44L114.8 56M105.2 116L103.3 128M68 86h12M140 86h12M131.1 44L129.2 56M119.6 116L117.7 128M65.7 100.4h12M137.7 100.4h12" stroke="#0891b2" stroke-opacity=".7" stroke-width="2.1" stroke-linecap="round"/>
+  <path d="M96.8 56L132.8 56L142.9 68L137.1 104L123.2 116L87.2 116L77.1 104L82.9 68Z" fill="url(#training-light-cyan)" filter="url(#training-light-soft)"/>
+  <path d="M96.8 56L132.8 56L142.9 68L137.1 104L123.2 116L87.2 116L77.1 104L82.9 68Z" stroke="#0f172a" stroke-opacity=".42" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M101.8 67.4L124.1 67.4L130.4 74.8L126.8 97.2L118.2 104.6L95.9 104.6L89.6 97.2L93.2 74.8Z" fill="#ffffff" fill-opacity=".18"/>
+  <path d="M106.6 78.2L115.9 78.2L118.5 81.3L117.1 90.7L113.4 93.8L104.1 93.8L101.5 90.7L102.9 81.3Z" fill="#ffffff" fill-opacity=".92" filter="url(#training-light-soft)"/>
+  <path d="M362.3 44L360.4 56M350.8 116L348.9 128M330.3 71.6h12M402.3 71.6h12M376.7 44L374.8 56M365.2 116L363.3 128M328 86h12M400 86h12M391.1 44L389.2 56M379.6 116L377.7 128M325.7 100.4h12M397.7 100.4h12" stroke="#0891b2" stroke-opacity=".7" stroke-width="2.1" stroke-linecap="round"/>
+  <path d="M356.8 56L392.8 56L402.9 68L397.1 104L383.2 116L347.2 116L337.1 104L342.9 68Z" fill="url(#training-light-green)" filter="url(#training-light-soft)"/>
+  <path d="M356.8 56L392.8 56L402.9 68L397.1 104L383.2 116L347.2 116L337.1 104L342.9 68Z" stroke="#0f172a" stroke-opacity=".42" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M361.8 67.4L384.1 67.4L390.4 74.8L386.8 97.2L378.2 104.6L355.9 104.6L349.6 97.2L353.2 74.8Z" fill="#ffffff" fill-opacity=".18"/>
+  <path d="M366.6 78.2L375.9 78.2L378.5 81.3L377.1 90.7L373.4 93.8L364.1 93.8L361.5 90.7L362.9 81.3Z" fill="#ffffff" fill-opacity=".92" filter="url(#training-light-soft)"/>
+  <path d="M228.2 19.6L225.3 38M210.6 130L207.6 148.4M179.1 61.9h18.4M289.5 61.9h18.4M250.3 19.6L247.4 38M232.6 130L229.7 148.4M175.6 84h18.4M286 84h18.4M272.4 19.6L269.4 38M254.7 130L251.8 148.4M172.1 106.1h18.4M282.5 106.1h18.4" stroke="#0891b2" stroke-opacity=".7" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M219.8 38L275 38L290.4 56.4L281.6 111.6L260.2 130L205 130L189.6 111.6L198.4 56.4Z" fill="url(#training-light-violet)" filter="url(#training-light-glow)"/>
+  <path d="M219.8 38L275 38L290.4 56.4L281.6 111.6L260.2 130L205 130L189.6 111.6L198.4 56.4Z" stroke="#0f172a" stroke-opacity=".42" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M227.5 55.5L261.7 55.5L271.3 66.9L265.8 101.1L252.5 112.5L218.3 112.5L208.7 101.1L214.2 66.9Z" fill="#ffffff" fill-opacity=".18"/>
+  <path d="M234.7 72L249.1 72L253.1 76.8L250.8 91.2L245.3 96L230.9 96L226.9 91.2L229.2 76.8Z" fill="#ffffff" fill-opacity=".92" filter="url(#training-light-soft)"/>
+</svg>

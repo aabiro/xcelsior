@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" fill="none">
+  <defs>
+    <linearGradient id="flow-discover-light-fill" x1=".14" y1=".06" x2=".8" y2=".96">
+      <stop stop-color="#0891b2"/><stop offset=".56" stop-color="#7c3aed"/><stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="flow-discover-light-cyan" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#0891b2"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <linearGradient id="flow-discover-light-violet" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#7c3aed"/><stop offset="1" stop-color="#e11d48"/></linearGradient>
+    <linearGradient id="flow-discover-light-green" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#059669"/><stop offset="1" stop-color="#0891b2"/></linearGradient>
+    <linearGradient id="flow-discover-light-warm" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#d97706"/><stop offset="1" stop-color="#e11d48"/></linearGradient>
+    <radialGradient id="flow-discover-light-floor"><stop stop-color="#0891b2" stop-opacity=".34"/><stop offset="1" stop-color="#7c3aed" stop-opacity="0"/></radialGradient>
+    <linearGradient id="flow-discover-light-rail" x1="19.2" y1="0" x2="300.8" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0891b2" stop-opacity=".08"/><stop offset=".5" stop-color="#0891b2" stop-opacity=".7"/><stop offset="1" stop-color="#7c3aed" stop-opacity=".1"/>
+    </linearGradient>
+    <filter id="flow-discover-light-glow" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="9" stdDeviation="10" flood-color="#0f172a" flood-opacity=".2"/><feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#0891b2" flood-opacity=".32"/></filter>
+    <filter id="flow-discover-light-soft" x="-50%" y="-50%" width="200%" height="210%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#0f172a" flood-opacity=".18"/><feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="#0891b2" flood-opacity=".3"/></filter>
+  </defs>
+  <path d="M26 150H88l10-10H214l9 10H294" stroke="url(#flow-discover-light-rail)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M35 160H285" stroke="#0f172a" stroke-opacity=".14" stroke-width="2" stroke-linecap="round"/>
+  <g stroke="#0891b2" stroke-opacity=".45" stroke-width="2" stroke-linecap="round">
+    <path d="M70 153v12M160 153v17M250 153v12"/>
+    <circle cx="70" cy="169" r="2.5" fill="#0891b2" fill-opacity=".65"/>
+    <circle cx="160" cy="174" r="2.5" fill="#7c3aed" fill-opacity=".65"/>
+    <circle cx="250" cy="169" r="2.5" fill="#059669" fill-opacity=".65"/>
+  </g>
+  <g stroke="#0891b2" stroke-opacity=".45" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M40 60h22l14 14"/><circle cx="40" cy="60" r="2.5" fill="#0891b2" fill-opacity=".65"/>
+    <path d="M284 96h-22l-12-12"/><circle cx="284" cy="96" r="2.5" fill="#059669" fill-opacity=".65"/>
+    <path d="M268 40v18"/><circle cx="268" cy="40" r="2.5" fill="#7c3aed" fill-opacity=".65"/>
+  </g>
+  <ellipse cx="150" cy="152" rx="96" ry="15.4" fill="url(#flow-discover-light-floor)"/>
+  <path d="M50.4 147.5L59.9 147.5L59.3 151L57.6 152.5L48.1 152.5L48.7 149Z" fill="#0891b2" filter="url(#flow-discover-light-soft)"/>
+  <path d="M264.4 147.5L273.9 147.5L273.3 151L271.6 152.5L262.1 152.5L262.7 149Z" fill="#059669" filter="url(#flow-discover-light-soft)"/>
+  <path d="M167.1 128L184.9 112L236.9 169L219.1 185Z" fill="url(#flow-discover-light-violet)" filter="url(#flow-discover-light-glow)"/>
+  <path d="M167.1 128L184.9 112L236.9 169L219.1 185Z" stroke="#0f172a" stroke-opacity=".42" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M198.6 90.9L157.2 137L96.5 124.1L77.4 65.1L118.8 19L179.5 31.9Z" fill="url(#flow-discover-light-fill)" filter="url(#flow-discover-light-glow)"/>
+  <path d="M198.6 90.9L157.2 137L96.5 124.1L77.4 65.1L118.8 19L179.5 31.9Z" stroke="#0f172a" stroke-opacity=".42" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M176.8 86.2L150.3 115.7L111.4 107.5L99.2 69.8L125.7 40.3L164.6 48.5Z" fill="#0f172a" fill-opacity=".22"/>
+  <path d="M176.8 86.2L150.3 115.7L111.4 107.5L99.2 69.8L125.7 40.3L164.6 48.5Z" fill="#ffffff" fill-opacity=".1" stroke="#0f172a" stroke-opacity=".5" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M108 60L128 46L138 52L114 70Z" fill="#ffffff" fill-opacity=".5"/>
+  <path d="M127.7 70.5L159.6 70.5L158.8 75.4L156.3 77.5L124.4 77.5L125.2 72.6Z" fill="#ffffff" fill-opacity=".92" filter="url(#flow-discover-light-soft)"/>
+  <path d="M126.7 84.5L148.6 84.5L147.8 89.4L145.3 91.5L123.4 91.5L124.2 86.6Z" fill="#ffffff" fill-opacity=".7" filter="url(#flow-discover-light-soft)"/>
+  <path d="M125.7 98.5L151.6 98.5L150.8 103.4L148.3 105.5L122.4 105.5L123.2 100.6Z" fill="#ffffff" fill-opacity=".5" filter="url(#flow-discover-light-soft)"/>
+</svg>
