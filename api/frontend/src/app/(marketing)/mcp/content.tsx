@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import { ArrowRight, Coins, KeyRound, ShieldCheck, ToggleRight, Zap } from "lucide-react";
+import { ClientLogo, clientLogoFor } from "@/components/ui/client-logo";
 import { CodeBlock } from "@/components/ui/code-block";
 import { PixelField } from "@/components/ui/pixel-field";
 import { m } from "@/components/marketing/motion";
@@ -24,9 +25,9 @@ const fadeUp = {
 };
 
 const FLOW_STEPS = [
-  { key: "discover", art: "/mcp/flow-discover.svg", prompt: "mcp.landing.flow_prompt_discover" },
-  { key: "launch", art: "/mcp/flow-launch.svg", prompt: "mcp.landing.flow_prompt_launch" },
-  { key: "monitor", art: "/mcp/flow-monitor.svg", prompt: "mcp.landing.flow_prompt_monitor" },
+  { key: "discover", prompt: "mcp.landing.flow_prompt_discover" },
+  { key: "launch", prompt: "mcp.landing.flow_prompt_launch" },
+  { key: "monitor", prompt: "mcp.landing.flow_prompt_monitor" },
 ] as const;
 
 const BENTO = [
@@ -55,9 +56,9 @@ function withInlineCode(text: string) {
 }
 
 const AGENT_TABS = [
-  { id: "cursor", art: "/mcp/agent-cursor.svg", labelKey: "mcp.landing.agent_cursor" },
-  { id: "claude", art: "/mcp/agent-claude.svg", labelKey: "mcp.landing.agent_claude" },
-  { id: "vscode", art: "/mcp/agent-vscode.svg", labelKey: "mcp.landing.agent_vscode" },
+  { id: "cursor", labelKey: "mcp.landing.agent_cursor" },
+  { id: "claude", labelKey: "mcp.landing.agent_claude" },
+  { id: "vscode", labelKey: "mcp.landing.agent_vscode" },
 ] as const;
 
 function ThemeIcon({ name }: { name: string }) {
@@ -217,7 +218,10 @@ export function McpLandingContent() {
                 custom={index}
                 className="site-feature-card site-flow-card"
               >
-                <Image src={step.art} alt="" width={320} height={200} className="site-flow-art" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/mcp/flow-${step.key}.dark.svg`} alt="" width={320} height={200} className="site-flow-art site-theme-dark" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/mcp/flow-${step.key}.light.svg`} alt="" width={320} height={200} className="site-flow-art site-theme-light" />
                 <p className="site-product-badge">{t(`mcp.landing.flow_${step.key}`)}</p>
                 <p className="site-flow-prompt">&ldquo;{t(step.prompt)}&rdquo;</p>
               </m.article>
@@ -266,9 +270,9 @@ export function McpLandingContent() {
           >
             <div className="mcp-guard-art">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/mcp/guardrails-dark.svg" alt="" width={480} height={320} className="site-theme-dark" />
+              <img src="/mcp/cost-guardrails.dark.svg" alt="" width={480} height={290} className="site-theme-dark" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/mcp/guardrails-light.svg" alt="" width={480} height={320} className="site-theme-light" />
+              <img src="/mcp/cost-guardrails.light.svg" alt="" width={480} height={290} className="site-theme-light" />
             </div>
             <div className="mcp-guard-body">
               <p className="mcp-guard-eyebrow">
@@ -306,7 +310,7 @@ export function McpLandingContent() {
                   role="tab"
                   aria-selected={agentTab === tab.id}
                 >
-                  <Image src={tab.art} alt="" width={20} height={20} className="site-tab-art" />
+                  <ClientLogo name={tab.id} size={18} />
                   <span>{t(tab.labelKey)}</span>
                 </button>
               ))}
@@ -320,7 +324,8 @@ export function McpLandingContent() {
                 .filter((item): item is typeof item & { href: string } => Boolean(item.href))
                 .map((item) => (
                   <a key={item.id} href={item.href} className="site-button site-button-ghost">
-                    Install in {item.label}
+                    {clientLogoFor(item.id) ? <ClientLogo name={clientLogoFor(item.id)!} size={16} className="site-button-logo" /> : null}
+                    <span>Install in {item.label}</span>
                   </a>
                 ))}
             </div>

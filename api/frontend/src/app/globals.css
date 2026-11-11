@@ -930,3 +930,25 @@ html.light .oauth-secret-value { color: #0e7490; }
 @media (prefers-reduced-motion: reduce) {
   .oauth-secret-nudge { animation: none; }
 }
+
+/* ── Code cards (components/ui/code-block.tsx) ─────────────────────────
+   One colour per token family, each mixed towards the body text so the
+   card reads as tinted prose rather than a rainbow. The accents are theme
+   tokens, so light and dark follow automatically. */
+.code-syntax {
+  --code-key: color-mix(in srgb, var(--color-accent-cyan) 72%, var(--color-text-primary));
+  --code-string: color-mix(in srgb, var(--color-emerald) 76%, var(--color-text-primary));
+  --code-value: color-mix(in srgb, var(--color-accent-gold) 78%, var(--color-text-primary));
+  --code-keyword: color-mix(in srgb, var(--color-accent-violet) 56%, var(--color-text-primary));
+  --code-comment: var(--color-text-muted);
+  --code-punct: var(--color-text-secondary);
+}
+html.light .code-syntax {
+  --code-keyword: color-mix(in srgb, var(--color-accent-violet) 86%, var(--color-text-primary));
+}
+.code-syntax .tok-key { color: var(--code-key); }
+.code-syntax .tok-string { color: var(--code-string); }
+.code-syntax .tok-value { color: var(--code-value); }
+.code-syntax .tok-keyword { color: var(--code-keyword); }
+.code-syntax .tok-comment { color: var(--code-comment); font-style: italic; }
+.code-syntax .tok-punct { color: var(--code-punct); }

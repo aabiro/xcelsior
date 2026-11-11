@@ -11,6 +11,7 @@ import { Input, Label } from "@/components/ui/input";
 import { SettingsSection } from "@/components/settings/settings-layout";
 import { OAuthSecretRevealModal } from "@/components/settings/oauth-secret-reveal-modal";
 import { ScopeChipRow } from "@/components/settings/credential-scope-panel";
+import { ClientLogo, clientLogoFor } from "@/components/ui/client-logo";
 import { CodeBlock } from "@/components/ui/code-block";
 import { MCP_CONNECTOR_URL, MCP_RESOURCE, mcpHealthUrl, configJson, configPath, oneClickInstalls } from "@/lib/mcp";
 import { useLocale } from "@/lib/locale";
@@ -61,10 +62,10 @@ const MCP_SCOPES = [
 const STEPS = ["create", "copy", "token", "paste"] as const;
 
 const AGENTS = [
-  { id: "cursor", art: "/mcp/agent-cursor.svg", labelKey: "dash.settings.mcp.agent_cursor" },
-  { id: "claude", art: "/mcp/agent-claude.svg", labelKey: "dash.settings.mcp.agent_claude" },
-  { id: "vscode", art: "/mcp/agent-vscode.svg", labelKey: "dash.settings.mcp.agent_vscode" },
-  { id: "github", art: "/logos/github.svg", labelKey: "dash.settings.mcp.agent_github" },
+  { id: "cursor", labelKey: "dash.settings.mcp.agent_cursor" },
+  { id: "claude", labelKey: "dash.settings.mcp.agent_claude" },
+  { id: "vscode", labelKey: "dash.settings.mcp.agent_vscode" },
+  { id: "github", labelKey: "dash.settings.mcp.agent_github" },
 ] as const;
 
 type FreshClientCredentials = {
@@ -374,7 +375,7 @@ export function McpAgentSetup({
                       agent === a.id ? "border-accent-violet/50 bg-accent-violet/10" : "border-border/60",
                     )}
                   >
-                    <Image src={a.art} alt="" width={16} height={16} />
+                    <ClientLogo name={clientLogoFor(a.id) ?? "github"} size={14} />
                     {t(a.labelKey)}
                   </button>
                 ))}

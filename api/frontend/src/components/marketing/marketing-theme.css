@@ -302,6 +302,10 @@ html:has(.site-nav) {
   backdrop-filter: blur(10px);
 }
 
+.site-button-logo {
+  margin-right: 9px;
+}
+
 .site-button-ghost:hover {
   background: var(--surface-3);
   border-color: rgba(255, 255, 255, 0.26);
@@ -997,7 +1001,7 @@ html:has(.site-nav) {
 
 .site-pricing-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   border-bottom: 1px solid var(--line);
 }
 
@@ -1362,10 +1366,15 @@ html:has(.site-nav) {
   background: linear-gradient(145deg, rgba(56, 219, 255, 0.08), rgba(155, 109, 255, 0.08));
 }
 
+/* The illustrations have no background of their own: show them whole. */
 .site-media-art-image,
-.site-callout-visual-image,
+.site-callout-visual-image {
+  object-fit: contain;
+  padding: 10px 18px;
+}
+
 .site-map-image {
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .site-media-card-body {
@@ -2660,7 +2669,13 @@ html:has(.site-nav) {
   gap: 18px;
 }
 
-.site-flow-art,
+.site-flow-art {
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+  margin: 0 auto;
+}
+
 .site-guardrails-art {
   width: 100%;
   height: auto;
@@ -2824,10 +2839,6 @@ html:has(.site-nav) {
   color: var(--text);
 }
 
-.site-tab-art {
-  width: 20px;
-  height: 20px;
-}
 
 .site-marketing-code {
   max-width: 100%;
@@ -2853,6 +2864,16 @@ html:has(.site-nav) {
 .site-marketing-code pre {
   margin: 0;
   color: var(--text-2) !important;
+}
+
+/* Token families in the marketing palette (see globals.css .code-syntax). */
+.site-marketing-code pre.code-syntax {
+  --code-key: color-mix(in srgb, var(--cyan) 80%, var(--text-2));
+  --code-string: color-mix(in srgb, var(--green) 80%, var(--text-2));
+  --code-value: color-mix(in srgb, var(--gold) 80%, var(--text-2));
+  --code-keyword: color-mix(in srgb, var(--violet-2) 84%, var(--text-2));
+  --code-comment: var(--text-4);
+  --code-punct: var(--text-4);
 }
 
 .marketing-site[data-theme="light"] .site-marketing-code {

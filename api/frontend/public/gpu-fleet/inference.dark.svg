@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 172" fill="none">
+  <defs>
+    <linearGradient id="inference-dark-fill" x1=".14" y1=".06" x2=".8" y2=".96">
+      <stop stop-color="#38dbff"/><stop offset=".58" stop-color="#9b6dff"/><stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <linearGradient id="inference-dark-cyan" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#38dbff"/><stop offset="1" stop-color="#9b6dff"/></linearGradient>
+    <linearGradient id="inference-dark-violet" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#9b6dff"/><stop offset="1" stop-color="#ff8f8f"/></linearGradient>
+    <linearGradient id="inference-dark-green" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#34d399"/><stop offset="1" stop-color="#38dbff"/></linearGradient>
+    <linearGradient id="inference-dark-warm" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#ffbf5e"/><stop offset="1" stop-color="#ff8f8f"/></linearGradient>
+    <radialGradient id="inference-dark-floor"><stop stop-color="#38dbff" stop-opacity=".34"/><stop offset="1" stop-color="#9b6dff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="inference-dark-rail" x1="28.8" y1="0" x2="451.2" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38dbff" stop-opacity=".05"/><stop offset=".5" stop-color="#38dbff" stop-opacity="1"/><stop offset="1" stop-color="#9b6dff" stop-opacity=".08"/>
+    </linearGradient>
+    <filter id="inference-dark-glow" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#38dbff" flood-opacity=".72"/><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#9b6dff" flood-opacity=".38"/></filter>
+    <filter id="inference-dark-soft" x="-50%" y="-50%" width="200%" height="210%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#38dbff" flood-opacity=".6"/><feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#9b6dff" flood-opacity=".3"/></filter>
+  </defs>
+  <path d="M30 132H68l10-10H190l9 10H450" stroke="url(#inference-dark-rail)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M39 142H441" stroke="#38dbff" stroke-opacity=".24" stroke-width="2" stroke-linecap="round"/>
+  <g stroke="#38dbff" stroke-opacity=".34" stroke-width="2" stroke-linecap="round">
+    <path d="M130 135v12M258 135v17M386 135v12"/>
+    <circle cx="130" cy="151" r="2.5" fill="#38dbff" fill-opacity=".5"/>
+    <circle cx="258" cy="156" r="2.5" fill="#9b6dff" fill-opacity=".55"/>
+    <circle cx="386" cy="151" r="2.5" fill="#34d399" fill-opacity=".5"/>
+  </g>
+  <g stroke="#38dbff" stroke-opacity=".34" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M452 40h-22l-12 12"/><circle cx="452" cy="40" r="2.5" fill="#34d399" fill-opacity=".5"/>
+    <path d="M36 60h18"/><circle cx="36" cy="60" r="2.5" fill="#38dbff" fill-opacity=".5"/>
+    <path d="M36 104h14"/><circle cx="36" cy="104" r="2.5" fill="#9b6dff" fill-opacity=".55"/>
+  </g>
+  <ellipse cx="132" cy="134" rx="100" ry="16" fill="url(#inference-dark-floor)"/>
+  <ellipse cx="408" cy="134" rx="70" ry="11.2" fill="url(#inference-dark-floor)"/>
+  <path d="M218.4 129.5L227.9 129.5L227.3 133L225.6 134.5L216.1 134.5L216.7 131Z" fill="#38dbff" filter="url(#inference-dark-soft)"/>
+  <path d="M296.4 129.5L305.9 129.5L305.3 133L303.6 134.5L294.1 134.5L294.7 131Z" fill="#34d399" filter="url(#inference-dark-soft)"/>
+  <path d="M348.4 129.5L357.9 129.5L357.3 133L355.6 134.5L346.1 134.5L346.7 131Z" fill="#ffbf5e" filter="url(#inference-dark-soft)"/>
+  <path d="M120.2 19.6L117.3 38M102.6 130L99.6 148.4M71.1 61.9h18.4M181.5 61.9h18.4M142.3 19.6L139.4 38M124.6 130L121.7 148.4M67.6 84h18.4M178 84h18.4M164.4 19.6L161.4 38M146.7 130L143.8 148.4M64.1 106.1h18.4M174.5 106.1h18.4" stroke="#38dbff" stroke-opacity=".7" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M111.8 38L167 38L182.4 56.4L173.6 111.6L152.2 130L97 130L81.6 111.6L90.4 56.4Z" fill="url(#inference-dark-cyan)" filter="url(#inference-dark-glow)"/>
+  <path d="M111.8 38L167 38L182.4 56.4L173.6 111.6L152.2 130L97 130L81.6 111.6L90.4 56.4Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M119.5 55.5L153.7 55.5L163.3 66.9L157.8 101.1L144.5 112.5L110.3 112.5L100.7 101.1L106.2 66.9Z" fill="#ecfeff" fill-opacity=".14"/>
+  <path d="M126.7 72L141.1 72L145.1 76.8L142.8 91.2L137.3 96L122.9 96L118.9 91.2L121.2 76.8Z" fill="#ecfeff" fill-opacity=".92" filter="url(#inference-dark-soft)"/>
+  <path d="M224 56L240 56L266 86L240 116L224 116L250 86Z" fill="url(#inference-dark-violet)" filter="url(#inference-dark-soft)"/>
+  <path d="M224 56L240 56L266 86L240 116L224 116L250 86Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M275.7 60.2L289.4 60.2L311.8 86L289.4 111.8L275.7 111.8L298 86Z" fill="url(#inference-dark-violet)" filter="url(#inference-dark-soft)"/>
+  <path d="M275.7 60.2L289.4 60.2L311.8 86L289.4 111.8L275.7 111.8L298 86Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M321.4 64.4L332.9 64.4L351.6 86L332.9 107.6L321.4 107.6L340.1 86Z" fill="url(#inference-dark-violet)" filter="url(#inference-dark-soft)"/>
+  <path d="M321.4 64.4L332.9 64.4L351.6 86L332.9 107.6L321.4 107.6L340.1 86Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M415.8 19.3L366.6 88.7L401.3 88.7L392.3 144.7L449.4 67.4L414.7 67.4Z" fill="url(#inference-dark-warm)" filter="url(#inference-dark-glow)"/>
+  <path d="M415.8 19.3L366.6 88.7L401.3 88.7L392.3 144.7L449.4 67.4L414.7 67.4Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M411.8 45.7L384.2 84.6L403.7 84.6L398.6 116L430.6 72.7L411.2 72.7Z" fill="#ecfeff" fill-opacity=".14"/>
+</svg>
