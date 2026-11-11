@@ -248,7 +248,7 @@ export function McpLandingContent() {
                     <ThemeIcon name={card.icon} />
                   </div>
                   <span className="site-bento-badge">
-                    {card.tools} {t("mcp.landing.tools_label")}
+                    {card.tools} {t(card.tools === 1 ? "mcp.landing.tool_label" : "mcp.landing.tools_label")}
                   </span>
                 </div>
                 <h3 className="site-card-title">{t(`mcp.landing.bento_${card.key}_title`)}</h3>

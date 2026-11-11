@@ -517,13 +517,13 @@ export function GPUAvailabilityContent() {
             </article>
             <div className="site-media-panel site-map-panel">
               <Image
-                src="/gpu-fleet/fleet-health.dark.svg"
+                src="/gpu-fleet/fleet-pulse.dark.svg"
                 alt={t("gpus.compliance_map_alt")}
                 fill
                 className="site-map-image site-theme-dark"
               />
               <Image
-                src="/gpu-fleet/fleet-health.light.svg"
+                src="/gpu-fleet/fleet-pulse.light.svg"
                 alt={t("gpus.compliance_map_alt")}
                 fill
                 className="site-map-image site-theme-light"
