@@ -415,8 +415,7 @@ def test_privileged_helper_units_and_root_config(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     # sudo: copy installed files into out/, capture tee'd config, ignore the rest.
-    (bin_dir / "sudo").write_text(
-        f"""#!/usr/bin/env bash
+    (bin_dir / "sudo").write_text(f"""#!/usr/bin/env bash
 case "$1" in
   install) [ "$2" = -d ] && exit 0; src="${{@: -2:1}}"; dst="${{@: -1}}"; cp "$src" "{out}/$(basename "$dst")" ;;
   test) exit 1 ;;
@@ -424,8 +423,7 @@ case "$1" in
   sed) shift; sed "${{@:1:$#-1}}" "{out}/$(basename "${{@: -1}}")" ;;
 esac
 exit 0
-"""
-    )
+""")
     (bin_dir / "sudo").chmod(0o755)
     helper = ROOT / "workers" / "worker_privileged.py"
     result = subprocess.run(
@@ -505,7 +503,7 @@ def test_migrating_a_root_run_worker_hands_its_state_to_the_service_user(tmp_pat
         {
             "sudo": (
                 f'echo "$*" >> {calls}; '
-                'if [ "$1" = test ]; then case "$3" in */v2_attempts.json|*/docker-config) exit 0;; *) exit 1;; esac; fi'
+                'if [ "$1" = test ]; then case "$3" in */v2_attempts.json|*/docker-config|*/logs) exit 0;; *) exit 1;; esac; fi'
             ),
             "id": "exit 0",
             "getent": "exit 1",
@@ -516,6 +514,11 @@ def test_migrating_a_root_run_worker_hands_its_state_to_the_service_user(tmp_pat
     log = calls.read_text()
     assert "chown -R xcelsior:xcelsior /var/lib/xcelsior/v2_attempts.json\n" in log
     assert "chown -R xcelsior:xcelsior /var/lib/xcelsior/docker-config\n" in log
+    # The log spool too (2026-11-11: a root-owned spool file kept an adopted
+    # container's log forwarding from resuming after the update on the ASUS).
+    assert "chown -R xcelsior:xcelsior /var/lib/xcelsior/logs\n" in log
     # Nothing that is absent is touched, and never the whole directory.
-    assert "mining_response.json" not in log.replace("test -e /var/lib/xcelsior/mining_response.json", "")
+    assert "mining_response.json" not in log.replace(
+        "test -e /var/lib/xcelsior/mining_response.json", ""
+    )
     assert "chown -R xcelsior:xcelsior /var/lib/xcelsior\n" not in log
