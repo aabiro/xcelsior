@@ -14,7 +14,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { GpuModelSelector } from "@/components/ui/gpu-model-selector";
 import {
   Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Terminal,
-  Cpu, Copy, Check, DollarSign, Activity, Zap, ChevronRight, Info, AlertCircle,
+  Cpu, Check, DollarSign, Activity, Zap, ChevronRight, Info, AlertCircle,
   HardDrive, Globe, Shield, ShieldAlert, Package, Code2, Clipboard, ArrowRight, ArrowLeft, Trash2, Gift,
 } from "lucide-react";
 import { DeleteHostDialog } from "@/components/hosts/delete-host-dialog";
@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { useEventStream } from "@/hooks/useEventStream";
 import { cn } from "@/lib/utils";
 import { HostMachineSetupCard } from "@/components/hosts/host-setup-scan";
+import { CodeBlock } from "@/components/ui/code-block";
 
 type SortKey = "hostname" | "gpu_model" | "status" | "vram_gb" | "cost_per_hour";
 type SortDir = "asc" | "desc";
@@ -819,15 +820,7 @@ To change a setting (for example a new API key), edit \`~/.xcelsior/worker.env\`
 - Can't connect → check firewall allows outbound HTTPS to ${APP_HOST}:443
 - Not picking up jobs → \`xcelsior pricing compare\` to check competitiveness`;
 
-function SdkIntegrateInfoCard({
-  compact = false,
-  copied,
-  onCopy,
-}: {
-  compact?: boolean;
-  copied?: string | null;
-  onCopy?: (label: string, text: string) => void;
-}) {
+function SdkIntegrateInfoCard({ compact = false }: { compact?: boolean }) {
   return (
     <div
       className={cn(
@@ -866,9 +859,7 @@ function SdkIntegrateInfoCard({
                     It detects your framework, installs <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">@xcelsior-gpu/sdk</code>,
                     creates API credentials, writes your <code className="bg-surface-hover px-1 py-0.5 rounded text-[11px]">.env</code> snippet, and verifies the connection.
                   </p>
-                  {onCopy ? (
-                    <CodeSnippet label="sdk-wizard-cmd" text={WIZARD_CMD} copied={copied ?? null} onCopy={onCopy} />
-                  ) : null}
+                  <CodeSnippet text={WIZARD_CMD} />
                 </>
               )}
             </div>
@@ -886,11 +877,7 @@ function SdkIntegrateInfoCard({
                   <p className="text-xs text-text-secondary mb-2 leading-relaxed">
                     Skip the wizard and add the package yourself. Create an API token or OAuth client in Settings → API &amp; SSH, then wire it into your app.
                   </p>
-                  {onCopy ? (
-                    <CodeSnippet label="sdk-install-cmd" text={SDK_INSTALL_CMD} copied={copied ?? null} onCopy={onCopy} />
-                  ) : (
-                    <code className="block rounded-lg bg-surface-hover px-3 py-2 text-[13px] font-mono text-text-secondary">{SDK_INSTALL_CMD}</code>
-                  )}
+                  <CodeSnippet text={SDK_INSTALL_CMD} />
                 </>
               )}
             </div>
@@ -909,43 +896,9 @@ function SdkIntegrateInfoCard({
   );
 }
 
-function CodeSnippet({
-  label,
-  text,
-  copied,
-  onCopy,
-  className,
-}: {
-  label: string;
-  text: string;
-  copied: string | null;
-  onCopy: (label: string, text: string) => void;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "relative flex items-start gap-2 overflow-hidden rounded-2xl border border-border bg-surface px-4 py-3 shadow-sm",
-        className,
-      )}
-    >
-      <pre className="min-w-0 flex-1 overflow-x-auto text-[13px] font-mono leading-relaxed text-text-primary">{text}</pre>
-      <button
-        onClick={() => onCopy(label, text)}
-        className="shrink-0 flex items-center gap-1 rounded-lg border border-border bg-surface-hover px-2 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary"
-      >
-        {copied === label ? (
-          <>
-            <Check className="h-3 w-3 text-emerald" /> Copied
-          </>
-        ) : (
-          <>
-            <Copy className="h-3 w-3" /> Copy
-          </>
-        )}
-      </button>
-    </div>
-  );
+/** A setup command: the shared code card, labelled as a terminal. */
+function CodeSnippet({ text }: { text: string }) {
+  return <CodeBlock filename="terminal" code={text} language="shell" />;
 }
 
 function HostSetupGuideCard({
@@ -957,15 +910,6 @@ function HostSetupGuideCard({
   onInstall: () => void;
   onManualSetup: () => void;
 }) {
-  const [copied, setCopied] = useState<string | null>(null);
-
-  function handleCopy(label: string, text: string) {
-    navigator.clipboard.writeText(text);
-    setCopied(label);
-    toast.success("Copied to clipboard");
-    setTimeout(() => setCopied((current) => current === label ? null : current), 2000);
-  }
-
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[0.98fr_1.02fr]">
@@ -1008,7 +952,7 @@ function HostSetupGuideCard({
                   One command on your GPU host. Choose <span className="font-medium text-text-secondary">Provide GPUs</span> when prompted.
                 </p>
                 <div className="mt-3">
-                  <CodeSnippet label="host-card-wizard" text={WIZARD_CMD} copied={copied} onCopy={handleCopy} />
+                  <CodeSnippet text={WIZARD_CMD} />
                 </div>
                 <HostMachineSetupCard />
                 <p className="mt-2 text-xs text-text-muted">
@@ -1089,7 +1033,7 @@ function HostSetupGuideCard({
             </div>
             <span className="text-[11px] text-text-muted">For app developers</span>
           </div>
-          <SdkIntegrateInfoCard copied={copied} onCopy={handleCopy} />
+          <SdkIntegrateInfoCard />
         </div>
       </Card>
     </div>
@@ -1279,14 +1223,15 @@ function InstallWorkerSection({
   initialView?: InstallView;
 }) {
   const [view, setView] = useState<InstallView>(initialView);
-  const [copied, setCopied] = useState<string | null>(null);
+  const [promptCopied, setPromptCopied] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  function copy(label: string, text: string) {
-    navigator.clipboard.writeText(text);
-    setCopied(label);
-    toast.success(label === "llm-prompt" ? "LLM prompt copied to clipboard" : "Copied to clipboard");
-    setTimeout(() => setCopied(null), 2000);
+  function copyPrompt() {
+    navigator.clipboard.writeText(LLM_INSTALL_PROMPT).then(() => {
+      setPromptCopied(true);
+      toast.success("LLM prompt copied to clipboard");
+      setTimeout(() => setPromptCopied(false), 2000);
+    }, () => toast.error("Could not copy to the clipboard"));
   }
 
   function switchView() {
@@ -1302,7 +1247,7 @@ function InstallWorkerSection({
         className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-2 border-l border-r border-border/20"
       >
         <div className="rounded-lg border border-white/5 ring-1 ring-inset ring-border/20 p-4">
-          {view === "sdk" ? <SdkSetupView copied={copied} onCopy={copy} /> : <ManualQuickstartView copied={copied} onCopy={copy} />}
+          {view === "sdk" ? <SdkSetupView /> : <ManualQuickstartView />}
         </div>
       </div>
 
@@ -1316,10 +1261,10 @@ function InstallWorkerSection({
           </p>
           <div className="flex items-center gap-2.5 shrink-0">
             <button
-              onClick={() => copy("llm-prompt", LLM_INSTALL_PROMPT)}
+              onClick={copyPrompt}
               className="flex items-center gap-2 rounded-lg border border-accent-cyan/30 bg-gradient-to-r from-accent-cyan/5 to-accent-violet/5 px-3.5 py-2 text-xs font-medium text-text-secondary hover:border-accent-cyan/50 hover:text-accent-cyan hover:from-accent-cyan/10 hover:to-accent-violet/10 transition-all duration-200"
             >
-              {copied === "llm-prompt" ? <Check className="h-3.5 w-3.5 text-emerald" /> : <Clipboard className="h-3.5 w-3.5" />}
+              {promptCopied ? <Check className="h-3.5 w-3.5 text-emerald" /> : <Clipboard className="h-3.5 w-3.5" />}
               Copy prompt for LLM
             </button>
             <button
@@ -1342,19 +1287,15 @@ function InstallWorkerSection({
 
 /* ── SDK + AI Onboarding Wizard View ──────────────────────────────── */
 
-function SdkSetupView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
+function SdkSetupView() {
   const quickCmds = `# Check worker status
 xcelsior status
-
 # View live job queue
 xcelsior jobs --watch
-
 # Update pricing dynamically
 xcelsior pricing set --gpu "RTX 4090" --rate 0.45
-
 # Run diagnostics
 xcelsior diagnostics --full
-
 # View earnings summary
 xcelsior earnings --period 30d`;
 
@@ -1375,14 +1316,14 @@ xcelsior earnings --period 30d`;
         <p className="text-xs text-text-secondary mb-2">
           One command for host setup <em>and</em> SDK integration. <code className="text-[11px] bg-surface-hover px-1 py-0.5 rounded">npx</code> runs the wizard without a global install (no <code className="text-[11px] bg-surface-hover px-1 py-0.5 rounded">/usr/lib/node_modules</code> permission issues). Requires Node.js &ge; 18.
         </p>
-        <CodeSnippet label="wizard-cmd" text={WIZARD_CMD} copied={copied} onCopy={onCopy} />
+        <CodeSnippet text={WIZARD_CMD} />
         <HostMachineSetupCard />
         <p className="text-[11px] text-text-muted mt-2">
           At the first prompt, pick your path: <span className="font-medium text-text-secondary">Provide GPUs</span> on your GPU machine for host setup. For app integration, see below, wizard or manual <code className="bg-surface-hover px-1 py-0.5 rounded">{SDK_INSTALL_CMD}</code>.
         </p>
       </div>
 
-      <SdkIntegrateInfoCard copied={copied} onCopy={onCopy} />
+      <SdkIntegrateInfoCard />
 
       {/* What the wizard does */}
       <div className="rounded-lg border border-border/60 bg-surface-hover/30 p-3.5">
@@ -1409,7 +1350,7 @@ xcelsior earnings --period 30d`;
         <p className="text-xs text-text-secondary mb-2">
           After setup, use these SDK commands to manage your worker:
         </p>
-        <CodeSnippet label="quick-cmds" text={quickCmds} copied={copied} onCopy={onCopy} />
+        <CodeSnippet text={quickCmds} />
       </div>
 
       {/* Pre-install requirements */}
@@ -1433,7 +1374,7 @@ xcelsior earnings --period 30d`;
 
 /* ── Manual Quickstart View ──────────────────────────────────────── */
 
-function ManualQuickstartView({ copied, onCopy }: { copied: string | null; onCopy: (label: string, text: string) => void }) {
+function ManualQuickstartView() {
   // Keep in step with scripts/install.sh: it writes worker.env and the systemd
   // service itself, so the manual path is the installer without the wizard.
   const installCmd = `curl -fsSL ${APP_URL}/install.sh | bash -s -- --agent-only`;
@@ -1470,19 +1411,19 @@ sudo systemctl restart xcelsior-worker`;
           worker as a background service, and connects your machine securely. When it finishes, your host
           shows as pending while we review it.
         </p>
-        <CodeSnippet label="install" text={installCmd} copied={copied} onCopy={onCopy} />
+        <CodeSnippet text={installCmd} />
         <HostMachineSetupCard />
       </div>
 
       <div>
         <p className="text-sm font-medium mb-1.5">3. Verify</p>
         <p className="text-xs text-text-secondary mb-2">Confirm the worker is running:</p>
-        <CodeSnippet label="verify" text={verifyCmd} copied={copied} onCopy={onCopy} />
+        <CodeSnippet text={verifyCmd} />
       </div>
 
       <div>
         <p className="text-sm font-medium mb-1.5">Changing settings later</p>
-        <CodeSnippet label="settings" text={changeCmd} copied={copied} onCopy={onCopy} />
+        <CodeSnippet text={changeCmd} />
       </div>
     </div>
   );

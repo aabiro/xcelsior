@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -14,7 +14,7 @@ export type CodeLanguage = "json" | "shell" | "python" | "text";
  *   keyword  the language's own words, and the command being run
  *   comment  notes for the reader
  *   punct    structure: brackets, commas, pipes
- * The colours themselves are CSS variables (globals.css, marketing-theme.css).
+ * The colours themselves are CSS variables (globals.css `.code-card`).
  */
 type TokenKind = "key" | "string" | "value" | "keyword" | "comment" | "punct";
 type Token = { text: string; kind?: TokenKind };
@@ -113,7 +113,15 @@ function languageFor(filename: string | undefined, code: string): CodeLanguage {
   return /^\s*[{[]/.test(code) ? "json" : "text";
 }
 
-/** Code card: a filename bar with inline copy, and the code coloured by token family. */
+/**
+ * The one code card: every snippet, config file and terminal command in the
+ * app and on the site is drawn by this. A label bar (filename, or "terminal")
+ * with Copy on the right, then the code, coloured by token family.
+ *
+ * Its look lives in globals.css (`.code-card`) as a handful of `--code-*`
+ * variables; a surface that needs a different look (the marketing site) sets
+ * the variables and leaves the rules alone.
+ */
 export function CodeBlock({
   filename,
   code,
@@ -121,44 +129,51 @@ export function CodeBlock({
   onCopy,
   className,
 }: {
+  /** The label in the bar: a filename, or "terminal" for commands. */
   filename?: string;
   code: string;
   /** Inferred from the filename (or a leading `{`) when omitted. */
   language?: CodeLanguage;
-  /** Optional side-effect after copy (e.g. a toast). Clipboard write is handled here. */
+  /** Called after the code is on the clipboard (e.g. a toast). */
   onCopy?: () => void;
   className?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+  }, []);
   const tokens = useMemo(
     () => tokenizeCode(code, language ?? languageFor(filename, code)),
     [code, filename, language],
   );
-  const copy = () => {
-    void navigator.clipboard.writeText(code);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      return; // No clipboard (insecure context, denied): say nothing rather than "Copied".
+    }
     setCopied(true);
     onCopy?.();
-    setTimeout(() => setCopied(false), 2000);
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+    resetTimer.current = setTimeout(() => setCopied(false), 2000);
   };
   return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-xl border border-border bg-surface shadow-sm",
-        className,
-      )}
-    >
-      <div className="flex items-center justify-between gap-2 border-b border-border bg-surface-hover px-3 py-2">
-        <span className="min-w-0 truncate pl-1 font-mono text-[11px] text-text-muted">{filename}</span>
+    <div className={cn("code-card", className)}>
+      <div className="code-card-bar">
+        <span className="code-card-label">{filename}</span>
         <button
           type="button"
-          onClick={copy}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface hover:text-text-primary"
+          onClick={() => void copy()}
+          className="code-card-copy"
+          data-copied={copied || undefined}
+          aria-label={copied ? "Copied" : filename ? `Copy ${filename}` : "Copy code"}
         >
-          {copied ? <Check className="h-3 w-3 text-emerald" /> : <Copy className="h-3 w-3" />}
-          {copied ? "Copied" : "Copy"}
+          {copied ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
+          <span aria-hidden>{copied ? "Copied" : "Copy"}</span>
         </button>
       </div>
-      <pre className="code-syntax overflow-x-auto p-4 font-mono text-xs leading-relaxed text-text-primary">
+      <pre className="code-card-body">
         {tokens.map((token, i) =>
           token.kind ? (
             <span key={i} className={`tok-${token.kind}`}>

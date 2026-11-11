@@ -1002,23 +1002,101 @@ html.light .oauth-secret-value { color: #0e7490; }
 }
 
 /* ── Code cards (components/ui/code-block.tsx) ─────────────────────────
-   One colour per token family, each mixed towards the body text so the
-   card reads as tinted prose rather than a rainbow. The accents are theme
-   tokens, so light and dark follow automatically. */
-.code-syntax {
+   Every code block and terminal command is this card. Its whole look is the
+   --code-* variables below: a surface that wants a different card (the
+   marketing site) redefines variables, never the rules, so the dashboard,
+   Settings and the site cannot drift apart again.
+   Token colours are one per family, each mixed towards the body text so the
+   card reads as tinted prose rather than a rainbow. They are theme tokens,
+   so light and dark follow on their own. */
+.code-card {
+  --code-bg: var(--color-surface);
+  --code-bar-bg: var(--color-surface-hover);
+  --code-border: var(--color-border);
+  --code-radius: 12px;
+  --code-shadow: 0 1px 2px rgba(5, 7, 14, 0.08);
+  --code-text: var(--color-text-primary);
+  --code-label: var(--color-text-muted);
+  --code-font: var(--font-mono);
+  --code-size: 12.5px;
+  /* Single-spaced: the lines of a command or config sit together. */
+  --code-leading: 1.5;
+  --code-pad-y: 12px;
+  --code-pad-x: 16px;
+
   --code-key: color-mix(in srgb, var(--color-accent-cyan) 72%, var(--color-text-primary));
   --code-string: color-mix(in srgb, var(--color-emerald) 76%, var(--color-text-primary));
   --code-value: color-mix(in srgb, var(--color-accent-gold) 78%, var(--color-text-primary));
   --code-keyword: color-mix(in srgb, var(--color-accent-violet) 56%, var(--color-text-primary));
   --code-comment: var(--color-text-muted);
   --code-punct: var(--color-text-secondary);
+
+  overflow: hidden;
+  border: 1px solid var(--code-border);
+  border-radius: var(--code-radius);
+  background: var(--code-bg);
+  box-shadow: var(--code-shadow);
 }
-html.light .code-syntax {
+/* :where() keeps this at a single class's weight, so a surface's own
+   palette (.site-marketing-code) still wins in light mode. */
+:where(html.light) .code-card {
   --code-keyword: color-mix(in srgb, var(--color-accent-violet) 86%, var(--color-text-primary));
 }
-.code-syntax .tok-key { color: var(--code-key); }
-.code-syntax .tok-string { color: var(--code-string); }
-.code-syntax .tok-value { color: var(--code-value); }
-.code-syntax .tok-keyword { color: var(--code-keyword); }
-.code-syntax .tok-comment { color: var(--code-comment); font-style: italic; }
-.code-syntax .tok-punct { color: var(--code-punct); }
+.code-card-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 6px 0 var(--code-pad-x);
+  border-bottom: 1px solid var(--code-border);
+  background: var(--code-bar-bg);
+}
+.code-card-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 11px/1 var(--code-font);
+  color: var(--code-label);
+}
+.code-card-copy {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  font: 500 11px/1 var(--code-font);
+  color: var(--code-label);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.code-card-copy:hover {
+  color: var(--code-text);
+  background: color-mix(in srgb, var(--code-text) 8%, transparent);
+}
+.code-card-copy:focus-visible {
+  outline: 2px solid var(--code-key);
+  outline-offset: 1px;
+}
+.code-card-copy[data-copied] {
+  color: var(--code-string);
+}
+.code-card-body {
+  margin: 0;
+  overflow-x: auto;
+  padding: var(--code-pad-y) var(--code-pad-x);
+  font-family: var(--code-font);
+  font-size: var(--code-size);
+  line-height: var(--code-leading);
+  color: var(--code-text);
+  tab-size: 2;
+  white-space: pre;
+}
+.code-card .tok-key { color: var(--code-key); }
+.code-card .tok-string { color: var(--code-string); }
+.code-card .tok-value { color: var(--code-value); }
+.code-card .tok-keyword { color: var(--code-keyword); }
+.code-card .tok-comment { color: var(--code-comment); font-style: italic; }
+.code-card .tok-punct { color: var(--code-punct); }
