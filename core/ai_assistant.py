@@ -1463,6 +1463,13 @@ def _tool_launch_job(args: dict, user: dict) -> dict:
     except HTTPException:
         return {"error": "Team viewers cannot launch instances."}
     customer_id = _effective_billing_customer_id(user)
+    from routes._deps import _snapshot_principals
+    from snapshot_image_access import foreign_snapshot_problem
+
+    image_principals = _snapshot_principals(user)
+    image_problem = foreign_snapshot_problem(image, image_principals)
+    if image_problem:
+        return {"error": image_problem}
     # Wallet pre-flight
     from billing import get_billing_engine
     import time as _time
@@ -1484,6 +1491,7 @@ def _tool_launch_job(args: dict, user: dict) -> dict:
         num_gpus=args.get("gpu_count", 1),
         image=args.get("docker_image", ""),
         owner=customer_id,
+        image_principals=image_principals,
     )
     if not job or not job.get("job_id", job.get("id")):
         return {"error": "Failed to submit job. Please try again."}
