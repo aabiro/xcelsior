@@ -353,6 +353,11 @@ def delete_authoritative_subject(
                 (stored_user_id,),
             ),
             (
+                "business_logos",
+                "DELETE FROM business_logos WHERE user_id = %s",
+                (stored_user_id,),
+            ),
+            (
                 "push_subscriptions",
                 """
                 DELETE FROM web_push_subscriptions
@@ -589,7 +594,10 @@ def delete_authoritative_subject(
                    max_concurrent_instances = 0,
                    pending_email = NULL,
                    email_change_token = NULL,
-                   email_change_expires = NULL
+                   email_change_expires = NULL,
+                   business_display_name = '',
+                   business_website = '',
+                   business_tagline = ''
              WHERE user_id = %s
             """,
             (
