@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 290" fill="none">
+  <defs>
+    <linearGradient id="cost-guardrails-dark-fill" x1=".14" y1=".06" x2=".8" y2=".96">
+      <stop stop-color="#38dbff"/><stop offset=".58" stop-color="#9b6dff"/><stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+    <linearGradient id="cost-guardrails-dark-cyan" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#38dbff"/><stop offset="1" stop-color="#9b6dff"/></linearGradient>
+    <linearGradient id="cost-guardrails-dark-violet" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#9b6dff"/><stop offset="1" stop-color="#ff8f8f"/></linearGradient>
+    <linearGradient id="cost-guardrails-dark-green" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#34d399"/><stop offset="1" stop-color="#38dbff"/></linearGradient>
+    <linearGradient id="cost-guardrails-dark-warm" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#ffbf5e"/><stop offset="1" stop-color="#ff8f8f"/></linearGradient>
+    <radialGradient id="cost-guardrails-dark-floor"><stop stop-color="#38dbff" stop-opacity=".34"/><stop offset="1" stop-color="#9b6dff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="cost-guardrails-dark-rail" x1="28.8" y1="0" x2="451.2" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38dbff" stop-opacity=".05"/><stop offset=".5" stop-color="#38dbff" stop-opacity="1"/><stop offset="1" stop-color="#9b6dff" stop-opacity=".08"/>
+    </linearGradient>
+    <filter id="cost-guardrails-dark-glow" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#38dbff" flood-opacity=".72"/><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#9b6dff" flood-opacity=".38"/></filter>
+    <filter id="cost-guardrails-dark-soft" x="-50%" y="-50%" width="200%" height="210%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#38dbff" flood-opacity=".6"/><feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#9b6dff" flood-opacity=".3"/></filter>
+  </defs>
+  <path d="M44 250H168l10-10H302l9 10H436" stroke="url(#cost-guardrails-dark-rail)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M53 260H427" stroke="#38dbff" stroke-opacity=".24" stroke-width="2" stroke-linecap="round"/>
+  <g stroke="#38dbff" stroke-opacity=".34" stroke-width="2" stroke-linecap="round">
+    <path d="M112 253v12M240 253v17M368 253v12"/>
+    <circle cx="112" cy="269" r="2.5" fill="#38dbff" fill-opacity=".5"/>
+    <circle cx="240" cy="274" r="2.5" fill="#9b6dff" fill-opacity=".55"/>
+    <circle cx="368" cy="269" r="2.5" fill="#34d399" fill-opacity=".5"/>
+  </g>
+  <g stroke="#38dbff" stroke-opacity=".34" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M112 122h36"/><circle cx="130" cy="122" r="2.5" fill="#38dbff" fill-opacity=".5"/>
+    <path d="M332 122h42"/><circle cx="353" cy="122" r="2.5" fill="#34d399" fill-opacity=".5"/>
+    <path d="M70 190v22l14 14h36"/><circle cx="70" cy="190" r="2.5" fill="#38dbff" fill-opacity=".5"/>
+    <path d="M410 196v14"/><circle cx="410" cy="210" r="2.5" fill="#34d399" fill-opacity=".5"/>
+  </g>
+  <ellipse cx="240" cy="252" rx="150" ry="24" fill="url(#cost-guardrails-dark-floor)"/>
+  <path d="M80.4 247.5L89.9 247.5L89.3 251L87.6 252.5L78.1 252.5L78.7 249Z" fill="#38dbff" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M146.4 247.5L155.9 247.5L155.3 251L153.6 252.5L144.1 252.5L144.7 249Z" fill="#34d399" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M392.4 247.5L401.9 247.5L401.3 251L399.6 252.5L390.1 252.5L390.7 249Z" fill="#ffbf5e" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M240 14L332 48L332 144L308 208L240 262L172 208L148 144L148 48Z" fill="url(#cost-guardrails-dark-fill)" filter="url(#cost-guardrails-dark-glow)"/>
+  <path d="M240 14L332 48L332 144L308 208L240 262L172 208L148 144L148 48Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M240 14L148 48L148 144L172 208L240 262L240 232L190 192L170 140L170 64L240 38Z" fill="#ecfeff" fill-opacity=".14"/>
+  <path d="M240 55L300.7 77.4L300.7 140.8L284.9 183L240 218.7L195.1 183L179.3 140.8L179.3 77.4Z" fill="#38dbff" fill-opacity=".18"/>
+  <path d="M196 145.5L232.6 184.7L292.5 110.9L275.5 97.1L231.4 151.3L212 130.5Z" fill="#ecfeff" fill-opacity=".92" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M46.8 92L120.8 92L114.1 134L93.2 152L19.2 152L25.9 110Z" fill="url(#cost-guardrails-dark-warm)" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M46.8 92L120.8 92L114.1 134L93.2 152L19.2 152L25.9 110Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M44.7 102.5L74.6 102.5L73.8 107.4L71.3 109.5L41.4 109.5L42.2 104.6Z" fill="#ecfeff" fill-opacity=".92" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M93.8 101L99.8 101L101.5 103L100.5 109L98.2 111L92.2 111L90.5 109L91.5 103Z" fill="#ecfeff" fill-opacity=".75" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M37.6 142.3L52.3 132.2L65.1 138.1L95.3 122.4L92.7 117.6L64.9 131.9L51.7 125.8L34.4 137.7Z" fill="#ecfeff" fill-opacity=".92" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M384 101L455.4 101L450.7 130.4L436 143L364.6 143L369.3 113.6Z" fill="url(#cost-guardrails-dark-green)" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M384 101L455.4 101L450.7 130.4L436 143L364.6 143L369.3 113.6Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M422.3 109L437.9 109L442.2 114.2L439.8 129.8L433.7 135L418.1 135L413.8 129.8L416.2 114.2Z" fill="#ecfeff" fill-opacity=".92" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M380.3 119L398.5 119L397.8 123.2L395.7 125L377.5 125L378.2 120.8Z" fill="#ecfeff" fill-opacity=".7" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M326.3 228.2L344.2 204.5L364.1 216.8L432.4 207.2L435.7 231L423.9 232.6L422.4 222.2L410.5 223.9L412.4 237.3L399 239.2L397.1 225.8L366 230.2L350 246Z" fill="url(#cost-guardrails-dark-violet)" filter="url(#cost-guardrails-dark-soft)"/>
+  <path d="M326.3 228.2L344.2 204.5L364.1 216.8L432.4 207.2L435.7 231L423.9 232.6L422.4 222.2L410.5 223.9L412.4 237.3L399 239.2L397.1 225.8L366 230.2L350 246Z" stroke="#ecfeff" stroke-opacity=".68" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M353 226L346 233L339 226L346 219Z" fill="#ecfeff" fill-opacity=".92" filter="url(#cost-guardrails-dark-soft)"/>
+</svg>

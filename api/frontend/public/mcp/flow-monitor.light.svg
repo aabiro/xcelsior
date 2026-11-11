@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" fill="none">
+  <defs>
+    <linearGradient id="flow-monitor-light-fill" x1=".14" y1=".06" x2=".8" y2=".96">
+      <stop stop-color="#0891b2"/><stop offset=".56" stop-color="#7c3aed"/><stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="flow-monitor-light-cyan" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#0891b2"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <linearGradient id="flow-monitor-light-violet" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#7c3aed"/><stop offset="1" stop-color="#e11d48"/></linearGradient>
+    <linearGradient id="flow-monitor-light-green" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#059669"/><stop offset="1" stop-color="#0891b2"/></linearGradient>
+    <linearGradient id="flow-monitor-light-warm" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#d97706"/><stop offset="1" stop-color="#e11d48"/></linearGradient>
+    <radialGradient id="flow-monitor-light-floor"><stop stop-color="#0891b2" stop-opacity=".34"/><stop offset="1" stop-color="#7c3aed" stop-opacity="0"/></radialGradient>
+    <linearGradient id="flow-monitor-light-rail" x1="19.2" y1="0" x2="300.8" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0891b2" stop-opacity=".08"/><stop offset=".5" stop-color="#0891b2" stop-opacity=".7"/><stop offset="1" stop-color="#7c3aed" stop-opacity=".1"/>
+    </linearGradient>
+    <filter id="flow-monitor-light-glow" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="9" stdDeviation="10" flood-color="#0f172a" flood-opacity=".2"/><feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#0891b2" flood-opacity=".32"/></filter>
+    <filter id="flow-monitor-light-soft" x="-50%" y="-50%" width="200%" height="210%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#0f172a" flood-opacity=".18"/><feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="#0891b2" flood-opacity=".3"/></filter>
+  </defs>
+  <path d="M26 150H106l10-10H204l9 10H294" stroke="url(#flow-monitor-light-rail)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M35 160H285" stroke="#0f172a" stroke-opacity=".14" stroke-width="2" stroke-linecap="round"/>
+  <g stroke="#0891b2" stroke-opacity=".45" stroke-width="2" stroke-linecap="round">
+    <path d="M70 153v12M160 153v17M250 153v12"/>
+    <circle cx="70" cy="169" r="2.5" fill="#0891b2" fill-opacity=".65"/>
+    <circle cx="160" cy="174" r="2.5" fill="#7c3aed" fill-opacity=".65"/>
+    <circle cx="250" cy="169" r="2.5" fill="#059669" fill-opacity=".65"/>
+  </g>
+  <g stroke="#0891b2" stroke-opacity=".45" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M44 52h22l12 12"/><circle cx="44" cy="52" r="2.5" fill="#0891b2" fill-opacity=".65"/>
+    <path d="M272 62h-20l-12 12"/><circle cx="272" cy="62" r="2.5" fill="#059669" fill-opacity=".65"/>
+    <path d="M250 150v-18"/><circle cx="250" cy="132" r="2.5" fill="#7c3aed" fill-opacity=".65"/>
+  </g>
+  <ellipse cx="160" cy="152" rx="110" ry="17.6" fill="url(#flow-monitor-light-floor)"/>
+  <path d="M48.4 147.5L57.9 147.5L57.3 151L55.6 152.5L46.1 152.5L46.7 149Z" fill="#0891b2" filter="url(#flow-monitor-light-soft)"/>
+  <path d="M228.4 147.5L237.9 147.5L237.3 151L235.6 152.5L226.1 152.5L226.7 149Z" fill="#059669" filter="url(#flow-monitor-light-soft)"/>
+  <path d="M22 109.5L99.9 109.5L121 67.3L163.5 174.5L197.5 97.9L208.8 115.5L284 115.5L284 96.5L219.2 96.5L194.5 58.1L164.5 125.5L123 20.7L88.1 90.5L22 90.5Z" fill="url(#flow-monitor-light-green)" filter="url(#flow-monitor-light-glow)"/>
+  <path d="M22 109.5L99.9 109.5L121 67.3L163.5 174.5L197.5 97.9L208.8 115.5L284 115.5L284 96.5L219.2 96.5L194.5 58.1L164.5 125.5L123 20.7L88.1 90.5L22 90.5Z" stroke="#0f172a" stroke-opacity=".42" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M22 103.5L96.2 103.5L121.6 52.6L163.8 159L196.6 85.3L212.1 109.5L284 109.5L284 102.5L215.9 102.5L195.4 70.7L164.2 141L122.4 35.4L91.8 96.5L22 96.5Z" fill="#ffffff" fill-opacity="0.26"/>
+  <circle cx="296" cy="106" r="9" fill="#059669" filter="url(#flow-monitor-light-soft)"/>
+  <circle cx="296" cy="106" r="9" stroke="#0f172a" stroke-opacity=".42" stroke-width="2"/>
+  <circle cx="296" cy="106" r="16" stroke="#059669" stroke-opacity=".4" stroke-width="2"/>
+</svg>

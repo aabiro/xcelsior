@@ -22,8 +22,8 @@ type PriceMode = "spot" | "ondemand";
 type SiteTone = "cyan" | "coral" | "gold" | "green" | "violet";
 
 const WORKLOADS = [
-  { key: "training", icon: "activity", art: "/gpu-fleet/workload-training.svg", tone: "violet" as const },
-  { key: "inference", icon: "sparkle", art: "/gpu-fleet/workload-inference.svg", tone: "cyan" as const },
+  { key: "training", icon: "activity", art: "training", tone: "violet" as const },
+  { key: "inference", icon: "sparkle", art: "inference", tone: "cyan" as const },
 ] as const;
 
 const FLAGSHIP = [
@@ -464,7 +464,8 @@ export function GPUAvailabilityContent() {
             {WORKLOADS.map(({ key, icon, art, tone }) => (
               <article key={key} className="site-feature-card site-media-card" data-tone={tone}>
                 <div className="site-media-art">
-                  <Image src={art} alt="" fill className="site-media-art-image" />
+                  <Image src={`/gpu-fleet/${art}.dark.svg`} alt="" fill className="site-media-art-image site-theme-dark" />
+                  <Image src={`/gpu-fleet/${art}.light.svg`} alt="" fill className="site-media-art-image site-theme-light" />
                 </div>
                 <div className="site-media-card-body">
                   <div className="site-icon-box">
@@ -516,10 +517,16 @@ export function GPUAvailabilityContent() {
             </article>
             <div className="site-media-panel site-map-panel">
               <Image
-                src="/gpu-fleet/spot-pulse.svg"
+                src="/gpu-fleet/fleet-health.dark.svg"
                 alt={t("gpus.compliance_map_alt")}
                 fill
-                className="site-map-image"
+                className="site-map-image site-theme-dark"
+              />
+              <Image
+                src="/gpu-fleet/fleet-health.light.svg"
+                alt={t("gpus.compliance_map_alt")}
+                fill
+                className="site-map-image site-theme-light"
               />
               <div className="site-map-footer">
                 <span>{t("gpus.compliance_map_caption")}</span>
@@ -663,7 +670,8 @@ export function GPUAvailabilityContent() {
               <div className="site-callout-visual">
                 {/* public/ is served `immutable` for a year through Cloudflare: changed
                     art needs a new file name, or visitors keep the cached old one. */}
-                <Image src="/gpu-fleet/deploy-pipeline-v2.svg" alt="" fill className="site-callout-visual-image" />
+                <Image src="/gpu-fleet/pipeline.dark.svg" alt="" fill className="site-callout-visual-image site-theme-dark" />
+                <Image src="/gpu-fleet/pipeline.light.svg" alt="" fill className="site-callout-visual-image site-theme-light" />
               </div>
             </div>
             <div className="site-timeline">

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" fill="none">
+  <defs>
+    <linearGradient id="flow-launch-light-fill" x1=".14" y1=".06" x2=".8" y2=".96">
+      <stop stop-color="#0891b2"/><stop offset=".56" stop-color="#7c3aed"/><stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="flow-launch-light-cyan" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#0891b2"/><stop offset="1" stop-color="#7c3aed"/></linearGradient>
+    <linearGradient id="flow-launch-light-violet" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#7c3aed"/><stop offset="1" stop-color="#e11d48"/></linearGradient>
+    <linearGradient id="flow-launch-light-green" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#059669"/><stop offset="1" stop-color="#0891b2"/></linearGradient>
+    <linearGradient id="flow-launch-light-warm" x1=".14" y1=".06" x2=".8" y2=".96"><stop stop-color="#d97706"/><stop offset="1" stop-color="#e11d48"/></linearGradient>
+    <radialGradient id="flow-launch-light-floor"><stop stop-color="#0891b2" stop-opacity=".34"/><stop offset="1" stop-color="#7c3aed" stop-opacity="0"/></radialGradient>
+    <linearGradient id="flow-launch-light-rail" x1="19.2" y1="0" x2="300.8" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0891b2" stop-opacity=".08"/><stop offset=".5" stop-color="#0891b2" stop-opacity=".7"/><stop offset="1" stop-color="#7c3aed" stop-opacity=".1"/>
+    </linearGradient>
+    <filter id="flow-launch-light-glow" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="9" stdDeviation="10" flood-color="#0f172a" flood-opacity=".2"/><feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#0891b2" flood-opacity=".32"/></filter>
+    <filter id="flow-launch-light-soft" x="-50%" y="-50%" width="200%" height="210%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#0f172a" flood-opacity=".18"/><feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="#0891b2" flood-opacity=".3"/></filter>
+  </defs>
+  <path d="M26 150H94l10-10H196l9 10H294" stroke="url(#flow-launch-light-rail)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M35 160H285" stroke="#0f172a" stroke-opacity=".14" stroke-width="2" stroke-linecap="round"/>
+  <g stroke="#0891b2" stroke-opacity=".45" stroke-width="2" stroke-linecap="round">
+    <path d="M70 153v12M160 153v17M250 153v12"/>
+    <circle cx="70" cy="169" r="2.5" fill="#0891b2" fill-opacity=".65"/>
+    <circle cx="160" cy="174" r="2.5" fill="#7c3aed" fill-opacity=".65"/>
+    <circle cx="250" cy="169" r="2.5" fill="#059669" fill-opacity=".65"/>
+  </g>
+  <g stroke="#0891b2" stroke-opacity=".45" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M52 44h20l12 12"/><circle cx="52" cy="44" r="2.5" fill="#7c3aed" fill-opacity=".65"/>
+    <path d="M276 122h-18"/><circle cx="276" cy="122" r="2.5" fill="#059669" fill-opacity=".65"/>
+    <path d="M60 110h16"/><circle cx="60" cy="110" r="2.5" fill="#0891b2" fill-opacity=".65"/>
+  </g>
+  <ellipse cx="150" cy="152" rx="84" ry="13.4" fill="url(#flow-launch-light-floor)"/>
+  <path d="M44.4 147.5L53.9 147.5L53.3 151L51.6 152.5L42.1 152.5L42.7 149Z" fill="#0891b2" filter="url(#flow-launch-light-soft)"/>
+  <path d="M222.4 147.5L231.9 147.5L231.3 151L229.6 152.5L220.1 152.5L220.7 149Z" fill="#059669" filter="url(#flow-launch-light-soft)"/>
+  <path d="M272.4 147.5L281.9 147.5L281.3 151L279.6 152.5L270.1 152.5L270.7 149Z" fill="#d97706" filter="url(#flow-launch-light-soft)"/>
+  <path d="M128 131.9L145.3 140.3L131.1 156.5L119.8 170.6L124.6 149.8Z" fill="url(#flow-launch-light-warm)" filter="url(#flow-launch-light-soft)"/>
+  <path d="M128 131.9L145.3 140.3L131.1 156.5L119.8 170.6L124.6 149.8Z" stroke="#0f172a" stroke-opacity=".42" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M194.9 16.7L196.6 49.6L172.1 107.1L177.5 143.6L171.9 155.1L156.6 131.6L145.3 140.3L128 131.9L127.9 117.6L100 120L105.6 108.5L137.6 90.3L167.9 35.6Z" fill="url(#flow-launch-light-fill)" filter="url(#flow-launch-light-glow)"/>
+  <path d="M194.9 16.7L196.6 49.6L172.1 107.1L177.5 143.6L171.9 155.1L156.6 131.6L145.3 140.3L128 131.9L127.9 117.6L100 120L105.6 108.5L137.6 90.3L167.9 35.6Z" stroke="#0f172a" stroke-opacity=".42" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M194.9 16.7L167.9 35.6L137.6 90.3L135.1 121.1L139.4 123.2L185.7 28.3Z" fill="#ffffff" fill-opacity=".18"/>
+  <path d="M169.5 52.4L182.4 58.7L176.1 71.7L163.1 65.3Z" fill="#ffffff" fill-opacity=".92" filter="url(#flow-launch-light-soft)"/>
+  <g stroke="#0891b2" stroke-opacity=".5" stroke-width="2" stroke-linecap="round"><path d="M100 92l-20 40M122 118l-11 22M228 34l9-18"/></g>
+</svg>
