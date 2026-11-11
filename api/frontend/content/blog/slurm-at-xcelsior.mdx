@@ -1,0 +1,80 @@
+---
+title: "Slurm at Xcelsior: Scheduling Across Clusters Without Giving Up Accounting"
+description: "How Xcelsior bridges multi-cluster placement with Slurm's native batch scheduler, pinned-host-key SSH transport, and sacct-backed shadow accounting."
+date: "2026-11-11"
+author: "Xcelsior Engineering"
+tags: ["HPC", "Slurm", "Architecture", "Distributed Systems"]
+image: "/blog/slurm-at-xcelsior.png"
+---
+
+Slurm schedules GPUs inside a cluster. Xcelsior schedules across clusters.
+
+Inside a single research lab or university supercomputer, Slurm is already the right tool for the job. It understands node topology, `gres/gpu` bindings, partition limits, fair-share queues, and preemption policies that sites have spent years tuning. Replacing Slurm inside an existing HPC site is neither realistic nor desirable.
+
+What Slurm does not try to be is a cross-site control plane with tenant isolation, wallet preflight, scoped agent tools, and per-run financial settlement. That is the layer Xcelsior is building on top of it — treating each Slurm cluster as a first-class execution target alongside individual container hosts, without asking an HPC operator to rip out `slurmctld` or `slurmdbd`.
+
+*Status note (November 2026): Xcelsior's Slurm stack is lab-validated and currently restricted to Xcelsior operators while shadow-billing validation runs. No external partner cluster is connected yet, and Slurm submission is not yet open to customer accounts. For a plain checklist of what is live versus still gated, see [HPC & Slurm Integration: Where It Stands](/blog/hpc-slurm-launch).*
+
+---
+
+## Why an Adapter Instead of Raw Script Passthrough
+
+Handing a tenant's arbitrary `sbatch` script directly to a shared login node makes every site quirk and shell escape the platform's problem. Instead, Xcelsior's Slurm adapter translates a structured job specification — command, GPU count, CPU and memory bounds, walltime, and environment — into a deterministic batch script rendered by Xcelsior itself.
+
+- **Structured submission via `sbatch`.** Jobs are submitted once from a claimed `slurm_submissions` row (`slurm:<cluster_id>`), eliminating duplicate submissions on worker retry while keeping `jobs.host_id` cleanly separated from single-host container leases.
+- **State reconciliation off the hot path.** Dashboards, API reads, and MCP operator tools never shell out to `squeue` on request. A background reconciler polls each cluster on its configured `poll_interval_seconds` window (`30` to `3600` seconds) and projects state into PostgreSQL so reads touch Xcelsior's copy rather than adding load to the cluster controller.
+- **Bounded lifecycle operations.** Cancellations route through `scancel`, and stdout/stderr capture enforces explicit byte-size ceilings before persisting output metadata.
+
+---
+
+## Cluster Profiles: Encoding Site Policy Explicitly
+
+No two Slurm installations express GPU requests or walltime rules identically. One cluster expects `--gpus-per-node`, another requires `--gres=gpu:<model>:<count>` on a named partition, and sites differ on whether a suspended job continues holding device memory.
+
+Rather than scattering per-site conditionals across scheduler code, Xcelsior models each site as a typed **cluster profile** in the `slurm_clusters` registry:
+
+| Profile Field | What It Governs |
+|---|---|
+| Partition & GPU descriptors | Allowed partitions, GPU model identifiers, GRES request syntax, and maximum walltime limits |
+| `suspend_holds_gres` | Whether suspended allocations keep holding GPUs (and therefore accrue suspended GPU-seconds) or release GRES back to the node |
+| `poll_interval_seconds` | Reconciler cadence (`30s`–`3600s`) tuned to controller load |
+| Gate flags (`marketplace`, `agent_access`) | Explicit per-cluster switches controlling whether capacity can ever accept marketplace or agent-originated work |
+
+---
+
+## Pinned-Host-Key Transport: Zero Trust-on-First-Use
+
+Connecting a cloud control plane to an HPC head node over SSH normally invites two operational hazards: ambient `~/.ssh` state leaking across environments, and multiplexed sockets outliving a key rotation.
+
+Xcelsior's transport layer (`slurm_transport.py`) eliminates both:
+
+1. **Ephemeral `tmpfs` configuration.** Every runner materializes its own `-F` SSH config, `known_hosts`, and short-lived key file inside a `0700` directory on `/dev/shm` — nothing is ever read from `~/.ssh`, and credentials referenced as `env:NAME` exist on `tmpfs` only while establishing the master connection.
+2. **Mandatory host-key pinning.** Each cluster's public host key (`ssh-ed25519` or NIST ECDSA) is pinned at registration with `StrictHostKeyChecking yes`. If a head node's key changes unexpectedly, the runner aborts immediately with `host_key_mismatch` — never prompting and never trusting on first use.
+3. **Cryptographically bound `ControlMaster` sockets.** Consecutive `squeue`, `sacct`, log-tail, and `scancel` calls share a persistent `ControlMaster` (`120s` persist window) so a reconcile pass costs one handshake instead of dozens. Crucially, the socket filename embeds a digest of both the pinned host key and the credential reference: because OpenSSH mux clients skip host-key verification once a master is open, re-pinning a host key or rotating a credential automatically shifts to a new socket path and forces a fresh cryptographic check.
+
+---
+
+## Billing From `sacct`, Never From a Polling Clock
+
+If a control plane bills a batch job by recording when its poller first noticed the job start and when its poller first noticed it finish, any network hiccup or polling interval inflates the customer's bill. Worse, if Slurm requeues or preempts a job under the same Slurm job ID, a naive query sees only the final allocation and silently drops earlier runs.
+
+Xcelsior derives billable time strictly from Slurm's own accounting database (`slurmdbd`) via `sacct -D -X`, emitting one auditable `slurm_billing_segments` row per allocation run:
+
+| Accounting Rule | How Xcelsior Settles the Segment |
+|---|---|
+| `never_started` | Cancelled or rejected before `Start` in `slurmdbd` — bills zero seconds |
+| `ran_to_end` | `COMPLETED`, `FAILED`, `OUT_OF_MEMORY`, `DEADLINE`, or post-start `CANCELLED` — bills `ElapsedRaw` |
+| `timeout_capped_to_limit` | `TIMEOUT` — bills `min(ElapsedRaw, timelimit)` so Slurm's `KillWait` teardown lag is never charged to the tenant |
+| `preempted_to_preemption` | `PREEMPTED` — bills `ElapsedRaw` up to the exact preemption timestamp |
+| `requeued_run` | Earlier `REQUEUED`, `NODE_FAIL`, or `BOOT_FAIL` runs settle as distinct rows alongside the subsequent retry |
+| `suspended_gres_held` / `suspended_gres_released` | Adds suspended seconds only when the cluster profile declares `suspend_holds_gres = true` |
+
+Every settled run records `shadow_cost_micros` against the cluster's rate card without debiting customer wallets. A daily drift report compares Xcelsior's summed GPU-seconds against `slurmdbd`'s own totals per cluster, requiring sub-1% drift across a full shadow week before live charging is ever enabled.
+
+---
+
+## Where Things Stand Today
+
+On **November 7, 2026**, the adapter, transport, and accounting pipeline passed validation on Xcelsior's two-node lab cluster (one GPU compute node and one CPU node), and the 7-day staging shadow-billing run kicked off on **November 10, 2026**.
+
+Today, the HPC console and `/api/v1/hpc/*` read surfaces remain **operator-only**, with **no external partner cluster connected yet**. Once shadow-billing drift gates close and our first partner cluster completes onboarding, we will publish the full multi-cluster placement benchmarks and open early access. Follow ongoing updates in [HPC & Slurm Integration: Where It Stands](/blog/hpc-slurm-launch) or reach out to [support@xcelsior.ca](mailto:support@xcelsior.ca) if you operate a Slurm cluster and want to talk architecture.

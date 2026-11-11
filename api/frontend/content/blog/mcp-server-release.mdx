@@ -1,0 +1,67 @@
+---
+title: "Introducing Xcelsior MCP: 87 Scoped Tools for Agent-Driven GPU Compute"
+description: "Connect Claude, ChatGPT, Cursor, VS Code, or headless CI agents to Xcelsior's GPU cloud over Streamable HTTP with paste-and-consent OAuth 2.1 and strict spend guardrails."
+date: "2026-11-11"
+author: "Xcelsior Team"
+tags: ["MCP", "AI Agents", "OAuth", "Developer Tools", "GPU Cloud"]
+image: "/blog/mcp-server-release.png"
+---
+
+AI coding and research agents can write PyTorch training loops, debug CUDA kernels, and package Docker images — right up until they need an actual GPU. At that point, the workflow usually drops back to a human opening tabs, copying long-lived API keys into plaintext config files, clicking through instance forms, and hoping an autonomous loop does not leave eight GPUs running overnight.
+
+Today we are releasing **Xcelsior MCP**, our hosted Model Context Protocol server at [https://mcp.xcelsior.ca/mcp](https://mcp.xcelsior.ca/mcp), published in the official MCP Registry as `io.github.aabiro/xcelsior`.
+
+With **87 scoped customer tools**, an AI assistant or autonomous workflow can discover live GPU availability, quote and execute approval-gated launch plans, manage serverless inference endpoints, attach persistent volumes, inspect telemetry, and track CAD billing — end to end, without ever touching an un-scoped API key.
+
+---
+
+## Paste One URL, Approve in the Browser
+
+For interactive clients — **Claude**, **ChatGPT**, **Grok**, **Cursor**, **VS Code**, and **Copilot Studio** — connecting takes a single Streamable HTTP URL: `https://mcp.xcelsior.ca/mcp`.
+
+There is no client secret to generate and nothing to paste into an environment file. When your client connects, Xcelsior runs a standards-compliant OAuth 2.1 handshake bound directly to `https://mcp.xcelsior.ca/mcp`:
+
+1. **Automatic discovery.** Calling `/mcp` unauthenticated returns `401` with `WWW-Authenticate` pointing to `/.well-known/oauth-protected-resource`, advertising the authorization server and canonical resource identifier.
+2. **Zero-friction client identity.** Clients identify themselves automatically via **Client ID Metadata Documents (CIMD)**, **RFC 7591 dynamic client registration** at `/oauth/register`, or the public `xcelsior-connector` client.
+3. **Explicit scope consent.** You sign in on Xcelsior and approve the exact scopes requested. Approvals are remembered per client, per scope set, and per resource, and can be revoked in one click under **Dashboard → Settings → AI Agents**.
+4. **Short-lived, resource-bound tokens.** The client exchanges the authorization code using **S256 PKCE** at `/oauth/token` for a ~1-hour access token (`aud: https://mcp.xcelsior.ca/mcp`) paired with a rotating 30-day refresh token.
+
+---
+
+## 87 Tools Built Around Real Spend & Security Boundaries
+
+Exposing a cloud control plane to an LLM by blindly wrapping every REST route is a recipe for accidental spend and privilege escalation. Every tool on Xcelsior MCP is backed by an explicit contract, output schema, and cumulative scope check.
+
+| Domain | What Your Agent Can Do |
+|---|---|
+| Discovery & Pricing | Query live marketplace GPU offers, compare spot vs. on-demand CAD rates, and simulate placement feasibility (`/api/v1/placements/simulate`) before spending a cent |
+| Approval-Gated Compute | Quote instances and multi-node image sweeps as immutable plans first; `create_instance` and `create_image_sweep` execute only what was approved, binding GPU count and rate by hash |
+| Lifecycle, Logs & SSH | Monitor container states, stream or download instance logs, manage SSH keys, and stop or tear down workloads cleanly |
+| Serverless & Volumes | Create and scale serverless inference endpoints, preview artifact promotions, and provision persistent volumes |
+| Billing & Spend Guardrails | Inspect CAD wallet balances, itemized usage statements, and top-up status with strict least-privilege scopes |
+| Provider Operations | Register hosts, inspect admission benchmarks, manage spot slot allocations, and check payout readiness |
+
+Two architectural rules enforce safety at the protocol boundary:
+
+- **No wildcard scope.** Xcelsior MCP has no `"all"` or `"api"` super-scope that bypasses domain checks. Tool requirements use cumulative `allOf` evaluation by default, and unknown tool names fail closed.
+- **Narrowed financial scopes.** Topping up your own wallet uses a dedicated `billing:topup` scope rather than full `billing:write`, and adding new payment cards stays strictly on first-party browser pages — an agent only ever references payment methods already on file.
+
+---
+
+## Headless Agents, CI Pipelines, and `npx`
+
+Not every agent has a human sitting at a browser to click an OAuth consent screen. For CI runners, scheduled jobs, and autonomous background services, Xcelsior supports two headless paths out of the box:
+
+- **OAuth `client_credentials` machine clients.** Mint a dedicated machine client with narrowed scopes in **Dashboard → Settings → Connect AI Agents** and exchange `client_id` + `client_secret` at `https://xcelsior.ca/oauth/token` (`grant_type=client_credentials` and `resource=https://mcp.xcelsior.ca/mcp`) for short-lived bearer tokens over Streamable HTTP.
+- **Local stdio bridge via npm (`@xcelsior-gpu/mcp`).** For local MCP hosts that speak stdio rather than remote Streamable HTTP, run `npx -y @xcelsior-gpu/mcp` with `XCELSIOR_ACCESS_TOKEN` set in the environment.
+
+---
+
+## Try It Now
+
+- **Hosted MCP endpoint:** `https://mcp.xcelsior.ca/mcp`
+- **MCP Registry entry:** `io.github.aabiro/xcelsior`
+- **Stdio CLI package:** `npx @xcelsior-gpu/mcp`
+- **Setup guide & agent credentials:** [xcelsior.ca/mcp](https://xcelsior.ca/mcp) and [docs.xcelsior.ca](https://docs.xcelsior.ca)
+
+Connect your editor or assistant, ask it what GPUs are available right now, and let us know what you build at [support@xcelsior.ca](mailto:support@xcelsior.ca).
