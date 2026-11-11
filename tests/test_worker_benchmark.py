@@ -42,7 +42,7 @@ def _install(monkeypatch, venv, *, image_present=True, pull_ok=False):
             return _done(json.dumps(venv))
         if cmd[:3] == ["docker", "image", "inspect"]:
             return _done(returncode=0 if image_present else 1)
-        if cmd[:2] == ["docker", "pull"]:
+        if cmd[0] == "docker" and "pull" in cmd:
             return _done(returncode=0 if pull_ok else 1)
         if cmd[:2] == ["docker", "run"]:
             return _done(json.dumps(TOWER_RTX3060))
@@ -64,7 +64,7 @@ def test_benchmarks_in_container_when_venv_has_no_torch(monkeypatch):
 def test_pulls_the_image_once_when_missing(monkeypatch):
     calls = _install(monkeypatch, NO_TORCH, image_present=False, pull_ok=True)
     assert worker_agent.run_compute_benchmark() == TOWER_RTX3060
-    assert ["docker", "pull", worker_agent.BENCHMARK_IMAGE] in calls
+    assert worker_agent.registry_docker_cmd("pull", worker_agent.BENCHMARK_IMAGE) in calls
 
 
 def test_no_report_when_the_image_is_unavailable(monkeypatch):

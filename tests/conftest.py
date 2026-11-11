@@ -426,6 +426,22 @@ def _clear_module_test_client_cookies():
             pass
 
 
+@pytest.fixture(autouse=True)
+def _registry_config_in_tmp(tmp_path, monkeypatch):
+    """Keep the worker's docker config out of the developer's real state dir.
+
+    Only when worker_agent is already imported: importing it here would change
+    which tests see a fresh module.
+    """
+    import sys as _sys
+
+    agent = _sys.modules.get("worker_agent")
+    if agent is not None and hasattr(agent, "_registry_config_dir_cached"):
+        monkeypatch.setattr(agent, "_WORKER_STATE_DIR", str(tmp_path / "worker-state"))
+        monkeypatch.setattr(agent, "_registry_config_dir_cached", None)
+    yield
+
+
 @pytest.fixture(scope="session", autouse=True)
 def stripe_compute_catalog():
     """Import the versioned Price snapshot for launch integration tests.

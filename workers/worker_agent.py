@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 if not os.environ.get("XCELSIOR_SKIP_DOTENV"):
     load_dotenv()
 
+import base64
 import json
 import logging
 import os
@@ -35,6 +36,7 @@ import shutil
 import subprocess
 import shlex
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -806,6 +808,118 @@ def _run_benchmark(cmd: list[str], timeout: int) -> dict | None:
     return None
 
 
+# ── Registry credentials for pulls and pushes ────────────────────────
+# The docker CLI reads ~/.docker/config.json of whoever runs it. On a provider
+# host that file belongs to the operator: it can name a desktop credential
+# helper (which has no session bus under systemd, so every pull dies with
+# "error getting credentials"), and it can hold the operator's own logins,
+# which a tenant-named image must never be pulled with. The worker therefore
+# runs registry operations against its own config directory, holding only the
+# credentials the worker was itself provisioned with in its environment.
+_registry_config_lock = threading.Lock()
+_registry_config_dir_cached: str | None = None
+
+
+def _registry_host(url: str) -> str:
+    host = url.strip()
+    for scheme in ("https://", "http://"):
+        if host.startswith(scheme):
+            host = host[len(scheme) :]
+    return host.split("/", 1)[0]
+
+
+def _registry_auths_from_env() -> dict:
+    """Registry logins the worker was provisioned with, keyed by registry host."""
+    auths: dict = {}
+
+    def _add(host: str, username: str, password: str) -> None:
+        if host and username and password:
+            token = base64.b64encode(f"{username}:{password}".encode()).decode()
+            auths[host] = {"auth": token}
+
+    _add(
+        _registry_host(os.environ.get("XCELSIOR_REGISTRY_URL", "")),
+        os.environ.get("XCELSIOR_REGISTRY_USERNAME", "").strip(),
+        os.environ.get("XCELSIOR_REGISTRY_PASSWORD", ""),
+    )
+    # NGC's documented login: the literal user "$oauthtoken" and the API key.
+    _add("nvcr.io", "$oauthtoken", os.environ.get("NGC_API_KEY", "").strip())
+    return auths
+
+
+def _registry_config_dir() -> str:
+    """The worker's own docker config directory, written once per process.
+
+    Holds ``auths`` only: no credsStore, no credHelpers, nothing inherited from
+    the host account. If the state directory cannot be written a private
+    temporary directory is used instead, so a pull is never run against the
+    operator's config as a fallback.
+    """
+    global _registry_config_dir_cached
+    with _registry_config_lock:
+        if _registry_config_dir_cached:
+            return _registry_config_dir_cached
+        body = json.dumps({"auths": _registry_auths_from_env()})
+        target = os.path.join(_WORKER_STATE_DIR, "docker-config")
+        try:
+            os.makedirs(target, mode=0o700, exist_ok=True)
+            os.chmod(target, 0o700)
+        except OSError as e:
+            log.warning("Registry config dir %s unusable (%s); using a temporary one", target, e)
+            target = tempfile.mkdtemp(prefix="xcelsior-docker-config-")
+        tmp_path = os.path.join(target, "config.json.tmp")
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(body)
+        os.replace(tmp_path, os.path.join(target, "config.json"))
+        _registry_config_dir_cached = target
+        return target
+
+
+def registry_docker_cmd(*args: str) -> list[str]:
+    """``docker <args>`` bound to the worker's own registry credentials."""
+    return ["docker", "--config", _registry_config_dir(), *args]
+
+
+_PULL_FAILURE_REASONS = (
+    # (substrings of docker's last output line, what to tell the tenant)
+    (
+        ("error getting credentials", "credential helper"),
+        "this host could not read its own registry credentials; the image itself was not at fault",
+    ),
+    (
+        ("manifest unknown", "not found", "repository does not exist"),
+        "the image or tag was not found in the registry",
+    ),
+    (
+        ("unauthorized", "denied", "authentication required"),
+        "the registry refused access; the image is private or does not exist",
+    ),
+    (("no space left",), "the host is out of disk space"),
+    (
+        (
+            "i/o timeout",
+            "connection refused",
+            "tls handshake",
+            "no such host",
+            "timeout exceeded",
+            "network is unreachable",
+        ),
+        "the registry could not be reached from this host",
+    ),
+    (("toomanyrequests", "rate limit"), "the registry rate-limited this host"),
+)
+
+
+def _pull_failure_message(exit_code: int, last_line: str) -> str:
+    """One line a tenant can act on, without repeating the host's raw docker output."""
+    lowered = (last_line or "").lower()
+    for needles, reason in _PULL_FAILURE_REASONS:
+        if any(n in lowered for n in needles):
+            return f"Image pull failed: {reason} (exit {exit_code})"
+    return f"Image pull failed (exit {exit_code})"
+
+
 def _ensure_image(image: str) -> bool:
     try:
         if (
@@ -815,7 +929,7 @@ def _ensure_image(image: str) -> bool:
             return True
         log.info("Pulling benchmark image %s (first run only)...", image)
         pulled = subprocess.run(
-            ["docker", "pull", image], capture_output=True, text=True, timeout=1800
+            registry_docker_cmd("pull", image), capture_output=True, text=True, timeout=1800
         )
     except (OSError, subprocess.TimeoutExpired) as e:
         log.warning("Benchmark image %s unavailable: %s", image, e)
@@ -2117,7 +2231,7 @@ def _dispatch_agent_commands(commands: list) -> int:
                         elif image_ref.startswith(registry_url.rstrip("/")):
                             # Step 2: docker push.
                             push = subprocess.run(
-                                ["docker", "push", image_ref],
+                                registry_docker_cmd("push", image_ref),
                                 capture_output=True,
                                 text=True,
                                 timeout=900,
@@ -5628,7 +5742,7 @@ def run_job(job):
 
             with _image_pull_lock:
                 pull_proc = subprocess.Popen(
-                    ["docker", "pull", image],
+                    registry_docker_cmd("pull", image),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
@@ -5636,10 +5750,12 @@ def run_job(job):
                 )
                 pull_last_send = time.time()
                 pull_lines = []
+                pull_tail = ""
                 for raw_line in pull_proc.stdout:
                     line = raw_line.rstrip("\n")
                     if not line:
                         continue
+                    pull_tail = line
                     # Send pull progress to API every 3 seconds (avoid flooding)
                     now = time.time()
                     if now - pull_last_send >= 3.0:
@@ -5655,8 +5771,8 @@ def run_job(job):
 
                 pull_rc = pull_proc.wait(timeout=1800)
             if pull_rc != 0:
-                err = f"Image pull failed (exit {pull_rc})"
-                log.error("Image pull failed for %s (exit %d)", image, pull_rc)
+                err = _pull_failure_message(pull_rc, pull_tail)
+                log.error("Image pull failed for %s (exit %d): %s", image, pull_rc, pull_tail[:300])
                 _push_log_lines(
                     job_id,
                     [
