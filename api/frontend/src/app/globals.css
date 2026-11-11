@@ -1010,8 +1010,9 @@ html.light .oauth-secret-value { color: #0e7490; }
    card reads as tinted prose rather than a rainbow. They are theme tokens,
    so light and dark follow on their own. */
 .code-card {
-  --code-bg: var(--color-surface);
-  --code-bar-bg: var(--color-surface-hover);
+  /* Opaque, so the dashboard's grid does not show through the code. */
+  --code-bg: var(--popover-solid, var(--color-navy));
+  --code-bar-bg: color-mix(in srgb, var(--code-text) 4%, var(--code-bg));
   --code-border: var(--color-border);
   --code-radius: 12px;
   --code-shadow: 0 1px 2px rgba(5, 7, 14, 0.08);

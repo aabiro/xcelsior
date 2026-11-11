@@ -2844,7 +2844,7 @@ html:has(.site-nav) {
    site's own surface, type and token palette. Variables only. */
 .marketing-site .site-marketing-code {
   --code-bg: rgba(8, 11, 20, 0.78);
-  --code-bar-bg: rgba(255, 255, 255, 0.04);
+  --code-bar-bg: color-mix(in srgb, var(--text) 4%, transparent);
   --code-border: var(--edge);
   --code-radius: 18px;
   --code-shadow: var(--shadow-panel);
@@ -2863,12 +2863,11 @@ html:has(.site-nav) {
   max-width: 100%;
 }
 
+/* Only the surface changes in light: everything else above is a theme token.
+   (The light card used --surface and --border, which this theme does not
+   define, so it rendered transparent with no edge.) */
 .marketing-site[data-theme="light"] .site-marketing-code {
-  --code-bg: var(--surface);
-  --code-bar-bg: var(--surface-hover);
-  --code-border: var(--border);
-  --code-shadow: var(--shadow-sm);
-  --code-text: var(--color-text-primary);
+  --code-bg: var(--panel);
 }
 
 .site-download-primary,
