@@ -128,6 +128,10 @@ export function SellerProfileCard({
   const address = accountAddress(user, provider);
   const readyAddress = addressReady(address);
   const effectiveGst = kind === "gst" ? taxId.trim() : kind === "sin" || kind === "bn" ? gst.trim() : "";
+  const fieldsFilled =
+    legalName.trim().length >= 2 &&
+    Boolean(kind) &&
+    Boolean(taxId.trim() || provider?.tax_id_last4);
   const isDirty =
     legalName.trim() !== savedState.legalName ||
     kind !== savedState.kind ||
@@ -245,7 +249,7 @@ export function SellerProfileCard({
       )}
       {error && <p role="alert" className="rounded-xl border border-red-400/25 bg-red-400/5 px-4 py-3 text-sm text-red-400">{error}</p>}
       <div className="space-y-3">
-        <Button className={onboarding ? "h-12 w-full text-base" : ""} type="submit" disabled={saving || (!onboarding && !isDirty)}>
+        <Button className={onboarding ? "h-12 w-full text-base" : ""} type="submit" disabled={saving || !fieldsFilled || !isDirty}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {saving ? t("dash.earnings.seller_saving") : onboarding ? t("dash.earnings.seller_continue") : t("dash.earnings.seller_save")}
           {onboarding && !saving ? <ArrowRight className="h-4 w-4" /> : null}

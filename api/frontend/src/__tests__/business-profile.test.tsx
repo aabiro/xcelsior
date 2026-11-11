@@ -183,10 +183,12 @@ describe("BusinessProfileSection", () => {
     expect(save).toHaveProperty("disabled", true);
   });
 
-  it("explains a bad website once the field is left, and will not save it", () => {
-    render(<BusinessProfileSection user={business()} onUpdated={vi.fn()} />);
+  it("explains a bad website once edited and left, but not on bare blur", () => {
+    render(<BusinessProfileSection user={business({ business_website: "javascript:alert(1)" })} onUpdated={vi.fn()} />);
     const website = screen.getByLabelText(/dash.business.website/);
-    fireEvent.change(website, { target: { value: "javascript:alert(1)" } });
+    fireEvent.blur(website);
+    expect(screen.queryByText("dash.business.website_invalid")).toBeNull();
+    fireEvent.change(website, { target: { value: "ftp://example.com" } });
     expect(screen.queryByText("dash.business.website_invalid")).toBeNull();
     fireEvent.blur(website);
     expect(screen.getByText("dash.business.website_invalid")).toBeTruthy();
