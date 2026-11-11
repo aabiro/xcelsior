@@ -1477,6 +1477,26 @@ class TestAgentEndpoints:
         assert r.status_code == 200
         assert r.json()["received"] is True
 
+    def test_agent_mining_episode_for_an_unknown_job_is_refused(self):
+        """A response episode names a job; one the control plane cannot find is a 404."""
+        r = client.post(
+            "/agent/mining-alert",
+            json={
+                "host_id": "h-suspect",
+                "confidence": 0.95,
+                "job_id": "job-does-not-exist",
+                "container_name": "xcl-1",
+                "rung": "flag",
+                "evidence": {"signals": []},
+            },
+        )
+        assert r.status_code == 404
+        r = client.post(
+            "/agent/mining-alert",
+            json={"host_id": "h-suspect", "confidence": 0.5, "job_id": "j", "rung": "pause"},
+        )
+        assert r.status_code == 422
+
     def test_agent_benchmark(self):
         """POST /agent/benchmark records compute score."""
         r = client.post(

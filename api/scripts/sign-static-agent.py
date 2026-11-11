@@ -25,6 +25,7 @@ SIGNABLE = (
     "egress_isolation.py",
     "worker_privileged.py",
     "hardware_isolation.py",
+    "mining_response.py",
     "worker-requirements.txt",
 )
 
@@ -41,6 +42,7 @@ _PKG_FOR_FILE = {
     "egress_isolation.py": "hosts",
     "worker_privileged.py": "workers",
     "hardware_isolation.py": "workers",
+    "mining_response.py": "workers",
 }
 
 

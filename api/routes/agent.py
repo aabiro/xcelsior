@@ -358,11 +358,32 @@ class VersionReport(BaseModel):
 
 
 class MiningAlert(BaseModel):
+    """A worker's word on resource abuse.
+
+    The GPU-only form (``gpu_index`` + ``reason``) is logged and broadcast.
+    With ``job_id`` it is one pass of a response episode (CVP-01 §3): the
+    control plane records it, raises the alert on a rung change, and answers
+    with the account prior, prior incidents and any administrator decision.
+    """
+
     host_id: str = Field(min_length=1, max_length=64)
-    gpu_index: int = Field(ge=0, le=64)
+    gpu_index: int = Field(ge=0, le=64, default=0)
     confidence: float = Field(ge=0.0, le=1.0)
-    reason: str = Field(max_length=500)
+    reason: str = Field(max_length=500, default="")
     timestamp: float | None = None
+    job_id: str | None = Field(default=None, min_length=1, max_length=64)
+    container_name: str | None = Field(default=None, min_length=1, max_length=128)
+    rung: str | None = Field(default=None, pattern=r"^(flag|throttle|suspend|terminate)$")
+    evidence: dict | None = None
+
+    @field_validator("evidence")
+    @classmethod
+    def _evidence_small(cls, v):
+        import json as _json
+
+        if v is not None and len(_json.dumps(v, default=str)) > 65_536:
+            raise ValueError("evidence too large")
+        return v
 
 
 # ── Model: BenchmarkReport ──
@@ -802,10 +823,28 @@ def api_agent_degraded(report: AgentDegradedReport, request: Request):
 def api_mining_alert(alert: MiningAlert, request: Request):
     """Receive mining detection alert from an agent."""
     _require_agent_auth(request, host_id=alert.host_id)
+    reply: dict = {"ok": True, "received": True}
+    if alert.job_id:
+        from mining_review import record_episode
+
+        reply = record_episode(
+            host_id=alert.host_id,
+            job_id=alert.job_id,
+            container_name=alert.container_name or "",
+            rung=alert.rung,
+            confidence=alert.confidence,
+            evidence=alert.evidence,
+        )
+        if not reply.get("ok"):
+            raise HTTPException(
+                404 if reply.get("error") == "unknown job" else 403, reply.get("error")
+            )
     log.warning(
-        "MINING ALERT host=%s gpu=%d confidence=%.0f%% — %s",
+        "MINING ALERT host=%s gpu=%d job=%s rung=%s confidence=%.0f%% — %s",
         alert.host_id,
         alert.gpu_index,
+        alert.job_id or "-",
+        alert.rung or "-",
         alert.confidence * 100,
         alert.reason,
     )
@@ -814,11 +853,13 @@ def api_mining_alert(alert: MiningAlert, request: Request):
         {
             "host_id": alert.host_id,
             "gpu_index": alert.gpu_index,
+            "job_id": alert.job_id,
+            "rung": alert.rung,
             "confidence": alert.confidence,
             "reason": alert.reason,
         },
     )
-    return {"ok": True, "received": True}
+    return reply
 
 
 @router.post("/agent/benchmark", tags=["Agent"])

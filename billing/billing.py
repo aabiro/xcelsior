@@ -3809,12 +3809,32 @@ class BillingEngine:
                      AND a.started_at IS NOT NULL""",
             ).fetchall()
 
+        # A container the resource-abuse response has paused is not computing:
+        # it is not billed while suspended, and after a resume the clock
+        # restarts at the resume (CVP-01 §3, suspend rung).
+        paused_episodes: dict = {}
+        try:
+            from db import DatabaseOps
+            from mining_review import JOB_NS
+
+            with pool.connection() as conn:
+                conn.row_factory = dict_row
+                paused_episodes = DatabaseOps.get_states(
+                    conn, [f"{JOB_NS}{j['job_id']}" for j in running], backend="postgres"
+                )
+        except Exception as e:
+            log.warning("AUTO-BILLING: suspension lookup failed, billing as running: %s", e)
+
         for job in running:
             try:
                 job_id = job["job_id"]
                 customer_id = job["owner"]
                 if not customer_id:
                     log.warning("AUTO-BILLING: skipping job %s — no owner set", job_id)
+                    continue
+                episode = paused_episodes.get(f"{JOB_NS}{job_id}") or {}
+                if episode.get("rung") == "suspend" and not episode.get("closed"):
+                    suspended += 1
                     continue
                 with pool.connection() as conn:
                     conn.row_factory = dict_row
@@ -3828,6 +3848,9 @@ class BillingEngine:
                     ).fetchone()
 
                     period_start = last["period_end"] if last else float(job["started_at"])
+                    resumed_at = episode.get("resumed_at")
+                    if isinstance(resumed_at, (int, float)) and resumed_at > float(period_start):
+                        period_start = float(resumed_at)
                     period_end = now
 
                     result = self._bill_gpu_period(

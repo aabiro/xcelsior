@@ -264,6 +264,7 @@ def test_hooks_dispatch_only_our_bridges():
     assert egress.HOOKS[0][2] == ["-j", egress.DISPATCH_FWD]
     assert egress.HOOKS[2][2] == ["-j", egress.DISPATCH_IN]
     assert rules[egress.DISPATCH_FWD] == [
+        ["-j", egress.THROTTLE_CHAIN],
         ["-i", egress.BRIDGE, "-j", egress.OUT_CHAIN],
         ["-i", egress.FUNDED_BRIDGE, "-j", egress.FUNDED_OUT_CHAIN],
     ]
@@ -271,6 +272,28 @@ def test_hooks_dispatch_only_our_bridges():
         ["-i", egress.BRIDGE, "-j", egress.IN_CHAIN],
         ["-i", egress.FUNDED_BRIDGE, "-j", egress.FUNDED_IN_CHAIN],
     ]
+
+
+def test_throttle_chain_is_dispatched_first_but_never_declared(monkeypatch):
+    """CVP-01 §3 throttle rung: the root helper puts one rule per limited
+    container into XCL-TENANT-THROTTLE. The dispatch consults it before the
+    bridge chains, so the limit holds on either bridge; it is not in the
+    iptables-restore the timer replays, or every re-check would lift it."""
+    rules = egress.chain_rules()
+    assert egress.THROTTLE_CHAIN not in rules
+    assert rules[egress.DISPATCH_FWD][0] == ["-j", egress.THROTTLE_CHAIN]
+    monkeypatch.setattr(egress, "_throttle_chain_exists", lambda: False)
+    assert egress._throttle_chain_problems() == [f"{egress.THROTTLE_CHAIN} does not exist"]
+    monkeypatch.setattr(egress, "_throttle_chain_exists", lambda: True)
+    assert egress._throttle_chain_problems() == []
+
+
+def test_helper_and_egress_agree_on_subnets_and_chain():
+    import worker_privileged as wp
+
+    assert str(wp.FUNDED_SUBNET) == egress.FUNDED_SUBNET
+    assert str(wp.TENANT_SUBNET) == egress.SUBNET
+    assert wp.THROTTLE_CHAIN == egress.THROTTLE_CHAIN
 
 
 def test_proxy_allows_only_web_ports_to_approved_names():
