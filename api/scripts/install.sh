@@ -239,9 +239,10 @@ ensure_service_user() {
     sudo install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0750 /var/lib/xcelsior
     # A worker that used to run as root left its state root-owned. The service
     # user must own it: an unreadable attempt journal means journaled work
-    # cannot be fenced and no new records are saved.
+    # cannot be fenced and no new records are saved, and a root-owned log
+    # spool means an adopted container's log stream cannot resume.
     local state
-    for state in v2_attempts.json mining_response.json docker-config tools; do
+    for state in v2_attempts.json mining_response.json docker-config tools logs; do
         if sudo test -e "/var/lib/xcelsior/$state"; then
             sudo chown -R "$SERVICE_USER:$SERVICE_USER" "/var/lib/xcelsior/$state"
         fi
