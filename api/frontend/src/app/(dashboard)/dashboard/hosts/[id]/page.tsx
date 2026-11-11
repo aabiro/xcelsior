@@ -21,6 +21,7 @@ import { useLocale } from "@/lib/locale";
 import { HostLocationForm } from "@/components/ui/province-selector";
 import { HostSpotSettings } from "@/components/hosts/host-spot-settings";
 import { readTelemetry } from "@/lib/telemetry";
+import { useBreadcrumbLabel } from "@/lib/breadcrumb-labels";
 
 export default function HostDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -38,6 +39,7 @@ function HostDetailContent({ id }: { id: string }) {
   const [verification, setVerification] = useState<{ status: string } | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
+  useBreadcrumbLabel(`/dashboard/hosts/${id}`, host?.hostname);
   const [reputation, setReputation] = useState<ReputationEntry | null>(null);
 
   useEffect(() => {

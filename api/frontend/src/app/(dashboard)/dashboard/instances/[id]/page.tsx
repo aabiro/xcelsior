@@ -40,6 +40,7 @@ import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { SaveAsTemplateDialog } from "@/components/instances/save-as-template-dialog";
 import { useInstanceWebSocket } from "@/hooks/useInstanceWebSocket";
+import { useBreadcrumbLabel } from "@/lib/breadcrumb-labels";
 import {
   InstancePricingModeBadge,
   resolveInstancePricingMode,
@@ -225,6 +226,7 @@ export default function InstanceDetailPage() {
   const [wsLogs, setWsLogs] = useState<{ timestamp: number | string; level?: string; message: string }[]>([]);
   const [uptickKey, setUptickKey] = useState(0);
   const [preemptionNotice, setPreemptionNotice] = useState(false);
+  useBreadcrumbLabel(`/dashboard/instances/${id}`, instance?.name);
 
   // Track status transitions (don't auto-open terminal, avoids scroll jumps)
   useEffect(() => {

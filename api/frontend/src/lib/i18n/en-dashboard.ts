@@ -93,7 +93,7 @@ const en_dashboard: Record<string, string> = {
   "dash.hpc": "HPC / Slurm",
   "dash.events": "Events",
   "dash.ai": "Xcel AI",
-  "dash.mcp": "Connect",
+  "dash.mcp": "Connect MCP",
   "dash.settings": "Settings",
   "dash.profile_photo": "Profile photo",
   "dash.admin": "Admin",
