@@ -221,11 +221,16 @@ def decide(job_id: str, decision: str, *, actor: str, reason: str) -> dict:
 
 
 def list_episodes(*, include_closed: bool = False) -> list[dict]:
+    pattern = f"{JOB_NS}%"
     with get_engine().connection() as (conn, backend):
-        ph = "%s" if backend == "postgres" else "?"
-        rows = conn.execute(
-            f"SELECT payload FROM state WHERE namespace LIKE {ph}", (f"{JOB_NS}%",)
-        ).fetchall()
+        if backend == "postgres":
+            rows = conn.execute(
+                "SELECT payload FROM state WHERE namespace LIKE %s", (pattern,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT payload FROM state WHERE namespace LIKE ?", (pattern,)
+            ).fetchall()
     records = []
     for row in rows:
         payload = row["payload"] if isinstance(row, dict) else row[0]
