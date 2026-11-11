@@ -29,6 +29,7 @@ export function registerDiscoveryTools(
       inputSchema: z.object({
         region: z.string().optional().describe("Filter by region code (e.g. ca-east)"),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ region }) => {
       const denied = scopeDenied("list_available_gpus", user);
@@ -46,6 +47,7 @@ export function registerDiscoveryTools(
     "get_spot_prices",
     {
       inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async () => {
       const denied = scopeDenied("get_spot_prices", user);
@@ -63,6 +65,7 @@ export function registerDiscoveryTools(
     "get_pricing_reference",
     {
       inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async () => {
       const denied = scopeDenied("get_pricing_reference", user);
@@ -86,6 +89,7 @@ export function registerDiscoveryTools(
         min_reputation: z.number().optional(),
         sort_by: z.enum(["price", "reputation", "region", "vram"]).optional(),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async (args) => {
       const denied = scopeDenied("search_marketplace", user);
@@ -106,6 +110,7 @@ export function registerDiscoveryTools(
         gpu_model: z.string().optional().describe("GPU model to include its live Stripe tier and exclusivity Prices"),
         pricing_mode: z.enum(["on_demand", "spot"]).default("on_demand"),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ gpu_model, pricing_mode }) => {
       const denied = scopeDenied("list_tiers", user);

@@ -46,7 +46,7 @@ export function registerVolumeTools(
 ): void {
   server.registerTool(
     "list_volumes",
-    { inputSchema: z.object({}) },
+    { inputSchema: z.object({}), annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     async () => {
       const denied = scopeDenied("list_volumes", user);
       if (denied) return denied;
@@ -60,7 +60,7 @@ export function registerVolumeTools(
 
   server.registerTool(
     "get_volume",
-    { inputSchema: z.object({ volume_id: z.string().min(1).max(160) }) },
+    { inputSchema: z.object({ volume_id: z.string().min(1).max(160) }), annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     async ({ volume_id }) => {
       const denied = scopeDenied("get_volume", user);
       if (denied) return denied;
@@ -81,6 +81,7 @@ export function registerVolumeTools(
         region: z.string().max(64).default("").describe("Omit for any region"),
         encrypted: z.boolean().default(true),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (args) => {
       const denied = scopeDenied("create_volume", user);
@@ -121,6 +122,7 @@ export function registerVolumeTools(
           .describe("Where it appears inside the container. The API accepts only these shapes."),
         mode: z.enum(["rw", "ro"]).default("rw"),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (args) => {
       const denied = scopeDenied("attach_volume", user);
@@ -153,6 +155,7 @@ export function registerVolumeTools(
         volume_id: z.string().min(1).max(160),
         confirm: z.boolean().default(false),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ volume_id, confirm }) => {
       const denied = scopeDenied("detach_volume", user);
@@ -200,6 +203,7 @@ export function registerVolumeTools(
         volume_id: z.string().min(1).max(160),
         confirm: z.boolean().default(false),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ volume_id, confirm }) => {
       const denied = scopeDenied("delete_volume", user);
@@ -231,6 +235,7 @@ export function registerVolumeTools(
         volume_id: z.string().min(1).max(160),
         name: z.string().max(128).optional(),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ volume_id, name }) => {
       const denied = scopeDenied("snapshot_volume", user);
@@ -250,7 +255,7 @@ export function registerVolumeTools(
 
   server.registerTool(
     "list_volume_snapshots",
-    { inputSchema: z.object({ volume_id: z.string().min(1).max(160) }) },
+    { inputSchema: z.object({ volume_id: z.string().min(1).max(160) }), annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     async ({ volume_id }) => {
       const denied = scopeDenied("list_volume_snapshots", user);
       if (denied) return denied;
@@ -272,6 +277,7 @@ export function registerVolumeTools(
         snapshot_id: z.string().min(1).max(160).describe("From list_volume_snapshots"),
         confirm: z.boolean().default(false),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ volume_id, snapshot_id, confirm }) => {
       const denied = scopeDenied("restore_volume_snapshot", user);
@@ -320,7 +326,7 @@ export function registerVolumeTools(
 
   server.registerTool(
     "get_artifact_expiry",
-    { inputSchema: z.object({ job_id: z.string().min(1).max(160) }) },
+    { inputSchema: z.object({ job_id: z.string().min(1).max(160) }), annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     async ({ job_id }) => {
       const denied = scopeDenied("get_artifact_expiry", user);
       if (denied) return denied;

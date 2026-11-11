@@ -10,18 +10,29 @@ const output = z.object({ ok: z.boolean().optional() }).passthrough();
 const base = { expected_version: z.number().int().nonnegative(), idempotency_key: z.string().uuid() };
 
 export function registerOperatorTools(server: McpServer, client: XcelsiorApiClient, user?: AuthUser): void {
-  const tools = [
-    ["retry_instance", "instances:operate", z.object({ job_id: z.string().min(1).max(160), ...base }), (a: any) => `/api/v1/instances/${encodeURIComponent(a.job_id)}/retry`],
-    ["reconcile_instance", "instances:operate", z.object({ job_id: z.string().min(1).max(160), ...base }), (a: any) => `/api/v1/instances/${encodeURIComponent(a.job_id)}/reconcile`],
-    ["drain_host", "hosts:operate", z.object({ host_id: z.string().min(1).max(160), reason: z.string().min(1).max(500), ...base }), (a: any) => `/api/v1/hosts/${encodeURIComponent(a.host_id)}/drain`],
-    ["undrain_host", "hosts:operate", z.object({ host_id: z.string().min(1).max(160), ...base }), (a: any) => `/api/v1/hosts/${encodeURIComponent(a.host_id)}/undrain`],
-  ] as const;
-  for (const [name, , inputSchema, path] of tools) {
-    server.registerTool(name, {
-      inputSchema, outputSchema: output,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    }, async (args: Record<string, unknown>) => mutate(name, path(args), args));
-  }
+  server.registerTool("retry_instance", {
+    inputSchema: z.object({ job_id: z.string().min(1).max(160), ...base }),
+    outputSchema: output,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (args) => mutate("retry_instance", `/api/v1/instances/${encodeURIComponent(args.job_id)}/retry`, args));
+
+  server.registerTool("reconcile_instance", {
+    inputSchema: z.object({ job_id: z.string().min(1).max(160), ...base }),
+    outputSchema: output,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (args) => mutate("reconcile_instance", `/api/v1/instances/${encodeURIComponent(args.job_id)}/reconcile`, args));
+
+  server.registerTool("drain_host", {
+    inputSchema: z.object({ host_id: z.string().min(1).max(160), reason: z.string().min(1).max(500), ...base }),
+    outputSchema: output,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (args) => mutate("drain_host", `/api/v1/hosts/${encodeURIComponent(args.host_id)}/drain`, args));
+
+  server.registerTool("undrain_host", {
+    inputSchema: z.object({ host_id: z.string().min(1).max(160), reason: z.string().min(1).max(500), ...base }),
+    outputSchema: output,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (args) => mutate("undrain_host", `/api/v1/hosts/${encodeURIComponent(args.host_id)}/undrain`, args));
 
   server.registerTool("retry_agent_command", {
     inputSchema: z.object({ command_id: z.string().uuid(), ...base }),

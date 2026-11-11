@@ -66,6 +66,7 @@ export function registerSweepTools(
           message: z.string().optional(),
         })
         .passthrough(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (args: Record<string, unknown>) => {
       if (!userHasScope(user?.scopes, TOOL_SCOPES.create_image_sweep)) {
@@ -121,6 +122,7 @@ export function registerSweepTools(
         description: z.string().max(512).default(""),
       }),
       outputSchema: z.object({}).passthrough(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (args: Record<string, unknown>) => {
       if (!userHasScope(user?.scopes, TOOL_SCOPES.create_instance_snapshot)) {
@@ -155,6 +157,7 @@ export function registerSweepTools(
         limit: z.number().int().min(1).max(500).default(100),
       }),
       outputSchema: z.object({}).passthrough(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (args: Record<string, unknown>) => {
       if (!userHasScope(user?.scopes, TOOL_SCOPES.list_user_images)) {
@@ -187,6 +190,7 @@ export function registerSweepTools(
           .describe("false returns a preview of what would be deleted"),
       }),
       outputSchema: z.object({}).passthrough(),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (args: Record<string, unknown>) => {
       if (!userHasScope(user?.scopes, TOOL_SCOPES.delete_user_image)) {
@@ -244,6 +248,7 @@ export function registerSweepTools(
         sweep_id: z.string().min(1).max(160),
       }),
       outputSchema: z.object({}).passthrough(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (args: Record<string, unknown>) => {
       if (!userHasScope(user?.scopes, TOOL_SCOPES.get_image_sweep)) {

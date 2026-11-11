@@ -30,6 +30,7 @@ export function registerBillingTools(
       inputSchema: z.object({
         customer_id: z.string().optional().describe("Customer ID; omit to use your account"),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ customer_id }) => {
       const denied = scopeDenied("get_wallet_balance", user);
@@ -57,6 +58,7 @@ export function registerBillingTools(
           .optional()
           .describe("next_cursor from a previous call, to read the older transactions after it"),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ customer_id, limit, before }) => {
       const denied = scopeDenied("get_wallet_history", user);
@@ -78,7 +80,7 @@ export function registerBillingTools(
 
   server.registerTool(
     "list_funding_options",
-    { inputSchema: z.object({}) },
+    { inputSchema: z.object({}), annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     async () => {
       const denied = scopeDenied("list_funding_options", user);
       if (denied) return denied;
@@ -132,6 +134,7 @@ export function registerBillingTools(
           .optional()
           .describe("Reuse the same key to retry safely; a new amount under an old key is refused"),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ amount_cad, customer_id, idempotency_key }) => {
       const denied = scopeDenied("create_crypto_deposit", user);
@@ -161,6 +164,7 @@ export function registerBillingTools(
       inputSchema: z.object({
         deposit_id: z.string().min(1).describe("From create_crypto_deposit"),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ deposit_id }) => {
       const denied = scopeDenied("get_crypto_deposit", user);
@@ -186,6 +190,7 @@ export function registerBillingTools(
           .optional()
           .describe("Reuse the same key to retry safely; a new amount under an old key is refused"),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ amount_cad, customer_id, idempotency_key }) => {
       const denied = scopeDenied("create_lightning_deposit", user);
@@ -212,6 +217,7 @@ export function registerBillingTools(
       inputSchema: z.object({
         deposit_id: z.string().min(1).describe("From create_lightning_deposit"),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ deposit_id }) => {
       const denied = scopeDenied("get_lightning_deposit", user);
@@ -232,6 +238,7 @@ export function registerBillingTools(
       inputSchema: z.object({
         customer_id: z.string().optional().describe("Customer ID; omit to use your account"),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ customer_id }) => {
       const denied = scopeDenied("get_spend_envelope", user);
@@ -275,6 +282,7 @@ export function registerBillingTools(
               "instance can be reclaimed — only use for workloads that checkpoint.",
           ),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (args) => {
       const denied = scopeDenied("estimate_job_cost", user);
@@ -298,6 +306,7 @@ export function registerBillingTools(
       inputSchema: z.object({
         customer_id: z.string().optional(),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ customer_id }) => {
       const denied = scopeDenied("list_invoices", user);
@@ -337,6 +346,7 @@ export function registerBillingTools(
           .optional()
           .describe("An approved plan from a previous widening call; omit on the first call"),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async ({ enabled, amount_cad, threshold_cad, payment_method_id, plan_id }) => {
       const denied = scopeDenied("configure_auto_topup", user);
@@ -422,6 +432,7 @@ export function registerBillingTools(
               "generated per call, so asking twice tops up twice and a retry does not.",
           ),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async ({ amount_cad, card_last4, card_brand, payment_method_id, idempotency_key }) => {
       const denied = scopeDenied("top_up_wallet", user);
@@ -472,6 +483,7 @@ export function registerBillingTools(
       // somebody else's cards — unlike the routes above, which accept one and
       // check ownership server-side.
       inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async () => {
       const denied = scopeDenied("list_payment_methods", user);
@@ -493,6 +505,7 @@ export function registerBillingTools(
     "get_auto_topup",
     {
       inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async () => {
       const denied = scopeDenied("get_auto_topup", user);
@@ -516,6 +529,7 @@ export function registerBillingTools(
       // No arguments, same as list_payment_methods: the route resolves the
       // customer from the caller's credential.
       inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async () => {
       const denied = scopeDenied("list_pending_verifications", user);

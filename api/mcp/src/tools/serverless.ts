@@ -27,6 +27,7 @@ export function registerServerlessTools(
     "list_serverless_endpoints",
     {
       inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async () => {
       const denied = scopeDenied("list_serverless_endpoints", user);
@@ -100,6 +101,7 @@ export function registerServerlessTools(
         duration_hours: z.number().min(0).max(168).default(0.1),
         gpu_tier: z.string().default("RTX 4090"),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (args) => {
       const denied = scopeDenied("should_i_run_pel_job", user);
@@ -118,9 +120,10 @@ export function registerServerlessTools(
     {
       inputSchema: z.object({
         endpoint_id: z.string(),
-        input: z.record(z.unknown()).default({}),
+        input: z.record(z.string(), z.unknown()).default({}),
         webhook: z.string().url().optional(),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ endpoint_id, input, webhook }) => {
       const denied = scopeDenied("run_serverless_job", user);
@@ -143,6 +146,7 @@ export function registerServerlessTools(
         endpoint_id: z.string(),
         job_id: z.string(),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ endpoint_id, job_id }) => {
       const denied = scopeDenied("get_serverless_job_status", user);
@@ -160,7 +164,7 @@ export function registerServerlessTools(
 
   server.registerTool(
     "get_serverless_endpoint",
-    { inputSchema: z.object({ endpoint_id: z.string().min(1) }) },
+    { inputSchema: z.object({ endpoint_id: z.string().min(1) }), annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     async ({ endpoint_id }) => {
       const denied = scopeDenied("get_serverless_endpoint", user);
       if (denied) return denied;
@@ -176,7 +180,7 @@ export function registerServerlessTools(
 
   server.registerTool(
     "get_serverless_endpoint_health",
-    { inputSchema: z.object({ endpoint_id: z.string().min(1) }) },
+    { inputSchema: z.object({ endpoint_id: z.string().min(1) }), annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
     async ({ endpoint_id }) => {
       const denied = scopeDenied("get_serverless_endpoint_health", user);
       if (denied) return denied;
@@ -197,6 +201,7 @@ export function registerServerlessTools(
         endpoint_id: z.string().min(1),
         limit: z.number().int().min(1).max(200).default(50),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ endpoint_id, limit }) => {
       const denied = scopeDenied("list_serverless_endpoint_jobs", user);
@@ -240,6 +245,7 @@ export function registerServerlessTools(
         job_id: z.string().min(1).max(160),
         confirm: z.boolean().default(false),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ endpoint_id, job_id, confirm }) => {
       const denied = scopeDenied("cancel_serverless_job", user);
@@ -279,6 +285,7 @@ export function registerServerlessTools(
         endpoint_id: z.string().min(1).max(160),
         confirm: z.boolean().default(false),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ endpoint_id, confirm }) => {
       const denied = scopeDenied("delete_serverless_endpoint", user);

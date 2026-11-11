@@ -42,38 +42,51 @@ export interface ToolSurfaceEntry {
 
 /** Structural summary of a Zod schema — enough to classify a change. */
 export function zodShape(schema: unknown): Record<string, FieldShape> {
-  const object = schema as z.ZodObject<z.ZodRawShape> | undefined;
-  const shape = object?._def?.shape?.();
+  const object = schema as { type?: string; shape?: Record<string, z.ZodTypeAny>; _def?: { shape?: () => Record<string, z.ZodTypeAny> } } | undefined;
+  const shape = object?.type === "object" && object.shape
+    ? object.shape
+    : typeof object?._def?.shape === "function"
+      ? object._def.shape()
+      : undefined;
   if (!shape) return {};
   const result: Record<string, FieldShape> = {};
   for (const [key, value] of Object.entries(shape)) {
-    result[key] = describeField(value as z.ZodTypeAny);
+    result[key] = describeField(value);
   }
   return result;
 }
 
 function describeField(field: z.ZodTypeAny): FieldShape {
-  let current: z.ZodTypeAny = field;
+  let current: unknown = field;
   let optional = false;
   // Unwrap the decorators that change optionality or add a default without
-  // changing the underlying type.
+  // changing the underlying type (supports Zod v4 `def.type` and v3 `_def.typeName`).
   for (let depth = 0; depth < 8; depth += 1) {
-    const typeName = current?._def?.typeName;
-    if (typeName === "ZodOptional" || typeName === "ZodDefault" || typeName === "ZodNullable") {
+    const def = ((current as { def?: Record<string, unknown>; _def?: Record<string, unknown> })?.def
+      ?? (current as { _def?: Record<string, unknown> })?._def) ?? {};
+    const kind = String(def.type ?? def.typeName ?? "").replace(/^Zod/, "").toLowerCase();
+    if (kind === "optional" || kind === "default" || kind === "nullable") {
       optional = true;
-      current = (current._def as { innerType: z.ZodTypeAny }).innerType;
+      current = def.innerType;
       continue;
     }
-    if (typeName === "ZodEffects") {
-      current = (current._def as { schema: z.ZodTypeAny }).schema;
+    if (kind === "effects" || kind === "pipe") {
+      current = def.in ?? def.schema;
       continue;
     }
     break;
   }
-  const typeName = String(current?._def?.typeName ?? "unknown");
-  const shape: FieldShape = { type: typeName.replace(/^Zod/, "").toLowerCase(), optional };
-  if (typeName === "ZodEnum") {
-    shape.values = [...((current._def as { values: string[] }).values ?? [])].sort();
+  const def = ((current as { def?: Record<string, unknown>; _def?: Record<string, unknown> })?.def
+    ?? (current as { _def?: Record<string, unknown> })?._def) ?? {};
+  const rawType = String(def.type ?? def.typeName ?? "unknown").replace(/^Zod/, "").toLowerCase();
+  const shape: FieldShape = { type: rawType, optional };
+  if (rawType === "enum") {
+    const values = Array.isArray(def.values)
+      ? (def.values as string[])
+      : def.entries && typeof def.entries === "object"
+        ? Object.values(def.entries as Record<string, string>)
+        : [];
+    shape.values = [...values].sort();
   }
   return shape;
 }

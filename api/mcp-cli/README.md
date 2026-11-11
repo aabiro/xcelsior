@@ -32,9 +32,22 @@ Create a token: **Dashboard → Settings → Connect AI Agents** (or visit [xcel
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `XCELSIOR_ACCESS_TOKEN` | — | OAuth Bearer token (required) |
-| `XCELSIOR_API_URL` | `http://127.0.0.1:8000` | API base URL |
+| `XCELSIOR_ACCESS_TOKEN` | — | OAuth Bearer token (required for authenticated calls) |
+| `XCELSIOR_API_URL` | `http://127.0.0.1:8000` | Fixed Xcelsior control-plane API base URL (`https://xcelsior.ca` in production) |
+
+## Tool annotations & network boundary
+
+Every tool declares all four MCP boolean annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) and validates inputs with Zod:
+
+- **Fixed control-plane endpoint (`openWorldHint: false`):** Account, instance, volume, serverless, billing, and diagnostic tools communicate exclusively with the configured Xcelsior control-plane endpoint (`XCELSIOR_API_URL`) and read/mutate only the caller's own scoped platform records.
+- **Open-world marketplace & public docs (`openWorldHint: true`):** Live third-party GPU marketplace feeds (`list_available_gpus`, `get_spot_prices`, `search_marketplace`, `schedule_under_budget`) and public documentation search (`search`, `fetch`) reflect external supply and published docs that change independently of tenant state.
 
 ## Hosted alternative
 
-No local install required — use the hosted server at `https://mcp.xcelsior.ca/mcp` (Streamable HTTP). See `mcp/README.md` in the monorepo.
+No local install required — use the hosted server at `https://mcp.xcelsior.ca/mcp` (Streamable HTTP) with OAuth 2.1 Bearer authentication and per-principal rate limiting. See `api/mcp/README.md` in the monorepo.
+
+## Privacy & Policies
+
+- **Privacy Policy:** [https://xcelsior.ca/privacy](https://xcelsior.ca/privacy)
+- **Terms of Service:** [https://xcelsior.ca/terms](https://xcelsior.ca/terms)
+- **Security & Support:** [https://docs.xcelsior.ca](https://docs.xcelsior.ca)

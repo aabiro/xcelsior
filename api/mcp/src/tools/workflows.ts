@@ -52,6 +52,7 @@ export function registerWorkflowTools(
         wait_timeout_seconds: z.number().int().min(30).max(1800).default(300),
         log_tail: z.number().int().min(1).max(200).default(50),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (args) => {
       const denied = scopeDenied("run_training_job", user);
@@ -133,6 +134,7 @@ export function registerWorkflowTools(
         name: z.string().min(1).max(128).optional(),
         confirm: z.boolean().default(false),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     async (args) => {
       const denied = scopeDenied("schedule_under_budget", user);
@@ -213,13 +215,14 @@ export function registerWorkflowTools(
               on_failure: z.enum(["halt", "continue", "retry"]).optional(),
               max_attempts: z.number().int().min(1).max(10).optional(),
               estimate_micros: z.number().int().min(0).optional(),
-              args: z.record(z.unknown()).optional(),
+              args: z.record(z.string(), z.unknown()).optional(),
             }),
           )
           .min(1)
           .max(20)
           .describe("Stages in the order they must run. Each one's on_failure is fixed at approval."),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ name, stages }) => {
       const denied = scopeDenied("run_pipeline", user);
@@ -256,6 +259,7 @@ export function registerWorkflowTools(
         plan_id: z.string().min(1).max(160).describe("From whatever tool quoted it"),
         reason: z.string().max(500).optional(),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ plan_id, reason }) => {
       const denied = scopeDenied("revoke_launch_plan", user);

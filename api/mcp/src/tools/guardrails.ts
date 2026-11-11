@@ -33,6 +33,7 @@ export function registerGuardrailTools(
         spot: z.boolean().default(false),
         max_hourly_cad: z.number().positive().optional().describe("Reject if hourly rate exceeds this"),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (args) => {
       const denied = scopeDenied("should_i_run_this", user);

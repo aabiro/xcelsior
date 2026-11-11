@@ -47,7 +47,7 @@ describe("PostHog MCP analytics", () => {
         description: "Test-only tool",
         inputSchema: {
           init_script: z.string(),
-          environment: z.record(z.string()),
+          environment: z.record(z.string(), z.string()),
         },
       },
       async ({ init_script, environment }) => ({

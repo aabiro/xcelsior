@@ -48,6 +48,7 @@ export function registerComputeTools(
         cursor: z.string().max(128).optional(),
         limit: z.number().int().min(1).max(200).default(100),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ status, cursor, limit }) => {
       const denied = scopeDenied("list_instances", user);
@@ -78,6 +79,7 @@ export function registerComputeTools(
       inputSchema: z.object({
         job_id: z.string().describe("Instance job ID"),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ job_id }) => {
       const denied = scopeDenied("get_instance", user);
@@ -98,6 +100,7 @@ export function registerComputeTools(
         job_id: z.string(),
         limit: z.number().int().min(1).max(500).default(100),
       }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ job_id, limit }) => {
       const denied = scopeDenied("get_instance_logs", user);
@@ -139,9 +142,9 @@ export function registerComputeTools(
         preview: z.boolean().optional(),
         plan_id: z.string().optional(),
         approval_state: z.string().optional(),
-        canonical_spec: z.record(z.unknown()).optional(),
-        estimate: z.record(z.unknown()).optional(),
-        availability: z.record(z.unknown()).optional(),
+        canonical_spec: z.record(z.string(), z.unknown()).optional(),
+        estimate: z.record(z.string(), z.unknown()).optional(),
+        availability: z.record(z.string(), z.unknown()).optional(),
         approval_url: z.string().optional(),
         expires_at: z.string().optional(),
       }).passthrough(),
@@ -197,6 +200,7 @@ export function registerComputeTools(
         job_id: z.string(),
         confirm: z.boolean().default(false),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ job_id, confirm }) => {
       const denied = scopeDenied("cancel_instance", user);
@@ -224,6 +228,7 @@ export function registerComputeTools(
         job_id: z.string(),
         confirm: z.boolean().default(false),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ job_id, confirm }) => {
       const denied = scopeDenied("terminate_instance", user);
@@ -260,6 +265,7 @@ export function registerComputeTools(
           .optional()
           .describe("A label for this key, e.g. 'laptop'. Defaults to 'default'."),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ public_key, name }) => {
       const denied = scopeDenied("register_ssh_key", user);
@@ -319,6 +325,7 @@ export function registerComputeTools(
       // No arguments: the route resolves the account from the caller's own
       // credential, so there is no way to ask for somebody else's keys.
       inputSchema: z.object({}),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async () => {
       const denied = scopeDenied("list_ssh_keys", user);
@@ -344,6 +351,7 @@ export function registerComputeTools(
           .default(false)
           .describe("false returns a preview of the key that would be removed"),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ key_id, confirm }) => {
       const denied = scopeDenied("delete_ssh_key", user);
@@ -399,6 +407,7 @@ export function registerComputeTools(
               "prefers ssh when the instance publishes a port.",
           ),
       }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ job_id, method }) => {
       const denied = scopeDenied("open_instance_access", user);

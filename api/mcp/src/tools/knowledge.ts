@@ -206,7 +206,7 @@ const fetchOutput = z.object({
   title: z.string(),
   text: z.string(),
   url: z.string(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export function registerKnowledgeTools(
@@ -230,6 +230,7 @@ export function registerKnowledgeTools(
     {
       inputSchema: z.object({ query: z.string().min(1).max(512) }),
       outputSchema: searchOutput,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ query }) => {
       const scopeError = denied("search");
@@ -252,6 +253,7 @@ export function registerKnowledgeTools(
     {
       inputSchema: z.object({ id: z.string().min(1).max(256) }),
       outputSchema: fetchOutput,
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ id }) => {
       const scopeError = denied("fetch");
