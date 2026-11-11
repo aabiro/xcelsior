@@ -121,6 +121,7 @@ export default function SettingsPage() {
   const [name, setName] = useState(user?.name || "");
   const [email] = useState(user?.email || "");
   const [notifications, setNotifications] = useState(true);
+  const [savedNotifications, setSavedNotifications] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [oauthClients, setOauthClients] = useState<OAuthClientInfo[]>([]);
@@ -302,7 +303,9 @@ export default function SettingsPage() {
   useEffect(() => {
     api.apiFetch<{ notifications?: boolean }>("/api/users/me/preferences")
       .then((prefs) => {
-        setNotifications(prefs.notifications ?? true);
+        const next = prefs.notifications ?? true;
+        setNotifications(next);
+        setSavedNotifications(next);
       })
       .catch((e) => console.error("Failed to load preferences", e));
 
@@ -353,6 +356,7 @@ export default function SettingsPage() {
         method: "PUT",
         body: JSON.stringify({ notifications }),
       });
+      setSavedNotifications(notifications);
       toast.success("Settings saved");
     } catch { toast.error("Failed to save settings"); }
     finally { setSaving(false); }
@@ -752,6 +756,7 @@ export default function SettingsPage() {
             <ProfileTab
               t={t} user={user} name={name} setName={setName} email={email}
               notifications={notifications} setNotifications={setNotifications}
+              notificationsDirty={notifications !== savedNotifications}
               saving={saving} onSave={handleSave}
               onAvatarUpdated={refreshUser}
             />
@@ -864,13 +869,14 @@ export default function SettingsPage() {
 
 function ProfileTab({
   t, user, name, setName, email,
-  notifications, setNotifications, saving, onSave, onAvatarUpdated,
+  notifications, setNotifications, notificationsDirty = false, saving, onSave, onAvatarUpdated,
 }: {
   t: (k: string, vars?: Record<string, string | number>) => string;
   user: import("@/lib/auth").User;
   name: string; setName: (v: string) => void;
   email: string;
   notifications: boolean; setNotifications: (v: boolean) => void;
+  notificationsDirty?: boolean;
   saving: boolean; onSave: () => void;
   onAvatarUpdated: () => Promise<void>;
 }) {
@@ -1088,7 +1094,7 @@ function ProfileTab({
 
         <StaggerItem>
           <div className="flex justify-end">
-            <Button onClick={onSave} disabled={saving} className="w-full sm:w-auto">
+            <Button onClick={onSave} disabled={saving || !notificationsDirty} className="w-full sm:w-auto">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               {saving ? "Saving..." : t("dash.settings.save")}
             </Button>
@@ -1417,7 +1423,7 @@ function SecurityTab({
                         className="flex-1 font-mono"
                         autoComplete="tel-national"
                       />
-                      <Button onClick={onSmsSetup} disabled={smsSending}>
+                      <Button onClick={onSmsSetup} disabled={smsSending || `${smsCountryCode}${smsPhone.replace(/\D/g, "")}`.length < 8}>
                         {smsSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                         Send Code
                       </Button>
@@ -1781,7 +1787,7 @@ function ApiKeysTab({
                   value={newSshKeyValue}
                   onChange={(e) => setNewSshKeyValue(e.target.value)}
                 />
-                <Button variant="outline" size="sm" onClick={onAddSshKey} disabled={addingSshKey}>
+                <Button variant="outline" size="sm" onClick={onAddSshKey} disabled={addingSshKey || !newSshKeyValue.trim()}>
                   {addingSshKey ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                   Add SSH Key
                 </Button>

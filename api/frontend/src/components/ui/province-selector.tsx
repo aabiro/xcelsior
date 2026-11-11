@@ -69,6 +69,7 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
   const [catalog, setCatalog] = useState<LocationCatalog | null>(null);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const [touched, setTouched] = useState<{ country?: boolean; province?: boolean }>({});
   const selectedCountry = countries.some((item) => item.code === country) ? country : "";
   useEffect(() => {
     let active = true;
@@ -85,29 +86,50 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
     if (!selectedCountry) return () => { active = false; };
     setError("");
     apiFetch<LocationCatalog>(`/api/locations?country=${encodeURIComponent(selectedCountry)}`)
-      .then((result) => { if (active) { setCatalog(result); onRequirementsChange?.(result.required_address_fields); } })
+      .then((result) => {
+        if (active) {
+          setCatalog(result);
+          const required = result.requires_subdivision && !result.required_address_fields.includes("province")
+            ? ["province", ...result.required_address_fields]
+            : result.required_address_fields;
+          onRequirementsChange?.(required);
+        }
+      })
       .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Unable to load states and provinces"); });
     return () => { active = false; };
   }, [selectedCountry, retry, onRequirementsChange]);
   const selectedProvince = catalog?.subdivisions.some((item) => item.code === province) ? province : "";
+  const provinceRequired = catalog?.requires_subdivision ?? true;
+  const countryInvalid = Boolean(touched.country && !selectedCountry);
+  const provinceInvalid = Boolean(touched.province && provinceRequired && !selectedProvince);
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="space-y-1.5">
         <Label htmlFor={`${id}-country`}>Country</Label>
         <Select id={`${id}-country`} autoComplete="country" required value={selectedCountry}
+          aria-invalid={countryInvalid ? "true" : "false"}
+          aria-describedby={countryInvalid ? `${id}-country-error` : undefined}
+          className={cn(countryInvalid && "border-red-400/60 focus:ring-red-400/40")}
+          onBlur={() => setTouched((prev) => ({ ...prev, country: true }))}
           onChange={(event) => { onCountryChange(event.target.value); onProvinceChange(""); }}>
           <option value="">{countries.length ? "Select country" : "Loading countries…"}</option>
           {countries.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
         </Select>
+        {countryInvalid && <p id={`${id}-country-error`} className="text-xs text-red-400">Select a country.</p>}
       </div>
       <div className="space-y-1.5">
         <Label htmlFor={`${id}-province`}>State, province, or territory</Label>
-        <Select id={`${id}-province`} autoComplete="address-level1" required={catalog?.requires_subdivision ?? true}
+        <Select id={`${id}-province`} autoComplete="address-level1" required={provinceRequired}
           value={selectedProvince} disabled={catalog?.requires_subdivision === false}
+          aria-invalid={provinceInvalid ? "true" : "false"}
+          aria-describedby={provinceInvalid ? `${id}-province-error` : undefined}
+          className={cn(provinceInvalid && "border-red-400/60 focus:ring-red-400/40")}
+          onBlur={() => setTouched((prev) => ({ ...prev, province: true }))}
           onChange={(event) => onProvinceChange(event.target.value)}>
           <option value="">{catalog && !catalog.requires_subdivision ? "Not applicable" : "Select state or province"}</option>
           {catalog?.subdivisions.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
         </Select>
+        {provinceInvalid && <p id={`${id}-province-error`} className="text-xs text-red-400">Select a state, province, or territory.</p>}
       </div>
       {error && <div role="alert" className="text-sm text-red-400 sm:col-span-2">
         {error} <Button type="button" variant="outline" size="sm" onClick={() => setRetry((value) => value + 1)}>Retry</Button>
@@ -178,28 +200,35 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
   const open = suggestions.length > 0 && !dismissed;
   return <div className="relative space-y-1.5">
     <Label htmlFor={`${id}-search`}>Search address</Label>
-    <Input id={`${id}-search`} role="combobox" aria-autocomplete="list" aria-expanded={open}
-      aria-controls={`${id}-results`} aria-activedescendant={activeIndex >= 0 ? `${id}-result-${activeIndex}` : undefined}
-      autoComplete="off" value={query} placeholder="Start typing your address"
-      onChange={(event) => { requestVersion.current++; setQuery(event.target.value); setContainer(""); setDismissed(false); }}
-      onBlur={() => { if (!retrieving.current) { requestVersion.current++; setDismissed(true); setLoading(false); } }}
-      onFocus={() => { if (!retrieving.current) setDismissed(false); }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") { requestVersion.current++; setDismissed(true); setLoading(false); }
-        if (open && ["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
-          event.preventDefault();
-          if (event.key === "Enter" && activeIndex >= 0) void choose(suggestions[activeIndex]);
-          else setActiveIndex((value) => (value + (event.key === "ArrowUp" ? -1 : 1) + suggestions.length) % suggestions.length);
-        }
-      }} />
-    {open && <ul id={`${id}-results`} role="listbox" aria-label="Address suggestions"
-      className="absolute z-30 max-h-64 w-full overflow-y-auto rounded-md border border-border bg-surface p-1 shadow-lg">
-      {suggestions.map((item, index) => <li key={item.id} id={`${id}-result-${index}`} role="option"
-        aria-selected={activeIndex === index} className={cn("cursor-pointer rounded px-3 py-2 text-sm hover:bg-surface-hover", activeIndex === index && "bg-surface-hover")}
-        onMouseDown={(event) => event.preventDefault()} onClick={() => void choose(item)}>
-        <span className="block">{item.text}</span><span className="block text-xs text-text-secondary">{item.description}{item.is_address ? "" : " — select to see addresses"}</span>
-      </li>)}
-    </ul>}
+    <div className="relative">
+      <Input id={`${id}-search`} role="combobox" aria-autocomplete="list" aria-expanded={open}
+        aria-controls={`${id}-results`} aria-activedescendant={activeIndex >= 0 ? `${id}-result-${activeIndex}` : undefined}
+        autoComplete="off" value={query} placeholder="Start typing your address"
+        onChange={(event) => { requestVersion.current++; setQuery(event.target.value); setContainer(""); setDismissed(false); }}
+        onBlur={() => { if (!retrieving.current) { requestVersion.current++; setDismissed(true); setLoading(false); } }}
+        onFocus={() => { if (!retrieving.current) setDismissed(false); }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") { requestVersion.current++; setDismissed(true); setLoading(false); }
+          if (open && ["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
+            event.preventDefault();
+            if (event.key === "Enter" && activeIndex >= 0) void choose(suggestions[activeIndex]);
+            else setActiveIndex((value) => (value + (event.key === "ArrowUp" ? -1 : 1) + suggestions.length) % suggestions.length);
+          }
+        }} />
+      {open && <ul id={`${id}-results`} role="listbox" aria-label="Address suggestions"
+        className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-64 w-full overflow-y-auto rounded-xl border border-border-light bg-[var(--popover-solid)] p-1.5 shadow-2xl">
+        {suggestions.map((item, index) => <li key={item.id} id={`${id}-result-${index}`} role="option"
+          aria-selected={activeIndex === index}
+          className={cn(
+            "cursor-pointer rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--popover-solid-2)]",
+            activeIndex === index && "bg-[var(--popover-solid-2)]",
+          )}
+          onMouseDown={(event) => event.preventDefault()} onClick={() => void choose(item)}>
+          <span className="block font-medium text-text-primary">{item.text}</span>
+          <span className="block text-xs text-text-secondary">{item.description}{item.is_address ? "" : " — select to see addresses"}</span>
+        </li>)}
+      </ul>}
+    </div>
     {loading && <p role="status" className="text-xs text-text-secondary">{loadingLabel}</p>}
     {error && <p role="status" className="text-xs text-text-secondary">{error}</p>}
     <p className="text-xs text-text-muted">Search for your address, or enter it below.</p>
@@ -225,25 +254,104 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
   const [businessName, setBusinessName] = useState(user?.business_name || "");
   const [gst, setGst] = useState(user?.gst_hst_number || "");
   const [requiredFields, setRequiredFields] = useState<string[] | null>(null);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [editRevision, setEditRevision] = useState(0);
+  const [savedSnapshot, setSavedSnapshot] = useState(() => ({
+    name: (user?.name || "").trim(),
+    account_type: user?.account_type || "",
+    onboarding_intent: user?.onboarding_intent || "",
+    business_name: (user?.business_name || "").trim(),
+    gst_hst_number: (user?.gst_hst_number || "").trim(),
+    country: user?.country || "",
+    province: user?.province || "",
+    address_line1: (user?.address_line1 || "").trim(),
+    address_line2: (user?.address_line2 || "").trim(),
+    city: (user?.city || "").trim(),
+    postal_code: (user?.postal_code || "").trim(),
+  }));
   const manual = (set: (value: string) => void, value: string) => { setEditRevision((revision) => revision + 1); set(value); };
+  const touch = (field: string) => setTouched((prev) => (prev[field] ? prev : { ...prev, [field]: true }));
   const id = useId();
   const accountFields = step === "account" || settings;
   const addressFields = step === "address" || settings;
+
+  const nameRequired = !user?.name?.trim();
+  const nameValid = !nameRequired || Boolean(name.trim());
+  const intentValid = !settings || Boolean(intent.trim());
+  const typeValid = accountType === "individual" || accountType === "business";
+  const businessValid = accountType !== "business" || Boolean(businessName.trim());
+  const accountValid = !accountFields || (nameValid && intentValid && typeValid && businessValid);
+
+  const line1Required = requiredFields?.includes("address_line1") ?? true;
+  const cityRequired = requiredFields?.includes("city") ?? true;
+  const postalRequired = requiredFields?.includes("postal_code") ?? true;
+  const addressFieldValues: Record<string, string> = {
+    province,
+    address_line1: line1,
+    city,
+    postal_code: postal,
+  };
+  const addressValid =
+    !addressFields ||
+    (Boolean(country.trim()) &&
+      requiredFields !== null &&
+      requiredFields.every((field) => Boolean(addressFieldValues[field]?.trim())));
+
+  const nameInvalid = Boolean(accountFields && nameRequired && touched.name && !nameValid);
+  const typeInvalid = Boolean(accountFields && touched.accountType && !typeValid);
+  const businessInvalid = Boolean(accountFields && accountType === "business" && touched.businessName && !businessValid);
+  const line1Invalid = Boolean(addressFields && line1Required && touched.line1 && !line1.trim());
+  const cityInvalid = Boolean(addressFields && cityRequired && touched.city && !city.trim());
+  const postalInvalid = Boolean(addressFields && postalRequired && touched.postal && !postal.trim());
+  const formValid = accountValid && addressValid;
+  const effectiveBusinessName = accountType === "business" ? businessName.trim() : "";
+  const effectiveGst = accountType === "business" ? gst.trim() : "";
+  const isDirty =
+    (!user?.name?.trim() && name.trim() !== savedSnapshot.name) ||
+    accountType !== savedSnapshot.account_type ||
+    intent !== savedSnapshot.onboarding_intent ||
+    effectiveBusinessName !== savedSnapshot.business_name ||
+    effectiveGst !== savedSnapshot.gst_hst_number ||
+    country !== savedSnapshot.country ||
+    province !== savedSnapshot.province ||
+    line1.trim() !== savedSnapshot.address_line1 ||
+    line2.trim() !== savedSnapshot.address_line2 ||
+    city.trim() !== savedSnapshot.city ||
+    postal.trim() !== savedSnapshot.postal_code;
+
   return (
-    <form className="space-y-5" onSubmit={async (event) => {
-      event.preventDefault(); setSaving(true); setError(""); setSaved(false);
+    <form noValidate className="space-y-5" onSubmit={async (event) => {
+      event.preventDefault();
+      if (!formValid) {
+        setTouched({ name: true, accountType: true, businessName: true, line1: true, city: true, postal: true });
+        event.currentTarget.querySelector<HTMLElement>('[aria-invalid="true"], :invalid')?.focus();
+        return;
+      }
+      setSaving(true); setError(""); setSaved(false);
       try {
         await updateProfile({
           ...(accountFields ? { ...(!user?.name?.trim() ? { name: name.trim() } : {}),
             account_type: accountType,
             ...(settings ? { onboarding_intent: intent } : {}),
-            business_name: accountType === "business" ? businessName.trim() : "",
-            gst_hst_number: accountType === "business" ? gst.trim() : "" } : {}),
+            business_name: effectiveBusinessName,
+            gst_hst_number: effectiveGst } : {}),
           ...(addressFields ? {country, province, address_line1: line1, address_line2: line2, city, postal_code: postal} : {}),
+        });
+        setSavedSnapshot({
+          name: (!user?.name?.trim() ? name : user?.name || "").trim(),
+          account_type: accountType,
+          onboarding_intent: intent,
+          business_name: effectiveBusinessName,
+          gst_hst_number: effectiveGst,
+          country,
+          province,
+          address_line1: line1.trim(),
+          address_line2: line2.trim(),
+          city: city.trim(),
+          postal_code: postal.trim(),
         });
         await refreshUser({ throwOnError: true });
         await onSaved?.();
@@ -253,7 +361,14 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
     }}>
       {accountFields && <>
         {!user?.name?.trim() && <div className="space-y-1.5"><Label htmlFor={`${id}-name`}>Name</Label>
-          <Input id={`${id}-name`} autoComplete="name" value={name} required maxLength={64} onChange={(event) => setName(event.target.value)} /></div>}
+          <Input id={`${id}-name`} autoComplete="name" value={name} required maxLength={64}
+            aria-invalid={nameInvalid ? "true" : "false"}
+            aria-describedby={nameInvalid ? `${id}-name-error` : undefined}
+            className={cn(nameInvalid && "border-red-400/60 focus:ring-red-400/40")}
+            onBlur={() => touch("name")}
+            onChange={(event) => setName(event.target.value)} />
+          {nameInvalid && <p id={`${id}-name-error`} className="text-xs text-red-400">Enter your name.</p>}
+        </div>}
         {settings && <fieldset className="space-y-2"><legend className="text-sm font-medium">How will you use Xcelsior?</legend>
           <p className="text-sm text-text-secondary">You can switch between renting and providing here anytime. Payout setup stays on Earnings.</p>
           {[["rent", "Rent GPUs"], ["provide", "Provide GPUs"], ["both", "Rent and provide GPUs"]].map(([value, label]) =>
@@ -262,14 +377,27 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
             </label>)}
         </fieldset>}
         <div className="space-y-1.5"><Label htmlFor={`${id}-type`}>Account type</Label>
-          <Select id={`${id}-type`} required value={accountType} onChange={(event) => setAccountType(event.target.value)}>
+          <Select id={`${id}-type`} required value={accountType}
+            aria-invalid={typeInvalid ? "true" : "false"}
+            aria-describedby={typeInvalid ? `${id}-type-error` : undefined}
+            className={cn(typeInvalid && "border-red-400/60 focus:ring-red-400/40")}
+            onBlur={() => touch("accountType")}
+            onChange={(event) => setAccountType(event.target.value)}>
             <option value="">Select account type</option><option value="individual">Personal</option><option value="business">Business</option>
           </Select>
+          {typeInvalid && <p id={`${id}-type-error`} className="text-xs text-red-400">Select an account type.</p>}
           {accountType === "individual" && <p className="text-sm text-text-secondary">A personal account does not need a business name, even if you provide GPUs.</p>}
         </div>
         {accountType === "business" && <>
           <div className="space-y-1.5"><Label htmlFor={`${id}-business`}>Legal business name</Label>
-            <Input id={`${id}-business`} autoComplete="organization" required maxLength={200} value={businessName} onChange={(event) => setBusinessName(event.target.value)} /></div>
+            <Input id={`${id}-business`} autoComplete="organization" required maxLength={200} value={businessName}
+              aria-invalid={businessInvalid ? "true" : "false"}
+              aria-describedby={businessInvalid ? `${id}-business-error` : undefined}
+              className={cn(businessInvalid && "border-red-400/60 focus:ring-red-400/40")}
+              onBlur={() => touch("businessName")}
+              onChange={(event) => setBusinessName(event.target.value)} />
+            {businessInvalid && <p id={`${id}-business-error`} className="text-xs text-red-400">Enter your legal business name.</p>}
+          </div>
           <div className="space-y-1.5"><Label htmlFor={`${id}-gst`}>GST/HST registration number (optional)</Label>
             <Input id={`${id}-gst`} maxLength={20} value={gst} onChange={(event) => setGst(event.target.value)} /></div>
         </>}
@@ -281,19 +409,40 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
         }} />
         <LocationFields country={country} province={province} onCountryChange={setCountry} onProvinceChange={(value) => manual(setProvince, value)} onRequirementsChange={setRequiredFields} />
         <div className="space-y-1.5"><Label htmlFor={`${id}-line1`}>Street address</Label>
-          <Input id={`${id}-line1`} autoComplete="address-line1" required={requiredFields?.includes("address_line1") ?? true} maxLength={200} value={line1} onChange={(event) => manual(setLine1, event.target.value)} /></div>
+          <Input id={`${id}-line1`} autoComplete="address-line1" required={line1Required} maxLength={200} value={line1}
+            aria-invalid={line1Invalid ? "true" : "false"}
+            aria-describedby={line1Invalid ? `${id}-line1-error` : undefined}
+            className={cn(line1Invalid && "border-red-400/60 focus:ring-red-400/40")}
+            onBlur={() => touch("line1")}
+            onChange={(event) => manual(setLine1, event.target.value)} />
+          {line1Invalid && <p id={`${id}-line1-error`} className="text-xs text-red-400">Enter your street address.</p>}
+        </div>
         <div className="space-y-1.5"><Label htmlFor={`${id}-line2`}>Apartment, suite, or unit (optional)</Label>
           <Input id={`${id}-line2`} autoComplete="address-line2" maxLength={200} value={line2} onChange={(event) => manual(setLine2, event.target.value)} /></div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5"><Label htmlFor={`${id}-city`}>City or locality</Label>
-            <Input id={`${id}-city`} autoComplete="address-level2" required={requiredFields?.includes("city") ?? true} maxLength={80} value={city} onChange={(event) => manual(setCity, event.target.value)} /></div>
+            <Input id={`${id}-city`} autoComplete="address-level2" required={cityRequired} maxLength={80} value={city}
+              aria-invalid={cityInvalid ? "true" : "false"}
+              aria-describedby={cityInvalid ? `${id}-city-error` : undefined}
+              className={cn(cityInvalid && "border-red-400/60 focus:ring-red-400/40")}
+              onBlur={() => touch("city")}
+              onChange={(event) => manual(setCity, event.target.value)} />
+            {cityInvalid && <p id={`${id}-city-error`} className="text-xs text-red-400">Enter your city or locality.</p>}
+          </div>
           <div className="space-y-1.5"><Label htmlFor={`${id}-postal`}>Postal code</Label>
-            <Input id={`${id}-postal`} autoComplete="postal-code" required={requiredFields?.includes("postal_code") ?? true} maxLength={32} value={postal} onChange={(event) => manual(setPostal, event.target.value)} /></div>
+            <Input id={`${id}-postal`} autoComplete="postal-code" required={postalRequired} maxLength={32} value={postal}
+              aria-invalid={postalInvalid ? "true" : "false"}
+              aria-describedby={postalInvalid ? `${id}-postal-error` : undefined}
+              className={cn(postalInvalid && "border-red-400/60 focus:ring-red-400/40")}
+              onBlur={() => touch("postal")}
+              onChange={(event) => manual(setPostal, event.target.value)} />
+            {postalInvalid && <p id={`${id}-postal-error`} className="text-xs text-red-400">Enter your postal code.</p>}
+          </div>
         </div>
       </>}
       {error && <p role="alert" className="rounded-lg border border-red-400/25 bg-red-400/5 p-3 text-sm text-red-400">{error}</p>}
       {saved && <p role="status" className="text-sm text-emerald">Profile saved.</p>}
-      <Button className={settings ? "" : "w-full"} type="submit" disabled={saving || (addressFields && (!country || requiredFields === null))}>
+      <Button className={settings ? "" : "w-full"} type="submit" disabled={saving || !formValid || (settings && !isDirty)}>
         {saving ? "Saving…" : settings ? "Save profile" : "Continue"}
       </Button>
     </form>
@@ -315,8 +464,12 @@ export function HostLocationForm({ host, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
-  return <form className="space-y-4 rounded-xl border border-border bg-surface p-5" onSubmit={async (event) => {
-    event.preventDefault(); setSaving(true); setError(""); setSaved(false);
+  const locationValid = Boolean(country.trim()) && requirements !== null && (!requirements.includes("province") || Boolean(province.trim()));
+  const isDirty = host.location_complete === false || country !== (host.country ?? "") || province !== (host.province ?? "");
+  return <form noValidate className="space-y-4 rounded-xl border border-border bg-surface p-5" onSubmit={async (event) => {
+    event.preventDefault();
+    if (!locationValid) return;
+    setSaving(true); setError(""); setSaved(false);
     try {
       if (typeof host.version !== "number") throw new Error("Reload this host's details before editing its location.");
       const result = await apiFetch<{ host: import("@/lib/api").Host }>(`/api/hosts/${encodeURIComponent(host.host_id)}/location`, {
@@ -337,6 +490,6 @@ export function HostLocationForm({ host, onSaved }: {
       onRequirementsChange={setRequirements} />
     {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
     {saved && <p role="status" className="text-sm text-emerald">Host location saved.</p>}
-    <Button type="submit" disabled={saving || !country || requirements === null || typeof host.version !== "number"}>{saving ? "Saving…" : "Save location"}</Button>
+    <Button type="submit" disabled={saving || !locationValid || !isDirty || typeof host.version !== "number"}>{saving ? "Saving…" : "Save location"}</Button>
   </form>;
 }

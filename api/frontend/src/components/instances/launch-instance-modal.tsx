@@ -271,6 +271,7 @@ export function LaunchInstanceModal({
   const isEstimatedRate = false;
   const physicalHosts = currentCatalog?.physical_hosts.filter((host) => !listing?.host_id || host.host_id === listing.host_id) ?? [];
   const wholeHostSizes = [...new Set(physicalHosts.map((host) => host.num_gpus))].sort((a, b) => a-b);
+  const hasQualifiedWholeHost = wholeHostSizes.length > 0;
   const wholeHostReady = tier !== "dedicated" || wholeHostSizes.includes(Number(numGpus));
   const computeBasePerHour = currentCatalog ? currentCatalog.base_rate_micros * Number(numGpus) / 1_000_000 : null;
   const tierAdditionPerHour = selectedTierPrice ? selectedTierPrice.tier_addition_micros * Number(numGpus) / 1_000_000 : null;
@@ -331,6 +332,17 @@ export function LaunchInstanceModal({
       </p>
     </div>
   );
+
+  useEffect(() => {
+    if (!currentCatalog || tier !== "dedicated") return;
+    if (!wholeHostSizes.length) {
+      setTier("standard");
+      return;
+    }
+    if (!wholeHostSizes.includes(Number(numGpus))) {
+      setNumGpus(String(wholeHostSizes[0]));
+    }
+  }, [currentCatalog, tier, wholeHostSizes, numGpus]);
 
   // Fetch reference data
   useEffect(() => {
@@ -822,8 +834,9 @@ export function LaunchInstanceModal({
                     {(["standard", "premium", "dedicated"] as const).map((value) => {
                       const price = currentCatalog?.tiers.find((entry) => entry.tier === value);
                       const count = value === "dedicated" ? wholeHostSizes[0] ?? Number(numGpus) : Number(numGpus);
+                      const dedicatedUnavailable = value === "dedicated" && !hasQualifiedWholeHost;
                       return <button
-                        key={value} type="button" disabled={!price}
+                        key={value} type="button" disabled={!price || dedicatedUnavailable}
                         aria-pressed={tier === value}
                         onClick={() => {
                           setTier(value);
@@ -836,7 +849,7 @@ export function LaunchInstanceModal({
                       >
                         <p className="text-sm font-medium capitalize">{value}</p>
                         <p className="mt-1 text-xs font-mono">{price ? `+${hourlyPrice(price.tier_addition_micros * count / 1_000_000)}` : "Loading prices…"}</p>
-                        <p className="mt-1 text-[11px] text-text-muted">{value === "standard" ? "Standard scheduling" : value === "premium" ? "Priority scheduling" : "Entire physical host · highest priority"}</p>
+                        <p className="mt-1 text-[11px] text-text-muted">{value === "standard" ? "Standard scheduling" : value === "premium" ? "Priority scheduling" : currentCatalog && !hasQualifiedWholeHost ? "No qualified physical hosts available" : "Entire physical host · highest priority"}</p>
                       </button>;
                     })}
                   </div>

@@ -148,4 +148,24 @@ describe("SellerProfileCard", () => {
     expect(input).toHaveValue("");
     expect(input).toHaveAttribute("autocomplete", "off");
   });
+
+  it("keeps the settings save button disabled until a field changes and disables it again after saving", async () => {
+    const user = userEvent.setup();
+    render(
+      <SellerProfileCard
+        mode="settings"
+        provider={{ legal_name: "Ada Lovelace", tax_id_kind: "sin", tax_id_last4: "2544", gst_hst_number: "" }}
+        onSaved={vi.fn()}
+      />,
+    );
+    const saveBtn = screen.getByRole("button", { name: "dash.earnings.seller_save" });
+    expect(saveBtn).toBeDisabled();
+
+    await user.type(screen.getByLabelText("dash.earnings.seller_gst"), "123456789RT0001");
+    expect(saveBtn).toBeEnabled();
+
+    await user.click(saveBtn);
+    expect(apiMocks.saveSellerProfile).toHaveBeenCalledOnce();
+    expect(saveBtn).toBeDisabled();
+  });
 });
