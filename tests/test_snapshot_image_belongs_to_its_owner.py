@@ -129,5 +129,5 @@ def test_every_job_passes_through_the_check():
     import scheduler
 
     body = inspect.getsource(scheduler.submit_job)
-    assert "foreign_snapshot_problem(image" in body
-    assert body.index("foreign_snapshot_problem(image") < body.index("import canonicalize")
+    assert "snapshot_launch_decision(" in body
+    assert body.index("snapshot_launch_decision(") < body.index("import canonicalize")
