@@ -1212,6 +1212,14 @@ def _enrich_instance(
     if elapsed > 0 and j.get("cost_cad") is None:
         rate = float(j.get("rate_per_hour_cad") or 0.20)
         j["cost_cad"] = round((elapsed / 3600) * rate, 4)
+    elif (
+        started <= 0
+        and j.get("cost_cad") is None
+        and j.get("status") in ("failed", "cancelled", "terminated")
+    ):
+        # Ended without ever starting: compute is billed from started_at, so the
+        # compute estimate is a real zero, not an unknown.
+        j["cost_cad"] = 0.0
 
     # Encrypted workspace flag
     j.setdefault("encrypted_workspace", bool(j.get("encrypted_workspace")))

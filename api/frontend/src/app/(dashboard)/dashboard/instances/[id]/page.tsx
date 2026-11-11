@@ -811,7 +811,9 @@ export default function InstanceDetailPage() {
                 : instance.elapsed_sec
                   ? `${(instance.elapsed_sec / 60).toFixed(0)}m`
                   : instance.wait_elapsed_sec
-                    ? `${Math.max(1, Math.round(instance.wait_elapsed_sec / 60))}m waiting`
+                    ? isTerminal
+                      ? `waited ${Math.max(1, Math.round(instance.wait_elapsed_sec / 60))}m`
+                      : `${Math.max(1, Math.round(instance.wait_elapsed_sec / 60))}m waiting`
                     : "-"}
             </p>
           </div>
