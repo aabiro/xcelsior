@@ -69,6 +69,7 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
   const [catalog, setCatalog] = useState<LocationCatalog | null>(null);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const [edited, setEdited] = useState<{ country?: boolean; province?: boolean }>({});
   const [touched, setTouched] = useState<{ country?: boolean; province?: boolean }>({});
   const selectedCountry = countries.some((item) => item.code === country) ? country : "";
   useEffect(() => {
@@ -100,8 +101,8 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
   }, [selectedCountry, retry, onRequirementsChange]);
   const selectedProvince = catalog?.subdivisions.some((item) => item.code === province) ? province : "";
   const provinceRequired = catalog?.requires_subdivision ?? true;
-  const countryInvalid = Boolean(touched.country && !selectedCountry);
-  const provinceInvalid = Boolean(touched.province && provinceRequired && !selectedProvince);
+  const countryInvalid = Boolean(edited.country && touched.country && !selectedCountry);
+  const provinceInvalid = Boolean(edited.province && touched.province && provinceRequired && !selectedProvince);
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="space-y-1.5">
@@ -110,8 +111,13 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
           aria-invalid={countryInvalid ? "true" : "false"}
           aria-describedby={countryInvalid ? `${id}-country-error` : undefined}
           className={cn(countryInvalid && "border-red-400/60 focus:ring-red-400/40")}
-          onBlur={() => setTouched((prev) => ({ ...prev, country: true }))}
-          onChange={(event) => { onCountryChange(event.target.value); onProvinceChange(""); }}>
+          onBlur={() => { if (edited.country) setTouched((prev) => (prev.country ? prev : { ...prev, country: true })); }}
+          onChange={(event) => {
+            setEdited((prev) => ({ ...prev, country: true, province: false }));
+            setTouched((prev) => ({ ...prev, province: false }));
+            onCountryChange(event.target.value);
+            onProvinceChange("");
+          }}>
           <option value="">{countries.length ? "Select country" : "Loading countries…"}</option>
           {countries.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
         </Select>
@@ -124,8 +130,11 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
           aria-invalid={provinceInvalid ? "true" : "false"}
           aria-describedby={provinceInvalid ? `${id}-province-error` : undefined}
           className={cn(provinceInvalid && "border-red-400/60 focus:ring-red-400/40")}
-          onBlur={() => setTouched((prev) => ({ ...prev, province: true }))}
-          onChange={(event) => onProvinceChange(event.target.value)}>
+          onBlur={() => { if (edited.province) setTouched((prev) => (prev.province ? prev : { ...prev, province: true })); }}
+          onChange={(event) => {
+            setEdited((prev) => (prev.province ? prev : { ...prev, province: true }));
+            onProvinceChange(event.target.value);
+          }}>
           <option value="">{catalog && !catalog.requires_subdivision ? "Not applicable" : "Select state or province"}</option>
           {catalog?.subdivisions.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
         </Select>
@@ -254,6 +263,7 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
   const [businessName, setBusinessName] = useState(user?.business_name || "");
   const [gst, setGst] = useState(user?.gst_hst_number || "");
   const [requiredFields, setRequiredFields] = useState<string[] | null>(null);
+  const [edited, setEdited] = useState<Record<string, boolean>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -263,8 +273,8 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
     name: (user?.name || "").trim(),
     account_type: user?.account_type || "",
     onboarding_intent: user?.onboarding_intent || "",
-    business_name: (user?.business_name || "").trim(),
-    gst_hst_number: (user?.gst_hst_number || "").trim(),
+    business_name: user?.account_type === "business" ? (user?.business_name || "").trim() : "",
+    gst_hst_number: user?.account_type === "business" ? (user?.gst_hst_number || "").trim() : "",
     country: user?.country || "",
     province: user?.province || "",
     address_line1: (user?.address_line1 || "").trim(),
@@ -273,7 +283,9 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
     postal_code: (user?.postal_code || "").trim(),
   }));
   const manual = (set: (value: string) => void, value: string) => { setEditRevision((revision) => revision + 1); set(value); };
+  const markEdited = (field: string) => setEdited((prev) => (prev[field] ? prev : { ...prev, [field]: true }));
   const touch = (field: string) => setTouched((prev) => (prev[field] ? prev : { ...prev, [field]: true }));
+  const blurField = (field: string) => { if (edited[field]) touch(field); };
   const id = useId();
   const accountFields = step === "account" || settings;
   const addressFields = step === "address" || settings;
@@ -300,36 +312,40 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
       requiredFields !== null &&
       requiredFields.every((field) => Boolean(addressFieldValues[field]?.trim())));
 
-  const nameInvalid = Boolean(accountFields && nameRequired && touched.name && !nameValid);
-  const typeInvalid = Boolean(accountFields && touched.accountType && !typeValid);
-  const businessInvalid = Boolean(accountFields && accountType === "business" && touched.businessName && !businessValid);
-  const line1Invalid = Boolean(addressFields && line1Required && touched.line1 && !line1.trim());
-  const cityInvalid = Boolean(addressFields && cityRequired && touched.city && !city.trim());
-  const postalInvalid = Boolean(addressFields && postalRequired && touched.postal && !postal.trim());
+  const nameInvalid = Boolean(accountFields && nameRequired && edited.name && touched.name && !nameValid);
+  const typeInvalid = Boolean(accountFields && edited.accountType && touched.accountType && !typeValid);
+  const businessInvalid = Boolean(accountFields && accountType === "business" && edited.businessName && touched.businessName && !businessValid);
+  const line1Invalid = Boolean(addressFields && line1Required && edited.line1 && touched.line1 && !line1.trim());
+  const cityInvalid = Boolean(addressFields && cityRequired && edited.city && touched.city && !city.trim());
+  const postalInvalid = Boolean(addressFields && postalRequired && edited.postal && touched.postal && !postal.trim());
   const formValid = accountValid && addressValid;
   const effectiveBusinessName = accountType === "business" ? businessName.trim() : "";
   const effectiveGst = accountType === "business" ? gst.trim() : "";
-  const isDirty =
+  const accountDirty =
     (!user?.name?.trim() && name.trim() !== savedSnapshot.name) ||
     accountType !== savedSnapshot.account_type ||
-    intent !== savedSnapshot.onboarding_intent ||
+    (settings && intent !== savedSnapshot.onboarding_intent) ||
     effectiveBusinessName !== savedSnapshot.business_name ||
-    effectiveGst !== savedSnapshot.gst_hst_number ||
+    effectiveGst !== savedSnapshot.gst_hst_number;
+  const addressDirty =
     country !== savedSnapshot.country ||
     province !== savedSnapshot.province ||
     line1.trim() !== savedSnapshot.address_line1 ||
     line2.trim() !== savedSnapshot.address_line2 ||
     city.trim() !== savedSnapshot.city ||
     postal.trim() !== savedSnapshot.postal_code;
+  const isDirty = (accountFields && accountDirty) || (addressFields && addressDirty);
 
   return (
     <form noValidate className="space-y-5" onSubmit={async (event) => {
       event.preventDefault();
       if (!formValid) {
+        setEdited({ name: true, accountType: true, businessName: true, line1: true, city: true, postal: true });
         setTouched({ name: true, accountType: true, businessName: true, line1: true, city: true, postal: true });
         event.currentTarget.querySelector<HTMLElement>('[aria-invalid="true"], :invalid')?.focus();
         return;
       }
+      if (!isDirty) return;
       setSaving(true); setError(""); setSaved(false);
       try {
         await updateProfile({
@@ -353,6 +369,8 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
           city: city.trim(),
           postal_code: postal.trim(),
         });
+        setEdited({});
+        setTouched({});
         await refreshUser({ throwOnError: true });
         await onSaved?.();
         if (settings) setSaved(true);
@@ -365,8 +383,8 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
             aria-invalid={nameInvalid ? "true" : "false"}
             aria-describedby={nameInvalid ? `${id}-name-error` : undefined}
             className={cn(nameInvalid && "border-red-400/60 focus:ring-red-400/40")}
-            onBlur={() => touch("name")}
-            onChange={(event) => setName(event.target.value)} />
+            onBlur={() => blurField("name")}
+            onChange={(event) => { markEdited("name"); setName(event.target.value); }} />
           {nameInvalid && <p id={`${id}-name-error`} className="text-xs text-red-400">Enter your name.</p>}
         </div>}
         {settings && <fieldset className="space-y-2"><legend className="text-sm font-medium">How will you use Xcelsior?</legend>
@@ -381,8 +399,13 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
             aria-invalid={typeInvalid ? "true" : "false"}
             aria-describedby={typeInvalid ? `${id}-type-error` : undefined}
             className={cn(typeInvalid && "border-red-400/60 focus:ring-red-400/40")}
-            onBlur={() => touch("accountType")}
-            onChange={(event) => setAccountType(event.target.value)}>
+            onBlur={() => blurField("accountType")}
+            onChange={(event) => {
+              markEdited("accountType");
+              setEdited((prev) => ({ ...prev, businessName: false }));
+              setTouched((prev) => ({ ...prev, businessName: false }));
+              setAccountType(event.target.value);
+            }}>
             <option value="">Select account type</option><option value="individual">Personal</option><option value="business">Business</option>
           </Select>
           {typeInvalid && <p id={`${id}-type-error`} className="text-xs text-red-400">Select an account type.</p>}
@@ -394,8 +417,8 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
               aria-invalid={businessInvalid ? "true" : "false"}
               aria-describedby={businessInvalid ? `${id}-business-error` : undefined}
               className={cn(businessInvalid && "border-red-400/60 focus:ring-red-400/40")}
-              onBlur={() => touch("businessName")}
-              onChange={(event) => setBusinessName(event.target.value)} />
+              onBlur={() => blurField("businessName")}
+              onChange={(event) => { markEdited("businessName"); setBusinessName(event.target.value); }} />
             {businessInvalid && <p id={`${id}-business-error`} className="text-xs text-red-400">Enter your legal business name.</p>}
           </div>
           <div className="space-y-1.5"><Label htmlFor={`${id}-gst`}>GST/HST registration number (optional)</Label>
@@ -406,6 +429,7 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
         <AddressLookup country={country} editRevision={editRevision} onSelect={(address) => {
           setLine1(address.address_line1); setLine2(address.address_line2); setCity(address.city);
           setPostal(address.postal_code); setCountry(address.country); setProvince(address.province);
+          setTouched((prev) => ({ ...prev, line1: false, city: false, postal: false }));
         }} />
         <LocationFields country={country} province={province} onCountryChange={setCountry} onProvinceChange={(value) => manual(setProvince, value)} onRequirementsChange={setRequiredFields} />
         <div className="space-y-1.5"><Label htmlFor={`${id}-line1`}>Street address</Label>
@@ -413,8 +437,8 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
             aria-invalid={line1Invalid ? "true" : "false"}
             aria-describedby={line1Invalid ? `${id}-line1-error` : undefined}
             className={cn(line1Invalid && "border-red-400/60 focus:ring-red-400/40")}
-            onBlur={() => touch("line1")}
-            onChange={(event) => manual(setLine1, event.target.value)} />
+            onBlur={() => blurField("line1")}
+            onChange={(event) => { markEdited("line1"); manual(setLine1, event.target.value); }} />
           {line1Invalid && <p id={`${id}-line1-error`} className="text-xs text-red-400">Enter your street address.</p>}
         </div>
         <div className="space-y-1.5"><Label htmlFor={`${id}-line2`}>Apartment, suite, or unit (optional)</Label>
@@ -425,8 +449,8 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
               aria-invalid={cityInvalid ? "true" : "false"}
               aria-describedby={cityInvalid ? `${id}-city-error` : undefined}
               className={cn(cityInvalid && "border-red-400/60 focus:ring-red-400/40")}
-              onBlur={() => touch("city")}
-              onChange={(event) => manual(setCity, event.target.value)} />
+              onBlur={() => blurField("city")}
+              onChange={(event) => { markEdited("city"); manual(setCity, event.target.value); }} />
             {cityInvalid && <p id={`${id}-city-error`} className="text-xs text-red-400">Enter your city or locality.</p>}
           </div>
           <div className="space-y-1.5"><Label htmlFor={`${id}-postal`}>Postal code</Label>
@@ -434,15 +458,15 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
               aria-invalid={postalInvalid ? "true" : "false"}
               aria-describedby={postalInvalid ? `${id}-postal-error` : undefined}
               className={cn(postalInvalid && "border-red-400/60 focus:ring-red-400/40")}
-              onBlur={() => touch("postal")}
-              onChange={(event) => manual(setPostal, event.target.value)} />
+              onBlur={() => blurField("postal")}
+              onChange={(event) => { markEdited("postal"); manual(setPostal, event.target.value); }} />
             {postalInvalid && <p id={`${id}-postal-error`} className="text-xs text-red-400">Enter your postal code.</p>}
           </div>
         </div>
       </>}
       {error && <p role="alert" className="rounded-lg border border-red-400/25 bg-red-400/5 p-3 text-sm text-red-400">{error}</p>}
       {saved && <p role="status" className="text-sm text-emerald">Profile saved.</p>}
-      <Button className={settings ? "" : "w-full"} type="submit" disabled={saving || !formValid || (settings && !isDirty)}>
+      <Button className={settings ? "" : "w-full"} type="submit" disabled={saving || !formValid || !isDirty}>
         {saving ? "Saving…" : settings ? "Save profile" : "Continue"}
       </Button>
     </form>

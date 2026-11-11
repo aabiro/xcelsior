@@ -167,6 +167,7 @@ export function BusinessProfileSection({
   const [displayName, setDisplayName] = useState(user.business_display_name || "");
   const [website, setWebsite] = useState(user.business_website || "");
   const [tagline, setTagline] = useState(user.business_tagline || "");
+  const [websiteEdited, setWebsiteEdited] = useState(false);
   const [websiteTouched, setWebsiteTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
@@ -188,7 +189,7 @@ export function BusinessProfileSection({
   const taglineLength = lengthOf(draft.tagline);
   const websiteValid = websiteIsValid(draft.website);
   const valid = websiteValid && nameLength <= DISPLAY_NAME_MAX && taglineLength <= TAGLINE_MAX;
-  const websiteError = websiteTouched && !websiteValid ? t("dash.business.website_invalid") : undefined;
+  const websiteError = websiteEdited && websiteTouched && !websiteValid ? t("dash.business.website_invalid") : undefined;
 
   const hasLogo = Boolean(user.business_logo_url);
   const tile = normalizeTile(user.business_logo_tile);
@@ -211,6 +212,7 @@ export function BusinessProfileSection({
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!valid) {
+      setWebsiteEdited(true);
       setWebsiteTouched(true);
       return;
     }
@@ -228,6 +230,7 @@ export function BusinessProfileSection({
       setDisplayName(result.business_display_name ?? draft.name);
       setWebsite(result.business_website ?? draft.website);
       setTagline(result.business_tagline ?? draft.tagline);
+      setWebsiteEdited(false);
       setWebsiteTouched(false);
       await onUpdated();
       setJustSaved(true);
@@ -445,8 +448,9 @@ export function BusinessProfileSection({
               aria-invalid={websiteError ? "true" : "false"}
               aria-describedby={websiteError ? `${id}-website-error` : undefined}
               className={cn(websiteError && "border-accent-red/60 focus:ring-accent-red/40")}
-              onBlur={() => setWebsiteTouched(true)}
+              onBlur={() => { if (websiteEdited) setWebsiteTouched(true); }}
               onChange={(event) => {
+                setWebsiteEdited(true);
                 setWebsite(event.target.value);
                 setJustSaved(false);
               }}
