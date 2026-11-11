@@ -2840,54 +2840,35 @@ html:has(.site-nav) {
 }
 
 
-.site-marketing-code {
-  max-width: 100%;
-  margin-top: 0;
-  border-color: var(--edge) !important;
-  border-radius: 18px !important;
-  background: rgba(8, 11, 20, 0.78) !important;
-  box-shadow: var(--shadow-panel) !important;
-}
-
-.site-marketing-code,
-.site-marketing-code pre,
-.site-marketing-code button,
-.site-marketing-code span {
-  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
-}
-
-.site-marketing-code > div {
-  border-bottom-color: rgba(255, 255, 255, 0.09) !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-}
-
-.site-marketing-code pre {
-  margin: 0;
-  color: var(--text-2) !important;
-}
-
-/* Token families in the marketing palette (see globals.css .code-syntax). */
-.site-marketing-code pre.code-syntax {
+/* The site's code card: the shared card (globals.css .code-card) with the
+   site's own surface, type and token palette. Variables only. */
+.marketing-site .site-marketing-code {
+  --code-bg: rgba(8, 11, 20, 0.78);
+  --code-bar-bg: rgba(255, 255, 255, 0.04);
+  --code-border: var(--edge);
+  --code-radius: 18px;
+  --code-shadow: var(--shadow-panel);
+  --code-text: var(--text-2);
+  --code-label: var(--text-4);
+  --code-font: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  --code-size: 13px;
+  --code-pad-y: 16px;
+  --code-pad-x: 20px;
   --code-key: color-mix(in srgb, var(--cyan) 80%, var(--text-2));
   --code-string: color-mix(in srgb, var(--green) 80%, var(--text-2));
   --code-value: color-mix(in srgb, var(--gold) 80%, var(--text-2));
   --code-keyword: color-mix(in srgb, var(--violet-2) 84%, var(--text-2));
   --code-comment: var(--text-4);
   --code-punct: var(--text-4);
+  max-width: 100%;
 }
 
 .marketing-site[data-theme="light"] .site-marketing-code {
-  background: var(--surface) !important;
-  box-shadow: var(--shadow-sm) !important;
-}
-
-.marketing-site[data-theme="light"] .site-marketing-code > div {
-  border-bottom-color: var(--border) !important;
-  background: var(--surface-hover) !important;
-}
-
-.marketing-site[data-theme="light"] .site-marketing-code pre {
-  color: var(--color-text-primary) !important;
+  --code-bg: var(--surface);
+  --code-bar-bg: var(--surface-hover);
+  --code-border: var(--border);
+  --code-shadow: var(--shadow-sm);
+  --code-text: var(--color-text-primary);
 }
 
 .site-download-primary,

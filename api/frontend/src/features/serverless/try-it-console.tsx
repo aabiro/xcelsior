@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
-  Play, Square, Loader2, Terminal, MessageSquare, Code2, Copy, Check, Power,
+  Play, Square, Loader2, Terminal, MessageSquare, Code2, Power,
 } from "lucide-react";
 import type { ServerlessEndpoint, ServerlessWarmStatus } from "@/lib/api";
 import * as api from "@/lib/api";
@@ -13,6 +13,7 @@ import { useLocale } from "@/lib/locale";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 
+import { CodeBlock } from "@/components/ui/code-block";
 import { CopyableText } from "./copyable-text";
 import { ServerlessPanel, ServerlessSegmentedTabs } from "./serverless-ui";
 import { ServerlessJobRunner } from "./serverless-job-runner";
@@ -260,8 +261,8 @@ for chunk in response:
 
       {mode === "snippets" && (
         <div className="space-y-4">
-          <SnippetBlock title="cURL" code={curlSnippet} />
-          {isPreset && <SnippetBlock title="OpenAI Python SDK" code={openaiSnippet} />}
+          <CodeBlock filename="request.sh" code={curlSnippet} />
+          {isPreset && <CodeBlock filename="openai_client.py" code={openaiSnippet} />}
           <div className="text-xs text-text-muted">
             <span>{t("dash.serverless.openai_base")}: </span>
             <CopyableText text={baseUrl} />
@@ -288,23 +289,3 @@ for chunk in response:
   );
 }
 
-function SnippetBlock({ title, code }: { title: string; code: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
-  return (
-    <div className="rounded-xl border border-border overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 bg-surface-hover border-b border-border">
-        <span className="text-xs font-medium">{title}</span>
-        <button type="button" onClick={copy} className="text-text-muted hover:text-text-primary">
-          {copied ? <Check className="h-3.5 w-3.5 text-emerald" /> : <Copy className="h-3.5 w-3.5" />}
-        </button>
-      </div>
-      <pre className="overflow-x-auto bg-surface p-3 font-mono text-xs text-text-primary">{code}</pre>
-    </div>
-  );
-}
