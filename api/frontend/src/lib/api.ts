@@ -469,6 +469,13 @@ export type AuthUser = {
   onboarding_intent?: string;
   profile_complete?: boolean;
   missing_profile_fields?: string[];
+  business_name?: string;
+  gst_hst_number?: string;
+  business_display_name?: string;
+  business_website?: string;
+  business_tagline?: string;
+  business_logo_url?: string | null;
+  business_logo_tile?: "none" | "light" | "dark";
   avatar_url?: string;
   customer_id?: string;
   provider_id?: string;
@@ -571,6 +578,33 @@ export async function uploadAvatar(file: File) {
 
 export async function deleteAvatar() {
   return apiFetch<{ ok: boolean }>("/api/auth/me/avatar", { method: "DELETE" });
+}
+
+/** Upload a business logo. The API re-encodes it to a 512 px square and picks
+ *  the tile a transparent logo needs, so the result carries both. */
+export async function uploadBusinessLogo(file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/auth/me/business-logo", {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { detail?: string }).detail || "Logo upload failed");
+  }
+  return res.json() as Promise<{
+    ok: boolean;
+    business_logo_url: string;
+    business_logo_tile: "none" | "light" | "dark";
+  }>;
+}
+
+export async function deleteBusinessLogo() {
+  return apiFetch<{ ok: boolean; removed: boolean }>("/api/auth/me/business-logo", {
+    method: "DELETE",
+  });
 }
 
 export async function refreshToken() {
@@ -4502,8 +4536,18 @@ export async function updateProfile(updates: {
   province?: string;
   business_name?: string;
   gst_hst_number?: string;
+  business_display_name?: string;
+  business_website?: string;
+  business_tagline?: string;
 }) {
-  return apiFetch<{ ok: boolean; name?: string }>("/api/auth/me/profile", {
+  // The response echoes each saved field as the API normalised it.
+  return apiFetch<{
+    ok: boolean;
+    name?: string;
+    business_display_name?: string;
+    business_website?: string;
+    business_tagline?: string;
+  }>("/api/auth/me/profile", {
     method: "PUT",
     body: JSON.stringify(updates),
   });

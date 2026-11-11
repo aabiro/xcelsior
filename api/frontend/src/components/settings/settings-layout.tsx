@@ -152,7 +152,9 @@ export function SettingsSection({
   children,
   className,
   highlight,
+  id,
 }: {
+  id?: string;
   icon: LucideIcon;
   title: string;
   description?: string;
@@ -199,8 +201,9 @@ export function SettingsSection({
 
   return (
     <section
+      id={id}
       className={cn(
-        "overflow-hidden rounded-2xl border bg-surface/80 backdrop-blur-sm",
+        "scroll-mt-4 overflow-hidden rounded-2xl border bg-surface/80 backdrop-blur-sm",
         highlight ? "brand-top-accent border-border/80 shadow-lg shadow-black/10" : "border-border/60",
         className,
       )}

@@ -1291,6 +1291,75 @@ class AvatarStore:
         return row is not None
 
 
+class BusinessLogoStore:
+    """A business account's logo, in Postgres beside `user_avatars`.
+
+    What is stored is the image `business_profile.process_logo` produced, and
+    `tile` is the background it needs behind it.
+    """
+
+    @staticmethod
+    def get(user_id: str) -> dict | None:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return None
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT content_type, data, tile, updated_at FROM business_logos WHERE user_id = %s",
+                (uid,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "content_type": row["content_type"],
+            "data": bytes(row["data"]),
+            "tile": row["tile"],
+            "updated_at": float(row["updated_at"] or 0),
+        }
+
+    @staticmethod
+    def meta(user_id: str) -> dict | None:
+        """Tile and version without reading the image bytes."""
+        uid = str(user_id or "").strip()
+        if not uid:
+            return None
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT tile, updated_at FROM business_logos WHERE user_id = %s", (uid,)
+            ).fetchone()
+        if not row:
+            return None
+        return {"tile": row["tile"], "updated_at": float(row["updated_at"] or 0)}
+
+    @staticmethod
+    def put(user_id: str, content_type: str, data: bytes, tile: str, updated_at: float) -> None:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return
+        with auth_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO business_logos (user_id, content_type, data, tile, updated_at)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    content_type = EXCLUDED.content_type,
+                    data = EXCLUDED.data,
+                    tile = EXCLUDED.tile,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (uid, content_type, data, tile, updated_at),
+            )
+
+    @staticmethod
+    def delete(user_id: str) -> bool:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return False
+        with auth_connection() as conn:
+            cur = conn.execute("DELETE FROM business_logos WHERE user_id = %s", (uid,))
+            return bool(cur.rowcount)
+
+
 class UserStore:
     """Persistent user/session/API key storage backed by PostgreSQL."""
 
@@ -1359,6 +1428,9 @@ class UserStore:
             "onboarding_intent",
             "business_name",
             "gst_hst_number",
+            "business_display_name",
+            "business_website",
+            "business_tagline",
             "provider_id",
             "team_id",
             "password_hash",

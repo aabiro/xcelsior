@@ -7,6 +7,8 @@ import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import { fetchMyTeams, type TeamInfo } from "@/lib/api";
 import { applyActiveTeamSwitch, getTeamContext } from "@/lib/team-context";
+import { businessName, isBusinessAccount } from "@/lib/business-profile";
+import { BusinessLogo } from "@/components/user/business-logo";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -19,6 +21,15 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
   const { user, refreshUser } = useAuth();
   const { t } = useLocale();
   const team = getTeamContext(user);
+  // A business account's own workspace is the business's, so it carries the
+  // business's name and logo rather than "Personal workspace".
+  const ownBusiness = isBusinessAccount(user) && Boolean(businessName(user));
+  const ownLabel = ownBusiness ? businessName(user) : t("dash.team.personal_workspace");
+  const ownIcon = ownBusiness ? (
+    <BusinessLogo business={user} size="2xs" />
+  ) : (
+    <User className="h-3.5 w-3.5 shrink-0" />
+  );
   const [teams, setTeams] = useState<TeamInfo[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -89,7 +100,9 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
           ? t("dash.team.switch_success", {
               name: teams.find((x) => x.team_id === teamId)?.name || teamId,
             })
-          : t("dash.team.switch_personal_success"),
+          : ownBusiness
+            ? t("dash.team.switch_success", { name: ownLabel })
+            : t("dash.team.switch_personal_success"),
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("dash.team.switch_failed"));
@@ -101,9 +114,7 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
   if (loading && teams.length === 0) return null;
   if (teams.length === 0) return null;
 
-  const label = team.isTeamMember
-    ? (team.teamName || t("dash.team"))
-    : t("dash.team.personal_workspace");
+  const label = team.isTeamMember ? (team.teamName || t("dash.team")) : ownLabel;
 
   return (
     <div ref={menuRef} className={cn("relative", className)}>
@@ -115,13 +126,22 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
           "flex items-center gap-2 rounded-xl border border-border/60 px-2.5 py-1.5 text-sm transition-colors hover:bg-surface-hover",
           // Fixed, not max: the trigger resized with the team name and shifted
           // everything beside it in the app bar whenever the workspace changed.
-          compact && "w-[11rem]",
+          // On a phone it is the icon alone: at 11rem it pushed the wallet and
+          // the account menu off the right edge of a 390px bar.
+          compact && "w-auto sm:w-[11rem]",
         )}
         aria-expanded={open}
         aria-haspopup="listbox"
+        aria-label={compact ? `${t("dash.team.active_workspace")}: ${label}` : undefined}
       >
-        <Users className="h-3.5 w-3.5 shrink-0 text-accent-cyan" />
-        <span className="min-w-0 flex-1 truncate text-left text-text-secondary">{label}</span>
+        {team.isTeamMember || !ownBusiness ? (
+          <Users className="h-3.5 w-3.5 shrink-0 text-accent-cyan" />
+        ) : (
+          ownIcon
+        )}
+        <span className={cn("min-w-0 flex-1 truncate text-left text-text-secondary", compact && "hidden sm:block")}>
+          {label}
+        </span>
         {switching ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-text-muted" />
         ) : (
@@ -147,8 +167,8 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
                 !user?.team_id && "bg-accent-cyan/10 text-accent-cyan",
               )}
             >
-              <User className="h-3.5 w-3.5 shrink-0" />
-              <span>{t("dash.team.personal_workspace")}</span>
+              {ownIcon}
+              <span className="truncate">{ownLabel}</span>
             </button>
             <div className="border-t border-border/60" />
             {teams.map((entry) => (

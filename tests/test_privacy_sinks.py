@@ -116,6 +116,7 @@ def subject(monkeypatch):
         conn.execute("DELETE FROM ai_confirmations WHERE user_id = %s", (user_id,))
         conn.execute("DELETE FROM ai_conversations WHERE user_id = %s", (user_id,))
         conn.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
+        conn.execute("DELETE FROM business_logos WHERE user_id = %s", (user_id,))
         conn.execute("DELETE FROM casl_consent WHERE user_id = %s", (user_id,))
         conn.execute(
             "DELETE FROM consent_records WHERE entity_id = ANY(%s)",
@@ -192,6 +193,17 @@ def test_authority_revokes_access_anonymizes_identity_and_retains_finance(subjec
             (user_id, user_id),
         )
         conn.commit()
+    from db import BusinessLogoStore
+
+    BusinessLogoStore.put(user_id, "image/png", b"\x89PNG\r\n\x1a\nlogo", "light", time.time())
+    UserStore.update_user(
+        email,
+        {
+            "business_display_name": "Sensitive Studio",
+            "business_website": "https://sensitive.example",
+            "business_tagline": "Identifying tagline",
+        },
+    )
     get_billing_engine().deposit(
         customer_id,
         10,
@@ -208,13 +220,17 @@ def test_authority_revokes_access_anonymizes_identity_and_retains_finance(subjec
         user = conn.execute(
             """
             SELECT email, name, provider_id, notifications_enabled,
-                   email_verified, is_admin
+                   email_verified, is_admin, business_display_name,
+                   business_website, business_tagline
               FROM users WHERE user_id = %s
             """,
             (user_id,),
         ).fetchone()
         sessions = conn.execute(
             "SELECT count(*) FROM sessions WHERE user_id = %s", (user_id,)
+        ).fetchone()[0]
+        logos = conn.execute(
+            "SELECT count(*) FROM business_logos WHERE user_id = %s", (user_id,)
         ).fetchone()[0]
         consents = conn.execute(
             "SELECT count(*) FROM casl_consent WHERE user_id = %s", (user_id,)
@@ -241,7 +257,9 @@ def test_authority_revokes_access_anonymizes_identity_and_retains_finance(subjec
     assert not bool(user[3])
     assert not bool(user[4])
     assert int(user[5]) == 0
+    assert (user[6], user[7], user[8]) == ("", "", "")
     assert sessions == 0
+    assert logos == 0
     assert consents == 0
     assert key[0] is False and key[1] == "DESTROYED"
     assert int(wallet[0]) == 10_000_000

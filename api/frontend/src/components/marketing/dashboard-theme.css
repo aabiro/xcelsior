@@ -71,7 +71,8 @@
   animation: auroraB 18s ease-in-out infinite;
 }
 
-.dashboard-shell[data-theme="dark"] {
+.dashboard-shell[data-theme="dark"],
+.dashboard-theme-scope[data-theme="dark"] {
   --bg: #05070e;
   --panel: rgba(5, 7, 14, 0.6);
   --panel-2: rgba(8, 11, 20, 0.5);
@@ -127,7 +128,8 @@
   --color-glow-red: rgba(255, 143, 143, 0.12);
 }
 
-.dashboard-shell[data-theme="light"] {
+.dashboard-shell[data-theme="light"],
+.dashboard-theme-scope[data-theme="light"] {
   --bg: #e7ebf5;
   --panel: rgba(255, 255, 255, 0.82);
   --panel-2: rgba(255, 255, 255, 0.7);
@@ -181,6 +183,13 @@
   --color-glow-cyan: rgba(14, 125, 149, 0.18);
   --color-glow-violet: rgba(109, 40, 217, 0.14);
   --color-glow-red: rgba(190, 18, 60, 0.1);
+}
+
+/* A fragment drawn in one theme whatever the page's theme is (the business
+   profile preview shows light and dark side by side). Same tokens as above. */
+.dashboard-theme-scope {
+  color: var(--text);
+  background-color: var(--bg);
 }
 
 .dashboard-shell ::selection {

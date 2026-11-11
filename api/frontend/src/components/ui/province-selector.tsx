@@ -377,7 +377,7 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
             </label>)}
         </fieldset>}
         <div className="space-y-1.5"><Label htmlFor={`${id}-type`}>Account type</Label>
-          <Select id={`${id}-type`} required value={accountType}
+          <Select id={`${id}-type`} data-field="account-type" required value={accountType}
             aria-invalid={typeInvalid ? "true" : "false"}
             aria-describedby={typeInvalid ? `${id}-type-error` : undefined}
             className={cn(typeInvalid && "border-red-400/60 focus:ring-red-400/40")}
