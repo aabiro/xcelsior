@@ -659,6 +659,12 @@ function EditTemplateDialog({
   const [labels, setLabels] = useState<string[]>(image.labels || []);
   const [labelInput, setLabelInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const initialLabels = image.labels || [];
+  const isDirty =
+    description.trim() !== (image.description || "").trim() ||
+    isPublic !== image.is_public ||
+    labels.length !== initialLabels.length ||
+    labels.some((l, i) => l !== initialLabels[i]);
 
   function addLabel() {
     const v = labelInput.trim().toLowerCase();
@@ -729,7 +735,7 @@ function EditTemplateDialog({
               }}
               placeholder="pytorch, experiment-42, prod…"
             />
-            <Button type="button" variant="outline" onClick={addLabel}>Add</Button>
+            <Button type="button" variant="outline" onClick={addLabel} disabled={!labelInput.trim()}>Add</Button>
           </div>
           <div className="flex flex-wrap gap-1 mt-2">
             {labels.map(l => (
@@ -788,7 +794,7 @@ function EditTemplateDialog({
 
       <div className="px-6 pb-5 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving}>
+        <Button onClick={save} disabled={saving || !isDirty}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Check className="h-4 w-4 mr-1" />}
           Save
         </Button>

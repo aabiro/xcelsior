@@ -527,7 +527,7 @@ export default function VolumesPage() {
             <Button
               className="bg-accent-violet hover:bg-accent-violet/90 text-white"
               onClick={handleCreate}
-              disabled={creating}
+              disabled={creating || !newName.trim()}
             >
               {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Create Volume
@@ -865,7 +865,7 @@ export default function VolumesPage() {
                                     </option>
                                   ))}
                                 </select>
-                                <Button size="sm" className="h-8" onClick={() => handleAttach(vol.volume_id)}>
+                                <Button size="sm" className="h-8" onClick={() => handleAttach(vol.volume_id)} disabled={!selectedInstance}>
                                   <Link className="h-3.5 w-3.5" /> Go
                                 </Button>
                                 <Button variant="ghost" size="sm" className="h-8" onClick={() => { setAttachingId(null); setSelectedInstance(""); }}>
