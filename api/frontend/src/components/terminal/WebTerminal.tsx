@@ -1,17 +1,23 @@
 "use client";
 
 import {
+  type CSSProperties,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
 import "@xterm/xterm/css/xterm.css";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useMounted } from "@/hooks/useMounted";
 import { createTerminalTicket } from "@/lib/api";
-import { Loader2, Maximize2, Minimize2, X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Loader2, Maximize2, Minimize2, RotateCcw, X } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -67,6 +73,45 @@ function _badgeVariant(state: ConnState): "active" | "warning" | "failed" | "def
   return "warning";
 }
 
+// ── Expanded-view geometry ────────────────────────────────────────────────────
+// The expanded terminal follows the *visual* viewport, so on a phone the
+// on-screen keyboard shrinks it instead of covering the prompt.
+
+function subscribeVisualViewport(onChange: () => void) {
+  const vv = window.visualViewport;
+  if (!vv) return () => {};
+  vv.addEventListener("resize", onChange);
+  vv.addEventListener("scroll", onChange);
+  return () => {
+    vv.removeEventListener("resize", onChange);
+    vv.removeEventListener("scroll", onChange);
+  };
+}
+
+function subscribeNothing() {
+  return () => {};
+}
+
+function visualViewportSnapshot() {
+  const vv = window.visualViewport;
+  return vv ? `${Math.round(vv.offsetTop)}:${Math.round(vv.height)}` : "";
+}
+
+function expandedBoxStyle(snapshot: string): CSSProperties {
+  if (!snapshot) return { top: 0, bottom: 0 };
+  const [top, height] = snapshot.split(":").map(Number);
+  return { top, height };
+}
+
+/**
+ * Where the expanded terminal is portalled. Inside `.dashboard-shell` so it
+ * keeps the dashboard's theme variables, but outside the shell frame, whose
+ * `z-index`/`isolation` would otherwise trap it under the sidebar and app bar.
+ */
+function expandedPortalHost(): HTMLElement {
+  return document.querySelector<HTMLElement>(".dashboard-shell") ?? document.body;
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 /**
@@ -82,10 +127,17 @@ function _badgeVariant(state: ConnState): "active" | "warning" | "failed" | "def
  * - WebGL renderer (graceful Canvas fallback)
  * - SearchAddon (Ctrl+F), Unicode11Addon, WebLinksAddon
  * - Heartbeat ping/pong with stale-socket detection
- * - Exponential backoff reconnect (up to 8 attempts), then manual Reconnect
+ * - Exponential backoff reconnect (up to 8 attempts), then manual Reconnect.
+ *   Retries pause while the tab is hidden or the device is offline (iOS Safari
+ *   drops sockets on lock and app switch) and resume when it comes back.
+ *
+ * xterm renders into `screen`, an element this component creates itself and
+ * moves between the inline slot and the expanded overlay. Re-parenting a
+ * React-owned node would lose the terminal; moving this one keeps it.
  */
 export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const screenRef = useRef<HTMLDivElement | null>(null);
+  const slotRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitAddonRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
@@ -108,6 +160,8 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
   // disconnect series. Reset on every successful onopen so a *new* disconnect
   // shows the notice again, but rapid retry cycles don't spam the terminal.
   const reconnectNoticeShownRef = useRef(false);
+  // A reconnect is owed but waiting for the tab to be visible and online.
+  const reconnectPausedRef = useRef(false);
 
   const [connState, setConnState] = useState<ConnState>("connecting");
   const [statusMsg, setStatusMsg] = useState<string>("");
@@ -116,6 +170,21 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
   const searchOpenRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const mounted = useMounted();
+  const expandedBox = useSyncExternalStore(
+    maximized ? subscribeVisualViewport : subscribeNothing,
+    visualViewportSnapshot,
+    () => "",
+  );
+
+  const getScreen = useCallback(() => {
+    if (!screenRef.current) {
+      const el = document.createElement("div");
+      el.className = "h-full w-full";
+      screenRef.current = el;
+    }
+    return screenRef.current;
+  }, []);
 
   // ── Terminal fit helper ─────────────────────────────────────────────────────
   const _fit = useCallback(() => {
@@ -156,6 +225,21 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
 
   const scheduleReconnect = useCallback((reason: string) => {
     if (!mountedRef.current) return;
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    // A hidden tab or an offline device can't connect: iOS Safari suspends
+    // the page on lock or app switch, and every attempt made then fails. Wait
+    // for it to come back rather than spending the retry budget, which is
+    // what left a phone stuck on "Could not reconnect" after a short lock.
+    if (document.hidden || !navigator.onLine) {
+      reconnectPausedRef.current = true;
+      if (!reconnectNoticeShownRef.current) {
+        termRef.current?.write("\r\n\x1b[2m· reconnecting…\x1b[0m\r\n");
+        reconnectNoticeShownRef.current = true;
+      }
+      setConnState("reconnecting");
+      setStatusMsg(navigator.onLine ? "Paused while the tab is hidden" : "Waiting for the network…");
+      return;
+    }
     const att = reconnectAttemptsRef.current;
     if (att >= MAX_RECONNECT_ATTEMPTS) {
       termRef.current?.write(
@@ -177,7 +261,6 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
         ? `${reason} · reconnecting in ${Math.round(delay / 1000)}s…`
         : `Reconnecting in ${Math.round(delay / 1000)}s…`,
     );
-    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     reconnectTimerRef.current = setTimeout(() => {
       if (mountedRef.current) void connectWsRef.current?.();
     }, delay);
@@ -367,11 +450,12 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
   // ── Terminal initialization (runs exactly once on mount) ─────────────────────
   const initTerminal = useCallback(async (generation: number) => {
     const isCurrent = () => mountedRef.current && terminalGenRef.current === generation;
-    if (!containerRef.current || !mountedRef.current || termReadyRef.current) return;
+    if (!mountedRef.current || termReadyRef.current) return;
 
     const [{ Terminal }, { FitAddon }, { WebLinksAddon }, { SearchAddon }, { Unicode11Addon }] =
       await (terminalModulesRef.current ??= loadTerminalModules());
-    if (!isCurrent() || !containerRef.current || termReadyRef.current) return;
+    if (!isCurrent() || termReadyRef.current) return;
+    const screen = getScreen();
 
     const term = new Terminal({
       cursorBlink: true,
@@ -418,7 +502,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     term.loadAddon(new WebLinksAddon());
     term.unicode.activeVersion = "11";
 
-    term.open(containerRef.current);
+    term.open(screen);
     fitAddon.fit();
     term.focus();
     termReadyRef.current = true;
@@ -427,6 +511,12 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       const { WebglAddon } = await import("@xterm/addon-webgl");
       if (!isCurrent()) return;
       const webgl = new WebglAddon();
+      // Safari drops WebGL contexts of backgrounded pages; without this the
+      // terminal comes back blank. Disposing falls back to the DOM renderer.
+      webgl.onContextLoss(() => {
+        if (webglAddonRef.current === webgl) webglAddonRef.current = null;
+        webgl.dispose();
+      });
       term.loadAddon(webgl);
       webglAddonRef.current = webgl;
     } catch {
@@ -501,9 +591,9 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
 
     // ── Resize observer ─────────────────────────────────────────────────────
     const obs = new ResizeObserver(() => _fit());
-    obs.observe(containerRef.current);
+    obs.observe(screen);
     observerRef.current = obs;
-  }, [_fit]);
+  }, [_fit, getScreen]);
 
   // ── Mount / unmount ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -522,6 +612,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       terminalGenRef.current += 1;
       connectionGenRef.current += 1;
       termReadyRef.current = false;
+      reconnectPausedRef.current = false;
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
       if (staleCheckTimerRef.current) clearInterval(staleCheckTimerRef.current);
@@ -541,11 +632,39 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     };
   }, [initTerminal, connectWs]);
 
-  // ── Refit after maximize toggle ─────────────────────────────────────────────
-  useEffect(() => {
-    const id = setTimeout(_fit, 50);
+  // ── Put the screen in whichever slot is rendered (inline or expanded) ───────
+  // Layout effect: the move lands in the same commit as the slot, before paint.
+  useLayoutEffect(() => {
+    const slot = slotRef.current;
+    if (!slot) return;
+    const screen = getScreen();
+    if (screen.parentElement !== slot) slot.prepend(screen);
+    // Moving blurs xterm's textarea and changes its size.
+    const id = setTimeout(() => {
+      _fit();
+      termRef.current?.focus();
+    }, 50);
     return () => clearTimeout(id);
-  }, [maximized, _fit]);
+  }, [maximized, mounted, getScreen, _fit]);
+
+  // ── Resume a paused reconnect when the tab is visible and online again ──────
+  useEffect(() => {
+    const resume = () => {
+      if (document.hidden || !navigator.onLine || !reconnectPausedRef.current) return;
+      reconnectPausedRef.current = false;
+      reconnectAttemptsRef.current = 0;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      void connectWsRef.current?.();
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
+    window.addEventListener("pageshow", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
+      window.removeEventListener("pageshow", resume);
+    };
+  }, []);
 
   // ── Search panel auto-focus / cleanup ──────────────────────────────────────
   useEffect(() => {
@@ -562,21 +681,28 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
   const handleManualReconnect = useCallback(() => {
     reconnectAttemptsRef.current = 0;
     reconnectNoticeShownRef.current = false;
+    reconnectPausedRef.current = false;
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     void connectWs();
   }, [connectWs]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
-  return (
+  const expanded = maximized && mounted;
+
+  const card = (
     <Card
-      className={`flex flex-col overflow-hidden ${
-        maximized ? "fixed inset-4 z-50 rounded-xl shadow-2xl" : "h-full"
-      }`}
+      className={cn(
+        "flex flex-col overflow-hidden",
+        // The page already frames the inline card; on a phone its own padding
+        // left the toolbar too narrow for the status badge.
+        expanded ? "h-full w-full rounded-none p-2 shadow-2xl sm:rounded-xl sm:p-6" : "h-full p-0 sm:p-6",
+      )}
     >
-      {/* ── Toolbar ── */}
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 bg-black">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs font-mono text-text-muted shrink-0">Terminal</span>
+      {/* ── Toolbar ── The status side shrinks and clips; the controls never
+          do, so on a phone-width card the badge can't slide under Reconnect. */}
+      <div className="flex items-center gap-2 border-b border-border bg-black px-3 py-1.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+          <span className="hidden shrink-0 font-mono text-xs text-text-muted sm:inline">Terminal</span>
 
           {(connState === "connecting" || connState === "reconnecting") ? (
             <Badge variant="warning" className="text-[10px] px-1.5 py-0 flex items-center gap-1 shrink-0">
@@ -593,20 +719,27 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
           )}
 
           {statusMsg && (
-            <span className={`text-xs font-mono truncate ${connState === "connected" ? "text-emerald" : "text-text-muted"}`}>
+            <span
+              className={cn(
+                "hidden min-w-0 truncate font-mono text-xs sm:block",
+                connState === "connected" ? "text-emerald" : "text-text-muted",
+              )}
+              title={statusMsg}
+            >
               {statusMsg}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           {(connState === "disconnected" || connState === "error") && (
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 text-xs"
+              className="h-6 gap-1 px-2 text-xs"
               onClick={handleManualReconnect}
             >
+              <RotateCcw className="h-3 w-3" />
               Reconnect
             </Button>
           )}
@@ -615,6 +748,8 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
             size="icon"
             className="h-6 w-6"
             onClick={() => setMaximized((m) => !m)}
+            aria-label={maximized ? "Exit full screen" : "Full screen"}
+            title={maximized ? "Exit full screen" : "Full screen"}
           >
             {maximized ? (
               <Minimize2 className="h-3 w-3" />
@@ -623,16 +758,29 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
             )}
           </Button>
           {onClose && (
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onClose}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => {
+                // The expanded view lives outside the parent's box, so hiding
+                // the parent alone would leave it covering the page.
+                setMaximized(false);
+                onClose();
+              }}
+              aria-label="Hide terminal"
+              title="Hide terminal"
+            >
               <X className="h-3 w-3" />
             </Button>
           )}
         </div>
       </div>
 
-      {/* ── Terminal canvas ── */}
+      {/* ── Terminal slot ── xterm's screen is moved in here by the layout
+          effect above; React only owns the search panel. */}
       <div
-        ref={containerRef}
+        ref={slotRef}
         className="relative flex-1 min-h-0 overflow-hidden bg-black p-1 [&_.xterm]:h-full [&_.xterm-viewport]:overflow-y-auto"
         onClick={() => termRef.current?.focus()}
       >
@@ -692,5 +840,31 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
         )}
       </div>
     </Card>
+  );
+
+  if (!expanded) return card;
+
+  // Expanded: portalled above the sidebar and app bar. `position: fixed` with
+  // a high z-index is not enough in place: the shell's main row has its own
+  // z-index and the content column is `isolation: isolate`, so the terminal
+  // stayed under both and its own controls were unclickable behind the bar.
+  return (
+    <>
+      <div className="flex h-full items-center justify-center rounded-xl border border-border bg-black font-mono text-xs text-text-muted">
+        Terminal is open in full screen
+      </div>
+      {createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Terminal"
+          className="fixed inset-x-0 z-[200] flex overscroll-contain bg-black/70 backdrop-blur-sm sm:p-4"
+          style={expandedBoxStyle(expandedBox)}
+        >
+          {card}
+        </div>,
+        expandedPortalHost(),
+      )}
+    </>
   );
 }

@@ -1127,12 +1127,33 @@ async def _send_error(ws: WebSocket, message: str, code: int) -> None:
     in many browser WS APIs). Silent failure modes — e.g. send on a
     half-closed socket — are swallowed so the close can still proceed.
 
-    Pre-accept closes (origin check, rate limit, auth, session cap) don't
-    use this helper because no frames can be sent before ``accept``; they
-    pass a human-readable string in ``close(reason=...)`` instead.
+    The origin check is the one close that happens before ``accept``. Rate
+    limit, auth and session-cap refusals go through
+    ``_refuse_after_accept`` so the browser can read them.
     """
     try:
         await ws.send_json({"type": "error", "message": message, "code": code})
+    except Exception:
+        pass
+
+
+async def _refuse_after_accept(ws: WebSocket, message: str, code: int) -> None:
+    """Accept only to tell the browser why it is refused, then close.
+
+    A close sent before ``accept()`` becomes an HTTP 403 on the upgrade, and
+    browsers report every failed upgrade as close code 1006 with no reason:
+    the ``reason`` and ``code`` never arrive. The web terminal treats 1006 as
+    a dropped connection, so a refused phone retried for minutes and ended on
+    "Could not reconnect". Accepting first delivers the real code, which the
+    client treats as final. Nothing is sent but the error frame.
+    """
+    try:
+        await ws.accept()
+    except Exception:
+        return
+    await _send_error(ws, message, code)
+    try:
+        await ws.close(code=code)
     except Exception:
         pass
 
@@ -1188,12 +1209,12 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
     """Interactive terminal session for a running GPU instance."""
     client_ip = _get_ws_client_ip(websocket)
 
-    # ---- Pre-accept rejections --------------------------------------------
-    # Each of the closes below happens BEFORE ``websocket.accept()``, so no
-    # frames can be sent on the socket — we pass a human-readable reason in
-    # the close() call itself. Post-accept closes (everywhere else in this
-    # file) go through _send_error() first per the invariant documented on
-    # that helper. See Phase 1.7.
+    # ---- Refusals before the session starts -------------------------------
+    # Only the origin check closes before ``websocket.accept()``: a page on
+    # another site gets nothing, not even an accepted socket. The refusals
+    # after it accept first and send an error frame (``_refuse_after_accept``)
+    # because a pre-accept close reaches the browser as a bare 1006, which
+    # the client can't tell from a dropped connection. See Phase 1.7.
     if not _validate_ws_origin(
         websocket,
         require_for_cookie_auth=True,
@@ -1207,7 +1228,11 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
     if not _check_ws_connect_rate_limit(websocket, bucket="terminal"):
         _conn_errors.labels(reason="connect_rate_limited").inc()  # type: ignore[attr-defined]
         log.warning("terminal.ws.rate_limited ip=%s instance=%s", client_ip, instance_id)
-        await websocket.close(code=4429, reason="Connection rate limit exceeded")
+        await _refuse_after_accept(
+            websocket,
+            "Too many terminal connections from this address. Wait a minute, then reconnect.",
+            4429,
+        )
         return
 
     ticket = websocket.query_params.get("ticket", "").strip()
@@ -1221,7 +1246,20 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
     else:
         user = _validate_ws_auth(websocket, allow_query_token=False)
     if not user:
-        await websocket.close(code=4001, reason="Unauthorized")
+        log.warning(
+            "terminal.ws.unauthorized ip=%s instance=%s ticket=%s",
+            client_ip,
+            instance_id,
+            bool(ticket),
+        )
+        await _refuse_after_accept(
+            websocket,
+            "Terminal access was refused: the ticket expired, was already used, "
+            "or came from a different IP address. Reconnect to get a new one."
+            if ticket
+            else "Unauthorized",
+            4001,
+        )
         return
     user = bind_stream_principal(user, websocket)
 
@@ -1234,7 +1272,12 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             client_ip,
             instance_id,
         )
-        await websocket.close(code=4429, reason="Too many concurrent terminal sessions")
+        await _refuse_after_accept(
+            websocket,
+            f"Too many open terminals: {_MAX_CONCURRENT_SESSIONS_PER_USER} at a time per "
+            "account. Close one in another tab or device, then reconnect.",
+            4429,
+        )
         return
 
     session_opened = False
