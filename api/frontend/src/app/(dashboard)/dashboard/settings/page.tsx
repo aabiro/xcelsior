@@ -36,6 +36,8 @@ import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { AccountProfileForm } from "@/components/ui/province-selector";
 import { ProviderProfileForm } from "@/components/providers/seller-profile-card";
 import { ProfileAvatarUpload } from "@/components/user/profile-avatar-upload";
+import { BusinessProfileSection, BusinessProfileTeaser } from "@/components/settings/business-profile-section";
+import { isBusinessAccount } from "@/lib/business-profile";
 import {
   SettingsLayout,
   SettingsLinkRow,
@@ -106,6 +108,33 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
 }
 
 // ── Main Page ─────────────────────────────────────────���─────────────
+
+/** Sections that live inside a tab and can be linked to directly. */
+const SECTION_TABS: Record<string, TabId> = { business: "profile" };
+
+/** Scroll to `#id` as soon as it exists (the tab switch animates first), then
+ *  flash its outline so the eye lands on it. Returns a cancel function. */
+function scrollToSectionWhenMounted(id: string): () => void {
+  let frame = 0;
+  let flash = 0;
+  const deadline = performance.now() + 2000;
+  const attempt = () => {
+    const element = document.getElementById(id);
+    if (element) {
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      element.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+      element.classList.add("settings-section-flash");
+      flash = window.setTimeout(() => element.classList.remove("settings-section-flash"), 1600);
+      return;
+    }
+    if (performance.now() < deadline) frame = requestAnimationFrame(attempt);
+  };
+  frame = requestAnimationFrame(attempt);
+  return () => {
+    cancelAnimationFrame(frame);
+    window.clearTimeout(flash);
+  };
+}
 
 export default function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
@@ -197,13 +226,27 @@ export default function SettingsPage() {
   // deep links (/dashboard/settings#team) and same-page links (the topbar profile
   // dropdown's #team / #api-keys) select the right tab.
   useEffect(() => {
+    let cancelScroll = () => {};
     const applyHash = () => {
       const hash = window.location.hash.replace("#", "");
-      if (TABS.some((tab) => tab.id === hash)) setActiveTab(hash as TabId);
+      if (TABS.some((tab) => tab.id === hash)) {
+        setActiveTab(hash as TabId);
+        return;
+      }
+      // A section inside a tab (#business): open its tab, then bring it into
+      // view once the tab's content has mounted.
+      const sectionTab = SECTION_TABS[hash];
+      if (!sectionTab) return;
+      setActiveTab(sectionTab);
+      cancelScroll();
+      cancelScroll = scrollToSectionWhenMounted(hash);
     };
     applyHash();
     window.addEventListener("hashchange", applyHash);
-    return () => window.removeEventListener("hashchange", applyHash);
+    return () => {
+      cancelScroll();
+      window.removeEventListener("hashchange", applyHash);
+    };
   }, []);
 
   // Reflect the active tab back into the URL, but skip the first run so we don't
@@ -1044,6 +1087,14 @@ function ProfileTab({
 
             </div>
           </SettingsSection>
+        </StaggerItem>
+
+        <StaggerItem>
+          {isBusinessAccount(user) ? (
+            <BusinessProfileSection key={user.user_id} user={user} onUpdated={onAvatarUpdated} />
+          ) : (
+            <BusinessProfileTeaser />
+          )}
         </StaggerItem>
 
         <StaggerItem>

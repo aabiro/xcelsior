@@ -1,5 +1,6 @@
 """Routes: auth."""
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -447,6 +448,10 @@ class ProfileUpdateRequest(BaseModel):
     province: str | None = Field(None, max_length=32)
     business_name: str | None = Field(None, max_length=200)
     gst_hst_number: str | None = Field(None, max_length=20)
+    # The business's public face (business_profile.py). Blank clears a field.
+    business_display_name: str | None = Field(None, max_length=200)
+    business_website: str | None = Field(None, max_length=400)
+    business_tagline: str | None = Field(None, max_length=400)
     address_line1: str | None = Field(None, max_length=200)
     address_line2: str | None = Field(None, max_length=200)
     city: str | None = Field(None, max_length=80)
@@ -470,6 +475,10 @@ def _validate_profile_values(body: ProfileUpdateRequest, user: dict) -> None:
     candidate = {**current, **body.model_dump(exclude_none=True)}
     if candidate.get("account_type") == "business" and not str(candidate.get("business_name") or "").strip():
         raise HTTPException(422, "Business name is required for a business account")
+    if candidate.get("account_type") != "business" and any(
+        (getattr(body, key) or "").strip() for key in _BUSINESS_FACE_FIELDS
+    ):
+        raise HTTPException(422, "A business profile needs a business account. Switch the account type to Business first.")
     if body.country is not None or body.province is not None:
         try:
             location = require_location(str(candidate.get("country") or ""), str(candidate.get("province") or ""))
@@ -495,8 +504,12 @@ def _account_profile_updates(body: ProfileUpdateRequest) -> dict:
             if getattr(body, key) is not None}
 
 
+_BUSINESS_FACE_FIELDS = ("business_display_name", "business_website", "business_tagline")
+
+
 def _business_profile_updates(body: ProfileUpdateRequest) -> dict:
-    """Optional business name and GST/HST number. Blank clears the field."""
+    """Business name, GST/HST number and the public profile. Blank clears a field."""
+    from business_profile import normalize_display_name, normalize_tagline, normalize_website
     from seller_identity import normalize_business_name, normalize_gst_hst
 
     updates: dict = {}
@@ -507,7 +520,40 @@ def _business_profile_updates(body: ProfileUpdateRequest) -> dict:
             updates["gst_hst_number"] = normalize_gst_hst(body.gst_hst_number)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    try:
+        if body.business_display_name is not None:
+            updates["business_display_name"] = normalize_display_name(body.business_display_name)
+        if body.business_website is not None:
+            updates["business_website"] = normalize_website(body.business_website)
+        if body.business_tagline is not None:
+            updates["business_tagline"] = normalize_tagline(body.business_tagline)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     return updates
+
+
+def _business_face(full_user: dict, user_id: str) -> dict:
+    """What `/api/auth/me` says about the business profile.
+
+    The logo is reported only for a business account, so switching back to a
+    personal account hides it without deleting it.
+    """
+    face: dict = {key: full_user.get(key) or "" for key in _BUSINESS_FACE_FIELDS}
+    face["business_logo_url"] = None
+    face["business_logo_tile"] = "none"
+    if full_user.get("account_type") != "business":
+        return face
+    try:
+        from business_profile import logo_url
+        from db import BusinessLogoStore
+
+        meta = BusinessLogoStore.meta(user_id)
+    except Exception:
+        meta = None
+    if meta:
+        face["business_logo_url"] = logo_url(meta["updated_at"])
+        face["business_logo_tile"] = meta["tile"]
+    return face
 
 
 def _parse_user_preferences(full_user: dict) -> dict:
@@ -2889,7 +2935,10 @@ def _filter_auth_identity(user: dict, identity: dict) -> dict:
         return identity
     filtered = dict(identity)
     # The profile scope does not grant access to postal addresses or business identity.
-    for key in ("address_line1", "address_line2", "city", "postal_code", "business_name", "gst_hst_number"):
+    for key in (
+        "address_line1", "address_line2", "city", "postal_code", "business_name", "gst_hst_number",
+        *_BUSINESS_FACE_FIELDS, "business_logo_url", "business_logo_tile",
+    ):
         filtered.pop(key, None)
     if "email" not in scopes:
         filtered.pop("email", None)
@@ -2943,6 +2992,7 @@ def api_auth_me(request: Request):
            ("address_line1", "address_line2", "city", "postal_code", "account_type", "onboarding_intent")},
         "business_name": full_user.get("business_name") or "",
         "gst_hst_number": full_user.get("gst_hst_number") or "",
+        **_business_face(full_user, user["user_id"]),
         "team_id": full_user.get("team_id"),
         "oauth_provider": full_user.get("oauth_provider"),
         "created_at": full_user.get("created_at", 0),
@@ -3174,6 +3224,73 @@ def api_auth_get_avatar(request: Request):
         ".webp": "image/webp",
     }.get(path.suffix.lower(), "application/octet-stream")
     return FileResponse(path, media_type=media, headers={"Cache-Control": "private, max-age=3600"})
+
+
+def _business_account_or_409(user: dict) -> None:
+    full_user = (
+        UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"])
+    ) or {}
+    if full_user.get("account_type") != "business":
+        raise HTTPException(
+            409, "A business logo needs a business account. Switch the account type to Business first."
+        )
+
+
+_LOGO_HEADERS = {
+    # Versioned by ?v= in the URL the API hands out, so a long private cache is safe.
+    "Cache-Control": "private, max-age=86400, immutable",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'",
+}
+
+
+@router.post("/api/auth/me/business-logo", tags=["Auth"])
+async def api_auth_upload_business_logo(request: Request, file: UploadFile = File(...)):
+    """Upload the business logo (PNG, JPEG or WebP, max 2 MB).
+
+    The image is re-encoded to a 512 px square before it is stored; a
+    transparent logo stays transparent.
+    """
+    from business_profile import MAX_UPLOAD_BYTES, logo_url, process_logo
+    from db import BusinessLogoStore
+
+    # Decoding and re-encoding a large image takes long enough to stall every
+    # other request on this worker, so it and the database calls run in a thread.
+    user = await asyncio.to_thread(_require_user_grant, request)
+    await asyncio.to_thread(_business_account_or_409, user)
+    # One byte over the limit is enough to know, without reading a huge body.
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    try:
+        logo = await asyncio.to_thread(process_logo, data)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    now = time.time()
+    await asyncio.to_thread(
+        BusinessLogoStore.put, user["user_id"], logo.content_type, logo.data, logo.tile, now
+    )
+    return {"ok": True, "business_logo_url": logo_url(now), "business_logo_tile": logo.tile}
+
+
+@router.get("/api/auth/me/business-logo", tags=["Auth"])
+def api_auth_get_business_logo(request: Request):
+    """Serve the authenticated account's business logo."""
+    from db import BusinessLogoStore
+
+    user = _require_user_grant(request)
+    rec = BusinessLogoStore.get(user["user_id"])
+    if not rec:
+        raise HTTPException(404, "No business logo")
+    return Response(content=rec["data"], media_type=rec["content_type"], headers=_LOGO_HEADERS)
+
+
+@router.delete("/api/auth/me/business-logo", tags=["Auth"])
+def api_auth_delete_business_logo(request: Request):
+    """Remove the business logo. Succeeds when there was none."""
+    from db import BusinessLogoStore
+
+    user = _require_user_grant(request)
+    removed = BusinessLogoStore.delete(user["user_id"])
+    return {"ok": True, "removed": removed}
 
 
 @router.delete("/api/auth/me/avatar", tags=["Auth"])

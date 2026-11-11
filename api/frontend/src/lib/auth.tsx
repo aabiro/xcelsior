@@ -27,6 +27,8 @@ function forceLogout(reason: string) {
     });
 }
 
+export type BusinessLogoTile = "none" | "light" | "dark";
+
 export interface User {
   user_id: string;
   email: string;
@@ -45,6 +47,14 @@ export interface User {
   missing_profile_fields?: string[];
   business_name?: string;
   gst_hst_number?: string;
+  /** A business account's public face (blank on a personal account). */
+  business_display_name?: string;
+  business_website?: string;
+  business_tagline?: string;
+  /** Versioned URL of the business logo, or null when there is none. */
+  business_logo_url?: string | null;
+  /** The background a transparent logo needs: chosen server-side from the artwork. */
+  business_logo_tile?: BusinessLogoTile;
   avatar_url?: string;
   customer_id?: string;
   provider_id?: string;

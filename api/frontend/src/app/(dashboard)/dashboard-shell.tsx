@@ -6,10 +6,12 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Settings, Users, ChevronLeft, ChevronRight, LogOut, Menu, X, Key, ChevronDown,
   BookOpen, Rocket, ExternalLink, HelpCircle, Clock, MessageCircle,
-  Globe, CreditCard, Download,
+  Globe, CreditCard, Download, Building2,
 } from "lucide-react";
 import { DashboardNav } from "@/components/nav/dashboard-nav";
 import { UserAvatar } from "@/components/user/user-avatar";
+import { BusinessMenuCard, BusinessTriggerIdentity } from "@/components/user/business-identity";
+import { businessName, isBusinessAccount } from "@/lib/business-profile";
 import { useAuth } from "@/lib/auth";
 import { SITE_ASSETS } from "@/lib/brand-assets";
 import { getTeamContext, formatTeamRoleLabel } from "@/lib/team-context";
@@ -65,6 +67,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const { t } = useLocale();
   const { theme } = useTheme();
   const team = getTeamContext(user);
+  // A business account acting in its own workspace is shown as the business.
+  // In a team's workspace it acts for the team, so it is shown as the person.
+  const showBusiness = isBusinessAccount(user) && !team.isTeamMember && Boolean(businessName(user));
   const canWriteServerless = team.canWriteInstances;
   const { state: desktopState, openControlCenter } = useDesktopRuntime();
   const desktopMode = desktopState.isNativeDesktop || desktopState.isStandalonePwa;
@@ -120,7 +125,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       event.preventDefault();
       // Next's same-route hash navigation uses history.pushState, which does
       // not emit hashchange. Native hash navigation keeps settings in sync.
-      window.location.hash = tab;
+      // Setting the hash it already has emits nothing, so say it changed:
+      // a second click on "Business profile" still scrolls to it.
+      if (window.location.hash === `#${tab}`) window.dispatchEvent(new HashChangeEvent("hashchange"));
+      else window.location.hash = tab;
     }
   };
 
@@ -601,7 +609,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   <Breadcrumb />
                 </div>
                 <DesktopStatusStrip className="dashboard-site-status hidden xl:flex" />
-                <div className={cn("dashboard-site-actions flex items-center", desktopMode && "desktop-topbar-actions")}>
+                <div className={cn("dashboard-site-actions flex min-w-0 items-center", desktopMode && "desktop-topbar-actions")}>
                   {/* On a phone these two moved into the menu drawer. Seven
                       controls in a 412px bar pushed the wallet and the account
                       menu off-screen on every page. */}
@@ -618,16 +626,31 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                     <CreditsButton />
                   </div>
                   <div className="h-7 w-px bg-[var(--line)] hidden sm:block" />
-                  <div className="relative" ref={profileRef}>
+                  {/* min-w-0 down to the text: when the bar is full the name
+                      truncates instead of pushing the trigger off the edge. */}
+                  <div className="relative min-w-0" ref={profileRef}>
                     <button
                       onClick={() => setProfileOpen(!profileOpen)}
-                      className="dashboard-site-profile-trigger flex items-center gap-2 rounded-full px-3 py-2"
+                      className="dashboard-site-profile-trigger flex min-w-0 max-w-full items-center gap-2 rounded-full px-3 py-2"
+                      title={showBusiness && user ? businessName(user) : undefined}
+                      aria-expanded={profileOpen}
+                      aria-label={showBusiness && user
+                        ? `${businessName(user)}, ${t("dash.business.badge")} · ${user.name || user.email}`
+                        : undefined}
                     >
-                      <UserAvatar user={user} size="md" />
-                      {user && (
-                        <div className="hidden text-left sm:block">
-                          <p className="text-base font-medium leading-none text-[var(--text)]">{user.name || user.email}</p>
-                          <p className="text-sm text-[var(--text-4)]">
+                      {showBusiness && user ? (
+                        <BusinessTriggerIdentity
+                          business={user}
+                          person={user}
+                          badgeLabel={t("dash.business.badge")}
+                        />
+                      ) : (
+                        <UserAvatar user={user} size="md" />
+                      )}
+                      {!showBusiness && user && (
+                        <div className="hidden min-w-0 text-left sm:block">
+                          <p className="truncate text-base font-medium leading-none text-[var(--text)]">{user.name || user.email}</p>
+                          <p className="truncate text-sm text-[var(--text-4)]">
                             {team.isTeamMember
                               ? `${team.teamName || t("dash.team")} · ${formatTeamRoleLabel(team.teamRole)}`
                               : user.is_admin
@@ -636,7 +659,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                           </p>
                         </div>
                       )}
-                      <ChevronDown className={cn("hidden h-4 w-4 text-[var(--text-4)] transition-transform sm:block", profileOpen && "rotate-180")} />
+                      <ChevronDown className={cn("hidden h-4 w-4 shrink-0 text-[var(--text-4)] transition-transform sm:block", profileOpen && "rotate-180")} />
                     </button>
                     <AnimatePresence>
                       {profileOpen && (
@@ -645,8 +668,20 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -4 }}
                           transition={{ duration: 0.15 }}
-                          className="dashboard-site-header-dropdown dashboard-site-popout absolute right-0 top-full mt-2 w-56 overflow-hidden rounded-[22px]"
+                          className={cn(
+                            "dashboard-site-header-dropdown dashboard-site-popout absolute right-0 top-full mt-2 overflow-hidden rounded-[22px]",
+                            isBusinessAccount(user) ? "w-72" : "w-56",
+                          )}
                         >
+                          {user && isBusinessAccount(user) && businessName(user) && (
+                            <div className="dashboard-site-popout-section border-b px-3.5 pb-3 pt-3.5">
+                              <BusinessMenuCard
+                                business={user}
+                                badgeLabel={t("dash.business.badge")}
+                                visitLabel={(site) => t("dash.business.visit_site", { site })}
+                              />
+                            </div>
+                          )}
                           <div className="dashboard-site-popout-section flex items-center gap-3 border-b px-3 py-3">
                             <UserAvatar user={user} size="sm" />
                             <div className="min-w-0">
@@ -663,6 +698,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                               <Settings className="h-4 w-4" />
                               {t("dash.settings")}
                             </Link>
+                            {isBusinessAccount(user) && (
+                              <Link
+                                href="/dashboard/settings#business"
+                                className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"
+                                onClick={(event) => navigateSettings(event, "business")}
+                              >
+                                <Building2 className="h-4 w-4" />
+                                {t("dash.business.profile")}
+                              </Link>
+                            )}
                             <Link
                               href="/dashboard/settings#team"
                               className="dashboard-site-popout-link flex items-center gap-2.5 px-3 py-2 text-sm"

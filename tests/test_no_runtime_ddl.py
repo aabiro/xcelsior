@@ -119,6 +119,7 @@ def test_residual_tables_exist_via_alembic_not_ensure():
         "team_invites",
         "gpu_pricing",
         "user_avatars",
+        "business_logos",
     )
     with _pool.connection() as conn:
         for table in required:

@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import type { User } from "@/lib/auth";
 
 const SIZE_MAP = {
+  "2xs": { box: "h-[18px] w-[18px]", text: "text-[9px]", ring: "p-[1px]" },
   xs: { box: "h-7 w-7", text: "text-[10px]", ring: "p-[1.5px]" },
   sm: { box: "h-8 w-8", text: "text-xs", ring: "p-[1.5px]" },
   md: { box: "h-10 w-10", text: "text-base", ring: "p-[2px]" },

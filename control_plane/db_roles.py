@@ -76,6 +76,7 @@ IDENTITY_TABLES = frozenset(
         "mfa_backup_codes",
         "user_ssh_keys",
         "user_avatars",
+        "business_logos",
         "user_images",
         "web_push_subscriptions",
         "notifications",

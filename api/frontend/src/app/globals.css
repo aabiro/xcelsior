@@ -906,6 +906,76 @@ html.light .user-avatar-ring {
   background: var(--popover-solid);
 }
 
+/* ── Business logo ──────────────────────────────────────────────────────
+   The tile behind a transparent logo is chosen by the API from the artwork
+   (dark art on a light tile, light art on a dark one), so its colour is fixed
+   rather than a theme token: a dark wordmark must stay on white in dark mode.
+   The hairline is drawn above the image, so even a white logo on a white
+   popover keeps its edge. */
+.business-logo {
+  isolation: isolate;
+  color: #fff;
+  background: var(--popover-solid, #fff);
+  box-shadow: 0 1px 2px rgba(5, 7, 14, 0.14);
+}
+.business-logo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px var(--business-logo-edge, rgba(127, 140, 160, 0.24));
+}
+.business-logo[data-tile="light"] {
+  background: #ffffff;
+  --business-logo-edge: rgba(16, 26, 48, 0.12);
+}
+.business-logo[data-tile="dark"] {
+  background: #0d1322;
+  --business-logo-edge: rgba(255, 255, 255, 0.14);
+}
+.business-logo[data-tile="monogram"] {
+  --business-logo-edge: rgba(255, 255, 255, 0.16);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+}
+.business-logo[data-tile="monogram"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 58%);
+}
+.business-badge {
+  color: var(--violet, #7c3aed);
+  background: color-mix(in srgb, var(--violet, #7c3aed) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--violet, #7c3aed) 28%, transparent);
+}
+/* A settings section reached by a link (#business) outlines itself briefly. */
+.settings-section-flash {
+  animation: settings-section-flash 1.6s ease-out;
+}
+@keyframes settings-section-flash {
+  0%, 35% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--violet, #7c3aed) 55%, transparent); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-section-flash { animation: none; }
+}
+
+/* The settings preview: a patch of the dashboard's own backdrop. */
+.business-preview-frame {
+  background-image:
+    radial-gradient(420px 220px at 0% 0%, var(--mesh-a), transparent 62%),
+    radial-gradient(380px 240px at 100% 0%, var(--mesh-b), transparent 62%);
+}
+/* The person's avatar tucked onto the corner of a business logo: the ring is
+   the surface colour, so it reads as cut out of the logo. */
+.business-identity-person {
+  border-radius: 9999px;
+  box-shadow: 0 0 0 2px var(--popover-solid, #fff);
+}
+
 /* ── Client secret reveal ──────────────────────────────────────────────
    The modal portals to <body>, outside .dashboard-shell, so it themes off
    the <html> class rather than the shell's data-theme. */
