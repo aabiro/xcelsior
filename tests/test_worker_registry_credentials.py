@@ -121,6 +121,10 @@ def test_pull_failure_says_whose_fault_it_was():
     ) or "not found" in worker_agent._pull_failure_message(
         1, "pull access denied for x, repository does not exist or may require 'docker login'"
     )
+    # What a private registry answers when the worker holds no login for it (T13a).
+    assert "refused access" in worker_agent._pull_failure_message(
+        1, 'Error response from daemon: Head "http://r/v2/x/manifests/1": no basic auth credentials'
+    )
     assert worker_agent._pull_failure_message(7, "something new") == "Image pull failed (exit 7)"
 
 

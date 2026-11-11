@@ -897,7 +897,7 @@ _PULL_FAILURE_REASONS = (
         "the image or tag was not found in the registry",
     ),
     (
-        ("unauthorized", "denied", "authentication required"),
+        ("unauthorized", "denied", "authentication required", "no basic auth credentials"),
         "the registry refused access; the image is private or does not exist",
     ),
     (("no space left",), "the host is out of disk space"),
