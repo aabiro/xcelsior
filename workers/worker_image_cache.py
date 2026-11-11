@@ -305,7 +305,7 @@ def cache_prepull_popular(popular_images, max_concurrent=3):
                 if worker_agent._active_containers:
                     return False
                 pull = subprocess.Popen(
-                    ["docker", "pull", img_tag],
+                    worker_agent.registry_docker_cmd("pull", img_tag),
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,

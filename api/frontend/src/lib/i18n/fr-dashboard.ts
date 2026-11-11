@@ -225,6 +225,7 @@ const fr_dashboard: Record<string, string> = {
   "dash.instances.terminate_desc": "Cela supprimera définitivement le conteneur. Les volumes nommés sont préservés, mais toutes les autres données du conteneur seront perdues. Cette action est irréversible.",
   "dash.instances.timeline": "Chronologie du statut",
   "dash.instances.during_exec": "Instance {status} pendant l'exécution",
+  "dash.instances.before_start": "Instance {status} avant le démarrage",
   "dash.instances.queue_waiting_gpu": "En attente d'un {gpu} disponible. Votre instance démarrera automatiquement dès qu'un GPU correspondant se libère.",
   "dash.instances.queue_waiting_any": "En attente d'un GPU disponible. Votre instance démarrera automatiquement dès qu'une capacité se libère.",
   "dash.instances.label_gpu": "GPU",
