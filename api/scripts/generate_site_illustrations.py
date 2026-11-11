@@ -14,7 +14,7 @@ No backgrounds, and every illustration is written for both themes.
 
   public/mcp/flow-{discover,launch,monitor}.{dark,light}.svg   MCP "How it works"
   public/mcp/cost-guardrails.{dark,light}.svg                  MCP guardrails panel
-  public/gpu-fleet/{training,inference,fleet-health,pipeline}.{dark,light}.svg
+  public/gpu-fleet/{training,inference,fleet-pulse,pipeline}.{dark,light}.svg
 
 public/ is served `immutable` for a year, so changed art needs a new file name.
 
@@ -372,7 +372,8 @@ def gpu_inference(p: str, t: dict) -> str:
 def gpu_fleet_health(p: str, t: dict) -> str:
     # A rack with a steady heartbeat over it. Drawn in the top of the frame:
     # the page lays a caption bar over the bottom.
-    line = [(38, 66), (128, 66), (152, 30), (186, 100), (212, 50), (228, 70), (350, 70)]
+    # The trace stays clear of the rack: its lowest point ends above the top unit.
+    line = [(38, 62), (128, 62), (152, 26), (184, 84), (210, 44), (226, 62), (350, 62)]
     fc, fo = t["facet"]
     out = circuit(p, t, 40, 360, 236, (128, 276), [110, 200, 290])
     out += traces(t, [("M52 150h20l12 12", (52, 150), 0), ("M352 176h-20l-12-12", (352, 176), 2)])
@@ -387,9 +388,9 @@ def gpu_fleet_health(p: str, t: dict) -> str:
     out += solid(ribbon(line, 15), p, t, fill="green", facet=0)
     out += f'  <path d="{d_of(ribbon(line, 5))}" fill="{fc}" fill-opacity="{float(fo) + 0.08:.2f}"/>\n'
     out += (
-        f'  <circle cx="362" cy="70" r="8" fill="{t["c"]}" filter="url(#{p}-soft)"/>\n'
-        f'  <circle cx="362" cy="70" r="8" stroke="{t["outline"][0]}" stroke-opacity="{t["outline"][1]}" stroke-width="2"/>\n'
-        f'  <circle cx="362" cy="70" r="15" stroke="{t["c"]}" stroke-opacity=".4" stroke-width="2"/>\n'
+        f'  <circle cx="362" cy="62" r="8" fill="{t["c"]}" filter="url(#{p}-soft)"/>\n'
+        f'  <circle cx="362" cy="62" r="8" stroke="{t["outline"][0]}" stroke-opacity="{t["outline"][1]}" stroke-width="2"/>\n'
+        f'  <circle cx="362" cy="62" r="15" stroke="{t["c"]}" stroke-opacity=".4" stroke-width="2"/>\n'
     )
     return out
 
@@ -460,7 +461,7 @@ ART = (
     ("mcp", "cost-guardrails", mcp_guardrails, 480, 290),
     ("gpu-fleet", "training", gpu_training, 480, 172),
     ("gpu-fleet", "inference", gpu_inference, 480, 172),
-    ("gpu-fleet", "fleet-health", gpu_fleet_health, 400, 270),
+    ("gpu-fleet", "fleet-pulse", gpu_fleet_health, 400, 270),
     ("gpu-fleet", "pipeline", gpu_pipeline, 640, 190),
 )
 

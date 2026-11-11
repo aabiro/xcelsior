@@ -1016,6 +1016,18 @@ html:has(.site-nav) {
   border-right: 0;
 }
 
+.site-plan-badge {
+  margin-bottom: 14px;
+  color: var(--gold);
+}
+
+@media (max-width: 900px) {
+  /* Stacked cards have nothing to line up with: drop the empty row. */
+  .site-plan-badge[aria-hidden="true"] {
+    display: none;
+  }
+}
+
 .site-plan-card-featured {
   background: linear-gradient(180deg, rgba(155, 109, 255, 0.1), transparent 60%);
 }
@@ -1221,6 +1233,11 @@ html:has(.site-nav) {
   font-size: 26px;
   font-weight: 800;
   letter-spacing: -0.02em;
+}
+
+.site-callout .site-marketing-code {
+  position: relative;
+  margin: 20px 0;
 }
 
 .site-callout-copy {
@@ -1857,8 +1874,22 @@ html:has(.site-nav) {
   transition: color .15s;
 }
 
-.site-footer a:hover {
+.site-footer a:hover,
+.site-footer-link-button:hover {
   color: var(--text);
+}
+
+/* A button that sits in a column of links and must read as one of them. */
+.site-footer-link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  transition: color .15s;
 }
 
 .site-footer-motto {
@@ -2854,10 +2885,12 @@ html:has(.site-nav) {
   --code-size: 13px;
   --code-pad-y: 16px;
   --code-pad-x: 20px;
-  --code-key: color-mix(in srgb, var(--cyan) 80%, var(--text-2));
+  /* Names and their values sit side by side in every config, so they take
+     the two accents furthest apart: violet names, green strings. */
+  --code-key: color-mix(in srgb, var(--violet-2) 84%, var(--text-2));
   --code-string: color-mix(in srgb, var(--green) 80%, var(--text-2));
   --code-value: color-mix(in srgb, var(--gold) 80%, var(--text-2));
-  --code-keyword: color-mix(in srgb, var(--violet-2) 84%, var(--text-2));
+  --code-keyword: color-mix(in srgb, var(--cyan) 80%, var(--text-2));
   --code-comment: var(--text-4);
   --code-punct: var(--text-4);
   max-width: 100%;
@@ -3701,4 +3734,17 @@ html:has(.site-nav) {
 }
 @media (prefers-reduced-motion: reduce) {
   .mcp-guard-item, .mcp-guard-item:hover { transition: none; transform: none; }
+}
+
+/* On a phone the setup panel's actions stack; equal widths keep the stack
+   tidy instead of three buttons of three lengths. */
+@media (max-width: 640px) {
+  .site-setup-shell .site-hero-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .site-setup-shell .site-hero-actions .site-button {
+    width: 100%;
+  }
 }
