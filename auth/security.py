@@ -307,7 +307,9 @@ _TAG_RE = re.compile(r":([a-zA-Z0-9._-]+)$")
 _DIGEST_RE = re.compile(r"@(sha256:[a-fA-F0-9]{64})$")
 
 
-def validate_docker_image(image: str, *, allow_custom: bool = True) -> str:
+def validate_docker_image(
+    image: str, *, allow_custom: bool = True, trusted_prefixes: tuple[str, ...] = ()
+) -> str:
     """Validate and normalize a Docker image string.
 
     - Strips whitespace, rejects empty / obviously malicious strings.
@@ -376,7 +378,13 @@ def validate_docker_image(image: str, *, allow_custom: bool = True) -> str:
     # Docker Hub short-form images (e.g. "pytorch/pytorch:2.1") are matched
     # against ALLOWED_IMAGE_REGISTRIES which includes their namespace prefix.
     # Images without a namespace or from unapproved registries are REJECTED.
-    registry_ok = any(image.startswith(prefix.lower()) for prefix in ALLOWED_IMAGE_REGISTRIES)
+    # `trusted_prefixes` is for references the caller has already authorised by
+    # other means: a snapshot the platform itself pushed to its own registry,
+    # launched by its owner (core/snapshot_image_access.py). Never user input.
+    registry_ok = any(
+        image.startswith(prefix.lower())
+        for prefix in (*ALLOWED_IMAGE_REGISTRIES, *(p for p in trusted_prefixes if p))
+    )
     if not registry_ok:
         raise ValueError(
             f"Docker image {image!r} is not from an approved registry. "
