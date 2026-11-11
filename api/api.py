@@ -506,7 +506,10 @@ app = FastAPI(
         "**LLM Integration**: See `/llms.txt` for AI agent–optimized documentation."
     ),
     contact={"name": "Xcelsior", "url": "https://xcelsior.ca", "email": "admin@xcelsior.ca"},
-    license_info={"name": "MIT", "url": "https://opensource.org/licenses/MIT"},
+    license_info={
+        "name": "Business Source License 1.1",
+        "url": "https://github.com/aabiro/xcelsior/blob/main/LICENSE",
+    },
     openapi_tags=OPENAPI_TAGS,
     servers=[
         {"url": "https://xcelsior.ca", "description": "Production"},

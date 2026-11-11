@@ -2,6 +2,7 @@
   "name": "@xcelsior-gpu/wizard",
   "version": "0.1.9",
   "description": "Xcelsior interactive CLI wizard — Ink-based setup & onboarding",
+  "license": "BUSL-1.1",
   "type": "module",
   "bin": {
     "xcelsior-wizard": "dist/src/index.js"

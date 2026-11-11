@@ -39,7 +39,7 @@
     "model-context-protocol",
     "ai-agents"
   ],
-  "license": "MIT",
+  "license": "BUSL-1.1",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/aabiro/xcelsior.git",
