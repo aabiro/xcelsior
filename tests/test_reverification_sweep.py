@@ -259,7 +259,11 @@ def test_the_real_due_query_finds_the_production_condition(hosts, asked):
             )
 
     try:
-        summary = sweep.run_sweep()
+        # No cap: this test is about the due query, and the shared test database
+        # holds overdue rows other suites left behind. With the default cap of
+        # 25 they filled the pass and this host was cut, which read as "the
+        # query missed it".
+        summary = sweep.run_sweep(limit=-1)
         assert overdue in {
             c["host_id"] for c in asked
         }, "the sweep did not ask the host whose stamp is months past due"

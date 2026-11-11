@@ -1645,9 +1645,11 @@ def submit_job(
 
     # Every job is created here, so this is the one place a snapshot reference
     # typed straight into `image` cannot get past (CVP-01 T-22 residual).
-    from snapshot_image_access import foreign_snapshot_problem
+    from snapshot_image_access import snapshot_launch_decision
 
-    _image_problem = foreign_snapshot_problem(image, [owner, *(image_principals or ())])
+    _image_problem, _snapshot_namespace = snapshot_launch_decision(
+        image, [owner, *(image_principals or ())]
+    )
     if _image_problem:
         raise PermissionError(_image_problem)
     from control_plane.launch.canonicalize import canonicalize
@@ -1728,7 +1730,12 @@ def submit_job(
     if image:
         from security import validate_docker_image
 
-        image = validate_docker_image(image)
+        # A snapshot its owner may launch lives in the platform's own registry,
+        # which is not on the public allow-list. Without this every launch from
+        # a saved template was refused as "not from an approved registry".
+        image = validate_docker_image(
+            image, trusted_prefixes=(_snapshot_namespace,) if _snapshot_namespace else ()
+        )
 
     if owner:
         from abuse_policy import account_suspended

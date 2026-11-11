@@ -251,9 +251,16 @@ def test_reaper_releases_old_missing_submissions_and_replenishes_capacity(
         w["worker_id"] for w in native.repo.list_stuck_booting_workers(booting_before=cutoff)
     ]
     with native.pool.connection() as conn:
+        # Older than every other row, not just older than the cutoff: the reaper
+        # takes the 500 oldest stuck workers per pass, and the shared test
+        # database holds thousands that other suites left unreleased.
+        oldest = conn.execute(
+            "SELECT COALESCE(MIN(created_at), %s) FROM serverless_workers WHERE released_at IS NULL",
+            (cutoff,),
+        ).fetchone()[0]
         conn.execute(
             "UPDATE serverless_workers SET created_at=%s WHERE worker_id=%s",
-            (cutoff - 1, native.wid),
+            (min(float(oldest), cutoff) - 1, native.wid),
         )
         conn.execute(
             "UPDATE serverless_endpoints SET min_workers=1 WHERE endpoint_id=%s",
@@ -262,8 +269,11 @@ def test_reaper_releases_old_missing_submissions_and_replenishes_capacity(
     replenish = mock.Mock(return_value=None)
     monkeypatch.setattr(native.svc, "provision_worker", replenish)
     result = reap_all(native.svc)
-    assert result["reprovisioned"] == 1
-    replenish.assert_called_once_with(native.ep["endpoint_id"])
+    # Counted for this endpoint only: reap_all walks every endpoint, and the
+    # shared test database holds stuck workers other suites left behind.
+    mine = [c for c in replenish.call_args_list if c.args == (native.ep["endpoint_id"],)]
+    assert len(mine) == 1
+    assert result["reprovisioned"] >= 1
     assert native.repo.get_worker(native.wid)["released_at"] is not None
     assert native.repo.count_active_workers(native.ep["endpoint_id"]) == 0
 

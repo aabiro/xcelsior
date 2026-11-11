@@ -71,27 +71,42 @@ def _rows_in_namespace(namespace: str) -> list[Row]:
     return out
 
 
+def snapshot_launch_decision(
+    image: str | None,
+    principals: Iterable[str],
+    *,
+    lookup: Callable[[str], list[Row]] | None = None,
+) -> tuple[str | None, str | None]:
+    """``(problem, trusted_namespace)`` for one launch.
+
+    ``problem`` is the refusal text, or None. ``trusted_namespace`` is the
+    registry namespace when ``image`` is a snapshot these principals may launch:
+    the platform pushed it there itself, so the public-registry allow-list does
+    not apply to it. Both are None for an image this module has no say over.
+
+    A database error propagates: a launch that cannot be checked is not started.
+    """
+    namespace = snapshot_namespace(image)
+    if namespace is None:
+        return None, None
+    rows = (lookup or _rows_in_namespace)(namespace)
+    if not rows:
+        return None, None
+    mine = {str(p).strip() for p in principals if p and str(p).strip()}
+    if any(owner in mine for owner, _public, _ref, _status in rows):
+        return None, namespace
+    wanted = (image or "").strip()
+    for _owner, is_public, ref, status in rows:
+        if is_public and status == "ready" and ref == wanted:
+            return None, namespace
+    return REFUSAL, None
+
+
 def foreign_snapshot_problem(
     image: str | None,
     principals: Iterable[str],
     *,
     lookup: Callable[[str], list[Row]] | None = None,
 ) -> str | None:
-    """None when ``image`` may be launched by ``principals``, else the refusal text.
-
-    A database error propagates: a launch that cannot be checked is not started.
-    """
-    namespace = snapshot_namespace(image)
-    if namespace is None:
-        return None
-    rows = (lookup or _rows_in_namespace)(namespace)
-    if not rows:
-        return None
-    mine = {str(p).strip() for p in principals if p and str(p).strip()}
-    if any(owner in mine for owner, _public, _ref, _status in rows):
-        return None
-    wanted = (image or "").strip()
-    for _owner, is_public, ref, status in rows:
-        if is_public and status == "ready" and ref == wanted:
-            return None
-    return REFUSAL
+    """None when ``image`` may be launched by ``principals``, else the refusal text."""
+    return snapshot_launch_decision(image, principals, lookup=lookup)[0]
