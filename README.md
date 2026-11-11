@@ -9,7 +9,7 @@ without ever opening a browser. Every host admission-gated before it takes work.
 
 [![CI](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml/badge.svg)](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml)
 [![Frontend CI](https://github.com/aabiro/xcelsior/actions/workflows/frontend.yml/badge.svg)](https://github.com/aabiro/xcelsior/actions/workflows/frontend.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![TypeScript SDK](https://img.shields.io/badge/SDK-TypeScript-3178C6.svg)](https://docs.xcelsior.ca)
 [![Docs](https://img.shields.io/badge/docs-xcelsior.ca-0891b2.svg)](https://docs.xcelsior.ca)
@@ -224,13 +224,24 @@ See [docs.xcelsior.ca](https://docs.xcelsior.ca) for full API reference and inte
 
 ---
 
+## License
+
+Xcelsior is licensed under the **Business Source License 1.1 (BSL 1.1)** by **Xcelsior Compute Inc.** — see [LICENSE](LICENSE) for the full terms.
+
+- **Allowed in production:** Running Xcelsior host agents, workers, CLI tools, SDKs, and MCP clients to supply compute capacity to or consume capacity from the Xcelsior platform (`xcelsior.ca`), as well as internal development, testing, benchmarking, and evaluation. Using Xcelsior's hosted services requires no license under this repository.
+- **Commercial license required:** Operating or offering a competing compute marketplace, brokerage, or hosted multi-tenant GPU platform using this codebase.
+- **Open-source conversion:** On **November 11, 2030** (four years from the license switch), each version automatically converts to the **Apache License 2.0**.
+- **Pre-switch releases:** Commits and releases published prior to November 11, 2026 remain under the MIT License at those historical revisions.
+
+---
+
 <div align="center">
 
 [![mcptry](https://mcptry.com/badge/io.github.aabiro/xcelsior)](https://mcptry.com/servers/io.github.aabiro/xcelsior)
 [![Xcelsior Compute MCP on mcprush](https://mcprush.com/badge/xcelsior-compute-mcp/score.svg)](https://mcprush.com/to/xcelsior-compute-mcp?ref=badge)
 [![M8ven Verified](https://m8ven.ai/badge/mcp/aabiro-xcelsior-012k18?variant=verified)](https://m8ven.ai/mcp/aabiro-xcelsior-012k18?s=readme)
 
-**MIT License** · [LICENSE](LICENSE)
+**BSL 1.1 License** · [LICENSE](LICENSE)
 
 Built with 🍁 in Canada — **Ever upward.**
 

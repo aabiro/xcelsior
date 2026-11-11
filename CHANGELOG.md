@@ -44,6 +44,7 @@ First stable production release for [xcelsior.ca](https://xcelsior.ca).
 
 ### Changed
 
+- **License:** Switched repository license from MIT to **Business Source License 1.1 (BSL 1.1)** (`Licensor: Xcelsior Compute Inc.`, Change Date `2030-11-11` converting to `Apache-2.0`). Production use remains permitted for hosts, workers, CLI, SDK, and MCP clients connecting to Xcelsior as well as development, testing, and evaluation; competing marketplaces require a commercial license. Releases prior to 2026-11-11 remain MIT at those historical revisions.
 - Spot rate is locked at allocation (`spot_rate_cad`); billing meters at that rate for the job lifetime.
 - Provider earnings distinguish `spot_earned_cad` vs `on_demand_earned_cad`.
 

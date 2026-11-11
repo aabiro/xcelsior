@@ -23,7 +23,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "BUSL-1.1",
   "description": "",
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",
