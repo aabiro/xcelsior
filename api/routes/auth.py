@@ -828,6 +828,9 @@ def _oauth_page(*, title: str, content: str, wide: bool = False, script: str = "
     background: linear-gradient(90deg, var(--cyan), var(--violet));
     transform-origin: left center; animation: handoff-fill __HANDOFF_MS__ms linear forwards; }
   @keyframes handoff-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  .safe-close { margin: 22px 0 0; color: var(--muted); font-size: 13px; }
+  .close-link { color: var(--cyan); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  .close-link:hover { opacity: .85; }
   .result .foot { margin-top: 19px; }
   @media (max-width: 540px) { body { padding: 20px 14px; }
     main { padding: 28px 22px; border-radius: 20px; }
@@ -857,6 +860,45 @@ document.documentElement.dataset.theme=t==='light'?'light':'dark';}}catch(e){{}}
 </main>{script}</body></html>"""
 
 
+_OAUTH_CLOSE_NOTICE = (
+    '<p class="safe-close">It’s safe to '
+    '<a class="close-link" href="#close" role="button" data-close-window>close</a> '
+    "this window.</p>"
+)
+
+
+def _oauth_close_script(callback_json: str | None = None) -> str:
+    """Wire the inline 'close' hyperlink without dropping a pending OAuth callback."""
+    handoff_prelude = ""
+    before_close = ""
+    if callback_json is not None:
+        handoff_prelude = (
+            f"var handedOff=false;var callbackUrl={callback_json};"
+            f"window.setTimeout(function(){{window.location.replace({callback_json});}},{_OAUTH_RETURN_DELAY_MS});"
+            f"window.setTimeout(function(){{handedOff=true;}},{_OAUTH_RETURN_DELAY_MS});"
+        )
+        before_close = (
+            "if(!handedOff){handedOff=true;window.location.replace(callbackUrl);"
+            "window.setTimeout(attemptClose,350);return;}"
+        )
+    return (
+        "<script>(function(){"
+        f"{handoff_prelude}"
+        "var link=document.querySelector('[data-close-window]');"
+        "if(!link)return;"
+        "function attemptClose(){window.close();"
+        "window.setTimeout(function(){if(!window.closed&&link.parentElement){"
+        "link.parentElement.setAttribute('role','status');"
+        "link.parentElement.textContent='Your browser kept this tab open \\u2014 press \\u2318W or Ctrl+W to close it.';"
+        "}},150);}"
+        "function onActivate(e){if(e.type==='keydown'&&e.key!==' '&&e.key!=='Spacebar')return;"
+        f"e.preventDefault();{before_close}attemptClose();}}"
+        "link.addEventListener('click',onActivate);"
+        "link.addEventListener('keydown',onActivate);"
+        "})();</script>"
+    )
+
+
 def _oauth_error_page(title: str, detail: str, status: int) -> str:
     """Keep a failed authorization in the same branded flow as consent."""
     import html as _html
@@ -867,7 +909,9 @@ def _oauth_error_page(title: str, detail: str, status: int) -> str:
   <div class="eyebrow">Authorization interrupted · {_html.escape(str(status))}</div>
   <h1>{_html.escape(title)}</h1>
   <p class="intro">{_html.escape(detail)}</p>
+  {_OAUTH_CLOSE_NOTICE}
 </section>""",
+        script=_oauth_close_script(),
     )
 
 
@@ -1040,13 +1084,11 @@ def _oauth_decision_page(
   <h1>{heading}</h1>
   <p class="returning" role="status">Returning you to {client_name}…</p>
   <div class="handoff" aria-hidden="true"></div>
+  {_OAUTH_CLOSE_NOTICE}
   {loopback_hint}
   <noscript><p class="foot"><a href="{_html.escape(callback_url, quote=True)}">Continue to {client_name}</a></p></noscript>
 </section>""",
-        script=(
-            "<script>window.setTimeout(function(){window.location.replace("
-            f"{callback_json});}},{_OAUTH_RETURN_DELAY_MS});</script>"
-        ),
+        script=_oauth_close_script(callback_json),
     )
 
 

@@ -57,3 +57,15 @@ def test_only_an_approved_loopback_return_explains_a_refused_connection():
 def test_the_client_name_in_the_hint_is_escaped():
     page = _page(name='<img src=x onerror="alert(1)">')
     assert "<img src=x" not in page and "&lt;img src=x" in page
+
+
+def test_safe_to_close_notice_links_the_close_word_and_preserves_callback_handoff():
+    for page in (_page(approved=True), _page(approved=False), auth._oauth_error_page("Expired", "Try again.", 400)):
+        assert "It’s safe to " in page
+        assert '<a class="close-link" href="#close" role="button" data-close-window>close</a> this window.' in page
+        assert "window.close()" in page
+        assert "onclick=" not in page
+
+    decision_page = _page(approved=True)
+    # Clicking close before the 3.2 s timer fires still hands the callback URL over first.
+    assert "if(!handedOff){handedOff=true;window.location.replace(callbackUrl);" in decision_page
