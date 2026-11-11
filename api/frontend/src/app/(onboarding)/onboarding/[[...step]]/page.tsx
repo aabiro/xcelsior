@@ -76,15 +76,19 @@ function SetupFlow() {
               {flow.map((item, index) => {
                 const active = step === item.id;
                 const done = item.id === "account" ? accountComplete : addressComplete;
+                const canNavigate = !active && (item.id === "account" || accountComplete);
                 const Icon = item.icon;
-                return <li key={item.id} aria-current={active ? "step" : undefined}>
-                  <div className={cn("flex items-center gap-3 rounded-xl border p-3 transition-colors", active ? "border-accent-cyan/30 bg-accent-cyan/5" : "border-transparent")}>
+                const content = (
+                  <div className={cn("flex items-center gap-3 rounded-xl border p-3 text-left transition-colors", active ? "border-accent-cyan/30 bg-accent-cyan/5" : canNavigate ? "border-transparent hover:bg-surface-hover" : "border-transparent")}>
                     <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border", active ? "border-accent-cyan/30 bg-accent-cyan/10 text-accent-cyan" : done ? "border-emerald/20 bg-emerald/10 text-emerald" : "border-border bg-surface text-text-muted")}>
                       {done && !active ? <Check className="h-4 w-4" aria-label="Complete" /> : <Icon className="h-4 w-4" />}
                     </span>
                     <div className="min-w-0"><p className={cn("text-sm font-medium", active ? "text-text-primary" : "text-text-secondary")}>{index + 1}. {item.title}</p>
                       <p className="mt-0.5 hidden text-xs leading-relaxed text-text-muted lg:block">{item.description}</p></div>
                   </div>
+                );
+                return <li key={item.id} aria-current={active ? "step" : undefined}>
+                  {canNavigate ? <button type="button" onClick={() => go(item.id)} className="w-full rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ice-blue">{content}</button> : content}
                 </li>;
               })}
             </ol>

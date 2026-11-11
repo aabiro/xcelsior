@@ -181,13 +181,18 @@ it("searches for an address before a country is chosen", async () => {
 
 
 it("account setup saves the account type without a renter or provider choice", async () => {
-  authState.user = { name: "Original Name", account_type: "individual", onboarding_intent: "provide" };
+  authState.user = { name: "Original Name", account_type: "", onboarding_intent: "provide" };
   apiMocks.updateProfile.mockResolvedValue({ ok: true });
   render(<AccountProfileForm step="account" />);
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  const continueButton = screen.getByRole("button", { name: "Continue" });
+  expect(continueButton).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Account type"), { target: { value: "individual" } });
+  expect(continueButton).toBeEnabled();
+  fireEvent.click(continueButton);
   await waitFor(() => expect(apiMocks.updateProfile).toHaveBeenCalled());
   expect(apiMocks.updateProfile.mock.calls[0][0]).not.toHaveProperty("onboarding_intent");
   expect(apiMocks.updateProfile.mock.calls[0][0]).toMatchObject({ account_type: "individual", business_name: "", gst_hst_number: "" });
+  expect(continueButton).toBeDisabled();
 });
 
 
@@ -200,6 +205,11 @@ it("says a renter or provider choice can change in settings and asks for busines
   expect(screen.queryByText("How will you use Xcelsior?")).not.toBeInTheDocument();
   expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Legal business name")).not.toBeInTheDocument();
+  // Bare focus/blur without editing does not mark Account type invalid or enable Continue.
+  fireEvent.blur(screen.getByLabelText("Account type"));
+  expect(screen.getByLabelText("Account type")).toHaveAttribute("aria-invalid", "false");
+  expect(screen.queryByText("Select an account type.")).not.toBeInTheDocument();
+  expect(continueButton).toBeDisabled();
   fireEvent.change(screen.getByLabelText("Account type"), { target: { value: "individual" } });
   expect(continueButton).toBeEnabled();
   expect(screen.getByText("A personal account does not need a business name, even if you provide GPUs.")).toBeInTheDocument();
@@ -209,6 +219,13 @@ it("says a renter or provider choice can change in settings and asks for busines
   const businessInput = screen.getByLabelText("Legal business name");
   expect(businessInput).toBeInTheDocument();
   expect(businessInput).toHaveAttribute("aria-invalid", "false");
+  // Bare blur without editing does not flag Legal business name invalid.
+  fireEvent.blur(businessInput);
+  expect(businessInput).toHaveAttribute("aria-invalid", "false");
+  expect(screen.queryByText("Enter your legal business name.")).not.toBeInTheDocument();
+  // Editing and clearing it back to empty, then blurring, shows the inline error.
+  fireEvent.change(businessInput, { target: { value: "P" } });
+  fireEvent.change(businessInput, { target: { value: "" } });
   fireEvent.blur(businessInput);
   expect(businessInput).toHaveAttribute("aria-invalid", "true");
   expect(screen.getByText("Enter your legal business name.")).toBeInTheDocument();
@@ -218,6 +235,27 @@ it("says a renter or provider choice can change in settings and asks for busines
   expect(continueButton).toBeEnabled();
   expect(screen.getByLabelText("GST/HST registration number (optional)")).toBeInTheDocument();
   expect(screen.queryByText("A personal account does not need a business name, even if you provide GPUs.")).not.toBeInTheDocument();
+});
+
+
+it("keeps Continue disabled on pre-filled onboarding steps until a field is actually edited", async () => {
+  authState.user = { name: "Original Name", account_type: "individual", country: "CA", province: "ON", address_line1: "123 Harbour St", address_line2: "", city: "Port Dover", postal_code: "N0A 1N0" };
+  const accountView = render(<AccountProfileForm step="account" />);
+  const accountContinue = screen.getByRole("button", { name: "Continue" });
+  expect(accountContinue).toBeDisabled();
+  fireEvent.focus(screen.getByLabelText("Account type"));
+  fireEvent.blur(screen.getByLabelText("Account type"));
+  expect(accountContinue).toBeDisabled();
+  accountView.unmount();
+
+  render(<AccountProfileForm step="address" />);
+  await screen.findByRole("option", { name: "Ontario" });
+  const addressContinue = screen.getByRole("button", { name: "Continue" });
+  expect(addressContinue).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("City or locality"), { target: { value: "Simcoe" } });
+  expect(addressContinue).toBeEnabled();
+  fireEvent.change(screen.getByLabelText("City or locality"), { target: { value: "Port Dover" } });
+  expect(addressContinue).toBeDisabled();
 });
 
 
@@ -251,14 +289,19 @@ it("saving profile details preserves a separately edited name and clears hidden 
   authState.user = { name:"Original Name", country:"CA", province:"ON", address_line1:"1 Test Street", address_line2:"", city:"London", postal_code:"N6A 1A1", account_type:"individual", onboarding_intent:"rent", business_name:"Old Company", gst_hst_number:"123456789RT0001" };
   apiMocks.updateProfile.mockResolvedValue({ok:true});
   const view=render(<AccountProfileForm settings />);
-  await waitFor(() => expect(screen.getByRole("button", {name:"Save profile"})).toBeEnabled());
+  await screen.findByRole("option", { name: "Ontario" });
+  const saveButton = screen.getByRole("button", {name:"Save profile"});
+  expect(saveButton).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Apartment, suite, or unit (optional)"), { target: { value: "Suite 200" } });
+  await waitFor(() => expect(saveButton).toBeEnabled());
   authState.user = {...authState.user, name:"Updated Name"};
   view.rerender(<AccountProfileForm settings />);
-  fireEvent.click(screen.getByRole("button", {name:"Save profile"}));
+  fireEvent.click(saveButton);
   await screen.findByText("Profile saved.");
+  expect(saveButton).toBeDisabled();
   const saved=apiMocks.updateProfile.mock.calls[0][0];
   expect(saved).not.toHaveProperty("name");
-  expect(saved).toMatchObject({country:"CA",province:"ON", business_name:"", gst_hst_number:""});
+  expect(saved).toMatchObject({country:"CA",province:"ON", address_line2:"Suite 200", business_name:"", gst_hst_number:""});
 });
 
 

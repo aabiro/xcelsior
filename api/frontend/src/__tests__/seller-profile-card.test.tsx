@@ -68,16 +68,14 @@ describe("SellerProfileCard", () => {
     expect(screen.queryByLabelText("Search address")).not.toBeInTheDocument();
     expect(screen.getByText("1 Test Street, Unit 2 · Toronto ON M5V 2T6 · CA")).toBeInTheDocument();
     const continueButton = screen.getByRole("button", { name: "dash.earnings.seller_continue" });
-    expect(continueButton).toBeEnabled();
+    expect(continueButton).toBeDisabled();
     expect(screen.getByRole("link", { name: "dash.earnings.seller_terms" })).toHaveAttribute("href", "/terms#provider-terms");
 
-    await user.click(continueButton);
-    expect(apiMocks.saveSellerProfile).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent("dash.earnings.seller_kind_error");
-
     await user.click(screen.getByText("dash.earnings.seller_tax_sin"));
+    expect(continueButton).toBeDisabled();
     await user.type(screen.getByLabelText("dash.earnings.seller_tax_id"), "130692544");
-    await user.click(screen.getByRole("button", { name: "dash.earnings.seller_continue" }));
+    expect(continueButton).toBeEnabled();
+    await user.click(continueButton);
 
     expect(apiMocks.saveSellerProfile).toHaveBeenCalledWith({
       legal_name: "Ada Lovelace",
