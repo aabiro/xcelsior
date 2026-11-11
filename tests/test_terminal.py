@@ -998,32 +998,49 @@ class TestPrometheusMetrics:
 # ===============================================================================
 
 
+def _assert_refused_after_accept(url: str, code: int) -> dict:
+    """The refusal reaches the browser: an error frame, then a close with ``code``.
+
+    A close before ``accept()`` is an HTTP 403 on the upgrade, which browsers
+    report as a bare 1006 the web terminal retries. The test client would
+    still show the code, so the frame is what proves the browser sees it.
+    """
+    with client.websocket_connect(url) as ws:
+        frame = ws.receive_json()
+        with pytest.raises(WebSocketDisconnect) as closed:
+            ws.receive_json()
+    assert frame["type"] == "error"
+    assert frame["code"] == code
+    assert frame["message"]
+    assert closed.value.code == code, (
+        "closed, but not with the rejection code — a missing route "
+        "closes 1000 and would satisfy a bare raises(Exception)"
+    )
+    return frame
+
+
 class TestWsAuth:
     def test_rejects_no_auth(self, monkeypatch):
-        """WS without auth token gets closed with 4001."""
+        """WS without auth is refused with 4001 the browser can read."""
         import routes._deps as _deps_mod
 
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
-        with pytest.raises(WebSocketDisconnect) as closed:
-            with client.websocket_connect("/ws/terminal/fake-id"):
-                pass
-        assert closed.value.code == 4001, (
-            "closed, but not with the rejection code — a missing route "
-            "closes 1000 and would satisfy a bare raises(Exception)"
-        )
+        _assert_refused_after_accept("/ws/terminal/fake-id", 4001)
 
     def test_rejects_invalid_token(self, monkeypatch):
-        """WS with garbage token gets closed."""
+        """WS with garbage token is refused."""
         import routes._deps as _deps_mod
 
         monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
-        with pytest.raises(WebSocketDisconnect) as closed:
-            with client.websocket_connect("/ws/terminal/fake-id?token=garbage"):
-                pass
-        assert closed.value.code == 4001, (
-            "closed, but not with the rejection code — a missing route "
-            "closes 1000 and would satisfy a bare raises(Exception)"
-        )
+        _assert_refused_after_accept("/ws/terminal/fake-id?token=garbage", 4001)
+
+    def test_rejected_ticket_says_why(self, monkeypatch):
+        """A refused ticket names the likely causes, including an IP change."""
+        import routes._deps as _deps_mod
+
+        monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", True)
+        frame = _assert_refused_after_accept("/ws/terminal/fake-id?ticket=not-issued", 4001)
+        assert "IP address" in frame["message"]
 
 
 class TestWsHardeningPreAccept:
@@ -1041,9 +1058,7 @@ class TestWsHardeningPreAccept:
 
     def test_rejects_rate_limited_ip(self, monkeypatch):
         monkeypatch.setattr("routes.terminal._check_ws_connect_rate_limit", lambda *a, **kw: False)
-        with pytest.raises(Exception):
-            with client.websocket_connect("/ws/terminal/fake-id"):
-                pass
+        _assert_refused_after_accept("/ws/terminal/fake-id", 4429)
 
     def test_rejects_concurrent_session_limit(self, monkeypatch):
         monkeypatch.setattr(
@@ -1051,16 +1066,13 @@ class TestWsHardeningPreAccept:
             lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
         )
         monkeypatch.setattr("routes.terminal._acquire_terminal_session_slot", lambda user: False)
-        with pytest.raises(Exception):
-            with client.websocket_connect("/ws/terminal/fake-id"):
-                pass
+        frame = _assert_refused_after_accept("/ws/terminal/fake-id", 4429)
+        assert "Too many open terminals" in frame["message"]
 
     def test_rejects_legacy_query_token_auth(self, monkeypatch):
         monkeypatch.setattr(deps_mod, "AUTH_REQUIRED", True)
         monkeypatch.setenv("XCELSIOR_API_TOKEN", "master-token")
-        with pytest.raises(Exception):
-            with client.websocket_connect("/ws/terminal/fake-id?token=master-token"):
-                pass
+        _assert_refused_after_accept("/ws/terminal/fake-id?token=master-token", 4001)
 
 
 class TestInstanceStreamHardening:
