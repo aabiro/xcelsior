@@ -816,6 +816,7 @@ def _run_benchmark(cmd: list[str], timeout: int) -> dict | None:
 # which a tenant-named image must never be pulled with. The worker therefore
 # runs registry operations against its own config directory, holding only the
 # credentials the worker was itself provisioned with in its environment.
+_REGISTRY_PLACEHOLDER_HOST = "registry.xcelsior.invalid"
 _registry_config_lock = threading.Lock()
 _registry_config_dir_cached: str | None = None
 
@@ -830,7 +831,11 @@ def _registry_host(url: str) -> str:
 
 def _registry_auths_from_env() -> dict:
     """Registry logins the worker was provisioned with, keyed by registry host."""
-    auths: dict = {}
+    # Never empty. A docker config with no auths, credsStore or credHelpers makes
+    # the CLI pick a default credential store by itself (`pass`, else the desktop
+    # keyring helper), which is the helper that fails under systemd. One entry
+    # for a name that cannot resolve (RFC 6761 `.invalid`) turns that off.
+    auths: dict = {_REGISTRY_PLACEHOLDER_HOST: {}}
 
     def _add(host: str, username: str, password: str) -> None:
         if host and username and password:
