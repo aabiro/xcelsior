@@ -1025,10 +1025,12 @@ html.light .oauth-secret-value { color: #0e7490; }
   --code-pad-y: 12px;
   --code-pad-x: 16px;
 
-  --code-key: color-mix(in srgb, var(--color-accent-cyan) 72%, var(--color-text-primary));
+  /* Names and their values sit side by side in every config, so they take
+     the two accents furthest apart: violet names, green strings. */
+  --code-key: color-mix(in srgb, var(--color-accent-violet) 56%, var(--color-text-primary));
   --code-string: color-mix(in srgb, var(--color-emerald) 76%, var(--color-text-primary));
   --code-value: color-mix(in srgb, var(--color-accent-gold) 78%, var(--color-text-primary));
-  --code-keyword: color-mix(in srgb, var(--color-accent-violet) 56%, var(--color-text-primary));
+  --code-keyword: color-mix(in srgb, var(--color-accent-cyan) 72%, var(--color-text-primary));
   --code-comment: var(--color-text-muted);
   --code-punct: var(--color-text-secondary);
 
@@ -1041,7 +1043,7 @@ html.light .oauth-secret-value { color: #0e7490; }
 /* :where() keeps this at a single class's weight, so a surface's own
    palette (.site-marketing-code) still wins in light mode. */
 :where(html.light) .code-card {
-  --code-keyword: color-mix(in srgb, var(--color-accent-violet) 86%, var(--color-text-primary));
+  --code-key: color-mix(in srgb, var(--color-accent-violet) 86%, var(--color-text-primary));
 }
 .code-card-bar {
   display: flex;

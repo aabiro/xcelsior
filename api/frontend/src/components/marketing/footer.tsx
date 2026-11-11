@@ -82,7 +82,7 @@ export function Footer() {
                     <button
                       type="button"
                       onClick={openCookiePreferences}
-                      style={{ fontSize: 14, textAlign: "left", background: "none", border: 0, padding: 0, color: "inherit", cursor: "pointer" }}
+                      className="site-footer-link-button"
                     >
                       {t("footer.cookies")}
                     </button>

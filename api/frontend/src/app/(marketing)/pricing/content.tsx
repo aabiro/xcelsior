@@ -190,11 +190,11 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                 <div className="site-icon-box">
                   <ThemeIcon name={plan.icon} />
                 </div>
-                {plan.featured ? (
-                  <div className="site-product-badge" style={{ color: "var(--gold)", marginBottom: 14 }}>
-                    {t("pricing.tier_reserved_badge")} - {maxReservedSaving || 45}%
-                  </div>
-                ) : null}
+                {/* Kept on every card, empty when there is nothing to say, so the
+                    titles, prices and rules line up across the row. */}
+                <div className="site-product-badge site-plan-badge" aria-hidden={!plan.featured}>
+                  {plan.featured ? t("pricing.tier_reserved_saving", { pct: maxReservedSaving || 45 }) : "\u00a0"}
+                </div>
                 <h3 className="site-card-title">{t(plan.title)}</h3>
                 <p className="site-card-copy">{t(plan.desc)}</p>
                 <div className="site-plan-price">
