@@ -14,6 +14,9 @@ import stat
 
 import worker_agent
 
+PLACEHOLDER = worker_agent._REGISTRY_PLACEHOLDER_HOST
+EMPTY = {"auths": {PLACEHOLDER: {}}}
+
 
 def _config(monkeypatch, tmp_path, **env):
     for name in (
@@ -34,7 +37,7 @@ def _config(monkeypatch, tmp_path, **env):
 
 def test_config_carries_no_credential_helper(monkeypatch, tmp_path):
     path, config = _config(monkeypatch, tmp_path)
-    assert config == {"auths": {}}
+    assert config == EMPTY
     assert "credsStore" not in config and "credHelpers" not in config
     assert path.startswith(str(tmp_path)), "config must live in the worker's state dir"
 
@@ -54,7 +57,7 @@ def test_only_provisioned_registries_are_authenticated(monkeypatch, tmp_path):
         XCELSIOR_REGISTRY_PASSWORD="pw",
         NGC_API_KEY="ngc-key",
     )
-    assert set(config["auths"]) == {"registry.example.test", "nvcr.io"}
+    assert set(config["auths"]) == {PLACEHOLDER, "registry.example.test", "nvcr.io"}
     decoded = base64.b64decode(config["auths"]["registry.example.test"]["auth"]).decode()
     assert decoded == "worker:pw"
     ngc = base64.b64decode(config["auths"]["nvcr.io"]["auth"]).decode()
@@ -68,7 +71,7 @@ def test_half_configured_registry_is_left_out(monkeypatch, tmp_path):
         XCELSIOR_REGISTRY_URL="registry.example.test",
         XCELSIOR_REGISTRY_USERNAME="worker",
     )
-    assert config == {"auths": {}}
+    assert config == EMPTY
 
 
 def test_unwritable_state_dir_never_falls_back_to_the_host_config(monkeypatch, tmp_path):
@@ -119,3 +122,12 @@ def test_pull_failure_says_whose_fault_it_was():
         1, "pull access denied for x, repository does not exist or may require 'docker login'"
     )
     assert worker_agent._pull_failure_message(7, "something new") == "Image pull failed (exit 7)"
+
+
+def test_auths_is_never_empty_so_docker_does_not_pick_a_desktop_helper(monkeypatch, tmp_path):
+    """Found by a real pull: with no auths at all the CLI auto-detects a credential
+    store (`pass` or the keyring helper) and fails exactly as before."""
+    _, config = _config(monkeypatch, tmp_path)
+    assert config["auths"], "an empty auths map re-enables docker's default credential store"
+    assert PLACEHOLDER.endswith(".invalid"), "placeholder must be a name that cannot resolve"
+    assert config["auths"][PLACEHOLDER] == {}, "placeholder carries no credential"
