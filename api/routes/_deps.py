@@ -1986,6 +1986,7 @@ def _consume_ws_ticket(
                 return None
             pinned_ip = payload.get("ip_address", "unknown")
             if pinned_ip not in ("", "unknown", ws_ip):
+                _log_ws_ticket_ip_mismatch(purpose, pinned_ip, ws_ip)
                 return None
             _WS_TICKETS.pop(ticket, None)
             res_user = dict(payload.get("user") or {})
@@ -2001,6 +2002,21 @@ def _consume_ws_ticket(
         return refresh_stream_principal(res_user)
     except HTTPException:
         return None
+
+
+def _log_ws_ticket_ip_mismatch(purpose: str, pinned_ip: str, ws_ip: str) -> None:
+    """Record a ticket refused only because the socket came from another IP.
+
+    The ticket is fetched over HTTPS and redeemed on a separate WebSocket
+    connection. iCloud Private Relay, or a phone switching between IPv4 and
+    IPv6, can give those two connections different addresses.
+    """
+    log.warning(
+        "ws.ticket.ip_mismatch purpose=%s issued_ip=%s ws_ip=%s",
+        purpose,
+        pinned_ip,
+        ws_ip,
+    )
 
 
 def _mutate_shared_ws_tickets_issue(
@@ -2032,6 +2048,7 @@ def _mutate_shared_ws_tickets_consume(
         return {"tickets": tickets, "updated_at": now}, None
     pinned_ip = payload.get("ip_address", "unknown")
     if pinned_ip not in ("", "unknown", ws_ip):
+        _log_ws_ticket_ip_mismatch(purpose, pinned_ip, ws_ip)
         return {"tickets": tickets, "updated_at": now}, None
     tickets.pop(ticket, None)
     return {"tickets": tickets, "updated_at": now}, dict(payload.get("user") or {})
