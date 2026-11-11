@@ -631,6 +631,12 @@
   gap: 12px;
 }
 
+/* The brand link renders nothing in the app bar today. Empty, it still took a
+   flex gap (32px a phone's bar does not have) and was a link with no name. */
+.dashboard-site-topbar-brand:empty {
+  display: none;
+}
+
 .dashboard-site-topbar-brand {
   display: flex;
   align-items: center;

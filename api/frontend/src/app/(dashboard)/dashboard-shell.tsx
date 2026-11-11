@@ -631,7 +631,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   <div className="relative min-w-0" ref={profileRef}>
                     <button
                       onClick={() => setProfileOpen(!profileOpen)}
-                      className="dashboard-site-profile-trigger flex min-w-0 max-w-full items-center gap-2 rounded-full px-3 py-2"
+                      className="dashboard-site-profile-trigger flex min-w-0 max-w-full items-center gap-2 rounded-full px-1.5 py-2 sm:px-3"
                       title={showBusiness && user ? businessName(user) : undefined}
                       aria-expanded={profileOpen}
                       aria-label={showBusiness && user
