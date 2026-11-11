@@ -676,7 +676,9 @@ export default function InstanceDetailPage() {
             <Badge variant={status === "failed" ? "failed" : status === "terminated" ? "terminated" : "cancelled"}>
               {status}
             </Badge>
-            <span className="text-xs text-text-muted">{t("dash.instances.during_exec", { status })}</span>
+            <span className="text-xs text-text-muted">
+              {t(instance.started_at ? "dash.instances.during_exec" : "dash.instances.before_start", { status })}
+            </span>
           </div>
         )}
         {(isStopped || isTransitional) && (

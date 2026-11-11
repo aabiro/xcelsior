@@ -305,7 +305,7 @@ def test_snapshot_container_commits_and_pushes(monkeypatch):
     assert n == 1
     # Commit + push must both have run with the exact image_ref.
     assert ["docker", "commit", "xcl-fff", image_ref] in calls
-    assert ["docker", "push", image_ref] in calls
+    assert worker_agent.registry_docker_cmd("push", image_ref) in calls
     # Callback MUST hit /user-images/{id}/complete (A1 regression guard — it
     # used to be /api/v2/user-images/{id}/complete which 404s).
     assert callback_bodies, "snapshot handler did not issue /complete callback"
