@@ -5,6 +5,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { useEffect, useId, useRef, useState } from "react";
 import { apiFetch, updateProfile } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useLocale } from "@/lib/locale";
 import { Button } from "@/components/ui/button";
 
 export const PROVINCES = [
@@ -117,13 +118,13 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
   const provinceRequired = catalog?.requires_subdivision ?? true;
   const provinceLabel = catalog?.labels?.subdivision ?? "State, province, or territory";
   const provinceOptional = catalog?.subdivision_mode === "optional";
-  // Once the country is known, a field its addresses never use is left out entirely.
-  const provinceHidden = Boolean(catalog && catalog.subdivisions.length === 0);
+  // Every country's regions are offered. Only a country with none has nothing to pick.
+  const provinceUnavailable = Boolean(catalog && catalog.subdivisions.length === 0);
   const countryInvalid = Boolean(edited.country && touched.country && !selectedCountry);
   const provinceInvalid = Boolean(edited.province && touched.province && provinceRequired && !selectedProvince);
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      <div className={cn("space-y-1.5", provinceHidden && "sm:col-span-2")}>
+      <div className="space-y-1.5">
         <Label htmlFor={`${id}-country`}>Country</Label>
         <Select id={`${id}-country`} autoComplete="country" required value={selectedCountry}
           aria-invalid={countryInvalid ? "true" : "false"}
@@ -141,10 +142,10 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
         </Select>
         {countryInvalid && <p id={`${id}-country-error`} className="text-xs text-red-400">Select a country.</p>}
       </div>
-      {!provinceHidden && <div className="space-y-1.5">
+      <div className="space-y-1.5">
         <Label htmlFor={`${id}-province`}>{provinceLabel}{provinceOptional ? " (optional)" : ""}</Label>
         <Select id={`${id}-province`} autoComplete="address-level1" required={provinceRequired}
-          value={selectedProvince}
+          value={selectedProvince} disabled={provinceUnavailable}
           aria-invalid={provinceInvalid ? "true" : "false"}
           aria-describedby={provinceInvalid ? `${id}-province-error` : undefined}
           className={cn(provinceInvalid && "border-red-400/60 focus:ring-red-400/40")}
@@ -153,11 +154,11 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
             setEdited((prev) => (prev.province ? prev : { ...prev, province: true }));
             onProvinceChange(event.target.value);
           }}>
-          <option value="">{provinceOptional ? "None" : `Select ${provinceLabel.toLowerCase()}`}</option>
+          <option value="">{provinceUnavailable ? "Not applicable" : provinceOptional ? "None" : `Select ${provinceLabel.toLowerCase()}`}</option>
           {catalog?.subdivisions.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
         </Select>
         {provinceInvalid && <p id={`${id}-province-error`} className="text-xs text-red-400">Select a {provinceLabel.toLowerCase()}.</p>}
-      </div>}
+      </div>
       {error && <div role="alert" className="text-sm text-red-400 sm:col-span-2">
         {error} <Button type="button" variant="outline" size="sm" onClick={() => setRetry((value) => value + 1)}>Retry</Button>
       </div>}
@@ -187,11 +188,35 @@ async function checkAddress(address: CapturedAddress): Promise<AddressReview | n
   } catch { return null; }
 }
 
+/** Bold the parts of a suggestion that match what was typed, as Google Maps does. */
+function Highlight({ text, query }: { text: string; query: string }) {
+  const lower = text.toLowerCase();
+  const words = query.toLowerCase().split(/[\s,]+/).filter((word) => word.length > 1);
+  if (!words.length || lower.length !== text.length) return <>{text}</>;
+  const bold = new Array<boolean>(text.length).fill(false);
+  for (const word of words) {
+    for (let at = lower.indexOf(word); at !== -1; at = lower.indexOf(word, at + word.length)) {
+      bold.fill(true, at, at + word.length);
+    }
+  }
+  const parts: { text: string; bold: boolean }[] = [];
+  for (let index = 0; index < text.length; index++) {
+    const last = parts[parts.length - 1];
+    if (last && last.bold === bold[index]) last.text += text[index];
+    else parts.push({ text: text[index], bold: bold[index] });
+  }
+  // Plain stretches stay text nodes, so spaces survive in what a screen reader hears.
+  return <>{parts.map((part, index) => part.bold
+    ? <strong key={index} className="font-semibold">{part.text}</strong>
+    : part.text)}</>;
+}
+
 /** Search helps fill the form; its fields remain editable and independently validated. */
 export function AddressLookup({ country, onSelect, editRevision = 0 }: {
   country: string; onSelect: (address: CapturedAddress) => void; editRevision?: number;
 }) {
   const id = useId();
+  const { locale } = useLocale();
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -208,24 +233,33 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
   }, [country, editRevision]);
   useEffect(() => {
     const version = ++requestVersion.current;
-    setSuggestions([]); setActiveIndex(-1); setError(""); setLoading(false); setNoMatches(false);
-    if (query.trim().length < 3 || dismissed) return;
+    setError(""); setNoMatches(false);
+    if (query.trim().length < 3 || dismissed) {
+      setSuggestions([]); setActiveIndex(-1); setLoading(false);
+      return;
+    }
+    // The last results stay on screen until the next ones arrive, so the list
+    // does not blink shut on every keystroke.
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
         const result = await apiFetch<{ suggestions: AddressSuggestion[] }>("/api/locations/search", {
-          method: "POST", body: JSON.stringify({ country, text: query }),
+          method: "POST", body: JSON.stringify({ country, text: query, lang: locale }),
         });
         if (requestVersion.current === version) {
           setSuggestions(result.suggestions);
+          setActiveIndex(-1);
           setNoMatches(result.suggestions.length === 0);
         }
       } catch (err) {
-        if (requestVersion.current === version) setError(err instanceof Error ? err.message : "Address search is unavailable. Enter your address below.");
+        if (requestVersion.current === version) {
+          setSuggestions([]);
+          setError(err instanceof Error ? err.message : "Address search is unavailable. Enter your address below.");
+        }
       } finally { if (requestVersion.current === version) setLoading(false); }
-    }, 300);
+    }, 250);
     return () => { clearTimeout(timer); if (requestVersion.current === version) requestVersion.current++; };
-  }, [country, query, dismissed]);
+  }, [country, query, dismissed, locale]);
   // Each suggestion already holds its whole address, so picking one makes no further request.
   function choose(item: AddressSuggestion) {
     requestVersion.current++;
@@ -235,7 +269,7 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
   return <div className="relative space-y-1.5">
     <Label htmlFor={`${id}-search`}>Search address</Label>
     <div className="relative">
-      <Input id={`${id}-search`} role="combobox" aria-autocomplete="list" aria-expanded={open}
+      <Input id={`${id}-search`} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-busy={loading}
         aria-controls={`${id}-results`} aria-activedescendant={activeIndex >= 0 ? `${id}-result-${activeIndex}` : undefined}
         autoComplete="off" value={query} placeholder="Start typing your address"
         onChange={(event) => { requestVersion.current++; setQuery(event.target.value); setDismissed(false); }}
@@ -249,26 +283,22 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
             else setActiveIndex((value) => (value + (event.key === "ArrowUp" ? -1 : 1) + suggestions.length) % suggestions.length);
           }
         }} />
-      {open && <div className="absolute left-0 right-0 top-full z-50 mt-1.5 w-full rounded-xl border border-border-light bg-[var(--popover-solid)] p-1.5 shadow-2xl">
-        <ul id={`${id}-results`} role="listbox" aria-label="Address suggestions" className="max-h-64 overflow-y-auto">
-          {suggestions.map((item, index) => <li key={item.id} id={`${id}-result-${index}`} role="option"
-            aria-selected={activeIndex === index}
-            className={cn(
-              "cursor-pointer rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--popover-solid-2)]",
-              activeIndex === index && "bg-[var(--popover-solid-2)]",
-            )}
-            onMouseDown={(event) => event.preventDefault()} onClick={() => choose(item)}>
-            <span className="block font-medium text-text-primary">{item.text}</span>
-            <span className="block text-xs text-text-secondary">{item.description}</span>
-          </li>)}
-        </ul>
-        {/* OpenStreetMap's licence (ODbL) asks for this credit wherever its data is shown. */}
-        <p className="px-3 pb-1 pt-2 text-[11px] text-text-muted" onMouseDown={(event) => event.preventDefault()}>
-          Suggestions © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="underline">OpenStreetMap contributors</a>
-        </p>
-      </div>}
+      {open && <ul id={`${id}-results`} role="listbox" aria-label="Address suggestions"
+        className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-72 w-full overflow-y-auto rounded-xl border border-border-light bg-[var(--popover-solid)] p-1.5 shadow-2xl">
+        {suggestions.map((item, index) => <li key={item.id} id={`${id}-result-${index}`} role="option"
+          aria-selected={activeIndex === index}
+          className={cn(
+            "cursor-pointer rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-[var(--popover-solid-2)]",
+            activeIndex === index && "bg-[var(--popover-solid-2)]",
+          )}
+          onMouseEnter={() => setActiveIndex(index)}
+          onMouseDown={(event) => event.preventDefault()} onClick={() => choose(item)}>
+          <span className="block text-text-primary"><Highlight text={item.text} query={query} /></span>{" "}
+          <span className="block text-xs text-text-secondary">{item.description}</span>
+        </li>)}
+      </ul>}
     </div>
-    {loading && <p role="status" className="text-xs text-text-secondary">Searching…</p>}
+    {loading && <p role="status" className="sr-only">Searching…</p>}
     {error && <p role="status" className="text-xs text-text-secondary">{error}</p>}
     {noMatches && !dismissed && <p role="status" className="text-xs text-text-secondary">
       No matching address found. That&apos;s fine: enter yours in the fields below.

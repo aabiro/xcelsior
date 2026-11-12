@@ -268,3 +268,53 @@ def test_address_metadata_covers_every_country_we_offer():
 
     for country in pycountry.countries:
         assert isinstance(address_required_fields(country.alpha_2), list)
+
+
+@pytest.mark.parametrize("country,places,code", [
+    ("JP", {"state": "東京都"}, "13"),                         # Google's local name
+    ("KR", {"city": "Seoul"}, "11"),                          # Google's Latin name, from the city
+    ("KR", {"city": "서울특별시"}, "11"),
+    ("AE", {"state": "Dubai"}, "DU"),
+    ("ES", {"state": "Comunidad de Madrid", "city": "Madrid"}, "M"),  # the province, the level Spanish post uses
+    ("IE", {"county": "Dublin 2", "city": "Dublin"}, "D"),
+    ("DE", {"city": "Berlin"}, "BE"),                         # a city that is its own Land
+    ("SE", {"county": "Stockholms län"}, "AB"),               # ISO writes "Stockholms län [SE-01]"
+    ("PL", {"state": "województwo mazowieckie"}, "14"),       # without the generic word
+    ("CA", {"postal_code": "N6B 1Z2"}, "ON"),                 # nothing named: the postal prefix
+    ("JP", {"postal_code": "100-0005"}, "13"),
+    ("CA", {"state": "Alberta", "postal_code": "S9V 0A1"}, "AB"),  # a named province beats the prefix
+    ("PL", {"state": "Masovian Voivodeship", "city": "Warsaw"}, ""),  # no source knows this spelling
+    ("SG", {"city": "Singapore"}, ""),
+])
+def test_regions_resolve_only_from_an_exact_source(country, places, code):
+    from host_metadata import resolve_subdivision
+
+    assert resolve_subdivision(country, **places) == code
+
+
+def test_every_country_keeps_its_regions_for_an_address():
+    """Nothing is hidden: a region is offered wherever ISO lists one, required only where the post asks."""
+    from host_metadata import location_catalog
+
+    gb = location_catalog("GB", "address")
+    assert len(gb["subdivisions"]) > 200 and gb["subdivision_mode"] == "optional" and not gb["requires_subdivision"]
+    assert gb["labels"]["subdivision"] == "Region"
+    assert all("[" not in item["name"] for item in location_catalog("SE", "address")["subdivisions"])
+    us = location_catalog("US", "address")
+    assert us["requires_subdivision"] and us["labels"] == {"subdivision": "State", "city": "City", "postal_code": "ZIP code"}
+    jp = location_catalog("JP", "address")
+    assert jp["requires_subdivision"] and jp["labels"]["subdivision"] == "Prefecture"
+    assert location_catalog("HK", "address")["subdivision_mode"] == "none"  # ISO lists no regions to pick
+    assert location_catalog("GB", "host")["requires_subdivision"]  # a host's region is its scheduling region
+
+
+def test_a_chosen_region_is_kept_everywhere_and_a_blank_one_is_fine_unless_required():
+    from host_metadata import require_address_location
+
+    assert require_address_location("GB", "ENG")["province"] == "ENG"
+    assert require_address_location("DE", "")["province"] == ""
+    assert require_address_location("IE", "D")["province"] == "D"
+    with pytest.raises(ValueError):
+        require_address_location("US", "")
+    with pytest.raises(ValueError):
+        require_address_location("GB", "XX")  # given, so it must be real

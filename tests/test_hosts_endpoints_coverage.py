@@ -343,14 +343,28 @@ def test_address_lookup_requires_an_interactive_account():
         assert fresh.post(path, json=body).status_code == 401
 
 
-def _photon(monkeypatch, features, calls=None, status=200):
-    """Stand in for Photon: record each request, answer with these GeoJSON features."""
+@pytest.fixture(autouse=True)
+def _fresh_photon(monkeypatch):
+    """Each test starts with an empty search cache and no back-off pause."""
+    import routes.hosts as hosts
+
+    monkeypatch.setattr(hosts, "_PHOTON_CACHE", {})
+    monkeypatch.setattr(hosts, "_photon_paused_until", 0.0)
+
+
+def _photon(monkeypatch, features, calls=None, status=200, by_country=None):
+    """Stand in for Photon: record each request, answer with these GeoJSON features.
+
+    ``by_country`` answers a request limited to a country with its own features.
+    """
     import httpx
 
     def provider(url, **kwargs):
         if calls is not None:
             calls.append((url, kwargs))
-        return httpx.Response(status, json={"type": "FeatureCollection", "features": features}, request=httpx.Request("GET", url))
+        limit = dict(kwargs["params"]).get("countrycode")
+        chosen = (by_country or {}).get(limit, features) if limit else features
+        return httpx.Response(status, json={"type": "FeatureCollection", "features": chosen}, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(httpx, "get", provider)
 
@@ -359,70 +373,154 @@ def _feature(**properties):
     return {"type": "Feature", "properties": {"type": "house", **properties}}
 
 
+def _search(user_headers, body, **headers):
+    return client.post("/api/locations/search", headers={**user_headers["headers"], **headers}, json=body)
+
+
 def test_address_search_needs_no_key_and_fills_every_field_from_one_request(user_headers, monkeypatch):
     calls = []
     monkeypatch.delenv("XCELSIOR_PHOTON_URL", raising=False)
     _photon(monkeypatch, [_feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="n6b1z2", countrycode="CA")], calls)
-    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"country": "CA", "text": "300 Dufferin"})
+    response = _search(user_headers, {"country": "CA", "text": "300 Dufferin", "lang": "fr"})
     assert response.status_code == 200, response.text
     (suggestion,) = response.json()["suggestions"]
     assert suggestion["address"] == {
         "address_line1": "300 Dufferin Avenue", "address_line2": "", "city": "London",
         "postal_code": "N6B 1Z2", "country": "CA", "province": "ON",
     }
-    assert suggestion["text"] == "300 Dufferin Avenue"
     assert suggestion["description"] == "London, ON, N6B 1Z2, Canada"
-    (url, kwargs), = calls
+    (url, kwargs), = calls  # a chosen country is one request
     assert url == "https://photon.komoot.io/api/"
     params = kwargs["params"]
-    assert ("q", "300 Dufferin") in params and ("countrycode", "CA") in params
+    assert ("q", "300 Dufferin") in params and ("countrycode", "CA") in params and ("lang", "fr") in params
     assert {value for key, value in params if key == "layer"} == {"house", "street"}
-    # Only the typed text and the chosen country go out: no cookies, IP or account.
+    # Only the query goes out: no cookies, IP or account.
     assert set(kwargs["headers"]) == {"User-Agent"}
+
+
+def test_address_search_ignores_a_language_photon_does_not_offer(user_headers, monkeypatch):
+    calls = []
+    _photon(monkeypatch, [], calls)
+    _search(user_headers, {"text": "Test Street", "lang": "xx-evil"})
+    assert all(key != "lang" for key, _ in calls[0][1]["params"])
 
 
 def test_address_search_uses_a_self_hosted_photon_when_one_is_set(user_headers, monkeypatch):
     calls = []
     monkeypatch.setenv("XCELSIOR_PHOTON_URL", "http://photon.internal:2322/")
     _photon(monkeypatch, [], calls)
-    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"text": "Test Street"})
+    response = _search(user_headers, {"text": "Test Street"})
     assert response.status_code == 200, response.text
     assert response.json()["suggestions"] == []
     assert calls[0][0] == "http://photon.internal:2322/api/"
 
 
-@pytest.mark.parametrize("state,province", [("QC", "QC"), ("Québec", "QC"), ("Quebec", "QC"), ("Atlantis", ""), (None, "")])
-def test_address_search_fills_the_province_selector_only_with_a_real_match(user_headers, monkeypatch, state, province):
-    _photon(monkeypatch, [_feature(housenumber="1000", street="Rue Sainte-Catherine Ouest", city="Montréal", state=state, postcode="H3B 5L1", countrycode="CA")])
-    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"text": "1000 Sainte-Catherine"})
+def test_a_visitor_sees_their_own_country_first_without_losing_the_world(user_headers, monkeypatch):
+    calls = []
+    near = [_feature(housenumber="1", street="Grafton Street", city="Dublin", postcode="D02 K198", countrycode="IE")]
+    world = [
+        _feature(housenumber="1", street="Grafton Street", city="Grafton", state="MA", postcode="01519", countrycode="US"),
+        _feature(housenumber="1", street="Grafton Street", city="Dublin", postcode="D02 K198", countrycode="IE"),
+    ]
+    _photon(monkeypatch, world, calls, by_country={"IE": near})
+    response = _search(user_headers, {"text": "1 Grafton Street"}, **{"CF-IPCountry": "IE"})
+    lines = [(s["address"]["city"], s["address"]["country"]) for s in response.json()["suggestions"]]
+    assert lines == [("Dublin", "IE"), ("Grafton", "US")]  # nearby first, the same door once
+    assert [dict(kwargs["params"]).get("countrycode") for _, kwargs in calls] == ["IE", None]
+    assert response.json()["suggestions"][0]["address"]["province"] == "D"  # Dublin's county, from the city
+
+
+def test_a_strong_local_answer_costs_one_request(user_headers, monkeypatch):
+    calls = []
+    near = [_feature(housenumber=str(n), street="King Street West", city="Toronto", state="ON", postcode="M5V 1J2", countrycode="CA") for n in range(1, 6)]
+    _photon(monkeypatch, [], calls, by_country={"CA": near})
+    response = _search(user_headers, {"text": "King Street West"}, **{"CF-IPCountry": "CA"})
+    assert len(response.json()["suggestions"]) == 5
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("header", ["T1", "XX", "CA; x", ""])
+def test_a_visitor_country_that_is_not_one_searches_the_world_only(user_headers, monkeypatch, header):
+    calls = []
+    _photon(monkeypatch, [], calls)
+    _search(user_headers, {"text": "10 King Street"}, **({"CF-IPCountry": header} if header else {}))
+    assert [dict(kwargs["params"]).get("countrycode") for _, kwargs in calls] == [None]
+
+
+def test_answers_are_cached_and_a_failing_service_is_left_alone_for_a_minute(user_headers, monkeypatch):
+    import httpx
+
+    calls = []
+    _photon(monkeypatch, [_feature(housenumber="1", street="Main Street", city="Ottawa", state="ON", countrycode="CA")], calls)
+    first = _search(user_headers, {"country": "CA", "text": "1 Main Street"}).json()
+    again = _search(user_headers, {"country": "CA", "text": "1 Main Street"}).json()
+    assert first == again and len(calls) == 1
+
+    def refused(url, **kwargs):
+        calls.append(url)
+        raise httpx.ConnectError("refused", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", refused)
+    assert _search(user_headers, {"country": "CA", "text": "2 Main Street"}).status_code == 502
+    assert _search(user_headers, {"country": "CA", "text": "3 Main Street"}).status_code == 502
+    assert len(calls) == 2  # the second failure never left this server
+
+
+@pytest.mark.parametrize("state,postcode,province", [
+    ("QC", "H3B 5L1", "QC"), ("Québec", "H3B 5L1", "QC"), ("Quebec", None, "QC"),
+    (None, "H3B 5L1", "QC"),       # no state named: Quebec's postal prefix H decides
+    ("Atlantis", None, ""),        # nothing to go on: the person picks
+])
+def test_address_search_fills_the_region_only_from_real_evidence(user_headers, monkeypatch, state, postcode, province):
+    _photon(monkeypatch, [_feature(housenumber="1000", street="Rue Sainte-Catherine Ouest", city="Montréal", state=state, postcode=postcode, countrycode="CA")])
+    response = _search(user_headers, {"text": "1000 Sainte-Catherine"})
     assert response.json()["suggestions"][0]["address"]["province"] == province
+
+
+def test_regions_come_from_the_name_the_country_uses(user_headers, monkeypatch):
+    _photon(monkeypatch, [
+        _feature(housenumber="77", street="Unter den Linden", city="Berlin", postcode="10117", countrycode="DE"),
+        _feature(housenumber="1", street="9", locality="Marunouchi 1", district="Chiyoda", city="Tokyo", state="東京都", postcode="1000005", countrycode="JP"),
+        _feature(housenumber="110", street="Sejong-daero", city="Seoul", postcode="04524", countrycode="KR"),
+        _feature(housenumber="42", street="Calle de Alcalá", city="Madrid", state="Comunidad de Madrid", postcode="28014", countrycode="ES"),
+        _feature(housenumber="10", street="Downing Street", city="London", state="England", postcode="SW1A 2AA", countrycode="GB"),
+    ])
+    found = {s["address"]["country"]: s for s in _search(user_headers, {"text": "anything at all"}).json()["suggestions"]}
+    assert found["DE"]["address"]["province"] == "BE"          # Berlin is its own Land
+    assert found["JP"]["address"] == {
+        "address_line1": "Marunouchi 1-9-1", "address_line2": "", "city": "Chiyoda",
+        "postal_code": "100-0005", "country": "JP", "province": "13",
+    }
+    assert found["KR"]["address"]["province"] == "11"
+    assert found["ES"]["address"]["province"] == "M"           # the province Spanish post uses
+    assert found["GB"]["address"]["province"] == "ENG"
+    assert found["GB"]["description"] == "London, SW1A 2AA, United Kingdom"  # the UK post names no region
+
+
+def test_a_typed_house_number_is_kept_on_a_street_osm_knows_without_it(user_headers, monkeypatch):
+    _photon(monkeypatch, [
+        {"type": "Feature", "properties": {"type": "street", "name": "Via del Corso", "city": "Roma", "state": "Lazio", "postcode": "00187", "countrycode": "IT"}},
+        {"type": "Feature", "properties": {"type": "street", "name": "Corso Vittorio Emanuele II", "city": "Roma", "countrycode": "IT"}},
+        {"type": "Feature", "properties": {"type": "street", "name": "Route 300", "city": "Nowhere", "countrycode": "US", "state": "OH"}},
+        {"type": "Feature", "properties": {"type": "street", "name": "Elm Street", "city": "Springfield", "countrycode": "US", "state": "IL"}},
+    ])
+    lines = [s["address"]["address_line1"] for s in _search(user_headers, {"text": "Via del Corso 300"}).json()["suggestions"]]
+    # Numbered as typed, in Italian order; a street that already carries the number,
+    # or one that wasn't typed at all, is left as it is.
+    assert lines == ["Via del Corso 300", "Corso Vittorio Emanuele II 300", "Route 300", "Elm Street"]
 
 
 def test_address_search_writes_numbers_the_local_way_and_merges_one_door(user_headers, monkeypatch):
     _photon(monkeypatch, [
         _feature(name="Hotel Adlon", housenumber="77", street="Unter den Linden", city="Berlin", postcode="10117", countrycode="DE"),
         _feature(name="Restaurant", housenumber="77", street="Unter den Linden", city="Berlin", postcode="10117", countrycode="DE"),
-        {"type": "Feature", "properties": {"type": "street", "name": "Dufferin Avenue", "city": "London", "countrycode": "CA", "state": "ON"}},
-        _feature(housenumber="5", city="Nowhere", countrycode="CA"),  # no street: not an address
+        _feature(housenumber="110", street="세종대로", city="서울특별시", postcode="04524", countrycode="KR"),
+        _feature(housenumber="15", locality="Lhota", countrycode="CZ"),  # a village numbers houses, not streets
+        _feature(housenumber="5", city="Toronto", countrycode="CA"),     # no street or village: not an address
         "not a feature",
     ])
-    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"text": "Unter den Linden 77"})
-    lines = [s["address"]["address_line1"] for s in response.json()["suggestions"]]
-    assert lines == ["Unter den Linden 77", "Dufferin Avenue"]
-
-
-@pytest.mark.parametrize("header,first", [("CA", "CA"), ("gb", "GB"), ("T1", "GB"), ("XX", "GB")])
-def test_address_search_without_a_country_lists_the_visitors_country_first(user_headers, monkeypatch, header, first):
-    calls = []
-    _photon(monkeypatch, [
-        _feature(housenumber="10", street="King Street", city="Huddersfield", postcode="HD1 2QT", countrycode="GB"),
-        _feature(housenumber="10", street="King Street East", city="Toronto", state="ON", postcode="M5C 1C3", countrycode="CA"),
-    ], calls)
-    headers = {**user_headers["headers"], "CF-IPCountry": header}
-    response = client.post("/api/locations/search", headers=headers, json={"text": "10 King Street"})
-    assert response.json()["suggestions"][0]["address"]["country"] == first
-    # The visitor's country orders results here; it is never sent to Photon.
-    assert all(key != "countrycode" for key, _ in calls[0][1]["params"])
+    lines = [s["address"]["address_line1"] for s in _search(user_headers, {"text": "Unter den Linden 77"}).json()["suggestions"]]
+    assert lines == ["Unter den Linden 77", "세종대로 110", "Lhota 15"]
 
 
 def test_address_search_with_a_country_drops_results_from_elsewhere(user_headers, monkeypatch):
@@ -430,7 +528,7 @@ def test_address_search_with_a_country_drops_results_from_elsewhere(user_headers
         _feature(housenumber="300", street="London Avenue", city="Lafayette", state="CO", postcode="80026", countrycode="US"),
         _feature(housenumber="300", street="Dufferin Avenue", city="London", state="ON", postcode="N6B 1Z2", countrycode="CA"),
     ])
-    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"country": "CA", "text": "300 London"})
+    response = _search(user_headers, {"country": "CA", "text": "300 London"})
     assert [s["address"]["country"] for s in response.json()["suggestions"]] == ["CA"]
 
 
@@ -440,7 +538,7 @@ def test_address_search_outage_sends_people_to_manual_entry(user_headers, monkey
 
     monkeypatch.setattr(httpx, "get", lambda url, **kwargs: httpx.Response(
         status, content=b"<html>down</html>" if payload else b"{}", request=httpx.Request("GET", url)))
-    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"text": "Test Street"})
+    response = _search(user_headers, {"text": "Test Street"})
     assert response.status_code == 502
     assert "below" in response.json()["error"]["message"]
 

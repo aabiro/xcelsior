@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import re
 from typing import Any
 
@@ -308,7 +309,7 @@ def location_catalog(country: str = "", purpose: str = "host") -> dict:
     subdivisions = (
         sorted(
             (
-                {"code": s.code.split("-", 1)[1], "region": s.code.lower(), "name": s.name}
+                {"code": s.code.split("-", 1)[1], "region": s.code.lower(), "name": _region_name(s.name)}
                 for s in pycountry.subdivisions.get(country_code=country_code) or []
             ),
             key=lambda s: (s["name"], s["code"]),
@@ -318,12 +319,11 @@ def location_catalog(country: str = "", purpose: str = "host") -> dict:
     )
     if purpose not in {"host", "address"}:
         raise ValueError("Unknown location purpose")
-    # A host's subdivision is its scheduling region, so hosts always pick one where
-    # ISO lists any. A postal address follows the post: the UK and Germany never use one.
+    # Every country keeps every region it has. Only whether one must be chosen
+    # differs: a host's region is its scheduling region, so a host always picks
+    # one; a postal address needs one only where that country's post asks for it.
     if purpose == "address" and country_code:
         mode = address_subdivision_mode(country_code)
-        if mode == "none":
-            subdivisions = []
     else:
         mode = "required" if subdivisions else "none"
     return {
@@ -331,7 +331,7 @@ def location_catalog(country: str = "", purpose: str = "host") -> dict:
         "subdivisions": subdivisions,
         "requires_subdivision": mode == "required",
         "subdivision_mode": mode,
-        "labels": address_labels(country_code) if country_code else address_labels(""),
+        "labels": address_labels(country_code),
         "required_address_fields": address_required_fields(country_code) if country_code else [],
     }
 
@@ -347,11 +347,11 @@ _POSTAL_LABELS = {"zip": "ZIP code", "pin": "PIN code", "eircode": "Eircode"}
 
 
 def address_subdivision_mode(country: str) -> str:
-    """How this country's postal addresses use a state or province: required, optional, or none.
+    """Whether a postal address in this country must name a region: required, optional, or none.
 
-    From Google's address data (the same rules the postal-code checks use), not
-    from ISO: ISO lists subdivisions for almost every country, but 174 of them
-    never write one on an envelope.
+    "none" only means ISO lists no regions for the country, so there is nothing
+    to choose. Everywhere else the regions are offered; Google's address data
+    (the same rules the postal-code checks use) says whether the post requires one.
     """
     import pycountry
     from i18naddress import get_validation_rules
@@ -360,40 +360,42 @@ def address_subdivision_mode(country: str) -> str:
     if not country_code or not (pycountry.subdivisions.get(country_code=country_code) or []):
         return "none"
     rules = get_validation_rules({"country_code": country_code})
-    if "country_area" in rules.required_fields:
-        return "required"
-    return "optional" if "%S" in rules.address_format else "none"
+    return "required" if "country_area" in rules.required_fields else "optional"
 
 
 def address_labels(country: str) -> dict[str, str]:
-    """What this country calls its address fields: "State", "Prefecture", "ZIP code", "Eircode"…"""
+    """What this country calls its address fields: "State", "Prefecture", "ZIP code", "Eircode"…
+
+    Where the post never writes a region (the UK, Germany, France…), Google's
+    data has no name for it, so the field is just "Region".
+    """
     from i18naddress import get_validation_rules
 
     country_code = str(country or "").strip().upper()
     if not country_code:
         return {"subdivision": "State, province, or territory", "city": "City or locality", "postal_code": "Postal code"}
     rules = get_validation_rules({"country_code": country_code})
+    named = "%S" in rules.address_format
     return {
         "subdivision": _SUBDIVISION_LABEL_OVERRIDES.get(country_code)
-        or _SUBDIVISION_LABELS.get(rules.country_area_type, "State or province"),
+        or (_SUBDIVISION_LABELS.get(rules.country_area_type, "State or province") if named else "Region"),
         "city": _CITY_LABELS.get(rules.city_type, "City"),
         "postal_code": _POSTAL_LABELS.get(rules.postal_code_type, "Postal code"),
     }
 
 
 def require_address_location(country: str, province: str = "") -> dict[str, str]:
-    """`require_location` for a person's postal address, which follows the country's post.
+    """`require_location` for a person's postal address.
 
-    Where the post never uses a state (the UK, Germany, France…) the province is
-    dropped; where it is optional a blank is fine. Elsewhere it must be exact.
+    A region that is given is always checked and kept, in every country. A blank
+    one is fine unless the country's post requires it (the US, Canada, Japan…).
     """
     import pycountry
 
     country_code = str(country or "").strip().upper()
     if pycountry.countries.get(alpha_2=country_code) is None:
         raise ValueError("Select a valid country")
-    mode = address_subdivision_mode(country_code)
-    if mode == "none" or (mode == "optional" and not str(province or "").strip()):
+    if not str(province or "").strip() and address_subdivision_mode(country_code) != "required":
         return {"country": country_code, "province": "", "region": country_code.lower()}
     return require_location(country_code, province)
 
@@ -456,23 +458,128 @@ def _fold(value: str) -> str:
     return " ".join("".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold().split())
 
 
-def subdivision_code(country: str, value: str) -> str:
-    """The ISO code for a state or province given as a code ("QC") or a name ("Québec").
+_GENERIC_REGION_WORDS = frozenset(
+    "co county province provincia state region prefecture voivodeship wojewodztwo oblast "
+    "governorate department departement district municipality autonomous community comunidad "
+    "of the de del la le".split()
+)
 
-    Returns "" when nothing matches exactly, so a search result never picks a
-    province the person did not see; they choose it themselves instead.
+
+def _region_name(name: str) -> str:
+    """ISO's region name without its bracketed old code: "Stockholms län [SE-01]" → "Stockholms län"."""
+    return re.sub(r"\s*\[[^\]]*\]", "", str(name or "")).strip()
+
+
+def _region_keys(value: str) -> list[str]:
+    """Spellings a region may arrive in, most exact first: as written, un-inverted, core words."""
+    folded = _fold(_region_name(value))
+    if not folded:
+        return []
+    keys = [folded]
+    if ", " in folded:  # ISO writes "Madrid, Comunidad de"
+        head, tail = folded.split(", ", 1)
+        keys.append(f"{tail} {head}")
+    for key in list(keys):
+        core = " ".join(w for w in re.split(r"[\s.,]+", key) if w and w not in _GENERIC_REGION_WORDS)
+        if core and core not in keys:
+            keys.append(core)
+    return keys
+
+
+@functools.lru_cache(maxsize=512)
+def _region_tables(
+    country: str,
+) -> tuple[dict[str, frozenset[str]], dict[str, frozenset[str]], tuple[tuple[str, str], ...]]:
+    """Region name → ISO code, from Google's postal data and from ISO, plus postal prefixes.
+
+    Google's data carries local and Latin names with their ISO codes for many
+    countries (東京都 and Tokyo → 13, Co. Dublin → D, Dubai → DU) and which
+    postal prefixes belong to each region; ISO names cover the rest.
     """
     import pycountry
+    from i18naddress import load_validation_data
 
+    valid = {
+        sub.code.split("-", 1)[1].upper(): sub.name
+        for sub in pycountry.subdivisions.get(country_code=country) or []
+    }
+    try:
+        data = load_validation_data(country.lower()).get(country) or {}
+    except Exception:
+        data = {}
+
+    def column(name: str) -> list[str]:
+        raw = str(data.get(name) or "")
+        return raw.split("~") if raw else []
+
+    keys, names, lnames, isoids, zips = (
+        column(name) for name in ("sub_keys", "sub_names", "sub_lnames", "sub_isoids", "sub_zips")
+    )
+    google: dict[str, set[str]] = {}
+    prefixes: list[tuple[str, str]] = []
+    for index, key in enumerate(keys):
+        code = (isoids[index] if index < len(isoids) and isoids[index] else key).upper()
+        if code not in valid:
+            continue
+        for label in (key, *(column[index] for column in (names, lnames) if index < len(column))):
+            for spelling in _region_keys(label):
+                google.setdefault(spelling, set()).add(code)
+        if index < len(zips) and zips[index]:
+            prefixes.append((code, zips[index]))
+    iso: dict[str, set[str]] = {}
+    for code, name in valid.items():
+        for spelling in [code.casefold(), *_region_keys(name)]:
+            iso.setdefault(spelling, set()).add(code)
+    return (
+        {key: frozenset(codes) for key, codes in google.items()},
+        {key: frozenset(codes) for key, codes in iso.items()},
+        tuple(prefixes),
+    )
+
+
+def _one_region(table: dict[str, frozenset[str]], value: str) -> str:
+    for spelling in _region_keys(value):
+        codes = table.get(spelling, frozenset())
+        if len(codes) == 1:
+            return next(iter(codes))
+        if codes:
+            return ""  # ambiguous at the most exact spelling: do not guess further
+    return ""
+
+
+def resolve_subdivision(
+    country: str, *, state: str = "", county: str = "", city: str = "", postal_code: str = ""
+) -> str:
+    """The ISO region for an address, or "" when it cannot be known exactly.
+
+    Tries the state, county and city against Google's postal names (which name
+    the level the post uses: Spain's province, not its community), then the
+    postal-code prefix, then ISO's names. Only a single exact match counts, so a
+    search result never fills a region the address does not support; the person
+    picks it themselves instead.
+    """
     country_code = str(country or "").strip().upper()
-    wanted = _fold(str(value or ""))
-    if not country_code or not wanted:
+    if not country_code:
         return ""
-    for sub in pycountry.subdivisions.get(country_code=country_code) or []:
-        code = sub.code.split("-", 1)[1]
-        if wanted in {code.casefold(), _fold(sub.name)}:
+    google, iso, prefixes = _region_tables(country_code)
+    places = (state, county, city)
+    for place in places:
+        if code := _one_region(google, place):
+            return code
+    postal = str(postal_code or "").strip().upper()
+    if postal:
+        matches = {code for code, pattern in prefixes if re.match(f"(?:{pattern})", postal)}
+        if len(matches) == 1:
+            return matches.pop()
+    for place in places:
+        if code := _one_region(iso, place):
             return code
     return ""
+
+
+def subdivision_code(country: str, value: str) -> str:
+    """The ISO code for a state or province given as a code ("QC") or a name ("Québec", "東京都")."""
+    return resolve_subdivision(country, state=value)
 
 
 def standard_postal_code(country: str, value: str) -> str:
@@ -529,9 +636,9 @@ def _postal_region_warning(location: dict[str, str], postal: str) -> dict[str, s
         if len(rules.postal_code_matchers) > 1 and all(
             matcher.match(postal) for matcher in rules.postal_code_matchers
         ):
-            likely.append(sub.name)
+            likely.append(_region_name(sub.name))
     chosen = _subdivision(code=f"{country}-{location['province']}")
-    chosen_name = chosen.name if chosen is not None else location["province"]
+    chosen_name = _region_name(chosen.name) if chosen is not None else location["province"]
     label = _postal_label(country)
     if len(likely) == 1:
         message = f"{postal} is usually a {label} in {likely[0]}, not {chosen_name}."

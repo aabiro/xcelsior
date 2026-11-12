@@ -62,6 +62,7 @@ def api_location_catalog(country: str = "", purpose: str = "host"):
 class AddressSearchRequest(BaseModel):
     country: str = ""
     text: str = Field(min_length=3, max_length=200)
+    lang: str = Field(default="", max_length=8)  # the page's language, for place names
 
 
 class AddressCheckRequest(BaseModel):
@@ -107,20 +108,39 @@ _NUMBER_AFTER_STREET = frozenset(
 _ADDRESS_UNAVAILABLE = "Address search is unavailable. Enter your address below."
 
 
+# komoot's public Photon blocks clients that send too much (one burst of testing
+# got a whole IP refused), and every visitor's search leaves from this server's
+# one address. So: answers are cached briefly, and after a failure the server
+# stops asking for a minute and the form falls back to manual entry at once.
+_PHOTON_CACHE: dict[tuple[tuple[str, str], ...], tuple[float, list[dict]]] = {}
+_PHOTON_CACHE_SECONDS = 600.0
+_PHOTON_CACHE_SIZE = 2048
+_PHOTON_PAUSE_SECONDS = 60.0
+_photon_paused_until = 0.0
+
+
 def _photon_features(params: list[tuple[str, str]]) -> list[dict]:
     """Ask Photon (OpenStreetMap search) for address matches. Free; no key.
 
     XCELSIOR_PHOTON_URL points at a self-hosted Photon when there is one; the
-    default is komoot's public instance, which asks for modest use. The visitor's
-    IP and cookies stay here: only the typed text and chosen country go out.
+    default is komoot's public instance, which allows only modest use. The
+    visitor's IP and cookies stay here: only the query goes out.
     """
     import httpx
 
+    global _photon_paused_until
+    key = tuple(params)
+    now = time.monotonic()
+    cached = _PHOTON_CACHE.get(key)
+    if cached is not None and now - cached[0] < _PHOTON_CACHE_SECONDS:
+        return cached[1]
+    if now < _photon_paused_until:
+        raise HTTPException(502, _ADDRESS_UNAVAILABLE)
     base = (os.environ.get("XCELSIOR_PHOTON_URL") or "https://photon.komoot.io").rstrip("/")
     try:
         response = httpx.get(
             f"{base}/api/",
-            params=tuple(params),  # repeated keys (layer=house&layer=street); a tuple satisfies httpx's types
+            params=key,  # repeated keys (layer=house&layer=street); a tuple satisfies httpx's types
             headers={"User-Agent": "Xcelsior address search (+https://xcelsior.ca)"},
             timeout=6.0,
             follow_redirects=False,
@@ -128,54 +148,136 @@ def _photon_features(params: list[tuple[str, str]]) -> list[dict]:
         response.raise_for_status()
         payload = response.json()
     except (httpx.HTTPError, ValueError):
+        _photon_paused_until = time.monotonic() + _PHOTON_PAUSE_SECONDS
         raise HTTPException(502, _ADDRESS_UNAVAILABLE) from None
     features = payload.get("features") if isinstance(payload, dict) else None
     if not isinstance(features, list):
         raise HTTPException(502, _ADDRESS_UNAVAILABLE)
-    return [f for f in features if isinstance(f, dict) and isinstance(f.get("properties"), dict)]
+    features = [f for f in features if isinstance(f, dict) and isinstance(f.get("properties"), dict)]
+    if len(_PHOTON_CACHE) >= _PHOTON_CACHE_SIZE:
+        _PHOTON_CACHE.pop(next(iter(_PHOTON_CACHE)))  # oldest first: dicts keep insertion order
+    _PHOTON_CACHE[key] = (now, features)
+    return features
 
 
-def _photon_address(properties: dict) -> dict[str, str] | None:
-    """One Photon result as the profile's address fields, or None if it isn't one."""
-    from host_metadata import standard_postal_code, subdivision_code
+_HOUSE_NUMBER = re.compile(r"^\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)*$")
+
+
+def _typed_house_number(text: str) -> str:
+    """The house number someone typed ("300 Dufferin…", "Via del Corso 300"), if any."""
+    words = text.split(",", 1)[0].split()
+    if len(words) < 2:
+        return ""
+    for word in (words[0], words[-1]):
+        if _HOUSE_NUMBER.match(word):
+            return word
+    return ""
+
+
+def _street_was_typed(street: str, text: str) -> bool:
+    """Whether a street is the one being typed: some typed word starts one of its words."""
+    from host_metadata import _fold
+
+    street_words = _fold(street).replace("-", " ").split()
+    typed = [w for w in _fold(text).replace(",", " ").split() if len(w) >= 3 and not _HOUSE_NUMBER.match(w)]
+    return any(word.startswith(t) for t in typed for word in street_words)
+
+
+def _non_latin(value: str) -> bool:
+    """Chinese, Japanese or Korean script, where the number follows the street."""
+    return any(ord(ch) >= 0x2E80 for ch in value)
+
+
+def _photon_address(properties: dict, typed_number: str = "", typed: str = "") -> dict[str, str] | None:
+    """One Photon result as the profile's address fields, or None if it isn't an address.
+
+    ``typed_number`` is the house number in ``typed``, the search text. When
+    OpenStreetMap knows the typed street but not that number, the street is
+    offered with it, as Google Maps does; the confirm step shows the address
+    back before it is saved.
+    """
+    from host_metadata import _fold, resolve_subdivision, standard_postal_code
 
     def text(key: str) -> str:
         value = properties.get(key)
         return " ".join(str(value).split()) if isinstance(value, (str, int)) else ""
 
     country = text("countrycode").upper()
-    street, number = text("street"), text("housenumber")
-    if properties.get("type") == "street" and not street:
-        street = text("name")
-    if not country or not street:
+    if not country:
         return None
-    if not number:
+    kind = properties.get("type")
+    street, number = text("street"), text("housenumber")
+    if kind == "street" and not street:
+        street = text("name")
+    if (
+        kind == "street" and not number and typed_number and country != "JP"
+        and typed_number not in street.split() and _street_was_typed(street, typed)
+    ):
+        number = typed_number
+    place_city = text("city") or text("locality") or text("district")
+    city = place_city
+    if country == "JP":
+        # Japan numbers blocks, not streets: Marunouchi 1-chōme, block 9, building 1 is
+        # "Marunouchi 1-9-1"; Photon puts the block in `street` and the chōme in `locality`.
+        area, ward = text("locality"), text("district")
+        block = "-".join(part for part in (street if street.isdigit() else "", number) if part)
+        if area and block:
+            line1 = f"{area}-{block}" if area[-1].isdigit() else f"{area}{block}"
+        elif street and not street.isdigit():
+            line1 = f"{street}{number}" if _non_latin(street) else f"{number} {street}".strip()
+        else:
+            return None
+        if ward and _fold(ward) != _fold(city):
+            if not city or _fold(city) in {_fold(text("state")), "tokyo"}:
+                city = ward  # a Tokyo ward is the city of its address
+            else:
+                line1 = f"{ward}{line1}" if _non_latin(line1) else f"{line1}, {ward}"
+    elif not street:
+        # Villages that number houses without street names ("Lhota 15").
+        place = text("locality") or text("district")
+        if not (number and place):
+            return None
+        line1 = f"{place} {number}"
+    elif not number:
         line1 = street
-    elif country in _NUMBER_AFTER_STREET:
+    elif country in _NUMBER_AFTER_STREET or _non_latin(street):
         line1 = f"{street} {number}"
     else:
         line1 = f"{number} {street}"
+    postal = standard_postal_code(country, text("postcode"))
     return {
         "address_line1": line1,
         "address_line2": "",
-        "city": text("city") or text("locality") or text("district"),
-        "postal_code": standard_postal_code(country, text("postcode")),
+        "city": city,
+        "postal_code": postal,
         "country": country,
-        # Photon sends a state as a code ("QC") or a name ("Ontario"); an
-        # unrecognised one is left blank for the person to choose.
-        "province": subdivision_code(country, text("state")),
+        # Only an exact match fills the region; otherwise the person picks it.
+        "province": resolve_subdivision(
+            country, state=text("state"), county=text("county"), city=place_city, postal_code=postal
+        ),
     }
+
+
+_PHOTON_LANGUAGES = frozenset({"en", "fr", "de"})
+
+
+def _region_in_postal_format(country: str) -> bool:
+    from i18naddress import get_validation_rules
+
+    return "%S" in get_validation_rules({"country_code": country}).address_format
 
 
 @router.post("/api/locations/search", tags=["Account"])
 def api_address_search(body: AddressSearchRequest, request: Request):
-    """Suggest addresses while someone types. A blank country searches everywhere.
+    """Suggest addresses while someone types, the way Google Maps does.
 
-    Each suggestion carries its whole address, so picking one costs nothing more.
-    The data is OpenStreetMap's, which is why the form shows the result back
-    before it is saved: a suggestion helps, it is not proof.
+    Results near the visitor come first without hiding the rest of the world:
+    with no country chosen, one search is limited to the visitor's country and
+    one is worldwide, and the two are merged. Names come in the page's language
+    where OpenStreetMap has them. Each suggestion carries its whole address, so
+    picking one costs nothing more. The data is OpenStreetMap's, which is why
+    the form shows the result back before it is saved.
     """
-    import pycountry
     from routes._deps import _require_user_grant
 
     _require_user_grant(request)
@@ -183,31 +285,64 @@ def api_address_search(body: AddressSearchRequest, request: Request):
     text = body.text.strip()
     if len(text) < 3:
         raise HTTPException(422, "Enter at least three address characters")
-    params = [("q", text), ("limit", "12"), ("layer", "house"), ("layer", "street")]
-    if country:
-        params.append(("countrycode", country))
+    suggestions = _address_suggestions(
+        text, country=country, lang=body.lang, visitor_country="" if country else _visitor_country_hint(request)
+    )
+    return {"ok": True, "suggestions": suggestions}
+
+
+def _address_suggestions(text: str, *, country: str, lang: str, visitor_country: str) -> list[dict]:
+    """Search, parse and rank: the part of address search that needs no request."""
+    import pycountry
+
+    lang = lang.strip().lower()
+    base = [("q", text), ("limit", "12"), ("layer", "house"), ("layer", "street")]
+    if lang in _PHOTON_LANGUAGES:
+        base.append(("lang", lang))
+    near_country = country or visitor_country
+    typed_number = _typed_house_number(text)
+    batches: list[list[dict]] = []
+    if near_country:
+        batches.append(_photon_features(base + [("countrycode", near_country)]))
+    # The world is searched only when no country was chosen and the visitor's
+    # country gave fewer than four addresses, so typing a local address costs one
+    # request, not two.
+    if not country and (
+        not batches or len([f for f in batches[0] if _photon_address(f["properties"], typed_number, text)]) < 4
+    ):
+        try:
+            batches.append(_photon_features(base))
+        except HTTPException:
+            if not batches:
+                raise
     addresses: list[dict[str, str]] = []
     seen: set[tuple[str, ...]] = set()
-    for feature in _photon_features(params):
-        address = _photon_address(feature["properties"])
-        if address is None or (country and address["country"] != country):
-            continue
-        # Several businesses at one door are one address.
-        key = tuple(address[field] for field in ("address_line1", "city", "postal_code", "country"))
-        if key in seen:
-            continue
-        seen.add(key)
-        addresses.append(address)
-    if not country and (hint := _visitor_country_hint(request)):
-        addresses.sort(key=lambda address: address["country"] != hint)  # stable: keeps Photon's order
+    for position, batch in enumerate(batches):
+        # A few nearby results first, then the world, so the best match anywhere still shows.
+        room = 4 if len(batches) > 1 and position == 0 else 8
+        taken = 0
+        for feature in batch:
+            address = _photon_address(feature["properties"], typed_number, text)
+            if address is None or (country and address["country"] != country):
+                continue
+            # Several businesses at one door are one address.
+            key = tuple(address[field] for field in ("address_line1", "city", "postal_code", "country"))
+            if key in seen:
+                continue
+            seen.add(key)
+            addresses.append(address)
+            taken += 1
+            if taken == room:
+                break
     suggestions = []
     for index, address in enumerate(addresses[:8]):
         place = pycountry.countries.get(alpha_2=address["country"])
+        region = address["province"] if _region_in_postal_format(address["country"]) else ""
         description = ", ".join(
             part
             for part in (
                 address["city"],
-                address["province"],
+                region,
                 address["postal_code"],
                 place.name if place is not None else address["country"],
             )
@@ -216,7 +351,7 @@ def api_address_search(body: AddressSearchRequest, request: Request):
         suggestions.append(
             {"id": f"photon-{index}", "text": address["address_line1"], "description": description, "address": address}
         )
-    return {"ok": True, "suggestions": suggestions}
+    return suggestions
 
 
 @router.post("/api/locations/check", tags=["Account"])
