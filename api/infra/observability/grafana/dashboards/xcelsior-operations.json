@@ -30,7 +30,7 @@
       "targetBlank": true,
       "title": "Operations runbook",
       "type": "link",
-      "url": "https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md"
+      "url": "https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md"
     }
   ],
   "panels": [

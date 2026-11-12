@@ -1,7 +1,7 @@
 # Xcelsior observability runbook
 
 This runbook is for alerts emitted by
-`infra/observability/prometheus/alert-rules.yml`. Preserve durable evidence
+`api/infra/observability/prometheus/alert-rules.yml`. Preserve durable evidence
 and fencing authority while diagnosing; an alert is not permission to mutate
 ledger or workload state.
 
@@ -70,6 +70,33 @@ control plane makes decisions from old host state.
    an approved fenced operator action.
 4. Never reassign strict work before definitive host and storage fencing.
 
+## Hard invariants
+
+User impact: a scheduling or fencing safety rule was broken. Two workloads may
+share an exclusive GPU, or work may have started or been written without current
+authority.
+
+Each counter is zero-tolerance, so these fire on any increase with no `for:`
+wait. Every alert has a critical rule over 5 minutes and a warning rule over 30
+minutes, so a single event stays visible after the critical window passes.
+
+| Alert | Counter | What was accepted |
+| --- | --- | --- |
+| `XcelsiorInvariantExclusiveAllocationCollision` | `xcelsior_scheduler_allocation_constraint_violations_total` | A duplicate active exclusive GPU allocation |
+| `XcelsiorInvariantUnvettedWorkerStart` | `xcelsior_worker_unvetted_starts_total` | A start without a valid current attempt, lease and fence |
+| `XcelsiorInvariantStaleFenceMutation` | `xcelsior_stale_fence_acceptances_total` | A mutation, route, secret or storage write behind a stale fence |
+| `XcelsiorInvariantPrematureStrictReassignment` | `xcelsior_premature_strict_reassignments_total` | A strict workload reassigned before definitive fencing |
+
+1. Find the affected job, attempt and host in the API, scheduler and worker logs
+   around the increase.
+2. Preserve the job, attempt, lease, command journal and observation rows, as in
+   [Leases, fences, and observations](#leases-fences-and-observations), before
+   any repair.
+3. Treat it as a correctness defect in the writer that accepted the action, not
+   as a capacity or load problem. Keep repair policies in `report_only`.
+4. Never reset the counter, and never resolve the alert by editing allocation,
+   lease or fencing rows by hand.
+
 ## Outbox and projectors
 
 User impact: committed state is not reflected in SSE, search, analytics, or
@@ -107,6 +134,33 @@ User impact: recovery point or recoverability is unproven.
 3. Re-run an isolated restore drill only through the checked-in workflow.
 4. Never restore into production, overwrite the source database, or declare a
    backup healthy without a successful restore validation.
+
+## SLO
+
+User impact: placement, convergence, command delivery, MCP launches, queue
+explanations, billing consistency or host freshness is outside its target.
+
+These alerts are critical and fire when the condition holds for 5 minutes. The
+group is named `xcelsior.slo-burn-rate`, but each rule compares a current value
+with a fixed threshold; none computes a multi-window burn rate. Some summaries
+name a percentile or a percentage that the expression does not compute, so act
+on the expression.
+
+| Alert | Fires when | Start in |
+| --- | --- | --- |
+| `XcelsiorSloPlacementLatency` | `xcelsior_scheduler_placement_duration_seconds > 2` | [Queue backlog and age](#queue-backlog-and-age) |
+| `XcelsiorSloAssignmentToClaimLatency` | `xcelsior_scheduler_claim_latency_seconds > 60` | [Active v2 control plane](#active-v2-control-plane) |
+| `XcelsiorSloConvergenceLatency` | `xcelsior_reconciler_convergence_duration_seconds > 60` | [Leases, fences, and observations](#leases-fences-and-observations) |
+| `XcelsiorSloCommandAckLatency` | `xcelsior_worker_command_latency_seconds > 15` | [Active v2 control plane](#active-v2-control-plane), step 4 |
+| `XcelsiorSloMcpPreviewAvailability` | `sum(xcelsior_mcp_funnel_transitions_total) < 1` | API and MCP logs |
+| `XcelsiorSloApprovedLaunchSuccess` | `sum(xcelsior_mcp_launch_outcomes_total) < 1` | API and MCP logs |
+| `XcelsiorSloQueueReasonCompleteness` | `xcelsior_queue_reason_completeness < 1` | [Queue backlog and age](#queue-backlog-and-age), step 2 |
+| `XcelsiorSloBillingMeterConsistency` | `xcelsior_billing_meter_mismatches_total > 0` | [Billing meter invariants](#billing-meter-invariants) |
+| `XcelsiorSloStaleHostRemoval` | `xcelsior_stale_host_observations > 5` | [Leases, fences, and observations](#leases-fences-and-observations) |
+
+The two MCP rules fire when the summed counter is below 1, which means no
+preview transition or launch outcome has been recorded at all. They do not
+measure the 99.95% and 99.9% ratios their summaries name.
 
 ## Active v2 control plane
 
