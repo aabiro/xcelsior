@@ -47,11 +47,9 @@ ALLOWED_ABSENT = {
     # A business document. It is cited, and publishing it is a decision for its
     # owner rather than a side effect of tidying references.
     "docs/BUSINESS_STRATEGY.md",
-    # Committed twice historically and no longer in the tree. Two tests still
-    # cite it for their scoping rationale. Recorded here rather than silently
-    # tolerated: it is a real dead link, and restoring or re-pointing it is a
-    # decision, not a cleanup.
-    "docs/review/workaround-elimination-plan.md",
+    # Internal documents are not listed here. They are cited by their
+    # ~/xcelsior-internal-docs path, which CITATION does not match, because
+    # they must never be in the repository (see CONTRIBUTING.md).
 }
 
 

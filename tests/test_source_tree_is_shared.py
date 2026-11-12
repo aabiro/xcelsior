@@ -11,7 +11,8 @@ That is the **seventh** time a text-scanning guard in this suite has caught a
 mention rather than a use. The durable fix is the one applied to the walk detector
 in this very file: match structure, not characters. The residency guard is still
 character-based, so it belongs on
-`docs/review/workaround-elimination-plan.md` rather than being widened here —
+the internal plan `~/xcelsior-internal-docs/api/docs/review/workaround-elimination-plan.md`
+rather than being widened here —
 widening it would exempt exactly the files most likely to name the thing it hunts.
 
 Eight modules each rolled their own `rglob("*.py")` with their own exclusions. On

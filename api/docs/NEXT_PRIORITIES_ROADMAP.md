@@ -127,7 +127,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 
 **Goal:** GPU providers can onboard PayPal as a disbursement rail alongside Stripe Connect; marketplace jobs record a single `payment_rail` per payout split.
 
-**References:** [`billing-money-path.md`](./billing-money-path.md), [`paypal-marketplace-e2e.md`](./paypal-marketplace-e2e.md), `.env.paypal-sandbox.example`
+**References:** `billing-money-path.md` (internal, not in this repository), [`paypal-marketplace-e2e.md`](./paypal-marketplace-e2e.md), `.env.paypal-sandbox.example`
 
 ### 2.1 Backend completion & ship
 
@@ -169,7 +169,7 @@ This document records the **six highest-priority initiatives** agreed for the ne
 ### 2.4 Docs & ops
 
 - [x] Provider routes use existing `providers:read` / `providers:write` scopes
-- [x] Runbook section in `billing-money-path.md` for PayPal payout failures
+- [x] Runbook section in `billing-money-path.md` (internal) for PayPal payout failures
 - [x] Support macro: “Customer PayPal deposit ≠ provider PayPal payout”
 
 ### 2.5 Acceptance criteria

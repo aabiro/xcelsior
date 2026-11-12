@@ -2,7 +2,7 @@
 
 *Created: 2026-06-09*
 *Parent roadmap:* [`NEXT_PRIORITIES_ROADMAP.md`](./NEXT_PRIORITIES_ROADMAP.md)
-*Related:* [`billing-money-path.md`](./billing-money-path.md), [`INSTANCE_LIFECYCLE.md`](./INSTANCE_LIFECYCLE.md)
+*Related:* `billing-money-path.md` (internal, not in this repository), [`INSTANCE_LIFECYCLE.md`](./INSTANCE_LIFECYCLE.md)
 
 Track every task required to ship **production-ready spot (interruptible) GPU instances** alongside on-demand — with unified pricing, real billing, true preemption, and a polished dashboard experience. **Bidding is retired.** There is no max-bid, no bid gating, and no bid-based preemption.
 
@@ -461,7 +461,7 @@ Replace `identify_preemptible_jobs` bid logic:
 - [ ] Metrics (if Prometheus): `xcelsior_spot_jobs_running`, `xcelsior_spot_preemptions_total`, `xcelsior_spot_rate_cad{gpu_model}`
 - [ ] Admin endpoint `POST /spot/preemption-cycle` — rename doc to “capacity preemption dry-run” (keep for ops)
 
-### 8.2 Runbook (`docs/SPOT_RUNBOOK.md` — create at rollout)
+### 8.2 Runbook (internal: `~/xcelsior-internal-docs/archive/SPOT_RUNBOOK.md`, not in this repository)
 
 - [ ] On-call: spike in preemptions
 - [ ] On-call: spot price stuck at on-demand cap (supply exhaustion)
@@ -479,7 +479,7 @@ Replace `identify_preemptible_jobs` bid logic:
 ## Phase 9 — Documentation & API finalization
 
 - [ ] Update `README.md` — spot instances section (no bidding)
-- [ ] Update `docs/billing-money-path.md` — spot metering paragraph
+- [ ] Update the internal `billing-money-path.md` (in ~/xcelsior-internal-docs): spot metering paragraph
 - [ ] Regenerate SDK: `frontend/sdk` from OpenAPI
 - [ ] Postman/curl examples in Fern docs
 - [ ] CHANGELOG entry: **BREAKING** — removed `max_bid`; use `pricing_mode=spot`

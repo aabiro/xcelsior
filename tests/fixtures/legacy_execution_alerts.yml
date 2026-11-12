@@ -22,7 +22,7 @@ tests:
         description: Identify the old worker or client and inspect stopped legacy
           jobs before removing handlers. A blocked request still proves the path has
           callers.
-        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/docs/review/2026-10-20-worker-cutover-boundary.md
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#retired-execution-paths
 - name: canary_calls_do_not_alert
   interval: 1m
   input_series:
@@ -82,4 +82,4 @@ tests:
         description: Identify the old worker or client and inspect stopped legacy
           jobs before removing handlers. A blocked request still proves the path has
           callers.
-        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/docs/review/2026-10-20-worker-cutover-boundary.md
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#retired-execution-paths

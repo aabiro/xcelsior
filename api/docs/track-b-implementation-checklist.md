@@ -589,7 +589,7 @@ Remaining lifecycle remediation and live acceptance stay open.
   Gates: `tests/test_job_reconcile_queue.py`,
   `tests/test_job_reconcile_observations.py`, `tests/test_job_reconcile_requests.py`;
   lease/resume regressions and migration up/down/up over populated fixtures.
-  See `docs/review/2026-10-14-control-plane-execution.md` for executed counts.
+  See `~/xcelsior-internal-docs/api/docs/review/2026-10-14-control-plane-execution.md` (internal) for executed counts.
   Four queue regressions were demonstrated red against the prior code.
   Migration `123` also enqueues **command outcomes/retry transitions and lease
   changes** in the writer's transaction, including compatibility writers.
@@ -604,7 +604,7 @@ Remaining lifecycle remediation and live acceptance stay open.
   up/down/up gate in `tests/test_migration_from_production_snapshot.py`.
   Thirteen runtime-event/lock regressions were confirmed failing before the fix.
   Executed counts and rollout limits:
-  `docs/review/2026-10-16-control-plane-runtime-events.md`.
+  `~/xcelsior-internal-docs/api/docs/review/2026-10-16-control-plane-runtime-events.md` (internal).
   The opt-in `job_lease_authority_missing` remedy now delegates to the lease
   controller for only the current job/attempt/host/fence, preserving expiry
   grace and stop/cancel/restart intent. Missing/released/mismatched authority
@@ -615,7 +615,7 @@ Remaining lifecycle remediation and live acceptance stay open.
   implementation), including rollback, repeated calls and cross-job isolation.
   The remedy deployed on 2026-10-17 and remains report-only. Migration 123,
   service handoffs and effective runtime policy passed verification; see
-  `docs/review/2026-10-17-control-plane-production-rollout.md`.
+  `~/xcelsior-internal-docs/api/docs/review/2026-10-17-control-plane-production-rollout.md` (internal).
   Active-meter repair now delegates to the billing maintenance authority
   (`billing_active_meter_missing`, default report-only), requiring current
   running authority, a valid lease, a fresh exact observation, owner and explicit
@@ -623,13 +623,13 @@ Remaining lifecycle remediation and live acceptance stay open.
   normal completion/orphan repair settles that same row at its captured rate.
   No scheduler/reconciler meter-write grants were added. Gate:
   `tests/test_active_meter_repair.py`; operational settings and rollout limits:
-  `docs/reconciliation.md`, evidence: `docs/review/2026-10-17-active-meter-repair.md`.
+  `docs/reconciliation.md`, evidence: `~/xcelsior-internal-docs/api/docs/review/2026-10-17-active-meter-repair.md` (internal).
   An isolated hardware acceptance now runs real CUDA containers through worker
   HTTP command/lease/status/observation helpers and the exit monitor, proving
   success and failure settlement, meter identity, stale-report rejection and
   exact invoice-line amounts. Runnable gate:
   `python api/scripts/run_security_gates.py --worker-billing-acceptance`; evidence and limits:
-  `docs/review/2026-10-17-worker-billing-acceptance.md`. The harness owns container
+  `~/xcelsior-internal-docs/api/docs/review/2026-10-17-worker-billing-acceptance.md` (internal). The harness owns container
   launch; this does not close public launch/provisioning or deployed acceptance.
   Terminal-report recovery now retains the exited container and journal across
   transient failures and worker restart, stops renewal/report cleanup races,
@@ -638,7 +638,7 @@ Remaining lifecycle remediation and live acceptance stay open.
   handling; uncertain Docker inspection never invents terminal failure. Gate:
   `tests/test_worker_terminal_recovery.py`; the CUDA gate now proves pre-commit
   failure, a lost committed reply and recovery across separate worker processes.
-  Executed evidence: `docs/review/2026-10-20-worker-terminal-recovery.md`.
+  Executed evidence: `~/xcelsior-internal-docs/api/docs/review/2026-10-20-worker-terminal-recovery.md` (internal).
   This worker candidate is signed and locally verified; production worker
   rollout, serverless callback recovery, older interactive journals and loss of
   local evidence remain outside that proof.
@@ -764,7 +764,7 @@ Track A.
   evidence is refused instead of inventing a price/end time. Missing-terminal
   repair and its evidence now share one transaction and retain locked spot/GPU
   fields. Seven new regressions were first confirmed failing; executed proof and
-  remaining live rollout gates: `docs/review/2026-10-17-active-meter-repair.md`.
+  remaining live rollout gates: `~/xcelsior-internal-docs/api/docs/review/2026-10-17-active-meter-repair.md` (internal).
 - [~] **B3.4 Price-change reapproval — server enforcement done** (2026-07-23,
   §15.4). The tolerance bound recorded on the plan (B2.1) is enforced at execute
   (B2.5): a re-quote beyond tolerance returns `quote_changed` with a fresh

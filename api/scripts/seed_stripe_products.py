@@ -739,7 +739,8 @@ def main() -> int:
 
     print()
     print("── Stripe Dashboard polish ──")
-    print("  Run: python3 scripts/polish_stripe_dashboard.py --apply")
+    print("  Run the internal polish_stripe_dashboard.py --apply")
+    print("  (kept outside the repo; see ~/xcelsior-internal-docs/README.md)")
     print("  Then paste brand file IDs in Dashboard → Settings → Branding (platform Account.modify is N/A)")
     print("  Webhooks: /api/providers/webhook + /api/connect/webhooks")
     return 0
