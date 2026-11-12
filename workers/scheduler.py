@@ -1390,6 +1390,25 @@ def ping_host(ip):
         return False
 
 
+def ping_is_evidence_of_a_host(ip: str) -> bool:
+    """Whether an answer to a ping at ``ip`` says anything about the host itself.
+
+    Only for an address on the mesh or a private network, where the address is
+    the machine. A host registered through the public site is recorded with the
+    address the request arrived from, which behind the CDN is the CDN's edge:
+    it answers every ping, so two registrations that never ran an agent stayed
+    "active" for months (2026-11-11). For a public address only the agent's
+    own heartbeat counts.
+    """
+    import ipaddress
+
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return addr.is_private or addr in ipaddress.ip_network("100.64.0.0/10")
+
+
 def check_hosts():
     """
     Ping every registered host. Once.
@@ -1412,7 +1431,7 @@ def check_hosts():
         # be pinged, so it is dead by definition — but a recent agent heartbeat
         # still counts, exactly as it does for a host whose ping fails.
         ip = str(h.get("ip") or "").strip()
-        alive = ping_host(ip) if ip else False
+        alive = ping_host(ip) if ip and ping_is_evidence_of_a_host(ip) else False
         # Trust recent agent heartbeat even if ping fails
         if not alive:
             last_seen = h.get("last_seen", 0)
