@@ -47,7 +47,9 @@ def stripe_payment_intents_are_isolated(monkeypatch):
 
 
 @pytest.fixture(scope="module")
-def auth():
+def auth(persistent_auth_module):
+    # Billing reads the account from PostgreSQL, as production does, so the user
+    # must be written there; without the pin it landed in the in-memory store.
     email = f"billcov-{uuid.uuid4().hex[:10]}@xcelsior.ca"
     client.post(
         "/api/auth/register",

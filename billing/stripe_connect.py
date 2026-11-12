@@ -546,10 +546,10 @@ class StripeConnectManager:
 
         # New payout accounts use the validated seller address. A client may
         # omit location, but it cannot substitute another country for that record.
-        from host_metadata import require_location
+        from host_metadata import require_address_location
 
         seller = self.get_provider(provider_id) or {}
-        location = require_location(
+        location = require_address_location(
             str(seller.get("country") or ""), str(seller.get("province") or "")
         )
         country_code = location["country"]

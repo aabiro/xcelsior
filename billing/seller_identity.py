@@ -93,9 +93,9 @@ def _normalize_address(profile: dict) -> dict[str, str]:
     country = address["country"]
     if len(country) != 2 or not country.isalpha():
         raise ValueError("Enter a two-letter country code")
-    from host_metadata import require_location
+    from host_metadata import require_address_location
 
-    location = require_location(country, str(profile.get("province") or ""))
+    location = require_address_location(country, str(profile.get("province") or ""))
     country, province = location["country"], location["province"]
     postal = address["postal_code"]
     if country == "CA":

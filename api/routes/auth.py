@@ -461,7 +461,7 @@ class ProfileUpdateRequest(BaseModel):
 
 
 def _validate_profile_values(body: ProfileUpdateRequest, user: dict) -> None:
-    from host_metadata import require_location, profile_address_values
+    from host_metadata import profile_address_values, require_address_location
 
     if body.name is not None:
         body.name = body.name.strip()
@@ -481,7 +481,7 @@ def _validate_profile_values(body: ProfileUpdateRequest, user: dict) -> None:
         raise HTTPException(422, "A business profile needs a business account. Switch the account type to Business first.")
     if body.country is not None or body.province is not None:
         try:
-            location = require_location(str(candidate.get("country") or ""), str(candidate.get("province") or ""))
+            location = require_address_location(str(candidate.get("country") or ""), str(candidate.get("province") or ""))
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         body.country, body.province = location["country"], location["province"]

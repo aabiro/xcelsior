@@ -336,120 +336,139 @@ def test_location_catalog_uses_country_names_and_valid_subdivisions():
 
 def test_address_lookup_requires_an_interactive_account():
     fresh = TestClient(app)
-    response = fresh.post("/api/locations/search", json={"country":"CA", "text":"Test Street"})
-    assert response.status_code == 401
+    for path, body in (
+        ("/api/locations/search", {"country": "CA", "text": "Test Street"}),
+        ("/api/locations/check", {"country": "CA", "province": "ON"}),
+    ):
+        assert fresh.post(path, json=body).status_code == 401
 
 
-def test_unconfigured_address_search_is_explicit_and_manual_entry_remains_available(user_headers, monkeypatch):
-    monkeypatch.delenv("XCELSIOR_LOQATE_API_KEY", raising=False)
-    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"country":"CA", "text":"Test Street"})
-    assert response.status_code == 503
-    assert "manually" in response.json()["error"]["message"]
-
-
-def test_lookup_uses_post_body_keeps_key_private_and_handles_address_groups(user_headers, monkeypatch):
+def _photon(monkeypatch, features, calls=None, status=200):
+    """Stand in for Photon: record each request, answer with these GeoJSON features."""
     import httpx
 
-    calls=[]
     def provider(url, **kwargs):
-        calls.append((url,kwargs))
-        return httpx.Response(200, json={"Items":[{"Id":"group-1", "Text":"Test Street", "Description":"2 addresses", "Type":"Street"}]}, request=httpx.Request("POST",url))
-    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY", "unit-only-not-a-service-key")
-    monkeypatch.setattr(httpx,"post",provider)
-    response=client.post("/api/locations/search",headers=user_headers["headers"],json={"country":"CA","text":"Test Street","container":"group-parent"})
-    assert response.status_code == 200, response.text
-    assert response.json()["suggestions"][0]["is_address"] is False
-    url,kwargs=calls[0]
-    assert "?" not in url
-    assert kwargs["data"]["Key"] == "unit-only-not-a-service-key"
-    assert kwargs["data"]["Container"] == "group-parent"
-    assert kwargs["data"]["Countries"] == "CA"
-    assert kwargs["data"]["IsMiddleware"] == "true"
-    assert "unit-only" not in response.text
+        if calls is not None:
+            calls.append((url, kwargs))
+        return httpx.Response(status, json={"type": "FeatureCollection", "features": features}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", provider)
 
 
-def test_address_search_without_a_country_does_not_limit_loqate(user_headers, monkeypatch):
-    import httpx
+def _feature(**properties):
+    return {"type": "Feature", "properties": {"type": "house", **properties}}
 
+
+def test_address_search_needs_no_key_and_fills_every_field_from_one_request(user_headers, monkeypatch):
     calls = []
+    monkeypatch.delenv("XCELSIOR_PHOTON_URL", raising=False)
+    _photon(monkeypatch, [_feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="n6b1z2", countrycode="CA")], calls)
+    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"country": "CA", "text": "300 Dufferin"})
+    assert response.status_code == 200, response.text
+    (suggestion,) = response.json()["suggestions"]
+    assert suggestion["address"] == {
+        "address_line1": "300 Dufferin Avenue", "address_line2": "", "city": "London",
+        "postal_code": "N6B 1Z2", "country": "CA", "province": "ON",
+    }
+    assert suggestion["text"] == "300 Dufferin Avenue"
+    assert suggestion["description"] == "London, ON, N6B 1Z2, Canada"
+    (url, kwargs), = calls
+    assert url == "https://photon.komoot.io/api/"
+    params = kwargs["params"]
+    assert ("q", "300 Dufferin") in params and ("countrycode", "CA") in params
+    assert {value for key, value in params if key == "layer"} == {"house", "street"}
+    # Only the typed text and the chosen country go out: no cookies, IP or account.
+    assert set(kwargs["headers"]) == {"User-Agent"}
 
-    def provider(url, **kwargs):
-        calls.append(kwargs)
-        return httpx.Response(200, json={"Items": [{"Id": "a1", "Text": "1 Test Street", "Description": "London", "Type": "Address"}]}, request=httpx.Request("POST", url))
 
-    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY", "unit-only-not-a-service-key")
-    monkeypatch.setattr(httpx, "post", provider)
+def test_address_search_uses_a_self_hosted_photon_when_one_is_set(user_headers, monkeypatch):
+    calls = []
+    monkeypatch.setenv("XCELSIOR_PHOTON_URL", "http://photon.internal:2322/")
+    _photon(monkeypatch, [], calls)
     response = client.post("/api/locations/search", headers=user_headers["headers"], json={"text": "Test Street"})
     assert response.status_code == 200, response.text
-    assert "Countries" not in calls[0]["data"]
-    # With no country, the server's own IP must not decide the ranking.
-    assert calls[0]["data"]["IsMiddleware"] == "true"
-    assert "Origin" not in calls[0]["data"]
+    assert response.json()["suggestions"] == []
+    assert calls[0][0] == "http://photon.internal:2322/api/"
 
 
-@pytest.mark.parametrize("body,header,origin", [
-    ({"text": "Test Street"}, "gb", "GB"),          # no country: rank near the visitor
-    ({"text": "Test Street"}, "T1", None),          # Tor is not a country
-    ({"text": "Test Street"}, "XX", None),          # Cloudflare could not tell
-    ({"text": "Test Street"}, "CA; x", None),       # malformed
-    ({"country": "CA", "text": "Test Street"}, "GB", None),  # a chosen country wins
-])
-def test_address_search_ranks_near_the_visitor_only_without_a_country(user_headers, monkeypatch, body, header, origin):
-    import httpx
+@pytest.mark.parametrize("state,province", [("QC", "QC"), ("Québec", "QC"), ("Quebec", "QC"), ("Atlantis", ""), (None, "")])
+def test_address_search_fills_the_province_selector_only_with_a_real_match(user_headers, monkeypatch, state, province):
+    _photon(monkeypatch, [_feature(housenumber="1000", street="Rue Sainte-Catherine Ouest", city="Montréal", state=state, postcode="H3B 5L1", countrycode="CA")])
+    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"text": "1000 Sainte-Catherine"})
+    assert response.json()["suggestions"][0]["address"]["province"] == province
 
+
+def test_address_search_writes_numbers_the_local_way_and_merges_one_door(user_headers, monkeypatch):
+    _photon(monkeypatch, [
+        _feature(name="Hotel Adlon", housenumber="77", street="Unter den Linden", city="Berlin", postcode="10117", countrycode="DE"),
+        _feature(name="Restaurant", housenumber="77", street="Unter den Linden", city="Berlin", postcode="10117", countrycode="DE"),
+        {"type": "Feature", "properties": {"type": "street", "name": "Dufferin Avenue", "city": "London", "countrycode": "CA", "state": "ON"}},
+        _feature(housenumber="5", city="Nowhere", countrycode="CA"),  # no street: not an address
+        "not a feature",
+    ])
+    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"text": "Unter den Linden 77"})
+    lines = [s["address"]["address_line1"] for s in response.json()["suggestions"]]
+    assert lines == ["Unter den Linden 77", "Dufferin Avenue"]
+
+
+@pytest.mark.parametrize("header,first", [("CA", "CA"), ("gb", "GB"), ("T1", "GB"), ("XX", "GB")])
+def test_address_search_without_a_country_lists_the_visitors_country_first(user_headers, monkeypatch, header, first):
     calls = []
-
-    def provider(url, **kwargs):
-        calls.append(kwargs)
-        return httpx.Response(200, json={"Items": []}, request=httpx.Request("POST", url))
-
-    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY", "unit-only-not-a-service-key")
-    monkeypatch.setattr(httpx, "post", provider)
+    _photon(monkeypatch, [
+        _feature(housenumber="10", street="King Street", city="Huddersfield", postcode="HD1 2QT", countrycode="GB"),
+        _feature(housenumber="10", street="King Street East", city="Toronto", state="ON", postcode="M5C 1C3", countrycode="CA"),
+    ], calls)
     headers = {**user_headers["headers"], "CF-IPCountry": header}
-    response = client.post("/api/locations/search", headers=headers, json=body)
+    response = client.post("/api/locations/search", headers=headers, json={"text": "10 King Street"})
+    assert response.json()["suggestions"][0]["address"]["country"] == first
+    # The visitor's country orders results here; it is never sent to Photon.
+    assert all(key != "countrycode" for key, _ in calls[0][1]["params"])
+
+
+def test_address_search_with_a_country_drops_results_from_elsewhere(user_headers, monkeypatch):
+    _photon(monkeypatch, [
+        _feature(housenumber="300", street="London Avenue", city="Lafayette", state="CO", postcode="80026", countrycode="US"),
+        _feature(housenumber="300", street="Dufferin Avenue", city="London", state="ON", postcode="N6B 1Z2", countrycode="CA"),
+    ])
+    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"country": "CA", "text": "300 London"})
+    assert [s["address"]["country"] for s in response.json()["suggestions"]] == ["CA"]
+
+
+@pytest.mark.parametrize("status,payload", [(503, None), (200, "not json")])
+def test_address_search_outage_sends_people_to_manual_entry(user_headers, monkeypatch, status, payload):
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", lambda url, **kwargs: httpx.Response(
+        status, content=b"<html>down</html>" if payload else b"{}", request=httpx.Request("GET", url)))
+    response = client.post("/api/locations/search", headers=user_headers["headers"], json={"text": "Test Street"})
+    assert response.status_code == 502
+    assert "below" in response.json()["error"]["message"]
+
+
+def test_address_check_is_free_and_returns_postal_format_errors_and_warnings(user_headers, monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: pytest.fail("the check must not call a provider"))
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: pytest.fail("the check must not call a provider"))
+    body = {"country": "CA", "province": "AB", "address_line1": "4915 50 St,", "city": "Lloydminster", "postal_code": "s9v0a1"}
+    response = client.post("/api/locations/check", headers=user_headers["headers"], json=body)
     assert response.status_code == 200, response.text
-    assert calls[0]["data"].get("Origin") == origin
+    result = response.json()
+    assert result["address"]["postal_code"] == "S9V 0A1"
+    assert result["address"]["address_line1"] == "4915 50 St"
+    assert result["errors"] == []
+    assert [w["code"] for w in result["warnings"]] == ["postal_code_region"]
+    assert "Saskatchewan, not Alberta" in result["warnings"][0]["message"]
+    assert result["lines"] == ["4915 50 St", "Lloydminster AB S9V 0A1", "Canada"]
+
+    bad = client.post("/api/locations/check", headers=user_headers["headers"], json={**body, "postal_code": "12345"}).json()
+    assert [e["field"] for e in bad["errors"]] == ["postal_code"]
+    assert bad["errors"][0]["message"] == "12345 isn't a valid postal code in Canada."
 
 
-def test_address_retrieve_without_a_country_uses_the_returned_country(user_headers, monkeypatch):
-    import httpx
-
-    item = {"CountryIso2": "CA", "Line1": "1 Test Street", "City": "London", "PostalCode": "N6A 1A1", "ProvinceCode": "ON"}
-    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY", "unit-only-not-a-service-key")
-    monkeypatch.setattr(httpx, "post", lambda url, **kwargs: httpx.Response(200, json={"Items": [item]}, request=httpx.Request("POST", url)))
-    response = client.post("/api/locations/retrieve", headers=user_headers["headers"], json={"address_id": "address-1"})
-    assert response.status_code == 200, response.text
-    assert response.json()["address"]["country"] == "CA"
-    assert response.json()["address"]["province"] == "ON"
-
-
-@pytest.mark.parametrize("payload,status",[
-    ({"Items":[{"Error":"2","Description":"a secret provider error"}]},502),
-    ({"Items":[{"CountryIso2":"US","Line1":"foreign address"}]},422),
-    ({"Items":[{"CountryIso2":"CA","Line1":[],"ProvinceCode":"ON"}]},502),
-])
-def test_address_retrieval_refuses_provider_errors_wrong_countries_and_invalid_types(user_headers,monkeypatch,payload,status):
-    import httpx
-
-    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY","unit-only-not-a-service-key")
-    monkeypatch.setattr(httpx,"post",lambda url,**kwargs:httpx.Response(200,json=payload,request=httpx.Request("POST",url)))
-    response=client.post("/api/locations/retrieve",headers=user_headers["headers"],json={"country":"CA","address_id":"address-1"})
-    assert response.status_code == status, response.text
-    assert "secret provider" not in response.text
-
-
-def test_address_retrieval_returns_real_fields_and_never_invents_a_province(user_headers,monkeypatch):
-    import httpx
-
-    item={"CountryIso2":"CA","Line1":"1 Test Street","City":"London","PostalCode":"N6A 1A1"}
-    monkeypatch.setenv("XCELSIOR_LOQATE_API_KEY","unit-only-not-a-service-key")
-    monkeypatch.setattr(httpx,"post",lambda url,**kwargs:httpx.Response(200,json={"Items":[item]},request=httpx.Request("POST",url)))
-    response=client.post("/api/locations/retrieve",headers=user_headers["headers"],json={"country":"CA","address_id":"address-1"})
-    assert response.status_code == 200,response.text
-    assert response.json()["address"]["province"] == ""
-    item["ProvinceCode"]="ON"
-    response=client.post("/api/locations/retrieve",headers=user_headers["headers"],json={"country":"CA","address_id":"address-1"})
-    assert response.json()["address"]["province"] == "ON"
+def test_address_check_rejects_an_unknown_country(user_headers):
+    response = client.post("/api/locations/check", headers=user_headers["headers"], json={"country": "ZZ"})
+    assert response.status_code == 422
 
 
 # Physical relocation keeps the host identity and operator admission intact.

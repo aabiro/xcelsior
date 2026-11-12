@@ -459,7 +459,7 @@ services:
       <<: *api-env
       XCELSIOR_SERVICE: api
       # Address lookup is API-only; never expose this key to browser builds.
-      XCELSIOR_LOQATE_API_KEY: ${XCELSIOR_LOQATE_API_KEY:-}
+      XCELSIOR_PHOTON_URL: ${XCELSIOR_PHOTON_URL:-}
       XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:-}
       XCELSIOR_API_EFFECT_DISPATCHER: ${XCELSIOR_API_EFFECT_DISPATCHER:-true}
       XCELSIOR_API_PORT: ${XCELSIOR_API_PORT:-9500}
@@ -490,7 +490,7 @@ services:
       <<: *api-env
       XCELSIOR_SERVICE: api
       # Address lookup is API-only; never expose this key to browser builds.
-      XCELSIOR_LOQATE_API_KEY: ${XCELSIOR_LOQATE_API_KEY:-}
+      XCELSIOR_PHOTON_URL: ${XCELSIOR_PHOTON_URL:-}
       XCELSIOR_POSTGRES_DSN_API: ${XCELSIOR_POSTGRES_DSN_API:-}
       XCELSIOR_API_EFFECT_DISPATCHER: ${XCELSIOR_API_EFFECT_DISPATCHER:-true}
       XCELSIOR_API_PORT: ${XCELSIOR_API_BLUE_PORT:-9501}

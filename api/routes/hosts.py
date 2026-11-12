@@ -45,12 +45,16 @@ router = APIRouter()
 
 
 @router.get("/api/locations", tags=["Hosts"])
-def api_location_catalog(country: str = ""):
-    """Return named ISO countries, subdivisions, and required address fields."""
+def api_location_catalog(country: str = "", purpose: str = "host"):
+    """Return named ISO countries, subdivisions, labels, and required address fields.
+
+    ``purpose=address`` follows the country's postal format (no state where the
+    post uses none); the default ``host`` keeps the subdivision a host's region needs.
+    """
     from host_metadata import location_catalog
 
     try:
-        return {"ok": True, **location_catalog(country)}
+        return {"ok": True, **location_catalog(country, purpose)}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -58,12 +62,17 @@ def api_location_catalog(country: str = ""):
 class AddressSearchRequest(BaseModel):
     country: str = ""
     text: str = Field(min_length=3, max_length=200)
-    container: str = Field(default="", max_length=1000)
 
 
-class AddressRetrieveRequest(BaseModel):
-    country: str = ""
-    address_id: str = Field(min_length=1, max_length=1000)
+class AddressCheckRequest(BaseModel):
+    """The same fields and limits the profile save accepts."""
+
+    country: str = Field(default="", max_length=2)
+    province: str = Field(default="", max_length=8)
+    address_line1: str = Field(default="", max_length=200)
+    address_line2: str = Field(default="", max_length=200)
+    city: str = Field(default="", max_length=80)
+    postal_code: str = Field(default="", max_length=32)
 
 
 def _address_lookup_country(value: str) -> str:
@@ -76,10 +85,11 @@ def _address_lookup_country(value: str) -> str:
 
 
 def _visitor_country_hint(request: Request) -> str:
-    """Cloudflare's country for the visitor, used only to rank a search with no country.
+    """Cloudflare's country for the visitor, used only to order a search with no country.
 
-    A forged header can only reorder the caller's own suggestions. Cloudflare
-    sends XX for unknown and T1 for Tor; neither is a country, so both are dropped.
+    It never leaves this server. A forged header can only reorder the caller's
+    own suggestions. Cloudflare sends XX for unknown and T1 for Tor; neither is
+    a country, so both are dropped.
     """
     import pycountry
 
@@ -89,60 +99,83 @@ def _visitor_country_hint(request: Request) -> str:
     return value
 
 
-def _loqate_capture(operation: str, values: dict[str, str]) -> list[dict]:
-    """Keep credentials and addresses out of URLs, logs, and error messages."""
+# Countries that write the house number after the street name ("Hauptstraße 5").
+_NUMBER_AFTER_STREET = frozenset(
+    "AR AT BA BE BG BR CH CL CO CZ DE DK EE ES FI GR HR HU IS IT LT LU LV MX NL NO PE PL PT "
+    "RO RS SE SI SK TR UY".split()
+)
+_ADDRESS_UNAVAILABLE = "Address search is unavailable. Enter your address below."
+
+
+def _photon_features(params: list[tuple[str, str]]) -> list[dict]:
+    """Ask Photon (OpenStreetMap search) for address matches. Free; no key.
+
+    XCELSIOR_PHOTON_URL points at a self-hosted Photon when there is one; the
+    default is komoot's public instance, which asks for modest use. The visitor's
+    IP and cookies stay here: only the typed text and chosen country go out.
+    """
     import httpx
 
-    key = os.environ.get("XCELSIOR_LOQATE_API_KEY", "").strip()
-    if not key:
-        raise HTTPException(503, "Address search is unavailable. Enter your address manually.")
-    versions = {"Find": "v1.20", "Retrieve": "v1.30"}
-    url = f"https://api.addressy.com/Capture/Interactive/{operation}/{versions[operation]}/json6.ws"
+    base = (os.environ.get("XCELSIOR_PHOTON_URL") or "https://photon.komoot.io").rstrip("/")
     try:
-        response = httpx.post(url, data={"Key": key, **values}, timeout=8.0, follow_redirects=False)
+        response = httpx.get(
+            f"{base}/api/",
+            params=tuple(params),  # repeated keys (layer=house&layer=street); a tuple satisfies httpx's types
+            headers={"User-Agent": "Xcelsior address search (+https://xcelsior.ca)"},
+            timeout=6.0,
+            follow_redirects=False,
+        )
         response.raise_for_status()
         payload = response.json()
     except (httpx.HTTPError, ValueError):
-        raise HTTPException(
-            502, "Address search is unavailable. Enter your address manually."
-        ) from None
-    items = payload.get("Items") if isinstance(payload, dict) else None
-    if not isinstance(items, list) or any(
-        not isinstance(item, dict) or "Error" in item for item in items
-    ):
-        raise HTTPException(502, "Address search is unavailable. Enter your address manually.")
-    for item in items:
-        for field, value in item.items():
-            if (
-                field
-                in {
-                    "Id",
-                    "Type",
-                    "Text",
-                    "Description",
-                    "CountryIso2",
-                    "ProvinceCode",
-                    "AdminAreaCode",
-                    "Line1",
-                    "Line2",
-                    "Line3",
-                    "Line4",
-                    "Line5",
-                    "City",
-                    "PostalCode",
-                }
-                and value is not None
-                and not isinstance(value, str)
-            ):
-                raise HTTPException(
-                    502, "Address search returned invalid data. Enter your address manually."
-                )
-    return items
+        raise HTTPException(502, _ADDRESS_UNAVAILABLE) from None
+    features = payload.get("features") if isinstance(payload, dict) else None
+    if not isinstance(features, list):
+        raise HTTPException(502, _ADDRESS_UNAVAILABLE)
+    return [f for f in features if isinstance(f, dict) and isinstance(f.get("properties"), dict)]
+
+
+def _photon_address(properties: dict) -> dict[str, str] | None:
+    """One Photon result as the profile's address fields, or None if it isn't one."""
+    from host_metadata import standard_postal_code, subdivision_code
+
+    def text(key: str) -> str:
+        value = properties.get(key)
+        return " ".join(str(value).split()) if isinstance(value, (str, int)) else ""
+
+    country = text("countrycode").upper()
+    street, number = text("street"), text("housenumber")
+    if properties.get("type") == "street" and not street:
+        street = text("name")
+    if not country or not street:
+        return None
+    if not number:
+        line1 = street
+    elif country in _NUMBER_AFTER_STREET:
+        line1 = f"{street} {number}"
+    else:
+        line1 = f"{number} {street}"
+    return {
+        "address_line1": line1,
+        "address_line2": "",
+        "city": text("city") or text("locality") or text("district"),
+        "postal_code": standard_postal_code(country, text("postcode")),
+        "country": country,
+        # Photon sends a state as a code ("QC") or a name ("Ontario"); an
+        # unrecognised one is left blank for the person to choose.
+        "province": subdivision_code(country, text("state")),
+    }
 
 
 @router.post("/api/locations/search", tags=["Account"])
 def api_address_search(body: AddressSearchRequest, request: Request):
-    """Search addresses for an authenticated profile form. A blank country searches everywhere."""
+    """Suggest addresses while someone types. A blank country searches everywhere.
+
+    Each suggestion carries its whole address, so picking one costs nothing more.
+    The data is OpenStreetMap's, which is why the form shows the result back
+    before it is saved: a suggestion helps, it is not proof.
+    """
+    import pycountry
     from routes._deps import _require_user_grant
 
     _require_user_grant(request)
@@ -150,66 +183,58 @@ def api_address_search(body: AddressSearchRequest, request: Request):
     text = body.text.strip()
     if len(text) < 3:
         raise HTTPException(422, "Enter at least three address characters")
-    # The request comes from our server, so tell Loqate not to bias results
-    # toward the server's IP. Without a country that bias would be the main one.
-    query = {"Text": text, "Container": body.container, "Limit": "8", "IsMiddleware": "true"}
+    params = [("q", text), ("limit", "12"), ("layer", "house"), ("layer", "street")]
     if country:
-        query["Countries"] = country
-    elif hint := _visitor_country_hint(request):
-        query["Origin"] = hint
-    items = _loqate_capture("Find", query)
-    return {
-        "ok": True,
-        "suggestions": [
-            {
-                "id": str(item["Id"]),
-                "text": str(item.get("Text") or ""),
-                "description": str(item.get("Description") or ""),
-                "is_address": item.get("Type") == "Address",
-            }
-            for item in items[:8]
-            if item.get("Id") and item.get("Text")
-        ],
-    }
+        params.append(("countrycode", country))
+    addresses: list[dict[str, str]] = []
+    seen: set[tuple[str, ...]] = set()
+    for feature in _photon_features(params):
+        address = _photon_address(feature["properties"])
+        if address is None or (country and address["country"] != country):
+            continue
+        # Several businesses at one door are one address.
+        key = tuple(address[field] for field in ("address_line1", "city", "postal_code", "country"))
+        if key in seen:
+            continue
+        seen.add(key)
+        addresses.append(address)
+    if not country and (hint := _visitor_country_hint(request)):
+        addresses.sort(key=lambda address: address["country"] != hint)  # stable: keeps Photon's order
+    suggestions = []
+    for index, address in enumerate(addresses[:8]):
+        place = pycountry.countries.get(alpha_2=address["country"])
+        description = ", ".join(
+            part
+            for part in (
+                address["city"],
+                address["province"],
+                address["postal_code"],
+                place.name if place is not None else address["country"],
+            )
+            if part
+        )
+        suggestions.append(
+            {"id": f"photon-{index}", "text": address["address_line1"], "description": description, "address": address}
+        )
+    return {"ok": True, "suggestions": suggestions}
 
 
-@router.post("/api/locations/retrieve", tags=["Account"])
-def api_address_retrieve(body: AddressRetrieveRequest, request: Request):
-    """Retrieve the selected address; never invent a missing state or province."""
+@router.post("/api/locations/check", tags=["Account"])
+def api_address_check(body: AddressCheckRequest, request: Request):
+    """Put a finished address into postal format and say what looks wrong. Free: no provider call.
+
+    Errors block a save; warnings only ask the person to confirm. The profile
+    save applies the same cleanup, so what this shows is what gets stored.
+    """
     from routes._deps import _require_user_grant
-    from host_metadata import require_location
+    from host_metadata import review_profile_address
 
     _require_user_grant(request)
-    items = _loqate_capture("Retrieve", {"Id": body.address_id})
-    if body.country.strip():
-        country = _address_lookup_country(body.country)
-        matches = [item for item in items if str(item.get("CountryIso2") or "").upper() == country]
-        if not matches:
-            raise HTTPException(422, "No address was returned in the selected country")
-    else:
-        matches = [item for item in items if str(item.get("CountryIso2") or "").strip()]
-        if not matches:
-            raise HTTPException(422, "No address was returned")
-        country = _address_lookup_country(str(matches[0].get("CountryIso2") or ""))
-    item = matches[0]
-    province = str(item.get("ProvinceCode") or item.get("AdminAreaCode") or "").strip()
     try:
-        province = require_location(country, province)["province"]
-    except ValueError:
-        province = ""
-    return {
-        "ok": True,
-        "address": {
-            "address_line1": str(item.get("Line1") or ""),
-            "address_line2": ", ".join(
-                str(item[key]) for key in ("Line2", "Line3", "Line4", "Line5") if item.get(key)
-            ),
-            "city": str(item.get("City") or ""),
-            "postal_code": str(item.get("PostalCode") or ""),
-            "country": country,
-            "province": province,
-        },
-    }
+        review = review_profile_address(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True, **review}
 
 
 def _host_owner_ids(host: dict | None) -> set[str]:

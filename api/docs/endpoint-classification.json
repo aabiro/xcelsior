@@ -1739,13 +1739,13 @@
     "class": "internal",
     "notes": "issues or revokes credentials (agent keys, API keys, OAuth clients, Quick Connect). A tool that mints its own credential can widen its own scopes"
   },
-  "POST /api/locations/retrieve": {
+  "POST /api/locations/check": {
     "class": "internal",
-    "notes": "authenticated first-party address selection; retrieves editable profile fields with no inferred province or exposed service credential"
+    "notes": "authenticated first-party profile form step; standardizes a finished address and reports errors and soft warnings before save, no provider call"
   },
   "POST /api/locations/search": {
     "class": "internal",
-    "notes": "authenticated first-party profile address entry; sends typed address text to approved Loqate Capture, never a general agent lookup"
+    "notes": "authenticated first-party profile address entry; sends typed text and chosen country to Photon (OpenStreetMap search), never a general agent lookup"
   },
   "POST /api/notifications/push/subscription": {
     "class": "internal",

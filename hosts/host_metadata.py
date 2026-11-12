@@ -291,8 +291,11 @@ def merge_host_update(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
     return merged
 
 
-def location_catalog(country: str = "") -> dict:
-    """ISO 3166 country/subdivision choices, shared by forms and API validation."""
+def location_catalog(country: str = "", purpose: str = "host") -> dict:
+    """ISO 3166 country/subdivision choices, shared by forms and API validation.
+
+    ``purpose="address"`` is a person's postal address; ``"host"`` is where a machine runs.
+    """
     import pycountry
 
     countries = sorted(
@@ -313,12 +316,86 @@ def location_catalog(country: str = "") -> dict:
         if country_code
         else []
     )
+    if purpose not in {"host", "address"}:
+        raise ValueError("Unknown location purpose")
+    # A host's subdivision is its scheduling region, so hosts always pick one where
+    # ISO lists any. A postal address follows the post: the UK and Germany never use one.
+    if purpose == "address" and country_code:
+        mode = address_subdivision_mode(country_code)
+        if mode == "none":
+            subdivisions = []
+    else:
+        mode = "required" if subdivisions else "none"
     return {
         "countries": countries,
         "subdivisions": subdivisions,
-        "requires_subdivision": bool(subdivisions),
+        "requires_subdivision": mode == "required",
+        "subdivision_mode": mode,
+        "labels": address_labels(country_code) if country_code else address_labels(""),
         "required_address_fields": address_required_fields(country_code) if country_code else [],
     }
+
+
+_SUBDIVISION_LABELS = {
+    "province": "Province", "state": "State", "prefecture": "Prefecture", "county": "County",
+    "department": "Department", "emirate": "Emirate", "island": "Island", "parish": "Parish",
+    "oblast": "Region", "do_si": "Province", "district": "District", "area": "Area",
+}
+_SUBDIVISION_LABEL_OVERRIDES = {"CA": "Province or territory", "AU": "State or territory"}
+_CITY_LABELS = {"post_town": "Town or city", "suburb": "Suburb", "district": "District"}
+_POSTAL_LABELS = {"zip": "ZIP code", "pin": "PIN code", "eircode": "Eircode"}
+
+
+def address_subdivision_mode(country: str) -> str:
+    """How this country's postal addresses use a state or province: required, optional, or none.
+
+    From Google's address data (the same rules the postal-code checks use), not
+    from ISO: ISO lists subdivisions for almost every country, but 174 of them
+    never write one on an envelope.
+    """
+    import pycountry
+    from i18naddress import get_validation_rules
+
+    country_code = str(country or "").strip().upper()
+    if not country_code or not (pycountry.subdivisions.get(country_code=country_code) or []):
+        return "none"
+    rules = get_validation_rules({"country_code": country_code})
+    if "country_area" in rules.required_fields:
+        return "required"
+    return "optional" if "%S" in rules.address_format else "none"
+
+
+def address_labels(country: str) -> dict[str, str]:
+    """What this country calls its address fields: "State", "Prefecture", "ZIP code", "Eircode"…"""
+    from i18naddress import get_validation_rules
+
+    country_code = str(country or "").strip().upper()
+    if not country_code:
+        return {"subdivision": "State, province, or territory", "city": "City or locality", "postal_code": "Postal code"}
+    rules = get_validation_rules({"country_code": country_code})
+    return {
+        "subdivision": _SUBDIVISION_LABEL_OVERRIDES.get(country_code)
+        or _SUBDIVISION_LABELS.get(rules.country_area_type, "State or province"),
+        "city": _CITY_LABELS.get(rules.city_type, "City"),
+        "postal_code": _POSTAL_LABELS.get(rules.postal_code_type, "Postal code"),
+    }
+
+
+def require_address_location(country: str, province: str = "") -> dict[str, str]:
+    """`require_location` for a person's postal address, which follows the country's post.
+
+    Where the post never uses a state (the UK, Germany, France…) the province is
+    dropped; where it is optional a blank is fine. Elsewhere it must be exact.
+    """
+    import pycountry
+
+    country_code = str(country or "").strip().upper()
+    if pycountry.countries.get(alpha_2=country_code) is None:
+        raise ValueError("Select a valid country")
+    mode = address_subdivision_mode(country_code)
+    if mode == "none" or (mode == "optional" and not str(province or "").strip()):
+        return {"country": country_code, "province": "", "region": country_code.lower()}
+    return require_location(country_code, province)
 
 
 def _subdivision(code: str) -> Any:
@@ -372,32 +449,204 @@ def address_required_fields(country: str) -> list[str]:
     return sorted(mapping[field] for field in rules.required_fields if field in mapping)
 
 
-def profile_address_values(profile: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
-    """Validate manual and captured addresses with the same country rules."""
+def _fold(value: str) -> str:
+    import unicodedata
+
+    decomposed = unicodedata.normalize("NFKD", value)
+    return " ".join("".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold().split())
+
+
+def subdivision_code(country: str, value: str) -> str:
+    """The ISO code for a state or province given as a code ("QC") or a name ("Québec").
+
+    Returns "" when nothing matches exactly, so a search result never picks a
+    province the person did not see; they choose it themselves instead.
+    """
+    import pycountry
+
+    country_code = str(country or "").strip().upper()
+    wanted = _fold(str(value or ""))
+    if not country_code or not wanted:
+        return ""
+    for sub in pycountry.subdivisions.get(country_code=country_code) or []:
+        code = sub.code.split("-", 1)[1]
+        if wanted in {code.casefold(), _fold(sub.name)}:
+            return code
+    return ""
+
+
+def standard_postal_code(country: str, value: str) -> str:
+    """The postal code as the country writes it: uppercase, with its usual separator.
+
+    The separator comes from the country's published examples (CA ``N6B 1Z2``,
+    US ``10001-1234``, GB ``SW1A 1AA``) and is applied only when the result is
+    still a valid postal code there. Anything else comes back uppercased as typed.
+    """
     from i18naddress import get_validation_rules
 
-    location = require_location(
+    text = " ".join(str(value or "").split()).upper()
+    if not text or not country:
+        return text
+    rules = get_validation_rules({"country_code": country})
+    compact = re.sub(r"[\s-]", "", text)
+    for example in rules.postal_code_examples:
+        shape = example.strip().upper()
+        if len(re.sub(r"[\s-]", "", shape)) != len(compact):
+            continue
+        chars = iter(compact)
+        candidate = "".join(ch if ch in " -" else next(chars) for ch in shape)
+        if all(matcher.match(candidate) for matcher in rules.postal_code_matchers):
+            return candidate
+    return text
+
+
+def _postal_label(country: str) -> str:
+    from i18naddress import get_validation_rules
+
+    kind = get_validation_rules({"country_code": country}).postal_code_type
+    return {"zip": "ZIP code", "pin": "PIN code", "eircode": "Eircode"}.get(kind, "postal code")
+
+
+def _postal_region_warning(location: dict[str, str], postal: str) -> dict[str, str]:
+    """Say which state or province the postal code usually belongs to.
+
+    A warning, never an error: real addresses cross these lines. Lloydminster,
+    Alberta uses Saskatchewan's S9V codes, and some US ZIP codes span two states.
+    """
+    import pycountry
+    from i18naddress import get_validation_rules
+
+    country = location["country"]
+    likely = []
+    for sub in pycountry.subdivisions.get(country_code=country) or []:
+        try:
+            rules = get_validation_rules(
+                {"country_code": country, "country_area": sub.code.split("-", 1)[1]}
+            )
+        except Exception:
+            continue
+        # Only an area with its own prefix says anything; the rest inherit the country's.
+        if len(rules.postal_code_matchers) > 1 and all(
+            matcher.match(postal) for matcher in rules.postal_code_matchers
+        ):
+            likely.append(sub.name)
+    chosen = _subdivision(code=f"{country}-{location['province']}")
+    chosen_name = chosen.name if chosen is not None else location["province"]
+    label = _postal_label(country)
+    if len(likely) == 1:
+        message = f"{postal} is usually a {label} in {likely[0]}, not {chosen_name}."
+    else:
+        message = f"{postal} isn't usually a {label} in {chosen_name}."
+    return {
+        "field": "postal_code",
+        "code": "postal_code_region",
+        "message": message + " Check it, or keep it if your address is right.",
+    }
+
+
+def _address_review(
+    profile: dict[str, Any],
+) -> tuple[dict[str, str], list[str], list[dict[str, str]]]:
+    """Clean an address into postal format, then sort problems into errors and warnings.
+
+    Errors are things no address can be: a missing required field, or a postal
+    code that isn't one in that country. Everything a real address might still
+    be is a warning, so a correct but unusual address can always be saved.
+    """
+    from i18naddress import get_validation_rules
+
+    location = require_address_location(
         str(profile.get("country") or ""), str(profile.get("province") or "")
     )
     cleaned = {
-        key: " ".join(str(profile.get(key) or "").split())
+        key: " ".join(str(profile.get(key) or "").split()).strip(" ,")
         for key in ("address_line1", "address_line2", "city", "postal_code")
     }
-    cleaned["postal_code"] = cleaned["postal_code"].upper()
-    rules = get_validation_rules(
-        {"country_code": location["country"], "country_area": location["province"]}
-    )
+    cleaned["postal_code"] = standard_postal_code(location["country"], cleaned["postal_code"])
     errors = [key for key in address_required_fields(location["country"]) if not cleaned[key]]
+    warnings: list[dict[str, str]] = []
     postal = cleaned["postal_code"]
-    if postal and any(not matcher.match(postal) for matcher in rules.postal_code_matchers):
+    country_rules = get_validation_rules({"country_code": location["country"]})
+    if postal and not all(matcher.match(postal) for matcher in country_rules.postal_code_matchers):
         errors.append("postal_code")
+    elif postal and location["province"]:
+        area_rules = get_validation_rules(
+            {"country_code": location["country"], "country_area": location["province"]}
+        )
+        if not all(matcher.match(postal) for matcher in area_rules.postal_code_matchers):
+            warnings.append(_postal_region_warning(location, postal))
     if len(cleaned["address_line1"]) > 200 or len(cleaned["address_line2"]) > 200:
         errors.append("address_line1")
     if len(cleaned["city"]) > 80:
         errors.append("city")
     if len(postal) > 32:
         errors.append("postal_code")
-    return {**location, **cleaned}, list(dict.fromkeys(errors))
+    return {**location, **cleaned}, list(dict.fromkeys(errors)), warnings
+
+
+def profile_address_values(profile: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
+    """Validate manual and captured addresses with the same country rules.
+
+    Returns the cleaned address and its blocking errors. Warnings (a postal code
+    from a neighbouring province, say) never block a save; the form shows them
+    first through `review_profile_address`.
+    """
+    cleaned, errors, _warnings = _address_review(profile)
+    return cleaned, errors
+
+
+def postal_lines(address: dict[str, str]) -> list[str]:
+    """The address laid out the way the country's post office prints it."""
+    import pycountry
+    from i18naddress import get_validation_rules
+
+    rules = get_validation_rules({"country_code": address["country"]})
+    street = "\n".join(
+        value for value in (address.get("address_line1"), address.get("address_line2")) if value
+    )
+    values = {
+        "A": street,
+        "C": address.get("city") or "",
+        "S": address.get("province") or "",
+        "Z": address.get("postal_code") or "",
+    }
+    text = re.sub(r"%([A-Z])", lambda match: values.get(match.group(1), ""), rules.address_format)
+    lines = [" ".join(line.split()).strip(" ,") for line in text.replace("%n", "\n").split("\n")]
+    country = pycountry.countries.get(alpha_2=address["country"])
+    return [line for line in lines if line] + ([country.name] if country is not None else [])
+
+
+def review_profile_address(profile: dict[str, Any]) -> dict[str, Any]:
+    """The free check run once, when someone saves an address: no provider is called.
+
+    Returns the cleaned address, blocking errors and soft warnings as messages a
+    person can act on, and the postal-format lines to show them before saving.
+    """
+    import pycountry
+
+    cleaned, error_fields, warnings = _address_review(profile)
+    country = pycountry.countries.get(alpha_2=cleaned["country"])
+    country_name = country.name if country is not None else cleaned["country"]
+    label = _postal_label(cleaned["country"])
+    postal = cleaned["postal_code"]
+    messages = {
+        "address_line1": (
+            "Address lines can be 200 characters at most."
+            if cleaned["address_line1"]
+            else "Enter your street address."
+        ),
+        "city": "City can be 80 characters at most." if cleaned["city"] else "Enter your city or locality.",
+        "postal_code": (
+            f"{postal} isn't a valid {label} in {country_name}." if postal else f"Enter your {label}."
+        ),
+    }
+    fields = ("country", "province", "address_line1", "address_line2", "city", "postal_code")
+    return {
+        "address": {field: cleaned[field] for field in fields},
+        "errors": [{"field": field, "message": messages[field]} for field in error_fields],
+        "warnings": warnings,
+        "lines": postal_lines(cleaned),
+    }
 
 
 def profile_missing_fields(profile: dict[str, Any]) -> list[str]:
@@ -408,7 +657,9 @@ def profile_missing_fields(profile: dict[str, Any]) -> list[str]:
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", str(profile.get("email") or "")):
         missing.append("email")
     try:
-        require_location(str(profile.get("country") or ""), str(profile.get("province") or ""))
+        require_address_location(
+            str(profile.get("country") or ""), str(profile.get("province") or "")
+        )
     except ValueError:
         import pycountry
 

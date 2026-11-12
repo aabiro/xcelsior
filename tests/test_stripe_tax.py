@@ -134,7 +134,7 @@ def test_create_credit_deposit_links_tax_calc_and_stores_pretax():
         {"country": ""},
         {"province": "XX"},
         {"line1": ""},
-        {"postal_code": "V6B 1A1"},
+        {"postal_code": "12345"},
     ],
 )
 def test_tax_rejects_incomplete_or_conflicting_address_fields(overrides):
@@ -142,6 +142,14 @@ def test_tax_rejects_incomplete_or_conflicting_address_fields(overrides):
 
     with pytest.raises(ValueError):
         normalize_customer_address({**_address(), **overrides})
+
+
+def test_tax_accepts_a_real_address_whose_postal_code_crosses_a_border():
+    """Lloydminster, Alberta uses Saskatchewan's S9V. The person confirmed it; tax follows the province."""
+    from stripe_tax import normalize_customer_address
+
+    cleaned = normalize_customer_address({**_address(), "province": "AB", "city": "Lloydminster", "postal_code": "s9v0a1"})
+    assert (cleaned["state"], cleaned["postal_code"]) == ("AB", "S9V 0A1")
 
 
 def test_tax_address_comes_from_current_saved_profile_not_token_claims(monkeypatch):

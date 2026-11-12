@@ -206,8 +206,60 @@ def test_address_requirements_follow_each_country_not_a_canadian_default():
 
     assert "postal_code" in address_required_fields("CA")
     assert "postal_code" not in address_required_fields("HK")
-    _, errors = profile_address_values({"country":"CA", "province":"ON", "address_line1":"1 Test Street", "city":"London", "postal_code":"V6B 1A1"})
-    assert errors == ["postal_code"]  # A BC postal prefix cannot be saved as Ontario.
+    _, errors = profile_address_values({"country":"CA", "province":"ON", "address_line1":"1 Test Street", "city":"London", "postal_code":"12345"})
+    assert errors == ["postal_code"]  # Not a Canadian postal code at all.
+
+
+def test_a_postal_code_from_the_next_province_warns_but_never_blocks():
+    """Real addresses cross these lines: Lloydminster, Alberta uses Saskatchewan's S9V."""
+    from host_metadata import profile_address_values, review_profile_address
+
+    lloydminster = {"country":"CA", "province":"AB", "address_line1":"4915 50 St", "city":"Lloydminster", "postal_code":"S9V 0A1"}
+    assert profile_address_values(lloydminster)[1] == []
+    review = review_profile_address(lloydminster)
+    assert review["errors"] == []
+    assert "Saskatchewan, not Alberta" in review["warnings"][0]["message"]
+    typo = review_profile_address({**lloydminster, "province":"BC", "postal_code":"N6B 1Z2"})
+    assert "Ontario, not British Columbia" in typo["warnings"][0]["message"]
+    us = review_profile_address({"country":"US", "province":"CA", "address_line1":"1 Main St", "city":"New York", "postal_code":"10001"})
+    assert "ZIP code in New York, not California" in us["warnings"][0]["message"]
+    # Two provinces share X (and K1A spans Ontario and Quebec): say so without guessing which.
+    shared = review_profile_address({**lloydminster, "province":"NU", "postal_code":"K1A 0B1"})
+    assert shared["warnings"][0]["message"].startswith("K1A 0B1 isn't usually a postal code in Nunavut.")
+    assert review_profile_address({**lloydminster, "province":"SK"})["warnings"] == []
+
+
+@pytest.mark.parametrize("country,typed,stored", [
+    ("CA", "n6b1z2", "N6B 1Z2"), ("CA", "N6B-1Z2", "N6B 1Z2"), ("US", "100011234", "10001-1234"),
+    ("US", "10001", "10001"), ("GB", "sw1a1aa", "SW1A 1AA"), ("GB", "m11ae", "M1 1AE"),
+    ("NL", "1234ab", "1234 AB"), ("JP", "1008994", "100-8994"), ("CA", "12345", "12345"), ("CA", "", ""),
+])
+def test_postal_codes_are_stored_the_way_each_country_writes_them(country, typed, stored):
+    from host_metadata import profile_address_values, standard_postal_code
+
+    assert standard_postal_code(country, typed) == stored
+    if country == "CA" and typed.startswith("n"):
+        cleaned, _ = profile_address_values({"country":"CA", "province":"ON", "address_line1":"300 Dufferin Ave", "city":"London", "postal_code":typed})
+        assert cleaned["postal_code"] == stored
+
+
+@pytest.mark.parametrize("country,value,code", [
+    ("CA", "QC", "QC"), ("CA", "Québec", "QC"), ("CA", "quebec", "QC"), ("US", "District of Columbia", "DC"),
+    ("GB", "England", "ENG"), ("DE", "Bayern", "BY"), ("CA", "Atlantis", ""), ("CA", "", ""), ("", "Ontario", ""),
+])
+def test_a_state_name_or_code_maps_to_the_selector_or_to_nothing(country, value, code):
+    from host_metadata import subdivision_code
+
+    assert subdivision_code(country, value) == code
+
+
+def test_postal_lines_follow_each_countrys_layout():
+    from host_metadata import postal_lines
+
+    assert postal_lines({"country":"US", "province":"NY", "address_line1":"1 Main St", "address_line2":"Apt 4", "city":"New York", "postal_code":"10001"}) == [
+        "1 Main St", "Apt 4", "New York, NY 10001", "United States"]
+    assert postal_lines({"country":"DE", "province":"BE", "address_line1":"Unter den Linden 77", "city":"Berlin", "postal_code":"10117"}) == [
+        "Unter den Linden 77", "10117 Berlin", "Germany"]
 
 
 def test_address_metadata_covers_every_country_we_offer():

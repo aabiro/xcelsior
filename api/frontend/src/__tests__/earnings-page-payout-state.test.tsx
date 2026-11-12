@@ -305,27 +305,118 @@ it("saving profile details preserves a separately edited name and clears hidden 
 });
 
 
-it.each([false,true])("address retrieval survives tabbing but respects manual edits: manual=%s", async (manualEdit) => {
+it("fills the address from the picked suggestion without a second request, and credits OpenStreetMap", async () => {
   vi.useFakeTimers();
   try {
-    let deliver!: (value: unknown) => void;
-    const selected = {address_line1:"1 Test Street", address_line2:"", city:"London", postal_code:"N6A 1A1", country:"CA", province:"ON"};
-    apiMocks.apiFetch.mockImplementation((path: string) => path.endsWith("search")
-      ? Promise.resolve({suggestions:[{id:"address-one", text:"1 Test Street", description:"London", is_address:true}]})
-      : new Promise((resolve) => { deliver=resolve; }));
+    const address = {address_line1:"300 Dufferin Avenue", address_line2:"", city:"London", postal_code:"N6B 2P8", country:"CA", province:"ON"};
+    apiMocks.apiFetch.mockResolvedValue({suggestions:[{id:"photon-0", text:"300 Dufferin Avenue", description:"London, ON, N6B 2P8, Canada", address}]});
     const onSelect=vi.fn();
-    const view=render(<AddressLookup country="CA" onSelect={onSelect} />);
-    const input=screen.getByRole("combobox",{name:"Search address"});
-    fireEvent.change(input,{target:{value:"Test Street"}});
+    render(<AddressLookup country="CA" onSelect={onSelect} />);
+    fireEvent.change(screen.getByRole("combobox",{name:"Search address"}),{target:{value:"300 Dufferin"}});
     await act(async () => { await vi.advanceTimersByTimeAsync(310); });
     const listbox = screen.getByRole("listbox", { name: "Address suggestions" });
-    expect(listbox.className).toContain("bg-[var(--popover-solid)]");
-    expect(listbox.className).not.toContain("bg-surface");
-    fireEvent.click(screen.getByRole("option",{name:/1 Test Street/}));
-    fireEvent.blur(input);
-    if(manualEdit) view.rerender(<AddressLookup country="CA" onSelect={onSelect} editRevision={1} />);
-    await act(async () => { deliver({address:selected}); });
-    if(manualEdit) expect(onSelect).not.toHaveBeenCalled();
-    else expect(onSelect).toHaveBeenCalledWith(selected);
+    expect(listbox.parentElement?.className).toContain("bg-[var(--popover-solid)]");
+    expect(screen.getByRole("link",{name:"OpenStreetMap contributors"})).toHaveAttribute("href","https://www.openstreetmap.org/copyright");
+    fireEvent.click(screen.getByRole("option",{name:/300 Dufferin Avenue/}));
+    expect(onSelect).toHaveBeenCalledWith(address);
+    expect(apiMocks.apiFetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   } finally { vi.useRealTimers(); }
+});
+
+
+it("treats a search with no match as fine and points to the fields below", async () => {
+  vi.useFakeTimers();
+  try {
+    apiMocks.apiFetch.mockResolvedValue({suggestions:[]});
+    render(<AddressLookup country="CA" onSelect={vi.fn()} />);
+    fireEvent.change(screen.getByRole("combobox",{name:"Search address"}),{target:{value:"1234 Fairview Rd"}});
+    await act(async () => { await vi.advanceTimersByTimeAsync(310); });
+    expect(screen.getByText(/No matching address found/)).toBeInTheDocument();
+  } finally { vi.useRealTimers(); }
+});
+
+
+function withAddressCheck(review: Record<string, unknown>) {
+  const catalog = apiMocks.apiFetch.getMockImplementation()!;
+  apiMocks.apiFetch.mockImplementation(async (path: string, init?: RequestInit) =>
+    path === "/api/locations/check" ? review : catalog(path, init));
+}
+
+async function typeAddress(line1: string, city: string, postal: string) {
+  authState.user = { name:"Original Name", country:"CA", province:"ON", address_line1:"", city:"", postal_code:"", account_type:"individual" };
+  render(<AccountProfileForm step="address" />);
+  await screen.findByRole("option", { name: "Ontario" });
+  fireEvent.change(screen.getByLabelText("Street address"), { target: { value: line1 } });
+  fireEvent.change(screen.getByLabelText("City or locality"), { target: { value: city } });
+  fireEvent.change(screen.getByLabelText("Postal code"), { target: { value: postal } });
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+}
+
+it("shows the address back in postal format, with any warning, and saves only once it is confirmed", async () => {
+  const cleaned = {country:"CA", province:"ON", address_line1:"4915 50 St", address_line2:"", city:"Lloydminster", postal_code:"S9V 0A1"};
+  withAddressCheck({
+    address: cleaned, errors: [],
+    warnings: [{field:"postal_code", code:"postal_code_region", message:"S9V 0A1 is usually a postal code in Saskatchewan, not Ontario. Check it, or keep it if your address is right."}],
+    lines: ["4915 50 St", "Lloydminster ON S9V 0A1", "Canada"],
+  });
+  apiMocks.updateProfile.mockResolvedValue({ok:true});
+  await typeAddress("4915 50 St,", "Lloydminster", "s9v0a1");
+  expect(await screen.findByText("Is this address right?")).toBeInTheDocument();
+  expect(screen.getByText("Lloydminster ON S9V 0A1")).toBeInTheDocument();
+  expect(screen.getByText(/usually a postal code in Saskatchewan/)).toBeInTheDocument();
+  expect(apiMocks.updateProfile).not.toHaveBeenCalled();
+  const sent = apiMocks.apiFetch.mock.calls.find((call) => call[0] === "/api/locations/check");
+  expect(JSON.parse(String(sent![1].body))).toMatchObject({address_line1:"4915 50 St,", postal_code:"s9v0a1"});
+  fireEvent.click(screen.getByRole("button", { name: "Yes, continue" }));
+  await waitFor(() => expect(apiMocks.updateProfile).toHaveBeenCalled());
+  expect(apiMocks.updateProfile.mock.calls[0][0]).toMatchObject(cleaned);  // stored as shown, not as typed
+});
+
+
+it("lets someone go back and edit instead of saving", async () => {
+  withAddressCheck({
+    address: {country:"CA", province:"ON", address_line1:"1 Test St", address_line2:"", city:"London", postal_code:"N6A 1A1"},
+    errors: [], warnings: [], lines: ["1 Test St", "London ON N6A 1A1", "Canada"],
+  });
+  await typeAddress("1 Test St", "London", "n6a1a1");
+  fireEvent.click(await screen.findByRole("button", { name: "Edit address" }));
+  expect(screen.queryByText("Is this address right?")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+  expect(apiMocks.updateProfile).not.toHaveBeenCalled();
+});
+
+
+it("stops an address that cannot be valid and says why", async () => {
+  withAddressCheck({
+    address: {country:"CA", province:"ON", address_line1:"1 Test St", address_line2:"", city:"London", postal_code:"12345"},
+    errors: [{field:"postal_code", message:"12345 isn't a valid postal code in Canada."}], warnings: [], lines: [],
+  });
+  await typeAddress("1 Test St", "London", "12345");
+  expect(await screen.findByRole("alert")).toHaveTextContent("12345 isn't a valid postal code in Canada.");
+  expect(screen.queryByText("Is this address right?")).not.toBeInTheDocument();
+  expect(apiMocks.updateProfile).not.toHaveBeenCalled();
+});
+
+
+it("asks for a state only where the country's post uses one, in that country's words", async () => {
+  authState.user = { name:"Original Name", country:"GB", province:"", account_type:"individual" };
+  apiMocks.apiFetch.mockImplementation(async (path: string) => {
+    const us = path.includes("country=US");
+    return {
+      countries: [{code:"GB", name:"United Kingdom"}, {code:"US", name:"United States"}],
+      subdivisions: us ? [{code:"NY", name:"New York", region:"us-ny"}] : [],
+      requires_subdivision: us,
+      subdivision_mode: us ? "required" : "none",
+      labels: us ? {subdivision:"State", city:"City", postal_code:"ZIP code"} : {subdivision:"Province", city:"Town or city", postal_code:"Postal code"},
+      required_address_fields: ["address_line1", "city", "postal_code"],
+    };
+  });
+  render(<AccountProfileForm step="address" />);
+  expect(await screen.findByLabelText("Town or city")).toBeInTheDocument();
+  expect(screen.queryByLabelText(/Province|State/)).not.toBeInTheDocument();
+  expect(apiMocks.apiFetch.mock.calls.some((call) => String(call[0]).includes("country=GB&purpose=address"))).toBe(true);
+  fireEvent.change(screen.getByLabelText("Country"), { target: { value: "US" } });
+  expect(await screen.findByLabelText("State")).toBeRequired();
+  expect(screen.getByLabelText("ZIP code")).toBeInTheDocument();
 });

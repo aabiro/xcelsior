@@ -11,7 +11,8 @@ from billing import get_billing_engine
 
 
 @pytest.fixture
-def customer():
+def customer(persistent_auth_module):
+    # Billing reads the account from PostgreSQL, as production does; the user must be written there.
     with TestClient(app) as client:
         email = f"commitment-{uuid.uuid4().hex}@example.test"
         registered = client.post(

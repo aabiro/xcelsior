@@ -134,14 +134,17 @@ def test_required_seller_fields_cannot_be_blank_or_invented(field,value):
         normalize_seller_profile(_profile(**{field:value}), require_tax_id=True)
 
 
-def test_seller_address_uses_country_requirements_and_rejects_wrong_postal_region():
+def test_seller_address_uses_country_requirements_and_rejects_invalid_postal_codes():
     cleaned = normalize_seller_profile(_profile(country="HK", province="", postal_code="", city="Hong Kong", tax_id_kind="other", tax_id="TEST1234"), require_tax_id=True)
     assert cleaned["country"] == "HK"
     assert cleaned["province"] == cleaned["postal_code"] == ""
     assert seller_profile_complete({**cleaned, "tax_id_last4":"1234", "seller_terms_accepted_at":1700000000.0})
     with pytest.raises(ValueError, match="postal code"):
-        normalize_seller_profile(_profile(postal_code="V6B 1A1"), require_tax_id=True)
-    assert not seller_profile_complete({**_profile(postal_code="V6B 1A1"), "tax_id_last4":"1234"})
+        normalize_seller_profile(_profile(postal_code="12345"), require_tax_id=True)
+    assert not seller_profile_complete({**_profile(postal_code="12345"), "tax_id_last4":"1234"})
+    # A code from the neighbouring province is a warning on the form, never a block here.
+    border = normalize_seller_profile(_profile(province="AB", city="Lloydminster", postal_code="s9v0a1"), require_tax_id=True)
+    assert (border["province"], border["postal_code"]) == ("AB", "S9V0A1")  # seller rows store CA codes compact
 
 
 @pytest.mark.parametrize("accepted_at", [None, 0, -1, True, "accepted", float("nan"), float("inf")])
