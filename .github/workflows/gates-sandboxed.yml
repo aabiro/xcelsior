@@ -17,7 +17,8 @@ name: Gates (sandboxed runner)
 # start a database. Everything here therefore needs no database, no network and no
 # credentials — which is also why it is safe to run on code that has not been
 # reviewed. The DB-backed suite stays local (`./run-tests.sh`) until hosted Actions
-# billing is restored; see docs/review/workaround-elimination-plan.md A1.
+# billing is restored; see A1 of the internal workaround-elimination plan
+# (~/xcelsior-internal-docs/api/docs/review/workaround-elimination-plan.md).
 #
 # This is not a claim that the suite is green. It is a claim that these gates are.
 

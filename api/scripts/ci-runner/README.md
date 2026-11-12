@@ -33,8 +33,8 @@ branch to this repository requires write access; a fork cannot do it. There is n
 
 `run-runner.sh` **refuses to start** if a `pull_request` trigger appears in that
 workflow. The constraint is enforced, not remembered — which is the difference
-between this and the twelve compromises in
-`docs/review/workaround-elimination-plan.md`.
+between this and the twelve compromises in the internal
+`~/xcelsior-internal-docs/api/docs/review/workaround-elimination-plan.md`.
 
 ## 2. The runner holds nothing worth stealing
 

@@ -42,7 +42,8 @@ this ledger is required.
    named boundaries and their exact predecessors; the migration/restore and
    native-writer gates check their behavior. This replaces the old assumption
    that every contraction must wait for one final revision. Track B §B16 and
-   [the staged handoff](../docs/review/2026-10-23-staged-control-plane-handoff.md)
+   the staged handoff (internal record
+   `~/xcelsior-internal-docs/api/docs/review/2026-10-23-staged-control-plane-handoff.md`)
    own the writer changes and quiescence between these boundaries.
 5. **Expand-contract only** (blueprint ADR-009, §13.8; companion §4.4).
    Additive first; backfill in bounded `SKIP LOCKED` batches with hard
@@ -210,7 +211,8 @@ authority refuses the host unit rather than being rewritten. Independent host
 and job transactions are resumable; downgrade restores the exact 130/082
 definitions and prior default without rewriting rows. Current-schema fixtures
 now supply explicit native fields; older migration fixtures retain their
-historical shape. The [native writer rehearsal](../docs/review/2026-10-22-native-projection-writers.md)
+historical shape. The native writer rehearsal (internal record
+`~/xcelsior-internal-docs/api/docs/review/2026-10-22-native-projection-writers.md`)
 and the migration up/down/interrupted-unit gates cover the handoff mechanics.
 
 This is a scoped trigger contraction, not final B16.2 cleanup. Runtime floor

@@ -1,6 +1,7 @@
 """CVP-01 T-01: customer NFS fields must not reach the host's root mount helper.
 
-T1 (reports/cvp-01-evidence/T1/RESULTS-2026-11-09.md) showed a customer could
+T1 (CVP-01 evidence kept outside the repository,
+`reports/cvp-01-evidence/T1/RESULTS-2026-11-09.md`) showed a customer could
 set ``nfs_server``/``nfs_path``/``nfs_mount_point`` on ``POST /instance`` and
 have a provider host mount another tenant's volume, or the whole export tree,
 read-write into their container. Four layers now refuse that, and each is

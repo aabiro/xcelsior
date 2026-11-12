@@ -79,7 +79,8 @@ removed. The operator requested a quiescent cutover instead of extending the
 retirement-observation project. No retention wait is a deployment prerequisite
 for this completed runtime cutover. Historical stopped-job/storage records and
 schema remain intact. See the
-[executed active cutover](../../docs/review/2026-10-20-active-control-plane-cutover.md).
+executed active cutover record (internal:
+`~/xcelsior-internal-docs/api/docs/review/2026-10-20-active-control-plane-cutover.md`).
 
 API containers now start through `/bin/sh api/scripts/start_api.sh`. It creates
 a private multiprocess directory before Python imports, then execs Gunicorn.

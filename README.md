@@ -91,7 +91,7 @@ curl -X POST https://xcelsior.ca/instance \
 | Preemption | Never | Yes — when higher-priority work needs GPUs |
 | Billing | Metered at on-demand rate | Metered at `spot_rate_cad` locked at allocation |
 
-**Provider controls:** `spot_enabled`, `spot_gpu_slots`, `spot_min_cents` per host. **Kill switch:** `XCELSIOR_SPOT_ENABLED=false` disables new spot launches (503). See [SPOT_RUNBOOK.md](archive/SPOT_RUNBOOK.md) (on-call) and [SPOT_ROLLOUT.md](archive/SPOT_ROLLOUT.md) (staging/production rollout).
+**Provider controls:** `spot_enabled`, `spot_gpu_slots`, `spot_min_cents` per host. **Kill switch:** `XCELSIOR_SPOT_ENABLED=false` disables new spot launches (503). The on-call runbook and the staging/production rollout plan are internal and not in this repository.
 
 > **Breaking change:** `max_bid` and spot bidding are removed. Use `pricing_mode=spot` instead. See [CHANGELOG.md](CHANGELOG.md).
 

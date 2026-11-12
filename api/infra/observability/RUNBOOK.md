@@ -161,7 +161,8 @@ Native Grafana uses the dedicated `grafana/native/control-plane.yml` provider
 and existing datasource UID `prometheus`. Preserve other providers/datasources.
 Use Grafana's authenticated dashboard-provisioning reload endpoint and verify
 all datasource queries and rendered panels. The executed
-[cutover and monitoring record](../../docs/review/2026-10-20-active-control-plane-cutover.md)
+cutover and monitoring record (internal:
+`~/xcelsior-internal-docs/api/docs/review/2026-10-20-active-control-plane-cutover.md`)
 contains the package identity, checks and rollback boundary.
 
 The former retirement dashboard and native alert are removed. The operator
@@ -170,6 +171,43 @@ long retirement-observation wait. Historical stopped jobs and missing-volume
 metadata remain protected; the active cutover does not pretend to restore or
 retire their data. Physical schema contraction is a separate migration and
 must preserve that historical disposition.
+
+### Retired execution paths
+
+`XcelsiorRetiredExecutionPathUsed` fires when a path marked retired
+(`xcelsior_legacy_path_retired == 1`) still receives requests; the `path` label
+names it. Identify the old worker or client and inspect stopped legacy jobs
+before removing the handler. A blocked (HTTP 410) request still proves the path
+has callers, so refusals are not zero traffic. The worker cutover boundary
+record is internal:
+`~/xcelsior-internal-docs/api/docs/review/2026-10-20-worker-cutover-boundary.md`.
+
+## Security controls
+
+These alerts come from the security collectors. Unavailable evidence is never a
+passing check. The full monitoring and response procedure is the internal record
+`~/xcelsior-internal-docs/api/docs/review/2026-10-17-security-completion.md`
+(section "Monitoring and response").
+
+- `XcelsiorSecurityEvidenceUnavailable`: security state cannot be verified.
+  Inspect database query failures and the collector deployment.
+- `XcelsiorAbuseJobRunnable` (critical): a job with a durable abuse block is
+  runnable again. Preserve the job and its reconciliation history, then find the
+  writer that bypassed the block.
+- `XcelsiorDatabaseIdentityMismatch`: runtime database sessions are using a
+  shared or unexpected role. Compare the dedicated DSNs and current session
+  identities with the approved service-role contract. Do not broaden grants to
+  silence it.
+- `XcelsiorPublicDestinationRefusals`: repeated outbound public URL requests are
+  being refused. Review sanitized webhook and connector failures for repeated
+  destination-policy violations, without logging callback credentials.
+- `XcelsiorHostSecurityControlFailed` (critical): ingress containment or worker
+  egress verification is missing. Read the host collector and the current policy
+  status. The tower is read-only: do not automatically repair or restart its
+  services.
+- `XcelsiorHostSecurityCollectorStale`: the host security status file is older
+  than five minutes. Verify the collector schedule before trusting the last
+  successful value.
 
 ## Native alert delivery
 

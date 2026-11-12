@@ -24,7 +24,8 @@ A ratchet is the honest shape: the number may fall and may never rise, so the
 problem is bounded now and closed incrementally, with each reduction a deliberate
 act rather than a hope.
 
-`docs/review/workaround-elimination-plan.md` §B is the route to zero: generate the
+§B of the internal plan `~/xcelsior-internal-docs/api/docs/review/workaround-elimination-plan.md`
+is the route to zero: generate the
 mapping from a manifest instead of maintaining it by hand, which removes the
 failure mode rather than this instance of it.
 
