@@ -82,14 +82,16 @@ plan.md
 # ── Reports (generated, not tracked) ─────────────────────────────────
 docs/*
 api/docs/*
-# Review and incident records, un-ignored as a directory rather than file by
-# file. `docs/*` swallowed every new document until someone remembered to add an
-# exemption below, which is a list that has to be maintained to keep working —
-# the same shape as a regeneration step nobody runs. An incident write-up that
-# silently is not in the repository is worth less than no write-up, because it
-# reads as done.
-!docs/review/
-!api/docs/review/
+# Review and incident records (`docs/review/`, `api/docs/review/`) were
+# un-ignored here as a directory until the 2026-11-11 history scrub. They are
+# internal documents: write them to ~/xcelsior-internal-docs, outside the
+# repository. The block at the end of this file keeps them out, and
+# tests/test_internal_documents_are_not_tracked.py fails if one is tracked.
+#
+# The principle that exemption stated still holds for what remains below: an
+# incident write-up that silently is not in the repository is worth less than
+# no write-up, because it reads as done. So a document shipped code cites is
+# either exempted here or not cited.
 !docs/reconciliation.md
 !api/docs/reconciliation.md
 # Cited by shipped source, so they cannot stay local-only. `docs/*` above had
@@ -342,3 +344,40 @@ private_handoff.md
 # (it lists recipients' addresses).
 !api/docs/PRODUCT_UPDATES.md
 data/product_updates/
+
+# Internal documents and generated exports - never commit (see 2026-11-11 history scrub)
+#
+# Internal review, evidence and handoff documents go to ~/xcelsior-internal-docs,
+# outside the repository. The Stripe JSON files are exports of live billing
+# configuration; the code that reads or generates them (billing/stripe_catalog.py)
+# is ordinary code and stays tracked. The polish_stripe_dashboard.py scripts were
+# removed in the scrub and are not to be re-added.
+#
+# tests/test_internal_documents_are_not_tracked.py holds the same list: it fails
+# if a file at any of these paths is tracked, or if a rule here stops ignoring
+# one. Keep this block last in the file, so no earlier `!` negation can
+# re-include a path (in .gitignore the last matching rule wins).
+/docs/review/
+/api/docs/review/
+/api/docs/billing/
+/api/docs/billing-money-path.md
+/docs/billing-money-path.md
+/SPOT_RUNBOOK.md
+/SPOT_ROLLOUT.md
+/api/docs/SPOT_RUNBOOK.md
+/archive/SPOT_RUNBOOK.md
+/archive/SPOT_ROLLOUT.md
+/google_support.md
+/archive/google_support.md
+/api/config/stripe_dashboard.json
+/api/config/stripe_catalog.json
+/config/stripe_dashboard.json
+/config/stripe_catalog.json
+/billing/stripe_dashboard.json
+/billing/stripe_catalog.json
+polish_stripe_dashboard.py
+# Local research and evidence written into the checkout (CVP briefs and results
+# among them). The pre-scrub checkout ignored these only in .git/info/exclude,
+# which a re-clone does not carry, so they are here now.
+/reports/
+/research_notes/

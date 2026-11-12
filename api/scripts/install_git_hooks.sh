@@ -45,7 +45,8 @@ for t in tests/test_migration_ledger.py \
          tests/test_startup_env_is_wired.py \
          tests/test_source_tree_is_shared.py \
          tests/test_companion_schema_discipline.py \
-         tests/test_sql_injection_guard.py; do
+         tests/test_sql_injection_guard.py \
+         tests/test_internal_documents_are_not_tracked.py; do
     [[ -f "$t" ]] && GATES+=("$t")
 done
 
