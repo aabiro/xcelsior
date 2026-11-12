@@ -443,7 +443,7 @@ def test_a_strong_local_answer_costs_one_request(user_headers, monkeypatch):
 def test_a_visitor_country_that_is_not_one_searches_the_world_only(user_headers, monkeypatch, header):
     calls = []
     _photon(monkeypatch, [], calls)
-    _search(user_headers, {"text": "10 King Street"}, **({"CF-IPCountry": header} if header else {}))
+    _search(user_headers, {"text": "King Street"}, **({"CF-IPCountry": header} if header else {}))
     assert [dict(kwargs["params"]).get("countrycode") for _, kwargs in calls] == [None]
 
 
@@ -713,3 +713,32 @@ def test_unlocated_host_records_its_location_while_work_runs(user_headers):
         with pg_connection() as conn:
             row=conn.execute("SELECT status,phase FROM jobs WHERE job_id=%s", (instance["job_id"],)).fetchone()
         assert row == ("running", "running")
+
+
+def test_a_number_osm_has_never_heard_of_still_finds_the_typed_street(user_headers, monkeypatch):
+    """With the number in the query OSM may return other places; asked without it, it finds the street."""
+    import httpx
+
+    calls = []
+    corso = {"type": "Feature", "properties": {"type": "street", "name": "Via del Corso", "city": "Roma", "state": "Lazio", "postcode": "00187", "countrycode": "IT"}}
+    elsewhere = _feature(housenumber="300", street="Vía Corso Oriente", city="San Pedro Garza García", state="NLE", postcode="66266", countrycode="MX")
+
+    def provider(url, **kwargs):
+        query = dict(kwargs["params"])["q"]
+        calls.append(query)
+        features = [elsewhere] if "300" in query else [corso]
+        return httpx.Response(200, json={"type": "FeatureCollection", "features": features}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", provider)
+    found = _search(user_headers, {"text": "Via del Corso 300"}).json()["suggestions"]
+    assert [(s["address"]["address_line1"], s["address"]["city"]) for s in found] == [
+        ("Via del Corso 300", "Roma"), ("Vía Corso Oriente 300", "San Pedro Garza García")]
+    assert found[0]["address"]["province"] == "RM"  # Rome's province, from the city
+    assert calls == ["Via del Corso 300", "Via del Corso"]
+    # A full match needs no second request.
+    calls.clear()
+    monkeypatch.setattr(httpx, "get", lambda url, **kwargs: (calls.append(1), httpx.Response(
+        200, json={"type": "FeatureCollection", "features": [_feature(housenumber="300", street="Via del Corso", city="Roma", countrycode="IT")]},
+        request=httpx.Request("GET", url)))[1])
+    _search(user_headers, {"text": "Via del Corso 300, Roma"})
+    assert calls == [1]

@@ -183,6 +183,16 @@ def _street_was_typed(street: str, text: str) -> bool:
     return any(word.startswith(t) for t in typed for word in street_words)
 
 
+def _fully_typed(address: dict[str, str], text: str, number: str) -> bool:
+    """Whether an address carries the typed number and every typed word starts one of its words."""
+    from host_metadata import _fold
+
+    words = _fold(" ".join((address["address_line1"], address["city"]))).replace(",", " ").replace("-", " ").split()
+    line = re.split(r"[\s,]+", address["address_line1"])
+    typed = [w for w in _fold(text).replace(",", " ").split() if len(w) >= 3 and w != _fold(number)]
+    return number in line and all(any(word.startswith(t) for word in words) for t in typed)
+
+
 def _non_latin(value: str) -> bool:
     """Chinese, Japanese or Korean script, where the number follows the street."""
     return any(ord(ch) >= 0x2E80 for ch in value)
@@ -294,6 +304,7 @@ def api_address_search(body: AddressSearchRequest, request: Request):
 def _address_suggestions(text: str, *, country: str, lang: str, visitor_country: str) -> list[dict]:
     """Search, parse and rank: the part of address search that needs no request."""
     import pycountry
+    from host_metadata import _fold, region_display
 
     lang = lang.strip().lower()
     base = [("q", text), ("limit", "12"), ("layer", "house"), ("layer", "street")]
@@ -334,10 +345,38 @@ def _address_suggestions(text: str, *, country: str, lang: str, visitor_country:
             taken += 1
             if taken == room:
                 break
+    if typed_number and not any(_fully_typed(address, text, typed_number) for address in addresses):
+        # Google Maps still offers the street when it has never heard of that
+        # number; OpenStreetMap often returns nothing useful while the number is
+        # in the query, so ask once more without it and put the number back.
+        words = text.split(",", 1)[0].split()
+        street_only = " ".join(word for word in words if word != typed_number)
+        rest = text.split(",", 1)[1] if "," in text else ""
+        retry = ", ".join(part for part in (street_only, rest.strip()) if part)
+        if len(retry) >= 3:
+            params = [("q", retry), *base[1:]] + ([("countrycode", near_country)] if country else [])
+            try:
+                again = _photon_features(params)
+            except HTTPException:
+                again = []
+            numbered = []
+            for feature in again:
+                address = _photon_address(feature["properties"], typed_number, text)
+                if address is None or (country and address["country"] != country):
+                    continue
+                if not _fully_typed(address, text, typed_number):
+                    continue
+                key = tuple(address[field] for field in ("address_line1", "city", "postal_code", "country"))
+                if key not in seen:
+                    seen.add(key)
+                    numbered.append(address)
+            addresses = numbered + addresses
     suggestions = []
     for index, address in enumerate(addresses[:8]):
         place = pycountry.countries.get(alpha_2=address["country"])
-        region = address["province"] if _region_in_postal_format(address["country"]) else ""
+        region = region_display(address["country"], address["province"]) if _region_in_postal_format(address["country"]) else ""
+        if _fold(region) == _fold(address["city"]):
+            region = ""
         description = ", ".join(
             part
             for part in (

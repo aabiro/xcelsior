@@ -537,6 +537,54 @@ def _region_tables(
     )
 
 
+# Where the post writes the region as its abbreviation ("London ON N6B 1Z2").
+_REGION_ABBREVIATED = frozenset({"US", "CA", "AU", "BR", "MX"})
+
+
+@functools.lru_cache(maxsize=512)
+def _region_labels(country: str) -> dict[str, tuple[str, str]]:
+    """ISO code → (local name, Latin name) as Google's postal data writes them."""
+    from i18naddress import load_validation_data
+
+    try:
+        data = load_validation_data(country.lower()).get(country) or {}
+    except Exception:
+        data = {}
+
+    def column(name: str) -> list[str]:
+        raw = str(data.get(name) or "")
+        return raw.split("~") if raw else []
+
+    keys, names, lnames, isoids = (column(n) for n in ("sub_keys", "sub_names", "sub_lnames", "sub_isoids"))
+    labels: dict[str, tuple[str, str]] = {}
+    for index, key in enumerate(keys):
+        code = (isoids[index] if index < len(isoids) and isoids[index] else key).upper()
+        name = names[index] if index < len(names) else ""
+        # A key that is itself a short code ("M") is not what the post writes; its name is.
+        local = name if (len(key) <= 3 and key.isascii() and name) else key
+        latin = (lnames[index] if index < len(lnames) else "") or (local if local.isascii() else "")
+        labels.setdefault(code, (local, latin))
+    return labels
+
+
+def region_display(country: str, code: str, *, latin: bool = True) -> str:
+    """A region the way the country's post writes it: "ON", "Co. Dublin", "Tokyo" or "東京都"."""
+    import pycountry
+
+    country_code = str(country or "").strip().upper()
+    code = str(code or "").strip().upper()
+    if not code:
+        return ""
+    if country_code in _REGION_ABBREVIATED:
+        return code
+    local, latin_name = _region_labels(country_code).get(code, ("", ""))
+    chosen = (latin_name or local) if latin else (local or latin_name)
+    if chosen:
+        return chosen
+    sub = _subdivision(code=f"{country_code}-{code}")
+    return _region_name(sub.name) if sub is not None else code
+
+
 def _one_region(table: dict[str, frozenset[str]], value: str) -> str:
     for spelling in _region_keys(value):
         codes = table.get(spelling, frozenset())
@@ -703,24 +751,37 @@ def profile_address_values(profile: dict[str, Any]) -> tuple[dict[str, str], lis
 
 
 def postal_lines(address: dict[str, str]) -> list[str]:
-    """The address laid out the way the country's post office prints it."""
+    """The address laid out the way the country's post office prints it.
+
+    A Latin-script address uses the country's Latin layout (Japan's
+    "Marunouchi 1-9-1, Chiyoda, Tokyo"), the region is written the way that
+    post writes it, and a layout with no city line keeps the city on the street line.
+    """
     import pycountry
     from i18naddress import get_validation_rules
 
-    rules = get_validation_rules({"country_code": address["country"]})
+    country = address["country"]
+    rules = get_validation_rules({"country_code": country})
+    city = address.get("city") or ""
     street = "\n".join(
         value for value in (address.get("address_line1"), address.get("address_line2")) if value
     )
+    latin = not any(ord(ch) >= 0x2E80 for ch in street + city)
+    layout = (rules.address_latin_format if latin else "") or rules.address_format
+    region = region_display(country, address.get("province") or "", latin=latin)
+    if "%C" not in layout and city and city not in street:
+        street = f"{street}, {city}" if latin else f"{city}{street}"
     values = {
         "A": street,
-        "C": address.get("city") or "",
-        "S": address.get("province") or "",
+        "C": city,
+        # "28014 Madrid", not "28014 Madrid Madrid": a region named like its city is not repeated.
+        "S": "" if _fold(region) == _fold(city) else region,
         "Z": address.get("postal_code") or "",
     }
-    text = re.sub(r"%([A-Z])", lambda match: values.get(match.group(1), ""), rules.address_format)
+    text = re.sub(r"%([A-Z])", lambda match: values.get(match.group(1), ""), layout)
     lines = [" ".join(line.split()).strip(" ,") for line in text.replace("%n", "\n").split("\n")]
-    country = pycountry.countries.get(alpha_2=address["country"])
-    return [line for line in lines if line] + ([country.name] if country is not None else [])
+    place = pycountry.countries.get(alpha_2=country)
+    return [line for line in lines if line] + ([place.name] if place is not None else [])
 
 
 def review_profile_address(profile: dict[str, Any]) -> dict[str, Any]:

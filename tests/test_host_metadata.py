@@ -318,3 +318,29 @@ def test_a_chosen_region_is_kept_everywhere_and_a_blank_one_is_fine_unless_requi
         require_address_location("US", "")
     with pytest.raises(ValueError):
         require_address_location("GB", "XX")  # given, so it must be real
+
+
+@pytest.mark.parametrize("country,code,latin,shown", [
+    ("CA", "ON", True, "ON"), ("US", "NY", True, "NY"),            # the post writes the abbreviation
+    ("IE", "D", True, "Co. Dublin"), ("JP", "13", True, "Tokyo"), ("JP", "13", False, "東京都"),
+    ("KR", "11", True, "Seoul"), ("ES", "M", True, "Madrid"), ("SE", "AB", True, "Stockholms län"),
+    ("DE", "BE", True, "Berlin"), ("GB", "", True, ""),
+])
+def test_regions_are_written_the_way_each_post_writes_them(country, code, latin, shown):
+    from host_metadata import region_display
+
+    assert region_display(country, code, latin=latin) == shown
+
+
+def test_review_lines_use_the_script_of_the_address():
+    from host_metadata import postal_lines
+
+    jp = {"country": "JP", "province": "13", "postal_code": "100-0005"}
+    assert postal_lines({**jp, "address_line1": "Marunouchi 1-9-1", "city": "Chiyoda"}) == [
+        "Marunouchi 1-9-1, Chiyoda, Tokyo", "100-0005", "Japan"]
+    assert postal_lines({**jp, "address_line1": "丸の内一丁目9-1", "city": "千代田区"}) == [
+        "〒100-0005", "東京都", "千代田区丸の内一丁目9-1", "Japan"]
+    assert postal_lines({"country": "ES", "province": "M", "address_line1": "Calle de Alcalá 42", "city": "Madrid", "postal_code": "28014"}) == [
+        "Calle de Alcalá 42", "28014 Madrid", "Spain"]  # not "28014 Madrid Madrid"
+    assert postal_lines({"country": "IE", "province": "D", "address_line1": "1 Grafton Street", "city": "Dublin", "postal_code": "D02 K198"}) == [
+        "1 Grafton Street", "Dublin", "Co. Dublin", "D02 K198", "Ireland"]
