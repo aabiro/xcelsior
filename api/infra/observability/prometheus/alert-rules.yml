@@ -84,7 +84,7 @@ groups:
         annotations:
           summary: No Xcelsior API replica is scrapeable
           description: Both green and blue API targets have been unavailable for two minutes.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#api-and-worker-availability
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#api-and-worker-availability
 
       - alert: XcelsiorMcpUnavailable
         expr: xcelsior:mcp_available < 1
@@ -95,7 +95,7 @@ groups:
         annotations:
           summary: No Xcelsior MCP replica is scrapeable
           description: Both MCP targets have been unavailable for five minutes.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#api-and-worker-availability
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#api-and-worker-availability
 
       - alert: XcelsiorWorkerUnavailable
         expr: |
@@ -110,7 +110,7 @@ groups:
         annotations:
           summary: Xcelsior {{ $labels.service }} worker has no fresh replica
           description: The service is enabled but no durable heartbeat has been observed inside the configured freshness window.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#api-and-worker-availability
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#api-and-worker-availability
 
       - alert: XcelsiorControlPlaneMetricsMissing
         expr: absent(xcelsior_control_plane_metrics_available)
@@ -121,7 +121,7 @@ groups:
         annotations:
           summary: Durable control-plane metrics are missing
           description: Prometheus cannot find the explicit availability signal, so zero-valued operational gauges cannot be trusted.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#telemetry-freshness
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#telemetry-freshness
 
       - alert: XcelsiorControlPlaneMetricsUnavailable
         expr: max(xcelsior_control_plane_metrics_available) < 1
@@ -132,7 +132,7 @@ groups:
         annotations:
           summary: Durable control-plane metric queries are failing
           description: The API is scrapeable but cannot read the PostgreSQL operational state.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#telemetry-freshness
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#telemetry-freshness
 
       - alert: XcelsiorControlPlaneMetricsStale
         expr: xcelsior:control_plane_metrics_age_seconds > 180
@@ -143,7 +143,7 @@ groups:
         annotations:
           summary: Durable control-plane metrics are stale
           description: No successful durable metrics snapshot has completed in more than three minutes.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#telemetry-freshness
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#telemetry-freshness
 
   - name: xcelsior.queue-and-billing
     rules:
@@ -156,7 +156,7 @@ groups:
         annotations:
           summary: Xcelsior queue depth is high
           description: More than 100 jobs have remained queued for ten minutes.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#queue-backlog-and-age
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#queue-backlog-and-age
 
       - alert: XcelsiorQueueOldestJobStale
         expr: xcelsior:queue_oldest_age_seconds > 900
@@ -167,7 +167,7 @@ groups:
         annotations:
           summary: The oldest queued job has waited over 15 minutes
           description: Inspect scheduler heartbeats, capacity filters, and durable queue reasons before changing job state.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#queue-backlog-and-age
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#queue-backlog-and-age
 
       - alert: XcelsiorBillingMetersMissing
         expr: max(xcelsior_billing_missing_meters) > 0
@@ -178,7 +178,7 @@ groups:
         annotations:
           summary: Billable terminal attempts are missing usage meters
           description: GPU work may be unbilled. Preserve ledger evidence and use the billing reconciler; do not hand-edit wallets or meters.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#billing-meter-invariants
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#billing-meter-invariants
 
       - alert: XcelsiorBillingMetersOpenAfterTerminal
         expr: max(xcelsior_billing_open_terminal_meters) > 0
@@ -189,7 +189,7 @@ groups:
         annotations:
           summary: Usage meters remain open after terminal attempts
           description: Cost settlement is incomplete for at least one terminal attempt.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#billing-meter-invariants
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#billing-meter-invariants
 
   - name: xcelsior.control-plane-invariants
     rules:
@@ -202,7 +202,7 @@ groups:
         annotations:
           summary: Expired placement leases remain live
           description: A lease expiry sweep may be stalled. Verify fencing before any manual requeue or stop action.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#leases-fences-and-observations
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#leases-fences-and-observations
 
       - alert: XcelsiorStaleFenceFinding
         expr: max(xcelsior_reconciliation_stale_fence_findings) > 0
@@ -213,7 +213,7 @@ groups:
         annotations:
           summary: Reconciliation found workload running behind a stale fence
           description: Do not reassign strict work until host and storage fencing are definitive.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#leases-fences-and-observations
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#leases-fences-and-observations
 
       - alert: XcelsiorHostObservationsStale
         expr: max(xcelsior_stale_host_observations) > 0
@@ -224,7 +224,7 @@ groups:
         annotations:
           summary: Admitted hosts have stale or missing observations
           description: One or more admitted hosts are beyond the configured observation freshness window.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#leases-fences-and-observations
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#leases-fences-and-observations
 
       - alert: XcelsiorReconciliationBacklog
         expr: max(xcelsior_reconciliation_queue_depth) > 100 or max(xcelsior_reconciliation_oldest_due_age_seconds) > 300
@@ -235,7 +235,7 @@ groups:
         annotations:
           summary: Reconciliation work is accumulating
           description: The due queue is deep or its oldest item is more than five minutes late.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#leases-fences-and-observations
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#leases-fences-and-observations
 
       - alert: XcelsiorScheduledTaskFailure
         expr: max(xcelsior_scheduled_task_failures) > 0
@@ -246,7 +246,7 @@ groups:
         annotations:
           summary: A durable scheduled task's latest run failed
           description: Inspect scheduled_tasks.last_error and repair the dependency before retrying.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#api-and-worker-availability
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#api-and-worker-availability
 
   - name: xcelsior.outbox-and-projections
     rules:
@@ -259,7 +259,7 @@ groups:
         annotations:
           summary: Transactional outbox delivery is behind
           description: The unpublished outbox is deep or its oldest event is more than five minutes old.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#outbox-and-projectors
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#outbox-and-projectors
 
       - alert: XcelsiorOutboxDeadLetters
         expr: max(xcelsior_outbox_dead_letters) > 0
@@ -270,7 +270,7 @@ groups:
         annotations:
           summary: Transactional outbox has dead-lettered events
           description: Preserve delivery evidence; never mark events delivered without sink proof.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#outbox-and-projectors
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#outbox-and-projectors
 
       - alert: XcelsiorProjectionMetricsUnavailable
         expr: absent(xcelsior_projection_metrics_available) or max(xcelsior_projection_metrics_available) < 1
@@ -281,7 +281,7 @@ groups:
         annotations:
           summary: Projection delivery metrics are unavailable
           description: Projection zero values cannot be trusted until the durable health snapshot succeeds.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#outbox-and-projectors
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#outbox-and-projectors
 
       - alert: XcelsiorProjectionMetricsStale
         expr: time() - max(xcelsior_projection_metrics_last_success_timestamp_seconds) > 180
@@ -292,7 +292,7 @@ groups:
         annotations:
           summary: Projection delivery metrics are stale
           description: No successful projection snapshot has completed in more than three minutes.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#outbox-and-projectors
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#outbox-and-projectors
 
       - alert: XcelsiorProjectionBacklog
         expr: xcelsior:projection_pending_deliveries > 100 or max(xcelsior_projection_oldest_pending_seconds) > 300 or max(xcelsior_projection_outbox_unprepared) > 100
@@ -303,7 +303,7 @@ groups:
         annotations:
           summary: Projection delivery is behind
           description: Pending receipts, old receipts, or unprepared fan-out work exceed the operational threshold.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#outbox-and-projectors
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#outbox-and-projectors
 
       - alert: XcelsiorProjectionDeadLetters
         expr: xcelsior:projection_dead_letters > 0
@@ -314,7 +314,7 @@ groups:
         annotations:
           summary: Projection delivery has dead letters
           description: At least one projection sink exhausted delivery attempts.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#outbox-and-projectors
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#outbox-and-projectors
 
   - name: xcelsior.postgres-and-backups
     rules:
@@ -327,7 +327,7 @@ groups:
         annotations:
           summary: PostgreSQL exporter is unavailable
           description: Database capacity and health signals are missing; verify exporter credentials and PostgreSQL reachability.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#postgresql-capacity
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#postgresql-capacity
 
       - alert: XcelsiorPostgresConnectionsHigh
         expr: xcelsior:postgres_connections_utilization > 0.80
@@ -338,7 +338,7 @@ groups:
         annotations:
           summary: PostgreSQL connection utilization exceeds 80 percent
           description: Identify leaking or oversized pools before max_connections is exhausted.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#postgresql-capacity
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#postgresql-capacity
 
       - alert: XcelsiorPostgresDeadlocks
         expr: sum(increase(pg_stat_database_deadlocks[15m])) > 0
@@ -349,7 +349,7 @@ groups:
         annotations:
           summary: PostgreSQL reported a deadlock
           description: Correlate the affected database with application traces and lock-order logs.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#postgresql-capacity
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#postgresql-capacity
 
       - alert: XcelsiorHostFilesystemLow
         expr: xcelsior:host_filesystem_available_ratio < 0.15
@@ -360,7 +360,7 @@ groups:
         annotations:
           summary: Host filesystem has less than 15 percent free
           description: Verify the PostgreSQL, Prometheus, Loki, and Tempo data paths before deleting any retained evidence.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#postgresql-capacity
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#postgresql-capacity
 
       - alert: XcelsiorTelemetrySnapshotsSizeHigh
         expr: pg_stat_user_tables_n_live_tup{relname="telemetry_snapshots"} > 50000
@@ -371,7 +371,7 @@ groups:
         annotations:
           summary: telemetry_snapshots table size exceeds bounded retention threshold
           description: Legacy telemetry_snapshots table contains excess unpruned rows. Run the telemetry retention task.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#postgresql-capacity
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#postgresql-capacity
 
       - alert: XcelsiorBackupMetricMissing
         expr: up{job="node"} == 1 and absent(xcelsior_backup_last_success_timestamp_seconds)
@@ -382,7 +382,7 @@ groups:
         annotations:
           summary: Database backup freshness metric is missing
           description: Node exporter is healthy but the backup textfile collector has never reported a success timestamp.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 
       - alert: XcelsiorBackupStale
         expr: time() - xcelsior_backup_last_success_timestamp_seconds > 93600
@@ -393,7 +393,7 @@ groups:
         annotations:
           summary: No successful PostgreSQL backup in 26 hours
           description: Check the backup timer and repository without overwriting the last known-good backup.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 
       - alert: XcelsiorBackupFailedSinceLastSuccess
         expr: xcelsior_backup_last_failure_timestamp_seconds > xcelsior_backup_last_success_timestamp_seconds
@@ -404,7 +404,7 @@ groups:
         annotations:
           summary: The latest PostgreSQL backup attempt failed
           description: A failure timestamp is newer than the last successful backup.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 
       - alert: XcelsiorRestoreDrillMetricMissing
         expr: up{job="node"} == 1 and absent(xcelsior_restore_last_success_timestamp_seconds)
@@ -415,7 +415,7 @@ groups:
         annotations:
           summary: Restore-drill freshness metric is missing
           description: The restore drill has not published a successful validation timestamp.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 
       - alert: XcelsiorRestoreDrillStale
         expr: time() - xcelsior_restore_last_success_timestamp_seconds > 3024000
@@ -426,7 +426,7 @@ groups:
         annotations:
           summary: No successful restore drill in 35 days
           description: Backups are not proven recoverable until an isolated restore drill succeeds.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 
       - alert: XcelsiorRestoreDrillFailedSinceLastSuccess
         expr: xcelsior_restore_last_failure_timestamp_seconds > xcelsior_restore_last_success_timestamp_seconds
@@ -437,7 +437,7 @@ groups:
         annotations:
           summary: The latest restore drill failed
           description: A restore failure timestamp is newer than the last successful drill.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 
   - name: xcelsior.telemetry-stack
     rules:
@@ -450,7 +450,7 @@ groups:
         annotations:
           summary: Telemetry component {{ $labels.job }} is unavailable
           description: Logs, traces, or notifications may be incomplete while this target is down.
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#telemetry-freshness
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#telemetry-freshness
 
   - name: xcelsior.slo-burn-rate
     rules:
@@ -464,7 +464,7 @@ groups:
         annotations:
           summary: "INVARIANT BREACH: duplicate active exclusive GPU allocation detected"
           description: "This is a zero-tolerance invariant. Any non-zero value represents a scheduling safety violation."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#hard-invariants
 
       - alert: XcelsiorInvariantExclusiveAllocationCollision
         expr: increase(xcelsior_scheduler_allocation_constraint_violations_total[30m]) > 0
@@ -476,7 +476,7 @@ groups:
         annotations:
           summary: "INVARIANT BREACH: duplicate active exclusive GPU allocation detected"
           description: "This is a zero-tolerance invariant. Any non-zero value represents a scheduling safety violation."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#hard-invariants
 
       - alert: XcelsiorInvariantUnvettedWorkerStart
         expr: increase(xcelsior_worker_unvetted_starts_total[5m]) > 0
@@ -488,7 +488,7 @@ groups:
         annotations:
           summary: "INVARIANT BREACH: Start accepted without valid current attempt, lease, and fence"
           description: "This is a zero-tolerance invariant."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#hard-invariants
 
       - alert: XcelsiorInvariantUnvettedWorkerStart
         expr: increase(xcelsior_worker_unvetted_starts_total[30m]) > 0
@@ -500,7 +500,7 @@ groups:
         annotations:
           summary: "INVARIANT BREACH: Start accepted without valid current attempt, lease, and fence"
           description: "This is a zero-tolerance invariant."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#hard-invariants
 
       - alert: XcelsiorInvariantStaleFenceMutation
         expr: increase(xcelsior_stale_fence_acceptances_total[5m]) > 0
@@ -512,7 +512,7 @@ groups:
         annotations:
           summary: "INVARIANT BREACH: Mutation/route/secret/storage write behind a stale fence"
           description: "This is a zero-tolerance invariant."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#hard-invariants
 
       - alert: XcelsiorInvariantStaleFenceMutation
         expr: increase(xcelsior_stale_fence_acceptances_total[30m]) > 0
@@ -524,7 +524,7 @@ groups:
         annotations:
           summary: "INVARIANT BREACH: Mutation/route/secret/storage write behind a stale fence"
           description: "This is a zero-tolerance invariant."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#hard-invariants
 
       - alert: XcelsiorInvariantPrematureStrictReassignment
         expr: increase(xcelsior_premature_strict_reassignments_total[5m]) > 0
@@ -536,7 +536,7 @@ groups:
         annotations:
           summary: "INVARIANT BREACH: Strict workload reassigned before definitive fencing"
           description: "This is a zero-tolerance invariant."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#hard-invariants
 
       - alert: XcelsiorInvariantPrematureStrictReassignment
         expr: increase(xcelsior_premature_strict_reassignments_total[30m]) > 0
@@ -548,7 +548,7 @@ groups:
         annotations:
           summary: "INVARIANT BREACH: Strict workload reassigned before definitive fencing"
           description: "This is a zero-tolerance invariant."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#hard-invariants
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#hard-invariants
 
       - alert: XcelsiorSloPlacementLatency
         expr: xcelsior_scheduler_placement_duration_seconds > 2.0
@@ -559,7 +559,7 @@ groups:
         annotations:
           summary: "SLO Breach: Placement latency p95 > 2s"
           description: "Burn rate on placement latency SLO."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slo
 
       - alert: XcelsiorSloAssignmentToClaimLatency
         expr: xcelsior_scheduler_claim_latency_seconds > 60.0
@@ -570,7 +570,7 @@ groups:
         annotations:
           summary: "SLO Breach: Assignment to claim latency p95 > 60s"
           description: "Burn rate on claim latency SLO."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slo
 
       - alert: XcelsiorSloConvergenceLatency
         expr: xcelsior_reconciler_convergence_duration_seconds > 60.0
@@ -581,7 +581,7 @@ groups:
         annotations:
           summary: "SLO Breach: Convergence latency 99% > 60s"
           description: "Burn rate on convergence latency SLO."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slo
 
       - alert: XcelsiorSloCommandAckLatency
         expr: xcelsior_worker_command_latency_seconds > 15.0
@@ -592,7 +592,7 @@ groups:
         annotations:
           summary: "SLO Breach: Command ACK latency p95 > 15s"
           description: "Burn rate on command ACK latency SLO."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slo
 
       - alert: XcelsiorSloMcpPreviewAvailability
         expr: sum(xcelsior_mcp_funnel_transitions_total) < 1
@@ -603,7 +603,7 @@ groups:
         annotations:
           summary: "SLO Breach: MCP Preview Availability < 99.95%"
           description: "Burn rate on availability SLO."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slo
 
       - alert: XcelsiorSloApprovedLaunchSuccess
         expr: sum(xcelsior_mcp_launch_outcomes_total) < 1
@@ -614,7 +614,7 @@ groups:
         annotations:
           summary: "SLO Breach: Approved Launch Success < 99.9%"
           description: "Burn rate on availability SLO."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slo
 
       - alert: XcelsiorSloQueueReasonCompleteness
         expr: xcelsior_queue_reason_completeness < 1.0
@@ -625,7 +625,7 @@ groups:
         annotations:
           summary: "SLO Breach: Queue entries missing reasons"
           description: "Burn rate on completeness SLO."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slo
 
       - alert: XcelsiorSloBillingMeterConsistency
         expr: xcelsior_billing_meter_mismatches_total > 0
@@ -636,7 +636,7 @@ groups:
         annotations:
           summary: "SLO Breach: Billing meter consistency < 100%"
           description: "Burn rate on consistency SLO."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slo
 
       - alert: XcelsiorSloStaleHostRemoval
         expr: xcelsior_stale_host_observations > 5.0
@@ -647,4 +647,4 @@ groups:
         annotations:
           summary: "SLO Breach: Stale host removal freshness"
           description: "Burn rate on freshness SLO."
-          runbook_url: https://github.com/aabiro/xcelsior/blob/main/infra/observability/RUNBOOK.md#slo
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#slo
