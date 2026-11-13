@@ -98,7 +98,7 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `161_oauth_client_permission_preset.py`.**
+**Repository head: `162_mcp_permission_requests.py`.**
 
 160 adds a business account's public face. `users` gains `business_display_name`, `business_website` and `business_tagline` (text, blank by default, so a release that does not know them keeps working). `business_logos` holds one logo per account beside `user_avatars`: the image stored is the 512 px square the API re-encoded, never the upload, and `tile` records the background a transparent logo needs behind it.
 

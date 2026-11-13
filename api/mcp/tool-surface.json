@@ -1063,6 +1063,41 @@
       "hasOutputSchema": true
     },
     {
+      "name": "get_permissions",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "artifacts:read",
+        "billing:read",
+        "billing:topup",
+        "events:read",
+        "gpu:read",
+        "inference:read",
+        "inference:write",
+        "instances:connect",
+        "instances:operate",
+        "instances:read",
+        "instances:write",
+        "marketplace:read",
+        "providers:read",
+        "reputation:read",
+        "ssh:read",
+        "ssh:write",
+        "volumes:read",
+        "volumes:write"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {},
+      "hasOutputSchema": true
+    },
+    {
       "name": "get_pipeline_status",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -2001,6 +2036,50 @@
           "optional": false
         },
         "name": {
+          "type": "string",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "request_permission",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "artifacts:read",
+        "billing:read",
+        "billing:topup",
+        "events:read",
+        "gpu:read",
+        "inference:read",
+        "inference:write",
+        "instances:connect",
+        "instances:operate",
+        "instances:read",
+        "instances:write",
+        "marketplace:read",
+        "providers:read",
+        "reputation:read",
+        "ssh:read",
+        "ssh:write",
+        "volumes:read",
+        "volumes:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "permissions": {
+          "type": "array",
+          "optional": false
+        },
+        "reason": {
           "type": "string",
           "optional": true
         }

@@ -1808,6 +1808,7 @@ def api_mcp_quick_connect(
     from oauth_service import (
         MCP_QUICK_CONNECT_SCOPES,
         get_or_create_mcp_quick_connect_client,
+        mcp_approved_extras,
         mcp_permission_preset_of,
         mcp_read_only_scopes,
     )
@@ -1916,6 +1917,8 @@ def api_mcp_quick_connect(
             "read": mcp_read_only_scopes(),
             "write": list(MCP_QUICK_CONNECT_SCOPES),
         },
+        # Held, but offered by no tab: each was granted on the approval page.
+        "approved_extras": mcp_approved_extras(scopes),
         "mcp_url": MCP_RESOURCE_AUDIENCE,
         "api_url": mcp_base,
     }
@@ -1945,14 +1948,10 @@ def api_mcp_quick_connect_permissions(body: McpPermissionsUpdate, request: Reque
     from oauth_service import (
         MCP_QUICK_CONNECT_SCOPES,
         get_or_create_mcp_quick_connect_client,
+        mcp_approved_extras,
         mcp_permission_scopes,
         mcp_read_only_scopes,
     )
-
-    try:
-        scopes = mcp_permission_scopes(body.preset, body.scopes)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
 
     surface = body.surface
     lock_key = (
@@ -1966,6 +1965,16 @@ def api_mcp_quick_connect_permissions(body: McpPermissionsUpdate, request: Reque
             surface=surface,
         )
         client_id = client["client_id"]
+        # An approved extra (top-up) may be kept or dropped by a Custom
+        # selection. It can only be *added* on the approval page.
+        try:
+            scopes = mcp_permission_scopes(
+                body.preset,
+                body.scopes,
+                held_extras=mcp_approved_extras(client.get("scopes") or []),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         OAuthStore.update_client(
             client_id,
             {"scopes": scopes, "permission_preset": body.preset},
@@ -1974,6 +1983,15 @@ def api_mcp_quick_connect_permissions(body: McpPermissionsUpdate, request: Reque
         user_id = str(user.get("user_id") or user.get("email") or "")
         updated = AgentKeyStore.set_scopes_for_client(user_id, client_id, " ".join(scopes))
 
+    from routes._deps import append_user_audit_event
+
+    append_user_audit_event(
+        "mcp.permissions.changed",
+        "oauth_client",
+        client_id,
+        user,
+        data={"surface": surface, "preset": body.preset, "scopes": scopes},
+    )
     return {
         "ok": True,
         "client_id": client_id,
@@ -1983,7 +2001,355 @@ def api_mcp_quick_connect_permissions(body: McpPermissionsUpdate, request: Reque
             "read": mcp_read_only_scopes(),
             "write": list(MCP_QUICK_CONNECT_SCOPES),
         },
+        "approved_extras": mcp_approved_extras(scopes),
         "keys_updated": updated,
+    }
+
+
+# ── Permission requests: an agent asks, a person answers ──────────────────
+#
+# The agent's side is three calls with its key: read what it holds, ask for
+# more, and read again. The person's side is two calls from a signed-in
+# dashboard session: see the request, and answer it. Nothing on the agent's
+# side changes a permission.
+
+
+def _public_base_url() -> str:
+    return (
+        os.environ.get("XCELSIOR_PUBLIC_URL")
+        or os.environ.get("XCELSIOR_BASE_URL")
+        or "https://xcelsior.ca"
+    ).rstrip("/")
+
+
+def _mcp_approve_url(code: str) -> str:
+    return f"{_public_base_url()}/dashboard/mcp/approve?code={code}"
+
+
+#: No 0/O or 1/I/L: the code is read off one screen and may be typed on another.
+_PERMISSION_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+def _new_permission_code() -> str:
+    raw = "".join(secrets.choice(_PERMISSION_CODE_ALPHABET) for _ in range(10))
+    return f"{raw[:5]}-{raw[5:]}"
+
+
+def _quick_connect_surface(client: dict | None) -> str | None:
+    """`mcp` or `cli` for a Quick Connect client, None for anything else."""
+    from oauth_service import CLI_SKILL_CONNECT_CLIENT_NAME, MCP_QUICK_CONNECT_CLIENT_NAME
+
+    if not client or not client.get("is_system_managed"):
+        return None
+    name = str(client.get("client_name") or "").split(":", 1)[0]
+    if name == MCP_QUICK_CONNECT_CLIENT_NAME:
+        return "mcp"
+    if name == CLI_SKILL_CONNECT_CLIENT_NAME:
+        return "cli"
+    return None
+
+
+def _describe_scopes(scopes: list[str]) -> list[dict]:
+    from oauth_service import MCP_APPROVAL_ONLY_SCOPES, describe_scope
+
+    return [
+        {
+            "scope": scope,
+            "description": describe_scope(scope),
+            "spends_money": scope in MCP_APPROVAL_ONLY_SCOPES,
+        }
+        for scope in scopes
+    ]
+
+
+def _permission_request_status(row: dict) -> str:
+    if row["status"] == "pending" and row.get("is_expired"):
+        return "expired"
+    return str(row["status"])
+
+
+def _permission_request_payload(row: dict, *, key_prefix: str | None = None) -> dict:
+    return {
+        "code": row["code"],
+        "status": _permission_request_status(row),
+        "surface": row["surface"],
+        "key_prefix": key_prefix,
+        "reason": row["reason"],
+        "requested": _describe_scopes((row["scopes"] or "").split()),
+        "created_at": row["created_at"].isoformat(),
+        "expires_at": row["expires_at"].isoformat(),
+    }
+
+
+def _require_quick_connect_key(request: Request) -> tuple[dict, dict, str]:
+    """The calling Quick Connect key's principal, client and surface."""
+    user = _require_auth(request)
+    if str(user.get("auth_type") or "") != "agent_api_key":
+        raise HTTPException(
+            403,
+            "Only a Quick Connect key can ask for permissions this way. A signed-in "
+            "connector is granted its permissions when it connects.",
+        )
+    from db import OAuthStore
+
+    client = OAuthStore.get_client(str(user.get("client_id") or ""))
+    surface = _quick_connect_surface(client)
+    if not client or not surface:
+        raise HTTPException(
+            403, "This key's permissions are managed where it was created, in Settings."
+        )
+    return user, client, surface
+
+
+@router.get("/api/mcp/permissions", tags=["Auth"])
+def api_mcp_permissions(request: Request):
+    """What the calling credential may do, in plain words.
+
+    For the agent to show its user. A Quick Connect key also learns what it
+    could ask for and which of its requests are still waiting for an answer.
+    """
+    user = _require_auth(request)
+    from db import McpPermissionRequestStore, OAuthStore
+    from oauth_service import (
+        MCP_APPROVAL_ONLY_SCOPES,
+        MCP_QUICK_CONNECT_SCOPES,
+        mcp_permission_preset_of,
+    )
+
+    held = [str(s) for s in (user.get("scopes") or [])]
+    manage_url = f"{_public_base_url()}/dashboard/mcp"
+    client = None
+    if str(user.get("auth_type") or "") == "agent_api_key":
+        client = OAuthStore.get_client(str(user.get("client_id") or ""))
+    surface = _quick_connect_surface(client)
+    if not client or not surface:
+        return {
+            "ok": True,
+            "credential": "other",
+            "granted": _describe_scopes(held),
+            "can_request": False,
+            "manage_url": f"{_public_base_url()}/dashboard/settings",
+        }
+
+    tenant_id = str(user.get("tenant_id") or "")
+    key_id = str(user.get("key_id") or "")
+    return {
+        "ok": True,
+        "credential": "quick_connect",
+        "surface": surface,
+        "permission_preset": mcp_permission_preset_of(client),
+        "granted": _describe_scopes(held),
+        # Not held. `how` says who can turn each one on: the owner in the
+        # dashboard, or the owner answering a request this key makes.
+        "not_granted": [
+            {**item, "how": "dashboard_or_request"}
+            for item in _describe_scopes([s for s in MCP_QUICK_CONNECT_SCOPES if s not in held])
+        ]
+        + [
+            {**item, "how": "request_only"}
+            for item in _describe_scopes([s for s in MCP_APPROVAL_ONLY_SCOPES if s not in held])
+        ],
+        "can_request": True,
+        "manage_url": manage_url,
+        "pending_requests": [
+            {
+                "code": row["code"],
+                "approve_url": _mcp_approve_url(row["code"]),
+                "scopes": (row["scopes"] or "").split(),
+                "expires_at": row["expires_at"].isoformat(),
+            }
+            for row in McpPermissionRequestStore.list_open_for_key(tenant_id, key_id)
+        ],
+    }
+
+
+class McpPermissionRequestCreate(BaseModel):
+    scopes: list[str] = Field(..., min_length=1, max_length=16)
+    #: The agent's own words, shown to the user as a quotation.
+    reason: str = Field(default="", max_length=240)
+
+
+@router.post("/api/mcp/permission-requests", tags=["Auth"])
+def api_mcp_request_permissions(body: McpPermissionRequestCreate, request: Request):
+    """Ask the key's owner for permissions the key lacks. Grants nothing.
+
+    Returns a link for the agent to show its user. The permissions arrive only
+    if that user, signed in to the dashboard, approves on the page behind it.
+    """
+    user, client, surface = _require_quick_connect_key(request)
+    from db import McpPermissionRequestStore
+    from oauth_service import (
+        MCP_PERMISSION_REQUEST_MAX_OPEN,
+        MCP_PERMISSION_REQUEST_TTL_SEC,
+        mcp_requestable_scopes,
+    )
+
+    requestable = mcp_requestable_scopes()
+    asked = {str(s).strip() for s in body.scopes if str(s).strip()}
+    refused = sorted(asked - set(requestable))
+    if refused:
+        raise HTTPException(
+            400,
+            "A Quick Connect key cannot be given: "
+            + ", ".join(refused)
+            + ". These need a credential created for the purpose in Settings.",
+        )
+    held = {str(s) for s in (user.get("scopes") or [])}
+    wanted = [scope for scope in requestable if scope in asked and scope not in held]
+    if not wanted:
+        return {"ok": True, "status": "already_granted", "scopes": sorted(asked)}
+
+    tenant_id = str(user.get("tenant_id") or "")
+    key_id = str(user.get("key_id") or "")
+    scope_text = " ".join(wanted)
+    open_requests = McpPermissionRequestStore.list_open_for_key(tenant_id, key_id)
+    # Asking again for the same thing returns the same link: a retry must not
+    # leave the user with several live links for one question.
+    row = next((r for r in open_requests if r["scopes"] == scope_text), None)
+    if row is None:
+        if len(open_requests) >= MCP_PERMISSION_REQUEST_MAX_OPEN:
+            raise HTTPException(
+                429,
+                "Too many permission requests are waiting for an answer. Ask the user "
+                "to answer one, or wait for them to expire.",
+            )
+        # Control characters would let the text break out of its one line on
+        # the approval page; the page also shows it as a quotation.
+        reason = re.sub(r"[\x00-\x1f\x7f]+", " ", body.reason).strip()
+        row = McpPermissionRequestStore.create(
+            request_id=str(uuid.uuid4()),
+            code=_new_permission_code(),
+            tenant_id=tenant_id,
+            user_id=str(user.get("user_id") or ""),
+            client_id=str(client["client_id"]),
+            key_id=key_id,
+            surface=surface,
+            scopes=scope_text,
+            reason=reason,
+            ttl_seconds=MCP_PERMISSION_REQUEST_TTL_SEC,
+        )
+    return {
+        "ok": True,
+        "status": "pending",
+        "code": row["code"],
+        "approve_url": _mcp_approve_url(row["code"]),
+        "expires_at": row["expires_at"].isoformat(),
+        "requested": _describe_scopes(wanted),
+    }
+
+
+def _owned_permission_request(code: str, user: dict) -> dict:
+    """The caller's own request, or 404. A request that exists but belongs to
+    someone else answers exactly as one that does not exist."""
+    from db import McpPermissionRequestStore
+
+    row = McpPermissionRequestStore.get_by_code(code.strip().upper())
+    user_id = str(user.get("user_id") or user.get("email") or "")
+    if not row or row["user_id"] != user_id:
+        raise HTTPException(404, "Permission request not found")
+    return row
+
+
+def _request_key_prefix(row: dict) -> str | None:
+    from db import AgentKeyStore
+
+    for key in AgentKeyStore.list_for_user(row["user_id"]):
+        if key["key_id"] == row["key_id"]:
+            return key["key_prefix"]
+    return None
+
+
+@router.get("/api/mcp/permission-requests/{code}", tags=["Auth"])
+def api_mcp_get_permission_request(code: str, request: Request):
+    """The request behind an approval link, for its owner to read."""
+    user = _require_user_grant(request)
+    row = _owned_permission_request(code, user)
+    return {
+        "ok": True,
+        "request": _permission_request_payload(row, key_prefix=_request_key_prefix(row)),
+    }
+
+
+class McpPermissionDecision(BaseModel):
+    approve: bool
+
+
+@router.post("/api/mcp/permission-requests/{code}/decision", tags=["Auth"])
+def api_mcp_decide_permission_request(code: str, body: McpPermissionDecision, request: Request):
+    """Approve or decline. Interactive sessions only, and only the key's owner.
+
+    Approving adds the requested permissions to the key in place, so the agent
+    that asked carries on with the same key.
+    """
+    user = _require_user_grant(request)
+    row = _owned_permission_request(code, user)
+    from db import AgentKeyStore, McpPermissionRequestStore, OAuthStore, auth_transaction
+    from oauth_delegation import SYSTEM_PRINCIPAL
+    from oauth_service import mcp_approved_extras, normalize_mcp_permission_scopes
+
+    user_id = str(user.get("user_id") or user.get("email") or "")
+    requested = (row["scopes"] or "").split()
+    granted: list[str] = []
+    lock_key = (
+        f"quick-connect:{user['email']}:{_oauth_workspace_team_id(user) or 'personal'}"
+        f":{row['surface']}"
+    )
+    with auth_transaction(lock_key):
+        decided = McpPermissionRequestStore.decide(
+            row["code"], user_id, "approved" if body.approve else "declined"
+        )
+        if decided is None:
+            # Already answered, or it expired while the page was open.
+            current = _owned_permission_request(code, user)
+            return {
+                "ok": True,
+                "request": _permission_request_payload(
+                    current, key_prefix=_request_key_prefix(current)
+                ),
+            }
+        if body.approve:
+            client = OAuthStore.get_client(row["client_id"])
+            live = [
+                key
+                for key in AgentKeyStore.list_for_user(user_id)
+                if key["key_id"] == row["key_id"]
+            ]
+            if not client or not live:
+                # The key was regenerated or revoked after the agent asked.
+                # Granting to its replacement would arm a key nobody asked about.
+                raise HTTPException(
+                    409,
+                    "The key that made this request no longer exists. Ask your agent "
+                    "to request the permission again.",
+                )
+            wanted = [*(client.get("scopes") or []), *requested]
+            try:
+                granted = normalize_mcp_permission_scopes(
+                    wanted, held_extras=mcp_approved_extras(wanted)
+                )
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            # Custom, not Read or Write: the key now holds a set a person chose
+            # item by item, and regenerating must carry exactly that forward.
+            OAuthStore.update_client(
+                client["client_id"],
+                {"scopes": granted, "permission_preset": "custom"},
+                actor=SYSTEM_PRINCIPAL,
+            )
+            AgentKeyStore.set_scopes_for_client(user_id, client["client_id"], " ".join(granted))
+
+    from routes._deps import append_user_audit_event
+
+    append_user_audit_event(
+        "mcp.permissions.request_approved" if body.approve else "mcp.permissions.request_declined",
+        "oauth_client",
+        row["client_id"],
+        user,
+        data={"code": row["code"], "requested": requested, "scopes": granted},
+    )
+    return {
+        "ok": True,
+        "request": _permission_request_payload(decided, key_prefix=_request_key_prefix(decided)),
     }
 
 

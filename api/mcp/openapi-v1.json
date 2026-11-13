@@ -2278,35 +2278,55 @@
         ],
         "title": "AddTeamMemberRequest"
       },
-      "AddressRetrieveRequest": {
+      "AddressCheckRequest": {
         "properties": {
           "country": {
             "type": "string",
             "maxLength": 2,
-            "minLength": 2,
-            "title": "Country"
+            "title": "Country",
+            "default": ""
           },
-          "address_id": {
+          "province": {
             "type": "string",
-            "maxLength": 1000,
-            "minLength": 1,
-            "title": "Address Id"
+            "maxLength": 8,
+            "title": "Province",
+            "default": ""
+          },
+          "address_line1": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Address Line1",
+            "default": ""
+          },
+          "address_line2": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Address Line2",
+            "default": ""
+          },
+          "city": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "City",
+            "default": ""
+          },
+          "postal_code": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Postal Code",
+            "default": ""
           }
         },
         "type": "object",
-        "required": [
-          "country",
-          "address_id"
-        ],
-        "title": "AddressRetrieveRequest"
+        "title": "AddressCheckRequest",
+        "description": "The same fields and limits the profile save accepts."
       },
       "AddressSearchRequest": {
         "properties": {
           "country": {
             "type": "string",
-            "maxLength": 2,
-            "minLength": 2,
-            "title": "Country"
+            "title": "Country",
+            "default": ""
           },
           "text": {
             "type": "string",
@@ -2314,16 +2334,15 @@
             "minLength": 3,
             "title": "Text"
           },
-          "container": {
+          "lang": {
             "type": "string",
-            "maxLength": 1000,
-            "title": "Container",
+            "maxLength": 8,
+            "title": "Lang",
             "default": ""
           }
         },
         "type": "object",
         "required": [
-          "country",
           "text"
         ],
         "title": "AddressSearchRequest"
@@ -2915,6 +2934,20 @@
           "file"
         ],
         "title": "Body_api_auth_upload_avatar_api_auth_me_avatar_post"
+      },
+      "Body_api_auth_upload_business_logo_api_auth_me_business_logo_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_api_auth_upload_business_logo_api_auth_me_business_logo_post"
       },
       "BuildIn": {
         "properties": {
@@ -4715,6 +4748,78 @@
         "type": "object",
         "title": "MarketplaceSearchParams"
       },
+      "McpPermissionDecision": {
+        "properties": {
+          "approve": {
+            "type": "boolean",
+            "title": "Approve"
+          }
+        },
+        "type": "object",
+        "required": [
+          "approve"
+        ],
+        "title": "McpPermissionDecision"
+      },
+      "McpPermissionRequestCreate": {
+        "properties": {
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Scopes"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 240,
+            "title": "Reason",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "scopes"
+        ],
+        "title": "McpPermissionRequestCreate"
+      },
+      "McpPermissionsUpdate": {
+        "properties": {
+          "surface": {
+            "type": "string",
+            "enum": [
+              "mcp",
+              "cli"
+            ],
+            "title": "Surface",
+            "default": "mcp"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write",
+              "custom"
+            ],
+            "title": "Preset"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "title": "Scopes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preset"
+        ],
+        "title": "McpPermissionsUpdate"
+      },
       "MfaSendSmsRequest": {
         "properties": {
           "challenge_id": {
@@ -4763,7 +4868,8 @@
             "type": "integer",
             "maximum": 64.0,
             "minimum": 0.0,
-            "title": "Gpu Index"
+            "title": "Gpu Index",
+            "default": 0
           },
           "confidence": {
             "type": "number",
@@ -4774,7 +4880,8 @@
           "reason": {
             "type": "string",
             "maxLength": 500,
-            "title": "Reason"
+            "title": "Reason",
+            "default": ""
           },
           "timestamp": {
             "anyOf": [
@@ -4786,16 +4893,65 @@
               }
             ],
             "title": "Timestamp"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "container_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Name"
+          },
+          "rung": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(flag|throttle|suspend|terminate)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rung"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
           }
         },
         "type": "object",
         "required": [
           "host_id",
-          "gpu_index",
-          "confidence",
-          "reason"
+          "confidence"
         ],
-        "title": "MiningAlert"
+        "title": "MiningAlert",
+        "description": "A worker's word on resource abuse.\n\nThe GPU-only form (``gpu_index`` + ``reason``) is logged and broadcast.\nWith ``job_id`` it is one pass of a response episode (CVP-01 \u00a73): the\ncontrol plane records it, raises the alert on a rung change, and answers\nwith the account prior, prior incidents and any administrator decision."
       },
       "OAuthClientCreateRequest": {
         "properties": {
@@ -5715,6 +5871,42 @@
               }
             ],
             "title": "Gst Hst Number"
+          },
+          "business_display_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Display Name"
+          },
+          "business_website": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 400
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Website"
+          },
+          "business_tagline": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 400
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Tagline"
           },
           "address_line1": {
             "anyOf": [
@@ -7681,6 +7873,78 @@
           "keys"
         ],
         "title": "WebPushSubscriptionPayload"
+      },
+      "WiseEmailRecipientRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 3,
+            "title": "Email"
+          },
+          "currency": {
+            "type": "string",
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency"
+          },
+          "account_holder_name": {
+            "type": "string",
+            "maxLength": 140,
+            "minLength": 2,
+            "title": "Account Holder Name"
+          },
+          "legal_type": {
+            "type": "string",
+            "maxLength": 16,
+            "title": "Legal Type",
+            "default": "PRIVATE"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "currency",
+          "account_holder_name"
+        ],
+        "title": "WiseEmailRecipientRequest"
+      },
+      "WiseLinkRecipientRequest": {
+        "properties": {
+          "recipient_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Recipient Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipient_id"
+        ],
+        "title": "WiseLinkRecipientRequest"
+      },
+      "WiseRejectRequest": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Reason",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "WiseRejectRequest"
+      },
+      "WiseReleaseRequest": {
+        "properties": {
+          "confirm_no_transfer": {
+            "type": "boolean",
+            "title": "Confirm No Transfer",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "WiseReleaseRequest"
       },
       "WorkerExitedBody": {
         "properties": {

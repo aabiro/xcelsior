@@ -71,6 +71,10 @@ IDENTITY_TABLES = frozenset(
         # domain: it is read on the authorization path and is the record the
         # user revokes, not control-plane state.
         "oauth_consent_grants",
+        # An agent's pending request for a permission its Quick Connect key
+        # lacks (162). Identity domain for the same reason as the grant above:
+        # it is answered on the authorization path by the signed-in user.
+        "mcp_permission_requests",
         "mfa_methods",
         "mfa_challenges",
         "mfa_backup_codes",

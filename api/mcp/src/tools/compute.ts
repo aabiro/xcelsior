@@ -5,7 +5,7 @@ import { ApiError, apiProblem, formatApiError } from "../client/errors.js";
 import { jsonText, structuredResult } from "../lib/format.js";
 import { inspectSshKeyInput } from "../lib/ssh-key.js";
 import { loadConfig } from "../config.js";
-import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
+import { scopeDenial } from "../auth/denial.js";
 import type { AuthUser } from "../auth/bearer.js";
 
 /**
@@ -21,15 +21,8 @@ const { sshHost, apiUrl } = loadConfig();
 const wsBase = apiUrl.replace(/^http/, "ws");
 
 function scopeDenied(tool: string, user: AuthUser | undefined) {
-  const required = TOOL_SCOPES[tool];
-  if (!userHasScope(user?.scopes, required)) {
-    return jsonText({
-      error: "insufficient_scope",
-      required: scopeUnion(required),
-      message: `This tool requires ${describeScopeRequirement(required)}`,
-    });
-  }
-  return null;
+  const denial = scopeDenial(tool, user);
+  return denial ? jsonText(denial) : null;
 }
 
 export function registerComputeTools(

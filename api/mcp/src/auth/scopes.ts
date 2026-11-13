@@ -55,6 +55,14 @@ const TOOL_SCOPE_REGISTRY = {
   get_pricing_reference: { allOf: ["gpu:read"] },
   search_marketplace: { allOf: ["marketplace:read"] },
   list_tiers: { allOf: ["gpu:read"] },
+  // What this connection may do, and asking its owner for more. Open to any
+  // credential that holds anything at all: a key narrowed to a single
+  // permission most needs to say so, and to be able to ask. `anyOf` over every
+  // tenant permission rather than an empty requirement, which this registry
+  // treats as a definition error and denies. Asking grants nothing — the API
+  // records a request and a signed-in person answers it.
+  get_permissions: { anyOf: ["instances:read", "instances:write", "instances:operate", "instances:connect", "ssh:read", "ssh:write", "volumes:read", "volumes:write", "artifacts:read", "billing:read", "billing:topup", "gpu:read", "marketplace:read", "inference:read", "inference:write", "events:read", "providers:read", "reputation:read"] },
+  request_permission: { anyOf: ["instances:read", "instances:write", "instances:operate", "instances:connect", "ssh:read", "ssh:write", "volumes:read", "volumes:write", "artifacts:read", "billing:read", "billing:topup", "gpu:read", "marketplace:read", "inference:read", "inference:write", "events:read", "providers:read", "reputation:read"] },
   list_instances: { allOf: ["instances:read"] },
   get_instance: { allOf: ["instances:read"] },
   get_instance_logs: { allOf: ["instances:read"] },

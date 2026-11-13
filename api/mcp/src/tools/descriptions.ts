@@ -631,6 +631,22 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "cannot double-apply the command. Costs nothing by itself, but the command it reissues acts " +
     "on real infrastructure.",
 
+  // ── Permissions ─────────────────────────────────────────────────────────
+  get_permissions:
+    "List what this connection is allowed to do on the user's Xcelsior account, in plain words, " +
+    "what it is not allowed to do, which tools that locks, and where the user changes it. Use " +
+    "when you first connect, so the user knows what they have handed over, and again whenever a " +
+    "tool is refused with insufficient_scope or the user asks what you can do. Read-only and " +
+    "free; it changes nothing.",
+
+  request_permission:
+    "Ask the user to give this connection a permission it lacks, returning an approval link for " +
+    "them to open. Use when a tool was refused with insufficient_scope and the user wants the " +
+    "task done; pass that refusal's `missing` permissions. Do not use it speculatively or for " +
+    "permissions the task does not need. It grants nothing and costs nothing by itself: only the " +
+    "user can approve, signed in to their dashboard, and they can remove the permission later. " +
+    "Asking again for the same permissions returns the same link.",
+
   // ── Billing ─────────────────────────────────────────────────────────────
   get_wallet_balance:
     "Get the account's wallet balance and available credits in CAD. Use before committing to " +

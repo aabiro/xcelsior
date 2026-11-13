@@ -3396,3 +3396,93 @@ class AgentKeyStore:
                 (name, key_id, user_id),
             )
             return cur.rowcount > 0
+
+
+class McpPermissionRequestStore:
+    """An agent's requests for permissions its Quick Connect key lacks.
+
+    A row is a question, never a grant. The grant is the key's scopes, written
+    only when the signed-in owner approves. `decide` is a single conditional
+    update, so two answers to one request cannot both land.
+    """
+
+    @staticmethod
+    def create(
+        *,
+        request_id: str,
+        code: str,
+        tenant_id: str,
+        user_id: str,
+        client_id: str,
+        key_id: str,
+        surface: str,
+        scopes: str,
+        reason: str,
+        ttl_seconds: int,
+    ) -> dict:
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO mcp_permission_requests
+                    (request_id, code, tenant_id, user_id, client_id, key_id,
+                     surface, scopes, reason, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        now() + make_interval(secs => %s))
+                RETURNING *, (expires_at <= now()) AS is_expired
+                """,
+                (
+                    request_id,
+                    code,
+                    tenant_id,
+                    user_id,
+                    client_id,
+                    key_id,
+                    surface,
+                    scopes,
+                    reason,
+                    ttl_seconds,
+                ),
+            ).fetchone()
+            return dict(row)
+
+    @staticmethod
+    def get_by_code(code: str) -> dict | None:
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT *, (expires_at <= now()) AS is_expired "
+                "FROM mcp_permission_requests WHERE code = %s",
+                (code,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    @staticmethod
+    def list_open_for_key(tenant_id: str, key_id: str) -> list[dict]:
+        """Pending and not yet expired, newest first."""
+        with auth_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT *, false AS is_expired FROM mcp_permission_requests
+                 WHERE tenant_id = %s AND key_id = %s
+                   AND status = 'pending' AND expires_at > now()
+                 ORDER BY created_at DESC
+                """,
+                (tenant_id, key_id),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def decide(code: str, user_id: str, status: str) -> dict | None:
+        """Answer a request once. None when it is not this user's, was already
+        answered, or has expired."""
+        with auth_connection() as conn:
+            row = conn.execute(
+                """
+                UPDATE mcp_permission_requests
+                   SET status = %s, decided_at = now()
+                 WHERE code = %s AND user_id = %s
+                   AND status = 'pending' AND expires_at > now()
+                RETURNING *, false AS is_expired
+                """,
+                (status, code, user_id),
+            ).fetchone()
+            return dict(row) if row else None

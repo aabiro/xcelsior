@@ -42,6 +42,8 @@ export function createMcpServer(
       "Rates are quoted and settled in CAD; call get_pricing_reference for the live table rather than assuming a price.",
       "Check spend before committing: should_i_run_this, or estimate_job_cost + get_wallet_balance.",
       "Destructive tools require confirm:true — call with confirm:false first for a preview.",
+      "When you first connect, call get_permissions and tell the user in plain words what this connection can and cannot do on their account, and where they change it.",
+      "If a tool answers insufficient_scope, say which permission is missing and offer request_permission, which returns an approval link only the user can approve; never work around a refusal with another tool.",
     ].join(" "),
   });
   installToolAudit(server, client, user, transport, profile);

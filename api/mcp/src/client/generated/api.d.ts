@@ -1191,24 +1191,56 @@ export interface components {
              */
             role: string;
         };
-        /** AddressRetrieveRequest */
-        AddressRetrieveRequest: {
-            /** Country */
+        /**
+         * AddressCheckRequest
+         * @description The same fields and limits the profile save accepts.
+         */
+        AddressCheckRequest: {
+            /**
+             * Country
+             * @default
+             */
             country: string;
-            /** Address Id */
-            address_id: string;
+            /**
+             * Province
+             * @default
+             */
+            province: string;
+            /**
+             * Address Line1
+             * @default
+             */
+            address_line1: string;
+            /**
+             * Address Line2
+             * @default
+             */
+            address_line2: string;
+            /**
+             * City
+             * @default
+             */
+            city: string;
+            /**
+             * Postal Code
+             * @default
+             */
+            postal_code: string;
         };
         /** AddressSearchRequest */
         AddressSearchRequest: {
-            /** Country */
+            /**
+             * Country
+             * @default
+             */
             country: string;
             /** Text */
             text: string;
             /**
-             * Container
+             * Lang
              * @default
              */
-            container: string;
+            lang: string;
         };
         /** AdminCreditRequest */
         AdminCreditRequest: {
@@ -1431,6 +1463,11 @@ export interface components {
         };
         /** Body_api_auth_upload_avatar_api_auth_me_avatar_post */
         Body_api_auth_upload_avatar_api_auth_me_avatar_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_api_auth_upload_business_logo_api_auth_me_business_logo_post */
+        Body_api_auth_upload_business_logo_api_auth_me_business_logo_post: {
             /** File */
             file: string;
         };
@@ -2240,6 +2277,37 @@ export interface components {
              */
             limit: number;
         };
+        /** McpPermissionDecision */
+        McpPermissionDecision: {
+            /** Approve */
+            approve: boolean;
+        };
+        /** McpPermissionRequestCreate */
+        McpPermissionRequestCreate: {
+            /** Scopes */
+            scopes: string[];
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
+        /** McpPermissionsUpdate */
+        McpPermissionsUpdate: {
+            /**
+             * Surface
+             * @default mcp
+             * @enum {string}
+             */
+            surface: "mcp" | "cli";
+            /**
+             * Preset
+             * @enum {string}
+             */
+            preset: "read" | "write" | "custom";
+            /** Scopes */
+            scopes?: string[];
+        };
         /** MfaSendSmsRequest */
         MfaSendSmsRequest: {
             /** Challenge Id */
@@ -2254,18 +2322,42 @@ export interface components {
             /** Code */
             code: string;
         };
-        /** MiningAlert */
+        /**
+         * MiningAlert
+         * @description A worker's word on resource abuse.
+         *
+         *     The GPU-only form (``gpu_index`` + ``reason``) is logged and broadcast.
+         *     With ``job_id`` it is one pass of a response episode (CVP-01 §3): the
+         *     control plane records it, raises the alert on a rung change, and answers
+         *     with the account prior, prior incidents and any administrator decision.
+         */
         MiningAlert: {
             /** Host Id */
             host_id: string;
-            /** Gpu Index */
+            /**
+             * Gpu Index
+             * @default 0
+             */
             gpu_index: number;
             /** Confidence */
             confidence: number;
-            /** Reason */
+            /**
+             * Reason
+             * @default
+             */
             reason: string;
             /** Timestamp */
             timestamp?: number | null;
+            /** Job Id */
+            job_id?: string | null;
+            /** Container Name */
+            container_name?: string | null;
+            /** Rung */
+            rung?: string | null;
+            /** Evidence */
+            evidence?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** OAuthClientCreateRequest */
         OAuthClientCreateRequest: {
@@ -2616,6 +2708,12 @@ export interface components {
             business_name?: string | null;
             /** Gst Hst Number */
             gst_hst_number?: string | null;
+            /** Business Display Name */
+            business_display_name?: string | null;
+            /** Business Website */
+            business_website?: string | null;
+            /** Business Tagline */
+            business_tagline?: string | null;
             /** Address Line1 */
             address_line1?: string | null;
             /** Address Line2 */
@@ -3532,6 +3630,41 @@ export interface components {
             /** Expirationtime */
             expirationTime?: number | null;
             keys: components["schemas"]["WebPushKeys"];
+        };
+        /** WiseEmailRecipientRequest */
+        WiseEmailRecipientRequest: {
+            /** Email */
+            email: string;
+            /** Currency */
+            currency: string;
+            /** Account Holder Name */
+            account_holder_name: string;
+            /**
+             * Legal Type
+             * @default PRIVATE
+             */
+            legal_type: string;
+        };
+        /** WiseLinkRecipientRequest */
+        WiseLinkRecipientRequest: {
+            /** Recipient Id */
+            recipient_id: number;
+        };
+        /** WiseRejectRequest */
+        WiseRejectRequest: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
+        /** WiseReleaseRequest */
+        WiseReleaseRequest: {
+            /**
+             * Confirm No Transfer
+             * @default false
+             */
+            confirm_no_transfer: boolean;
         };
         /** WorkerExitedBody */
         WorkerExitedBody: {

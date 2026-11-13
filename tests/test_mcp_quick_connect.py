@@ -415,3 +415,186 @@ def test_each_surface_keeps_its_own_permissions():
     mcp = client.get("/api/mcp/quick-connect?surface=mcp", headers=_auth(token)).json()
     assert cli["permission_preset"] == "write" and _write_class(cli["scopes"])
     assert mcp["permission_preset"] == "read" and not _write_class(mcp["scopes"])
+
+
+# ── Permission requests: the agent asks, the owner answers ────────────────
+
+
+def _key(token: str, surface: str = "mcp") -> str:
+    return client.get(f"/api/mcp/quick-connect?surface={surface}", headers=_auth(token)).json()[
+        "access_token"
+    ]
+
+
+def _ask(key: str, scopes: list[str], reason: str = ""):
+    return client.post(
+        "/api/mcp/permission-requests", headers=_auth(key), json={"scopes": scopes, "reason": reason}
+    )
+
+
+def _decide(token: str, code: str, approve: bool):
+    return client.post(
+        f"/api/mcp/permission-requests/{code}/decision",
+        headers=_auth(token),
+        json={"approve": approve},
+    )
+
+
+def test_an_agent_can_read_what_its_key_may_do():
+    token = _register_and_get_token("qc-req-read@xcelsior.ca")
+    key = _key(token)
+    _set_permissions(token, preset="read")
+    body = client.get("/api/mcp/permissions", headers=_auth(key)).json()
+    assert body["credential"] == "quick_connect" and body["permission_preset"] == "read"
+    granted = {item["scope"] for item in body["granted"]}
+    missing = {item["scope"]: item["how"] for item in body["not_granted"]}
+    assert "instances:read" in granted and "instances:write" not in granted
+    assert missing["instances:write"] == "dashboard_or_request"
+    assert missing["billing:topup"] == "request_only"
+    # Plain words, not identifiers: this is what the agent shows the user.
+    assert all(item["description"] != item["scope"] for item in body["granted"])
+    assert body["manage_url"].endswith("/dashboard/mcp")
+    assert body["pending_requests"] == []
+
+
+def test_asking_grants_nothing():
+    """The whole point: the request is a question. Until a person answers it,
+    the key is exactly what it was."""
+    token = _register_and_get_token("qc-req-ask@xcelsior.ca")
+    key = _key(token)
+    before = client.get("/api/mcp/permissions", headers=_auth(key)).json()["granted"]
+
+    r = _ask(key, ["billing:topup"], reason="Top up $20 to finish the training run")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "pending"
+    assert f"/dashboard/mcp/approve?code={body['code']}" in body["approve_url"]
+    assert body["requested"][0]["spends_money"] is True
+    assert "card" in body["requested"][0]["description"].lower()
+
+    after = client.get("/api/mcp/permissions", headers=_auth(key)).json()
+    assert after["granted"] == before
+    assert [p["code"] for p in after["pending_requests"]] == [body["code"]]
+
+
+def test_a_key_cannot_answer_its_own_request():
+    token = _register_and_get_token("qc-req-self@xcelsior.ca")
+    key = _key(token)
+    code = _ask(key, ["billing:topup"]).json()["code"]
+    assert _decide(key, code, True).status_code == 403
+    assert client.get(f"/api/mcp/permission-requests/{code}", headers=_auth(key)).status_code == 403
+    scopes = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()["scopes"]
+    assert "billing:topup" not in scopes
+
+
+def test_approving_adds_the_permission_to_the_same_key():
+    token = _register_and_get_token("qc-req-approve@xcelsior.ca")
+    first = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
+    key = first["access_token"]
+    _set_permissions(token, preset="read")
+    code = _ask(key, ["billing:topup", "instances:write"], reason="launch and fund").json()["code"]
+
+    shown = client.get(f"/api/mcp/permission-requests/{code}", headers=_auth(token)).json()["request"]
+    assert shown["status"] == "pending" and shown["reason"] == "launch and fund"
+    assert [item["scope"] for item in shown["requested"]] == ["instances:write", "billing:topup"]
+    assert shown["key_prefix"] == first["key_prefix"]
+
+    done = _decide(token, code, True)
+    assert done.status_code == 200, done.text
+    assert done.json()["request"]["status"] == "approved"
+
+    after = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()
+    assert after["access_token"] == key
+    assert {"billing:topup", "instances:write", "instances:read"} <= set(after["scopes"])
+    assert "volumes:write" not in after["scopes"]  # only what was asked for
+    assert after["permission_preset"] == "custom"
+    assert after["approved_extras"] == ["billing:topup"]
+    # And the live key holds it, not only the stored client.
+    granted = {i["scope"] for i in client.get("/api/mcp/permissions", headers=_auth(key)).json()["granted"]}
+    assert "billing:topup" in granted
+
+
+def test_declining_changes_nothing_and_a_request_is_answered_once():
+    token = _register_and_get_token("qc-req-decline@xcelsior.ca")
+    key = _key(token)
+    code = _ask(key, ["billing:topup"]).json()["code"]
+    assert _decide(token, code, False).json()["request"]["status"] == "declined"
+    # A second answer does not overturn the first.
+    assert _decide(token, code, True).json()["request"]["status"] == "declined"
+    assert "billing:topup" not in client.get("/api/mcp/quick-connect", headers=_auth(token)).json()["scopes"]
+
+
+def test_someone_elses_link_is_not_found():
+    """A link sent to another signed-in user must not let them approve, and
+    must not confirm the request exists."""
+    owner = _register_and_get_token("qc-req-owner@xcelsior.ca")
+    code = _ask(_key(owner), ["billing:topup"]).json()["code"]
+    client.cookies.clear()
+    other = _register_and_get_token("qc-req-other@xcelsior.ca")
+    assert client.get(f"/api/mcp/permission-requests/{code}", headers=_auth(other)).status_code == 404
+    assert _decide(other, code, True).status_code == 404
+    assert client.get("/api/mcp/permission-requests/ZZZZZ-ZZZZZ", headers=_auth(other)).status_code == 404
+
+
+def test_an_expired_link_cannot_be_approved():
+    from db import auth_connection
+
+    token = _register_and_get_token("qc-req-expired@xcelsior.ca")
+    key = _key(token)
+    code = _ask(key, ["billing:topup"]).json()["code"]
+    with auth_connection() as conn:
+        conn.execute(
+            "UPDATE mcp_permission_requests SET expires_at = now() - interval '1 second' WHERE code = %s",
+            (code,),
+        )
+    assert _decide(token, code, True).json()["request"]["status"] == "expired"
+    assert "billing:topup" not in client.get("/api/mcp/quick-connect", headers=_auth(token)).json()["scopes"]
+    assert client.get("/api/mcp/permissions", headers=_auth(key)).json()["pending_requests"] == []
+
+
+def test_a_request_made_by_a_replaced_key_grants_nothing():
+    token = _register_and_get_token("qc-req-stale@xcelsior.ca")
+    code = _ask(_key(token), ["billing:topup"]).json()["code"]
+    client.get("/api/mcp/quick-connect?regenerate=true", headers=_auth(token))
+    assert _decide(token, code, True).status_code == 409
+    assert "billing:topup" not in client.get("/api/mcp/quick-connect", headers=_auth(token)).json()["scopes"]
+
+
+def test_only_quick_connect_permissions_can_be_asked_for():
+    token = _register_and_get_token("qc-req-ceiling@xcelsior.ca")
+    key = _key(token)
+    for scope in ("billing:write", "providers:write", "hosts:evict", "admin", "made:up"):
+        assert _ask(key, [scope]).status_code == 400, scope
+    # Already held: nothing to approve, and no link is minted.
+    assert _ask(key, ["instances:read"]).json()["status"] == "already_granted"
+    # A browser session is not a key, and has nothing to ask for.
+    assert _ask(token, ["billing:topup"]).status_code == 403
+
+
+def test_asking_twice_returns_the_same_link_and_open_requests_are_capped():
+    token = _register_and_get_token("qc-req-cap@xcelsior.ca")
+    key = _key(token)
+    _set_permissions(token, preset="read")
+    first = _ask(key, ["billing:topup"]).json()
+    assert _ask(key, ["billing:topup"]).json()["code"] == first["code"]
+    for scope in ("instances:write", "volumes:write", "inference:write", "ssh:write"):
+        assert _ask(key, [scope]).status_code == 200
+    assert _ask(key, ["instances:connect"]).status_code == 429
+
+
+def test_an_approved_extra_can_be_kept_or_dropped_but_never_ticked_back():
+    token = _register_and_get_token("qc-req-extra@xcelsior.ca")
+    key = _key(token)
+    _decide(token, _ask(key, ["billing:topup"]).json()["code"], True)
+    held = client.get("/api/mcp/quick-connect", headers=_auth(token)).json()["scopes"]
+
+    # Kept through a Custom save and through a regenerate.
+    kept = _set_permissions(token, preset="custom", scopes=[s for s in held if s != "ssh:write"])
+    assert kept.status_code == 200 and kept.json()["approved_extras"] == ["billing:topup"]
+    rotated = client.get("/api/mcp/quick-connect?regenerate=true", headers=_auth(token)).json()
+    assert "billing:topup" in rotated["scopes"] and "ssh:write" not in rotated["scopes"]
+
+    # Dropped by choosing a preset, and then the picker cannot bring it back.
+    assert _set_permissions(token, preset="write").json()["approved_extras"] == []
+    back = _set_permissions(token, preset="custom", scopes=["gpu:read", "billing:topup"])
+    assert back.status_code == 400

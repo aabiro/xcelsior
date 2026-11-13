@@ -2273,11 +2273,43 @@ export interface McpQuickConnect {
   permission_preset?: McpPermissionPreset;
   /** What Read and Write stand for. `write` is everything Custom may tick. */
   permission_presets?: { read: string[]; write: string[] };
+  /** Permissions this key holds that no tab offers: each was granted on the
+   * approval page. They can be removed here, never added. */
+  approved_extras?: string[];
   mcp_url: string;
   api_url: string;
 }
 
 export type McpPermissionPreset = "read" | "write" | "custom";
+
+/** One request an agent made for permissions its key lacks. */
+export interface McpPermissionRequest {
+  code: string;
+  status: "pending" | "approved" | "declined" | "expired";
+  surface: "mcp" | "cli";
+  /** Masked form of the key that asked, e.g. `xcel_ai_…HfQ8`. */
+  key_prefix: string | null;
+  /** The agent's own words. Untrusted: show it as a quotation. */
+  reason: string;
+  requested: { scope: string; description: string; spends_money: boolean }[];
+  created_at: string;
+  expires_at: string;
+}
+
+/** Powers /dashboard/mcp/approve. 404 for a code that is not the caller's. */
+export async function getMcpPermissionRequest(code: string) {
+  return apiFetch<{ ok: boolean; request: McpPermissionRequest }>(
+    `/api/mcp/permission-requests/${encodeURIComponent(code)}`,
+    { cache: "no-store" },
+  );
+}
+
+export async function decideMcpPermissionRequest(code: string, approve: boolean) {
+  return apiFetch<{ ok: boolean; request: McpPermissionRequest }>(
+    `/api/mcp/permission-requests/${encodeURIComponent(code)}/decision`,
+    { method: "POST", body: JSON.stringify({ approve }) },
+  );
+}
 
 export interface McpPermissionsResult {
   ok: boolean;
@@ -2285,6 +2317,7 @@ export interface McpPermissionsResult {
   permission_preset: McpPermissionPreset;
   scopes: string[];
   permission_presets: { read: string[]; write: string[] };
+  approved_extras?: string[];
   keys_updated: number;
 }
 

@@ -132,6 +132,10 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   get_pricing_reference: { readOnly: true, destructive: false, audience: "customer" },
   search_marketplace: { readOnly: true, destructive: false, audience: "customer", openWorld: true },
   list_tiers: { readOnly: true, destructive: false, audience: "customer" },
+  get_permissions: { readOnly: true, destructive: false, audience: "customer" },
+  // Repeat-safe: asking again for the same permissions returns the same
+  // pending request and link. Not destructive: it changes no permission.
+  request_permission: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   list_instances: { readOnly: true, destructive: false, audience: "customer" },
   get_instance: { readOnly: true, destructive: false, audience: "customer" },
   get_instance_logs: { readOnly: true, destructive: false, audience: "customer" },

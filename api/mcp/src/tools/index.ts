@@ -12,6 +12,7 @@ import { registerDiagnosticTools } from "./diagnostics.js";
 import { registerOperatorTools } from "./operator.js";
 import { registerVolumeTools } from "./volumes.js";
 import { registerSweepTools } from "./sweeps.js";
+import { registerPermissionTools } from "./permissions.js";
 import { registerKnowledgeTools, type KnowledgeSources } from "./knowledge.js";
 
 export interface ToolRegistrationOptions {
@@ -46,6 +47,7 @@ export function registerAllTools(
   user?: AuthUser,
   options: ToolRegistrationOptions = {},
 ): void {
+  registerPermissionTools(server, client, user);
   registerDiscoveryTools(server, client, user);
   registerBillingTools(server, client, user);
   registerComputeTools(server, client, user);

@@ -148,4 +148,41 @@ describe("MCP connect card", () => {
     expect(box("instances", "write")).toBeChecked();
     expect(api.setMcpQuickConnectPermissions).not.toHaveBeenCalled();
   });
+
+  it("shows an approved extra as a box that can be removed and survives a Custom save", async () => {
+    const held = [...WRITE, "billing:topup"];
+    api.getMcpQuickConnect.mockResolvedValue({
+      ...withPermissions,
+      scopes: held,
+      permission_preset: "custom",
+      approved_extras: ["billing:topup"],
+    });
+    api.setMcpQuickConnectPermissions.mockResolvedValue({
+      ok: true,
+      client_id: "c1",
+      permission_preset: "custom",
+      scopes: held.filter((s) => s !== "volumes:write"),
+      permission_presets: { read: READ, write: WRITE },
+      approved_extras: ["billing:topup"],
+      keys_updated: 1,
+    });
+    render(<McpConnectCard />);
+    await waitFor(() => expect(box("billing", "topup")).toBeChecked());
+    expect(screen.getAllByRole("checkbox")).toHaveLength(WRITE.length + 1);
+
+    // Editing something else keeps it in what is saved.
+    fireEvent.click(box("volumes", "write"));
+    fireEvent.click(screen.getByRole("button", { name: "dash.mcp.perm.save" }));
+    await waitFor(() =>
+      expect(api.setMcpQuickConnectPermissions).toHaveBeenCalledWith(
+        "mcp",
+        "custom",
+        held.filter((s) => s !== "volumes:write"),
+      ),
+    );
+
+    // Choosing a preset drops it: no tab grants it.
+    fireEvent.click(tab("write"));
+    expect(box("billing", "topup")).not.toBeChecked();
+  });
 });

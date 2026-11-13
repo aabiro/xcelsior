@@ -149,7 +149,7 @@ The consent screen groups permissions by domain. Xcelsior checks the token's gra
 | **Reputation & Trust Tiers** | Inspect reputation scores, trust tiers, leaderboards, and claim earned milestones. | `reputation:read`, `reputation:write` | `get_my_reputation`, `get_reputation_journey`, `get_trust_tiers`, `get_reputation_breakdown`, `claim_reputation_milestones` |
 | **Events** | View per-entity state-change history for instances and hosts. | `events:read` | `get_event_history` |
 
-> **Note on Quick Connect tokens:** The one-click Quick Connect credential intentionally withholds `billing:topup`, `billing:write`, `ssh:read`, `reputation:write`, and `providers:write` so a pasted connector token can inspect billing and provider status without charging a card, enumerating existing SSH keys, or moving a payout. Grant those scopes explicitly via OAuth consent or a dedicated client credential when needed.
+> **Note on Quick Connect tokens:** The one-click Quick Connect credential intentionally withholds `billing:topup`, `billing:write`, `ssh:read`, `reputation:write`, and `providers:write` so a pasted connector token can inspect billing and provider status without charging a card, enumerating existing SSH keys, or moving a payout. Grant those scopes explicitly via OAuth consent or a dedicated client credential when needed. An agent on a Quick Connect key can also ask for one with `request_permission`: it returns an approval link that only you can approve, signed in, on a page that names what the permission allows. Top-up (`billing:topup`) is available to a Quick Connect key only that way.
 
 ## Managing access
 
@@ -203,9 +203,16 @@ Always run `logout` first, as removing the server entry alone can leave stored t
 - **Idempotency & replay protection**: Spending and settlement tools (`request_provider_payout`, `top_up_wallet`, `claim_reputation_milestones`) are keyed in PostgreSQL so a network retry never double-pays or double-charges.
 - **Secret redaction at the boundary**: Provider and billing tools strip processor identifiers (`stripe_account_id`, `onboarding_url`, PayPal `merchant_id`/`payer_id`, Wise `wise_recipient_id`/`fingerprint`, and Stripe `client_secret`) before responses enter model context.
 
-## Available tools (87 customer tools)
+## Available tools (89 customer tools)
 
-The customer profile at `https://mcp.xcelsior.ca/mcp` exposes 87 tools grouped below.
+The customer profile at `https://mcp.xcelsior.ca/mcp` exposes 89 tools grouped below.
+
+### Connection permissions
+
+| Tool | Description | Required scope |
+| --- | --- | --- |
+| `get_permissions` | List what this connection can and cannot do, which tools that locks, and where you change it. Agents call it when they first connect. | any granted scope |
+| `request_permission` | Ask you for a permission the connection lacks. Returns an approval link; nothing is granted until you approve it, signed in. | any granted scope |
 
 ### Discovery and marketplace
 
@@ -341,7 +348,7 @@ The customer profile at `https://mcp.xcelsior.ca/mcp` exposes 87 tools grouped b
 | Problem | Cause & solution |
 | --- | --- |
 | **The client asks to authenticate again.** | Your access token expired, the session was revoked, or scopes changed. Re-run your client's authentication flow (`/mcp` in Claude Code or `codex mcp login xcelsior`). |
-| **A tool is listed but returns `insufficient_scope`.** | Your connection does not carry the scope required for that tool (for example, Quick Connect tokens omit `billing:topup`, `ssh:read`, `reputation:write`, and `providers:write`). Reconnect via OAuth and approve the required permission group. |
+| **A tool is listed but returns `insufficient_scope`.** | Your connection does not carry the scope required for that tool (for example, Quick Connect tokens omit `billing:topup`, `ssh:read`, `reputation:write`, and `providers:write`). Reconnect via OAuth and approve the required permission group, or let the agent call `request_permission` and approve the link it gives you. |
 | **A launch tool returns `approval_required` with a `plan_id`.** | Spending actions create a bounded launch plan first. Approve the plan in the Xcelsior dashboard (or check its status with `get_mcp_action_status`), then re-run with the approved `plan_id`. |
 | **A Wise payout is `queued` instead of paid immediately.** | Unlike Stripe and PayPal (which settle job-by-job), Wise payouts are batched once per provider and require platform admin approval after any 72-hour recipient cool-off expires. Use `get_wise_status` to check `queued_cad`, `minimum_payout_cad`, and `recipient.payable`. |
 | **The MCP server does not connect.** | Check that the URL is exactly `https://mcp.xcelsior.ca/mcp`, your client supports Streamable HTTP (`2025-03-26`) and OAuth 2.1, and your firewall/network allows outbound HTTPS to `mcp.xcelsior.ca` and `xcelsior.ca`. |

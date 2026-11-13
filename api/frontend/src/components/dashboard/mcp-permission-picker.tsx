@@ -64,6 +64,7 @@ export function McpPermissionPicker({
   value,
   onChange,
   customStart,
+  extras,
   disabled,
   stacked,
   className,
@@ -73,13 +74,20 @@ export function McpPermissionPicker({
   onChange: (next: PermissionSelection) => void;
   /** What the Custom tab opens with; everything ticked when not given. */
   customStart?: string[];
+  /**
+   * Permissions the key holds that no tab offers, each granted on the approval
+   * page. Shown so they can be removed; a tab never adds one.
+   */
+  extras?: string[];
   disabled?: boolean;
   /** Put each row's boxes under its name. For a narrow column on a wide screen. */
   stacked?: boolean;
   className?: string;
 }) {
   const { t } = useLocale();
-  const ceiling = presets.write;
+  const approved = new Set(extras ?? []);
+  // Everything a box exists for: the tabs' set, then what was approved on top.
+  const ceiling = [...presets.write, ...(extras ?? []).filter((s) => !presets.write.includes(s))];
   const rows = permissionRows(ceiling);
   const selected = new Set(value.scopes);
 
@@ -173,15 +181,17 @@ export function McpPermissionPicker({
                   const verb = scope.split(":")[1] ?? scope;
                   const checked = selected.has(scope);
                   const read = isReadScope(scope);
+                  const extra = approved.has(scope);
                   const verbLabel = label(`dash.mcp.perm.verb_${verb}`, verb);
                   return (
                     <label
                       key={scope}
-                      title={scope}
+                      title={extra ? t("dash.mcp.perm.extra_hint") : scope}
                       className={cn(
                         "inline-flex cursor-pointer select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-cyan/60",
                         checked && read && "border-accent-cyan/40 bg-accent-cyan/10 text-accent-cyan",
-                        checked && !read && "border-accent-violet/40 bg-accent-violet/10 text-accent-violet",
+                        checked && !read && !extra && "border-accent-violet/40 bg-accent-violet/10 text-accent-violet",
+                        checked && extra && "border-accent-gold/50 bg-accent-gold/10 text-accent-gold",
                         !checked && "border-border/60 text-text-muted hover:border-border hover:text-text-secondary",
                         disabled && "pointer-events-none opacity-50",
                       )}
@@ -201,7 +211,8 @@ export function McpPermissionPicker({
                         className={cn(
                           "flex h-3.5 w-3.5 items-center justify-center rounded-full border transition-colors",
                           checked && read && "border-accent-cyan bg-accent-cyan text-white",
-                          checked && !read && "border-accent-violet bg-accent-violet text-white",
+                          checked && !read && !extra && "border-accent-violet bg-accent-violet text-white",
+                          checked && extra && "border-accent-gold bg-accent-gold text-white",
                           !checked && "border-border",
                         )}
                       >

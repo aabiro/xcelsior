@@ -16,6 +16,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from collections.abc import Iterable
 from typing import Any
 
 from cache_keys import cache_key
@@ -1691,12 +1692,45 @@ MCP_QUICK_CONNECT_SCOPES = [
 MCP_PERMISSION_PRESETS: tuple[str, ...] = ("read", "write", "custom")
 
 
+#: Permissions a Quick Connect key may hold only after its owner approved a
+#: specific request for them, signed in, on a page that says what they do
+#: (`/dashboard/mcp/approve`). Never part of Read, Write or a fresh key.
+#:
+#: `billing:topup` charges the user's saved card to fund their own wallet. It
+#: was kept off this key altogether because the key is issued without a consent
+#: page; the approval page is that consent, shown at the moment it is needed.
+#: `billing:write` as a whole stays out: it also opens the billing portal and
+#: attaches and removes cards.
+MCP_APPROVAL_ONLY_SCOPES: tuple[str, ...] = ("billing:topup",)
+
+#: How long an approval link stays answerable.
+MCP_PERMISSION_REQUEST_TTL_SEC = int(
+    os.environ.get("XCELSIOR_MCP_PERMISSION_REQUEST_TTL_SEC", "900")
+)
+
+#: Unanswered requests one key may have open at a time.
+MCP_PERMISSION_REQUEST_MAX_OPEN = 5
+
+
+def mcp_requestable_scopes() -> list[str]:
+    """Everything an agent may ask its owner for."""
+    return [*MCP_QUICK_CONNECT_SCOPES, *MCP_APPROVAL_ONLY_SCOPES]
+
+
+def mcp_approved_extras(scopes: object) -> list[str]:
+    """The approval-only permissions among *scopes*."""
+    held = set(scopes) if isinstance(scopes, (list, tuple, set, frozenset)) else set()
+    return [scope for scope in MCP_APPROVAL_ONLY_SCOPES if scope in held]
+
+
 def mcp_read_only_scopes() -> list[str]:
     """The Read preset: every scope on the Quick Connect key that only reads."""
     return [scope for scope in MCP_QUICK_CONNECT_SCOPES if scope.endswith(":read")]
 
 
-def normalize_mcp_permission_scopes(requested: object) -> list[str]:
+def normalize_mcp_permission_scopes(
+    requested: object, *, held_extras: Iterable[str] = ()
+) -> list[str]:
     """A Custom selection, checked and made coherent. Raises `ValueError`.
 
     Two rules. Nothing outside `MCP_QUICK_CONNECT_SCOPES` is accepted, so this
@@ -1709,12 +1743,17 @@ def normalize_mcp_permission_scopes(requested: object) -> list[str]:
 
     `ssh:write` has no read scope on this key (see the list above for why), so
     it stands alone.
+
+    *held_extras* are approval-only permissions the key already holds. A
+    selection may keep or drop them. It can never add one: that takes the
+    approval page.
     """
     if not isinstance(requested, (list, tuple, set, frozenset)):
         raise ValueError("scopes must be a list")
     chosen = {str(scope).strip() for scope in requested if str(scope).strip()}
     ceiling = set(MCP_QUICK_CONNECT_SCOPES)
-    outside = sorted(chosen - ceiling)
+    extras = {scope for scope in held_extras if scope in MCP_APPROVAL_ONLY_SCOPES}
+    outside = sorted(chosen - ceiling - extras)
     if outside:
         raise ValueError("Not available on a Quick Connect key: " + ", ".join(outside))
     for scope in tuple(chosen):
@@ -1723,17 +1762,19 @@ def normalize_mcp_permission_scopes(requested: object) -> list[str]:
             chosen.add(f"{resource}:read")
     if not chosen:
         raise ValueError("Choose at least one permission")
-    return [scope for scope in MCP_QUICK_CONNECT_SCOPES if scope in chosen]
+    return [scope for scope in mcp_requestable_scopes() if scope in chosen]
 
 
-def mcp_permission_scopes(preset: str, custom: object = None) -> list[str]:
+def mcp_permission_scopes(
+    preset: str, custom: object = None, *, held_extras: Iterable[str] = ()
+) -> list[str]:
     """The scopes a preset stands for today. Raises `ValueError`."""
     if preset == "read":
         return mcp_read_only_scopes()
     if preset == "write":
         return list(MCP_QUICK_CONNECT_SCOPES)
     if preset == "custom":
-        return normalize_mcp_permission_scopes(custom)
+        return normalize_mcp_permission_scopes(custom, held_extras=held_extras)
     raise ValueError("Unknown permission preset")
 
 
@@ -1780,9 +1821,9 @@ def get_or_create_mcp_quick_connect_client(
     preset = mcp_permission_preset_of(existing) if existing else "write"
     scopes = list(MCP_QUICK_CONNECT_SCOPES)
     if existing and preset != "write":
-        kept = [s for s in existing.get("scopes") or [] if s in MCP_QUICK_CONNECT_SCOPES]
+        kept = [s for s in existing.get("scopes") or [] if s in mcp_requestable_scopes()]
         try:
-            scopes = mcp_permission_scopes(preset, kept)
+            scopes = mcp_permission_scopes(preset, kept, held_extras=mcp_approved_extras(kept))
         except ValueError:
             # Every scope the user had chosen has since left the key. Read is
             # the narrowest thing left to give them; Write would be a widening

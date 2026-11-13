@@ -276,7 +276,15 @@ def _registered_tool_names() -> set[str]:
 #: `wise` rail; `get_wise_status` exposes the read half (masked destination hint,
 #: cool-off, queued earnings and latest batch payout) without returning the Wise
 #: recipient id or fingerprint. Customer profile publishes 87.
-EXPECTED_TOOL_TOTAL = 100
+#: **102** with `get_permissions` and `request_permission` (2026-11-12). A Quick
+#: Connect key is issued with no consent screen, and nothing told the user what
+#: the agent holding it could do. `get_permissions` is what the server
+#: instructions ask an agent to call first and show; `request_permission` posts
+#: a request and returns an approval link, and grants nothing — only the key's
+#: owner, signed in to the dashboard, can approve it. Both are customer tools
+#: open to any credential holding at least one tenant permission, so the
+#: customer profile publishes 89.
+EXPECTED_TOOL_TOTAL = 102
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

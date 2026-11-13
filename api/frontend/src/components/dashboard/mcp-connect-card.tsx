@@ -205,6 +205,7 @@ function WorkspaceConnectCard() {
             scopes: result.scopes,
             permission_preset: result.permission_preset,
             permission_presets: result.permission_presets,
+            approved_extras: result.approved_extras ?? [],
           },
         };
       });
@@ -313,7 +314,7 @@ function WorkspaceConnectCard() {
             <span className="rounded-full border border-border/70 px-2.5 py-0.5 text-[11px] font-medium text-text-muted">
               {t("dash.mcp.perm.count", {
                 count: selection.scopes.length,
-                total: presets.write.length,
+                total: presets.write.length + (conn?.approved_extras?.length ?? 0),
               })}
             </span>
           </div>
@@ -321,6 +322,7 @@ function WorkspaceConnectCard() {
             presets={presets}
             value={selection}
             disabled={saving}
+            extras={conn?.approved_extras}
             customStart={savedSelection.preset === "custom" ? savedSelection.scopes : undefined}
             onChange={(next) => setDrafts((s) => ({ ...s, [tab]: next }))}
           />

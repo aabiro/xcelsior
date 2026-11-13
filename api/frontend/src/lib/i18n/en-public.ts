@@ -51,7 +51,7 @@ const en_public: Record<string, string> = {
   "home.compare_vast": "Vast.ai",
   "home.compare_runpod": "RunPod",
   "home.cmp_agents": "Agent-Native (MCP)",
-  "home.cmp_agents_x": "87 tools, native · first, Jun 2026",
+  "home.cmp_agents_x": "89 tools, native · first, Jun 2026",
   "home.cmp_agents_aws": "Official",
   "home.cmp_agents_vast": "Third-party",
   "home.cmp_agents_rp": "Official",
