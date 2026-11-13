@@ -2269,8 +2269,36 @@ export interface McpQuickConnect {
   /** Always null: agent keys do not expire, they are revoked. */
   expires_in: number | null;
   scopes: string[];
+  /** The choice in force for this key; "write" when nobody has chosen. */
+  permission_preset?: McpPermissionPreset;
+  /** What Read and Write stand for. `write` is everything Custom may tick. */
+  permission_presets?: { read: string[]; write: string[] };
   mcp_url: string;
   api_url: string;
+}
+
+export type McpPermissionPreset = "read" | "write" | "custom";
+
+export interface McpPermissionsResult {
+  ok: boolean;
+  client_id: string;
+  permission_preset: McpPermissionPreset;
+  scopes: string[];
+  permission_presets: { read: string[]; write: string[] };
+  keys_updated: number;
+}
+
+/** Change what a Quick Connect key may do, in place: the key itself is kept.
+ * `scopes` is read only for "custom"; Read and Write are decided by the server. */
+export async function setMcpQuickConnectPermissions(
+  surface: "mcp" | "cli",
+  preset: McpPermissionPreset,
+  scopes: string[] = [],
+) {
+  return apiFetch<McpPermissionsResult>("/api/mcp/quick-connect/permissions", {
+    method: "PUT",
+    body: JSON.stringify({ surface, preset, scopes: preset === "custom" ? scopes : [] }),
+  });
 }
 
 /** Powers the /dashboard/mcp page. Returns the full key only when one is

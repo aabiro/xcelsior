@@ -1808,6 +1808,8 @@ def api_mcp_quick_connect(
     from oauth_service import (
         MCP_QUICK_CONNECT_SCOPES,
         get_or_create_mcp_quick_connect_client,
+        mcp_permission_preset_of,
+        mcp_read_only_scopes,
     )
 
     from db import auth_transaction
@@ -1907,8 +1909,81 @@ def api_mcp_quick_connect(
         # make clients schedule a refresh that has nothing to refresh.
         "expires_in": None,
         "scopes": scopes,
+        # What the permission picker needs: the choice in force, and what Read
+        # and Write stand for, so the dashboard never keeps its own copy.
+        "permission_preset": mcp_permission_preset_of(client),
+        "permission_presets": {
+            "read": mcp_read_only_scopes(),
+            "write": list(MCP_QUICK_CONNECT_SCOPES),
+        },
         "mcp_url": MCP_RESOURCE_AUDIENCE,
         "api_url": mcp_base,
+    }
+
+
+class McpPermissionsUpdate(BaseModel):
+    surface: Literal["mcp", "cli"] = "mcp"
+    preset: Literal["read", "write", "custom"]
+    #: Read only for `custom`; Read and Write are derived on the server.
+    scopes: list[str] = Field(default_factory=list, max_length=64)
+
+
+@router.put("/api/mcp/quick-connect/permissions", tags=["Auth"])
+def api_mcp_quick_connect_permissions(body: McpPermissionsUpdate, request: Request):
+    """Choose what a Quick Connect key may do: Read, Write, or a Custom subset.
+
+    Applied to the existing key in place. The key does not change, so an agent
+    already configured with it keeps working and simply holds the new
+    permissions from its next call. Regenerating was the only alternative, and
+    it would have made narrowing a key cost the user their working setup.
+
+    Interactive sessions only: a key cannot widen itself.
+    """
+    user = _require_user_grant(request)
+    from db import AgentKeyStore, OAuthStore, auth_transaction
+    from oauth_delegation import SYSTEM_PRINCIPAL
+    from oauth_service import (
+        MCP_QUICK_CONNECT_SCOPES,
+        get_or_create_mcp_quick_connect_client,
+        mcp_permission_scopes,
+        mcp_read_only_scopes,
+    )
+
+    try:
+        scopes = mcp_permission_scopes(body.preset, body.scopes)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    surface = body.surface
+    lock_key = (
+        f"quick-connect:{user['email']}:{_oauth_workspace_team_id(user) or 'personal'}:{surface}"
+    )
+    with auth_transaction(lock_key):
+        client = get_or_create_mcp_quick_connect_client(
+            created_by_email=user["email"],
+            workspace_customer_id=_oauth_workspace_customer_id(user),
+            team_id=_oauth_workspace_team_id(user),
+            surface=surface,
+        )
+        client_id = client["client_id"]
+        OAuthStore.update_client(
+            client_id,
+            {"scopes": scopes, "permission_preset": body.preset},
+            actor=SYSTEM_PRINCIPAL,
+        )
+        user_id = str(user.get("user_id") or user.get("email") or "")
+        updated = AgentKeyStore.set_scopes_for_client(user_id, client_id, " ".join(scopes))
+
+    return {
+        "ok": True,
+        "client_id": client_id,
+        "permission_preset": body.preset,
+        "scopes": scopes,
+        "permission_presets": {
+            "read": mcp_read_only_scopes(),
+            "write": list(MCP_QUICK_CONNECT_SCOPES),
+        },
+        "keys_updated": updated,
     }
 
 

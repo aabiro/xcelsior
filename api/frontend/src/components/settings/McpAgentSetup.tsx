@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { SettingsSection } from "@/components/settings/settings-layout";
 import { OAuthSecretRevealModal } from "@/components/settings/oauth-secret-reveal-modal";
-import { ScopeChipRow } from "@/components/settings/credential-scope-panel";
+import { McpPermissionPicker, type PermissionSelection } from "@/components/dashboard/mcp-permission-picker";
+import { presetsFrom } from "@/lib/mcp-permissions";
 import { ClientLogo, clientLogoFor } from "@/components/ui/client-logo";
 import { CodeBlock } from "@/components/ui/code-block";
 import { MCP_CONNECTOR_URL, MCP_RESOURCE, mcpHealthUrl, configJson, configPath, oneClickInstalls } from "@/lib/mcp";
@@ -59,6 +60,8 @@ const MCP_SCOPES = [
   "reputation:read",
 ] as const;
 
+const MCP_PRESETS = presetsFrom(MCP_SCOPES);
+
 const STEPS = ["create", "copy", "token", "paste"] as const;
 
 const AGENTS = [
@@ -100,6 +103,11 @@ export function McpAgentSetup({
   // The live Bearer token: minted in-app or pasted by hand. When set, it's spliced
   // straight into the config preview so there's no YOUR_OAUTH_TOKEN left to edit.
   const [token, setToken] = useState("");
+  // What the client being created will hold. Write is the full MCP set.
+  const [permissions, setPermissions] = useState<PermissionSelection>({
+    preset: "write",
+    scopes: [...MCP_SCOPES],
+  });
 
   const mcpClient = useMemo(
     () => oauthClients.find((c) => c.client_name?.toLowerCase().includes("mcp") || c.scopes?.includes("gpu:read")),
@@ -117,7 +125,7 @@ export function McpAgentSetup({
     setCreating(true);
     try {
       const name = `mcp-agent-${new Date().toISOString().slice(0, 10)}`;
-      const res = await api.createOAuthClient(name, [...MCP_SCOPES]);
+      const res = await api.createOAuthClient(name, permissions.scopes);
       const client = res.client;
       const { client_secret: _secret, ...listed } = client;
       onOAuthClientsChange([...oauthClients, listed]);
@@ -284,8 +292,18 @@ export function McpAgentSetup({
           {step === 0 && (
             <div className="space-y-3">
               <p className="text-sm text-text-secondary">{t("dash.settings.mcp.step_create")}</p>
-              <ScopeChipRow scopes={[...MCP_SCOPES]} maxVisible={20} size="md" />
-              <Button onClick={handleCreateClient} disabled={creating} className="gap-2">
+              <McpPermissionPicker
+                presets={MCP_PRESETS}
+                value={permissions}
+                onChange={setPermissions}
+                disabled={creating}
+                stacked
+              />
+              <Button
+                onClick={handleCreateClient}
+                disabled={creating || permissions.scopes.length === 0}
+                className="gap-2"
+              >
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
                 {t("dash.settings.mcp.create_btn")}
               </Button>
@@ -424,7 +442,7 @@ export function McpAgentSetup({
           onClose={() => setShowSecretModal(false)}
           clientId={freshCredentials.clientId}
           clientSecret={freshCredentials.clientSecret}
-          scopes={[...MCP_SCOPES]}
+          scopes={permissions.scopes}
         />
       )}
     </SettingsSection>

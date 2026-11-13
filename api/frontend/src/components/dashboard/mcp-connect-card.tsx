@@ -1,8 +1,10 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, KeyRound, Loader2, Lock, RefreshCw, Terminal } from "lucide-react";
+import { Check, Copy, KeyRound, Loader2, Lock, RefreshCw, ShieldCheck, Terminal } from "lucide-react";
 import { PillToggle } from "@/components/dashboard/pill-toggle";
+import { McpPermissionPicker, type PermissionSelection } from "@/components/dashboard/mcp-permission-picker";
+import { sameScopes } from "@/lib/mcp-permissions";
 import { useLocale } from "@/lib/locale";
 import { useAuth } from "@/lib/auth";
 import { MCP_CONNECTOR_URL, oneClickInstalls } from "@/lib/mcp";
@@ -29,6 +31,10 @@ function WorkspaceConnectCard() {
   const [pending, setPending] = useState<Partial<Record<Tab, boolean>>>({});
   const [failed, setFailed] = useState<Partial<Record<Tab, boolean>>>({});
   const [copied, setCopied] = useState(false);
+  // What the picker shows when it differs from what the key holds. Kept per
+  // tab, and dropped once saved, so the picker otherwise mirrors the server.
+  const [drafts, setDrafts] = useState<Partial<Record<Tab, PermissionSelection>>>({});
+  const [saving, setSaving] = useState(false);
   const inFlight = useRef<Partial<Record<Tab, Promise<void>>>>({});
   const mounted = useRef(true);
   useEffect(() => {
@@ -172,6 +178,45 @@ function WorkspaceConnectCard() {
 
   const keyLabel = t(tab === "cli" ? "dash.mcp.key_label_cli" : "dash.mcp.key_label_mcp");
 
+  const presets = conn?.permission_presets;
+  const savedSelection: PermissionSelection | null = conn
+    ? { preset: conn.permission_preset ?? "write", scopes: conn.scopes }
+    : null;
+  const selection = drafts[tab] ?? savedSelection;
+  const dirty =
+    !!selection &&
+    !!savedSelection &&
+    (selection.preset !== savedSelection.preset || !sameScopes(selection.scopes, savedSelection.scopes));
+
+  const savePermissions = async () => {
+    if (!selection || saving) return;
+    const surface = tab;
+    setSaving(true);
+    try {
+      const result = await api.setMcpQuickConnectPermissions(surface, selection.preset, selection.scopes);
+      if (!mounted.current) return;
+      setConnections((s) => {
+        const current = s[surface];
+        if (!current) return s;
+        return {
+          ...s,
+          [surface]: {
+            ...current,
+            scopes: result.scopes,
+            permission_preset: result.permission_preset,
+            permission_presets: result.permission_presets,
+          },
+        };
+      });
+      setDrafts((s) => ({ ...s, [surface]: undefined }));
+      toast.success(t("dash.mcp.perm.saved"));
+    } catch {
+      if (mounted.current) toast.error(t("dash.mcp.perm.save_failed"));
+    } finally {
+      if (mounted.current) setSaving(false);
+    }
+  };
+
   return (
     <div className="mcp-connect-card glow-card glass relative mx-auto w-full max-w-2xl rounded-[22px] p-6 sm:p-8">
       <div className="brand-line mb-6 rounded-full" />
@@ -254,6 +299,59 @@ function WorkspaceConnectCard() {
           </div>
         )}
       </div>
+
+      {!loading && !failed[tab] && presets && selection && savedSelection && (
+        <section
+          className="mcp-connect-prompt mt-5 rounded-2xl border border-border p-4 sm:p-5"
+          aria-label={t("dash.mcp.perm.title")}
+        >
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              {t("dash.mcp.perm.title")}
+            </h3>
+            <span className="rounded-full border border-border/70 px-2.5 py-0.5 text-[11px] font-medium text-text-muted">
+              {t("dash.mcp.perm.count", {
+                count: selection.scopes.length,
+                total: presets.write.length,
+              })}
+            </span>
+          </div>
+          <McpPermissionPicker
+            presets={presets}
+            value={selection}
+            disabled={saving}
+            customStart={savedSelection.preset === "custom" ? savedSelection.scopes : undefined}
+            onChange={(next) => setDrafts((s) => ({ ...s, [tab]: next }))}
+          />
+          <div className="mt-3 flex min-h-9 flex-wrap items-center justify-between gap-3">
+            <p className={cn("text-xs", dirty ? "text-accent-gold" : "text-text-muted")}>
+              {t(dirty ? "dash.mcp.perm.unsaved" : "dash.mcp.perm.applies_hint")}
+            </p>
+            {dirty && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDrafts((s) => ({ ...s, [tab]: undefined }))}
+                  disabled={saving}
+                  className="rounded-full border border-border/60 px-4 py-1.5 text-xs font-medium text-text-muted hover:text-text-primary disabled:opacity-50"
+                >
+                  {t("dash.mcp.perm.reset")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void savePermissions()}
+                  disabled={saving || selection.scopes.length === 0}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-accent-cyan to-accent-violet px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100"
+                >
+                  {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {t(saving ? "dash.mcp.perm.saving" : "dash.mcp.perm.save")}
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
         {!masked && (

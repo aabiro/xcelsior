@@ -68,4 +68,13 @@ describe("host relocation", () => {
     expect(screen.getByRole("button", { name: "Save location" })).toBeEnabled();
     expect(host.region).toBe("ca-on");
   });
+
+  it("shows the load error instead of crashing when the country list is missing", async () => {
+    // Any 200 without `countries` (a proxy page, an older API) used to be
+    // stored as the list, and the next render threw on `.some`.
+    fetchMock.mockReset().mockImplementation(async () => response({ ok: true }));
+    render(<Screen />);
+    expect(await screen.findByText("Unable to load countries")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Country" })).toBeInTheDocument();
+  });
 });

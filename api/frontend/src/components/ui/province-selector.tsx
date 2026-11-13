@@ -88,7 +88,13 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
     let active = true;
     setError("");
     apiFetch<LocationCatalog>("/api/locations")
-      .then((result) => { if (active) setCountries(result.countries); })
+      .then((result) => {
+        if (!active) return;
+        // A reply without the list is a failed load, shown with Retry below.
+        // Storing it took the whole Settings page down on the next render.
+        if (Array.isArray(result?.countries)) setCountries(result.countries);
+        else setError("Unable to load countries");
+      })
       .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Unable to load countries"); });
     return () => { active = false; };
   }, [retry]);
@@ -102,12 +108,15 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
     const query = `country=${encodeURIComponent(selectedCountry)}${purpose === "address" ? "&purpose=address" : ""}`;
     apiFetch<LocationCatalog>(`/api/locations?${query}`)
       .then((result) => {
-        if (active) {
+        if (active && !Array.isArray(result?.subdivisions)) {
+          setError("Unable to load states and provinces");
+        } else if (active) {
           setCatalog(result);
           onLabelsChange?.(result.labels ?? null);
-          const required = result.requires_subdivision && !result.required_address_fields.includes("province")
-            ? ["province", ...result.required_address_fields]
-            : result.required_address_fields;
+          const fields = result.required_address_fields ?? [];
+          const required = result.requires_subdivision && !fields.includes("province")
+            ? ["province", ...fields]
+            : fields;
           onRequirementsChange?.(required);
         }
       })

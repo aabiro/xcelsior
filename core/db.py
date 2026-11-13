@@ -2599,7 +2599,14 @@ class OAuthStore:
         *,
         actor: object,
     ) -> bool:
-        allowed = {"client_name", "redirect_uris", "grant_types", "scopes", "status"}
+        allowed = {
+            "client_name",
+            "redirect_uris",
+            "grant_types",
+            "scopes",
+            "status",
+            "permission_preset",
+        }
         fields = {k: v for k, v in updates.items() if k in allowed}
         # The lock, not the door (#16). Enforced here so a caller cannot omit it
         # by not knowing about it: registration was guarded and the update path was
@@ -3361,6 +3368,22 @@ class AgentKeyStore:
                 "UPDATE agent_api_keys SET revoked_at = now() "
                 "WHERE user_id = %s AND client_id = %s AND revoked_at IS NULL",
                 (user_id, client_id),
+            )
+            return cur.rowcount
+
+    @staticmethod
+    def set_scopes_for_client(user_id: str, client_id: str, scopes: str) -> int:
+        """Change what this user's live keys for one client may do, in place.
+
+        The key itself is untouched, so a config that already holds it keeps
+        working with the new permissions. Validation reads this column on every
+        request, so the change applies to the next call.
+        """
+        with auth_connection() as conn:
+            cur = conn.execute(
+                "UPDATE agent_api_keys SET scopes = %s "
+                "WHERE user_id = %s AND client_id = %s AND revoked_at IS NULL",
+                (scopes, user_id, client_id),
             )
             return cur.rowcount
 

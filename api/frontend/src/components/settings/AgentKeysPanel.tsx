@@ -33,7 +33,7 @@ export function AgentKeysPanel() {
   const load = useCallback(async () => {
     try {
       const res = await api.fetchAgentKeys();
-      setKeys(res.keys);
+      setKeys(Array.isArray(res.keys) ? res.keys : []);
     } catch {
       toast.error(t("dash.settings.keys.load_failed"));
       setKeys([]);

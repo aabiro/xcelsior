@@ -1679,6 +1679,70 @@ MCP_QUICK_CONNECT_SCOPES = [
     # and verification badges.
     "reputation:read",
 ]
+
+#: The choices the dashboard offers for a Quick Connect key. `write` is the
+#: whole list above and is what a key gets when nobody has chosen. `read` is
+#: its `:read` scopes and nothing else: it can look, and cannot launch,
+#: terminate, open a shell, add an SSH key, or change a volume. `custom` is any
+#: subset the user ticks.
+#:
+#: None of these can reach past `MCP_QUICK_CONNECT_SCOPES`. Choosing narrows
+#: the key; the reasoning for what the list holds stays where it is, above.
+MCP_PERMISSION_PRESETS: tuple[str, ...] = ("read", "write", "custom")
+
+
+def mcp_read_only_scopes() -> list[str]:
+    """The Read preset: every scope on the Quick Connect key that only reads."""
+    return [scope for scope in MCP_QUICK_CONNECT_SCOPES if scope.endswith(":read")]
+
+
+def normalize_mcp_permission_scopes(requested: object) -> list[str]:
+    """A Custom selection, checked and made coherent. Raises `ValueError`.
+
+    Two rules. Nothing outside `MCP_QUICK_CONNECT_SCOPES` is accepted, so this
+    can only narrow a key. And a scope that changes a resource brings that
+    resource's read scope with it: a key that can terminate an instance it
+    cannot list makes an agent act blind, and routes check each scope by
+    membership, so holding `instances:write` does not answer a check for
+    `instances:read`. The dashboard ticks the read box for the user; this is
+    the same rule where it cannot be skipped.
+
+    `ssh:write` has no read scope on this key (see the list above for why), so
+    it stands alone.
+    """
+    if not isinstance(requested, (list, tuple, set, frozenset)):
+        raise ValueError("scopes must be a list")
+    chosen = {str(scope).strip() for scope in requested if str(scope).strip()}
+    ceiling = set(MCP_QUICK_CONNECT_SCOPES)
+    outside = sorted(chosen - ceiling)
+    if outside:
+        raise ValueError("Not available on a Quick Connect key: " + ", ".join(outside))
+    for scope in tuple(chosen):
+        resource, _, verb = scope.partition(":")
+        if verb != "read" and f"{resource}:read" in ceiling:
+            chosen.add(f"{resource}:read")
+    if not chosen:
+        raise ValueError("Choose at least one permission")
+    return [scope for scope in MCP_QUICK_CONNECT_SCOPES if scope in chosen]
+
+
+def mcp_permission_scopes(preset: str, custom: object = None) -> list[str]:
+    """The scopes a preset stands for today. Raises `ValueError`."""
+    if preset == "read":
+        return mcp_read_only_scopes()
+    if preset == "write":
+        return list(MCP_QUICK_CONNECT_SCOPES)
+    if preset == "custom":
+        return normalize_mcp_permission_scopes(custom)
+    raise ValueError("Unknown permission preset")
+
+
+def mcp_permission_preset_of(client: dict[str, Any]) -> str:
+    """The preset a client was set to; `write` when nobody has chosen."""
+    preset = str(client.get("permission_preset") or "")
+    return preset if preset in MCP_PERMISSION_PRESETS else "write"
+
+
 MCP_QUICK_CONNECT_CLIENT_NAME = "mcp-quick-connect"
 # The Agent Skill (CLI tab) gets its own client so its key is separately
 # revocable and never the same credential as the MCP connector's.
@@ -1710,6 +1774,20 @@ def get_or_create_mcp_quick_connect_client(
     existing = OAuthStore.get_system_managed_client(created_by_email, client_name)
     if existing and not regenerate:
         return existing
+    # A new key keeps the permissions the user chose for the old one. Read and
+    # Write are re-derived, so they follow the Quick Connect set as it changes;
+    # a Custom selection is carried over, less anything since withdrawn.
+    preset = mcp_permission_preset_of(existing) if existing else "write"
+    scopes = list(MCP_QUICK_CONNECT_SCOPES)
+    if existing and preset != "write":
+        kept = [s for s in existing.get("scopes") or [] if s in MCP_QUICK_CONNECT_SCOPES]
+        try:
+            scopes = mcp_permission_scopes(preset, kept)
+        except ValueError:
+            # Every scope the user had chosen has since left the key. Read is
+            # the narrowest thing left to give them; Write would be a widening
+            # nobody asked for.
+            preset, scopes = "read", mcp_read_only_scopes()
     if existing and regenerate:
         OAuthStore.delete_client(existing["client_id"], created_by_email)
     created = create_oauth_client(
@@ -1717,7 +1795,7 @@ def get_or_create_mcp_quick_connect_client(
         client_name=client_name,
         redirect_uris=[],
         grant_types=["client_credentials"],
-        scopes=list(MCP_QUICK_CONNECT_SCOPES),
+        scopes=scopes,
         created_by_email=created_by_email,
         client_type="confidential",
         is_first_party=False,
@@ -1725,6 +1803,10 @@ def get_or_create_mcp_quick_connect_client(
         team_id=team_id,
         is_system_managed=True,
     )
+    if preset != "write":
+        OAuthStore.update_client(
+            created["client_id"], {"permission_preset": preset}, actor=SYSTEM_PRINCIPAL
+        )
     # The plaintext client_secret in `created` is discarded here on purpose —
     # this client is never authenticated via the public /oauth/token endpoint,
     # so nothing ever needs it again.
