@@ -152,10 +152,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     }
   }, [user?.profile_complete, pathname, router]);
 
-  // Redirect to login if not authenticated
+  // Redirect to login if not authenticated. Keep the query and hash, as the
+  // proxy's own redirect does: a link like /dashboard/mcp/approve?code=… is
+  // useless after sign-in without its code (a stale session cookie gets past
+  // the proxy and lands here).
   useEffect(() => {
     if (authLoading || user) return;
-    router.replace(`/login?redirect=${encodeURIComponent(pathname ?? "/dashboard")}`);
+    const target =
+      typeof window !== "undefined"
+        ? window.location.pathname + window.location.search + window.location.hash
+        : pathname ?? "/dashboard";
+    router.replace(`/login?redirect=${encodeURIComponent(target)}`);
   }, [authLoading, user, pathname, router]);
 
   useEffect(() => {
