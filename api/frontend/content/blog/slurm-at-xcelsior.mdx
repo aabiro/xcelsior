@@ -48,9 +48,9 @@ Connecting a cloud control plane to an HPC head node over SSH normally invites t
 
 Xcelsior's transport layer (`slurm_transport.py`) eliminates both:
 
-1. **Ephemeral `tmpfs` configuration.** Every runner materializes its own `-F` SSH config, `known_hosts`, and short-lived key file inside a `0700` directory on `/dev/shm` — nothing is ever read from `~/.ssh`, and credentials referenced as `env:NAME` exist on `tmpfs` only while establishing the master connection.
-2. **Mandatory host-key pinning.** Each cluster's public host key (`ssh-ed25519` or NIST ECDSA) is pinned at registration with `StrictHostKeyChecking yes`. If a head node's key changes unexpectedly, the runner aborts immediately with `host_key_mismatch` — never prompting and never trusting on first use.
-3. **Cryptographically bound `ControlMaster` sockets.** Consecutive `squeue`, `sacct`, log-tail, and `scancel` calls share a persistent `ControlMaster` (`120s` persist window) so a reconcile pass costs one handshake instead of dozens. Crucially, the socket filename embeds a digest of both the pinned host key and the credential reference: because OpenSSH mux clients skip host-key verification once a master is open, re-pinning a host key or rotating a credential automatically shifts to a new socket path and forces a fresh cryptographic check.
+1. **Private runner configuration.** Every runner materializes its own `-F` SSH config and `known_hosts` file in a `0700` directory. The default location is `/dev/shm` on Linux; operators can configure a different runtime directory. A credential referenced as `env:NAME` is written to a private file for the runner's lifetime and removed when that context closes. Ambient `~/.ssh` configuration is not used.
+2. **Mandatory host-key pinning.** Each cluster's public host key is pinned at registration with `StrictHostKeyChecking yes`. If a head node's key changes unexpectedly, the runner aborts with `host_key_mismatch` — never prompting and never trusting on first use.
+3. **Trust-bound `ControlMaster` sockets.** Consecutive `squeue`, `sacct`, log-tail, and `scancel` calls can share a persistent `ControlMaster` (`120s` persist window). The socket filename includes a digest of the pinned host key and credential reference, so changing either selects a new socket and requires a fresh handshake. Rotating key material under the same credential reference requires closing the old master explicitly; the socket name does not fingerprint the private key's contents.
 
 ---
 
@@ -75,6 +75,13 @@ Every settled run records `shadow_cost_micros` against the cluster's rate card w
 
 ## Where Things Stand Today
 
-On **November 7, 2026**, the adapter, transport, and accounting pipeline passed validation on Xcelsior's two-node lab cluster (one GPU compute node and one CPU node), and the 7-day staging shadow-billing run kicked off on **November 10, 2026**.
+The adapter was first validated against Xcelsior's two-node lab cluster on **November 7, 2026**. Submission, transport, and accounting checks followed, and the first GPU shadow-billing results were recorded on **November 10, 2026**. A first successful day is not the full shadow week: daily coverage, requeue and suspend cases, and the drift threshold must all pass before live charging can be enabled.
 
 Today, the HPC console and `/api/v1/hpc/*` read surfaces remain **operator-only**, with **no external partner cluster connected yet**. Once shadow-billing drift gates close and our first partner cluster completes onboarding, we will publish the full multi-cluster placement benchmarks and open early access. Follow ongoing updates in [HPC & Slurm Integration: Where It Stands](/blog/hpc-slurm-launch) or reach out to [support@xcelsior.ca](mailto:support@xcelsior.ca) if you operate a Slurm cluster and want to talk architecture.
+
+## Technical References
+
+- [Slurm's sacct accounting fields and duplicate-run records](https://slurm.schedmd.com/sacct.html)
+- [Xcelsior's SSH transport](https://github.com/aabiro/xcelsior/blob/main/workers/slurm_transport.py)
+- [Cached-state reconciliation](https://github.com/aabiro/xcelsior/blob/main/workers/slurm_reconciler.py)
+- [Per-run shadow accounting](https://github.com/aabiro/xcelsior/blob/main/workers/slurm_billing.py)

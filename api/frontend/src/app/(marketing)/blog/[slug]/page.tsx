@@ -19,6 +19,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!post) return { title: "Post Not Found" };
   const description =
     post.description.length > 160 ? `${post.description.slice(0, 157)}...` : post.description;
+  const image = post.image ?? `/blog/${slug}/image`;
   return {
     title: post.title,
     description,
@@ -27,8 +28,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: post.title,
       description: post.description,
       type: "article",
+      url: `https://xcelsior.ca/blog/${slug}`,
       publishedTime: post.date,
       authors: [post.author],
+      images: [{ url: image, width: 1200, height: 630, alt: post.title }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: post.title,
+      description: post.description,
+      images: [image],
     },
   };
 }
@@ -44,11 +53,11 @@ export default async function BlogPostPage({ params }: Props) {
     headline: post.title,
     description: post.description,
     datePublished: post.date,
-    author: { "@type": "Person", name: post.author },
+    author: { "@type": "Organization", name: post.author },
     publisher: { "@id": "https://xcelsior.ca/#organization" },
     mainEntityOfPage: `https://xcelsior.ca/blog/${slug}`,
     keywords: post.tags.join(", "),
-    image: post.image ? `https://xcelsior.ca${post.image}` : `https://xcelsior.ca/blog/${slug}/opengraph-image`,
+    image: post.image ? `https://xcelsior.ca${post.image}` : `https://xcelsior.ca/blog/${slug}/image`,
   };
 
   return (

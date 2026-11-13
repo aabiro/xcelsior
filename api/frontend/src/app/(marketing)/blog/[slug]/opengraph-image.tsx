@@ -1,6 +1,8 @@
 import { ImageResponse } from "next/og";
 import { getAllPosts, getPostBySlug } from "@/lib/blog";
 import { formatBlogDate } from "@/lib/format-date";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 export const alt = "Xcelsior Blog";
 export const size = { width: 1200, height: 630 };
@@ -13,6 +15,12 @@ export function generateStaticParams() {
 export default async function BlogOG({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const post = getPostBySlug(slug);
+  if (post?.image) {
+    const file = path.join(process.cwd(), "public", post.image);
+    return new Response(new Uint8Array(await readFile(file)), {
+      headers: { "Content-Type": contentType },
+    });
+  }
 
   const title = post?.title ?? "Blog";
   const author = post?.author ?? "Xcelsior Team";

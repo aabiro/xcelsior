@@ -9,7 +9,7 @@ image: "/blog/mcp-server-release.png"
 
 AI coding and research agents can write PyTorch training loops, debug CUDA kernels, and package Docker images — right up until they need an actual GPU. At that point, the workflow usually drops back to a human opening tabs, copying long-lived API keys into plaintext config files, clicking through instance forms, and hoping an autonomous loop does not leave eight GPUs running overnight.
 
-Today we are releasing **Xcelsior MCP**, our hosted Model Context Protocol server at [https://mcp.xcelsior.ca/mcp](https://mcp.xcelsior.ca/mcp), published in the official MCP Registry as `io.github.aabiro/xcelsior`.
+**Xcelsior MCP** is our hosted Model Context Protocol server at [https://mcp.xcelsior.ca/mcp](https://mcp.xcelsior.ca/mcp), published in the official MCP Registry as `io.github.aabiro/xcelsior`.
 
 With **87 scoped customer tools**, an AI assistant or autonomous workflow can discover live GPU availability, quote and execute approval-gated launch plans, manage serverless inference endpoints, attach persistent volumes, inspect telemetry, and track CAD billing — end to end, without ever touching an un-scoped API key.
 
@@ -17,12 +17,12 @@ With **87 scoped customer tools**, an AI assistant or autonomous workflow can di
 
 ## Paste One URL, Approve in the Browser
 
-For interactive clients — **Claude**, **ChatGPT**, **Grok**, **Cursor**, **VS Code**, and **Copilot Studio** — connecting takes a single Streamable HTTP URL: `https://mcp.xcelsior.ca/mcp`.
+For interactive clients that support remote MCP and a compatible OAuth flow, start with the Streamable HTTP URL `https://mcp.xcelsior.ca/mcp`. Client setup varies; the [connection guide](/mcp) covers the available paths for editors and assistants.
 
 There is no client secret to generate and nothing to paste into an environment file. When your client connects, Xcelsior runs a standards-compliant OAuth 2.1 handshake bound directly to `https://mcp.xcelsior.ca/mcp`:
 
 1. **Automatic discovery.** Calling `/mcp` unauthenticated returns `401` with `WWW-Authenticate` pointing to `/.well-known/oauth-protected-resource`, advertising the authorization server and canonical resource identifier.
-2. **Zero-friction client identity.** Clients identify themselves automatically via **Client ID Metadata Documents (CIMD)**, **RFC 7591 dynamic client registration** at `/oauth/register`, or the public `xcelsior-connector` client.
+2. **Client identity.** Supported clients identify themselves via **Client ID Metadata Documents (CIMD)**, **RFC 7591 dynamic client registration** at `/oauth/register`, or the public `xcelsior-connector` client.
 3. **Explicit scope consent.** You sign in on Xcelsior and approve the exact scopes requested. Approvals are remembered per client, per scope set, and per resource, and can be revoked in one click under **Dashboard → Settings → AI Agents**.
 4. **Short-lived, resource-bound tokens.** The client exchanges the authorization code using **S256 PKCE** at `/oauth/token` for a ~1-hour access token (`aud: https://mcp.xcelsior.ca/mcp`) paired with a rotating 30-day refresh token.
 
@@ -39,7 +39,7 @@ Exposing a cloud control plane to an LLM by blindly wrapping every REST route is
 | Lifecycle, Logs & SSH | Monitor container states, stream or download instance logs, manage SSH keys, and stop or tear down workloads cleanly |
 | Serverless & Volumes | Create and scale serverless inference endpoints, preview artifact promotions, and provision persistent volumes |
 | Billing & Spend Guardrails | Inspect CAD wallet balances, itemized usage statements, and top-up status with strict least-privilege scopes |
-| Provider Operations | Register hosts, inspect admission benchmarks, manage spot slot allocations, and check payout readiness |
+| Provider Accounts & Payouts | Register a provider account, inspect earnings and Wise/PayPal payout status, and request a provider payout with the required scopes |
 
 Two architectural rules enforce safety at the protocol boundary:
 
@@ -52,7 +52,7 @@ Two architectural rules enforce safety at the protocol boundary:
 
 Not every agent has a human sitting at a browser to click an OAuth consent screen. For CI runners, scheduled jobs, and autonomous background services, Xcelsior supports two headless paths out of the box:
 
-- **OAuth `client_credentials` machine clients.** Mint a dedicated machine client with narrowed scopes in **Dashboard → Settings → Connect AI Agents** and exchange `client_id` + `client_secret` at `https://xcelsior.ca/oauth/token` (`grant_type=client_credentials` and `resource=https://mcp.xcelsior.ca/mcp`) for short-lived bearer tokens over Streamable HTTP.
+- **OAuth `client_credentials` machine clients.** Mint a dedicated machine client with narrowed scopes in **Dashboard → Settings → Connect AI Agents** and exchange `client_id` + `client_secret` at `https://xcelsior.ca/oauth/token` (`grant_type=client_credentials` and `resource=https://mcp.xcelsior.ca/mcp`) for resource-bound bearer tokens over Streamable HTTP. Machine-token lifetimes are configured separately from the interactive one-hour access tokens; check the token response's `expires_in` value.
 - **Local stdio bridge via npm (`@xcelsior-gpu/mcp`).** For local MCP hosts that speak stdio rather than remote Streamable HTTP, run `npx -y @xcelsior-gpu/mcp` with `XCELSIOR_ACCESS_TOKEN` set in the environment.
 
 ---

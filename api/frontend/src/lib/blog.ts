@@ -37,7 +37,7 @@ export function getAllPosts(): BlogPost[] {
     };
   });
 
-  return posts.sort((a, b) => (a.date > b.date ? -1 : 1));
+  return posts.sort((a, b) => b.date.localeCompare(a.date) || a.slug.localeCompare(b.slug));
 }
 
 export function getPostBySlug(slug: string): BlogPost | null {
