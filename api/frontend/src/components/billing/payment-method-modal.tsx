@@ -20,7 +20,7 @@ export interface AutoReloadSetting {
 
 interface PaymentMethodModalProps {
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
   autoReload?: AutoReloadSetting;
 }
 
@@ -105,9 +105,17 @@ function AddCardForm({ onClose, onSuccess, autoReload }: PaymentMethodModalProps
       }
       if (setupIntent?.status === "succeeded") {
         posthog.capture("payment_method_added", { payment_type: "card" });
-        toast.success("Card saved");
-        onSuccess();
         onClose();
+        try {
+          await onSuccess();
+          toast.success("Card saved");
+        } catch {
+          toast.error("Card saved, but the saved-card list could not refresh. Use Retry under Payment Methods.");
+        }
+      } else if (setupIntent?.status === "processing") {
+        toast.info("Card verification is still processing. Refresh Payment Methods shortly.");
+        onClose();
+        await onSuccess();
       }
     } catch (err) {
       posthog.captureException(err instanceof Error ? err : new Error(String(err)));

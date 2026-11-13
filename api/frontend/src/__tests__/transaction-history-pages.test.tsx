@@ -43,19 +43,26 @@ const button = (name: RegExp) => screen.getByRole("button", { name });
 describe("transaction history pages", () => {
   it("shows the newest page first, with where it sits", async () => {
     render(<TransactionHistory customerId="c" />);
-    await waitFor(() => expect(range()).toBe("1–20 of 45"));
+    await waitFor(() => expect(range()).toBe("1–10 of 45"));
     expect(screen.getByText("Deposit 45")).toBeInTheDocument();
-    expect(screen.queryByText("Deposit 25")).not.toBeInTheDocument();
+    expect(screen.queryByText("Deposit 35")).not.toBeInTheDocument();
+    expect(screen.getByTestId("transaction-rows").children).toHaveLength(10);
     expect(button(/newer/i)).toBeDisabled();
   });
 
   it("walks older to the end and back, by the cursors it was given", async () => {
     render(<TransactionHistory customerId="c" />);
-    await waitFor(() => expect(range()).toBe("1–20 of 45"));
+    await waitFor(() => expect(range()).toBe("1–10 of 45"));
 
     fireEvent.click(button(/older/i));
-    await waitFor(() => expect(range()).toBe("21–40 of 45"));
-    expect(fetchWalletHistoryPage).toHaveBeenLastCalledWith("c", { limit: 20, before: "tx-26" });
+    await waitFor(() => expect(range()).toBe("11–20 of 45"));
+    expect(fetchWalletHistoryPage).toHaveBeenLastCalledWith("c", { limit: 10, before: "tx-36" });
+
+    fireEvent.click(button(/older/i));
+    await waitFor(() => expect(range()).toBe("21–30 of 45"));
+
+    fireEvent.click(button(/older/i));
+    await waitFor(() => expect(range()).toBe("31–40 of 45"));
 
     fireEvent.click(button(/older/i));
     await waitFor(() => expect(range()).toBe("41–45 of 45"));
@@ -63,8 +70,8 @@ describe("transaction history pages", () => {
     expect(button(/older/i)).toBeDisabled();
 
     fireEvent.click(button(/newer/i));
-    await waitFor(() => expect(range()).toBe("21–40 of 45"));
-    expect(fetchWalletHistoryPage).toHaveBeenLastCalledWith("c", { limit: 20, before: "tx-26" });
+    await waitFor(() => expect(range()).toBe("31–40 of 45"));
+    expect(fetchWalletHistoryPage).toHaveBeenLastCalledWith("c", { limit: 10, before: "tx-16" });
   });
 
   it("a short ledger has no paging controls", async () => {
@@ -78,11 +85,11 @@ describe("transaction history pages", () => {
 
   it("returns to the newest page when the billing page reloads", async () => {
     const { rerender } = render(<TransactionHistory customerId="c" refreshKey={1} />);
-    await waitFor(() => expect(range()).toBe("1–20 of 45"));
+    await waitFor(() => expect(range()).toBe("1–10 of 45"));
     fireEvent.click(button(/older/i));
-    await waitFor(() => expect(range()).toBe("21–40 of 45"));
+    await waitFor(() => expect(range()).toBe("11–20 of 45"));
     rerender(<TransactionHistory customerId="c" refreshKey={2} />);
-    await waitFor(() => expect(range()).toBe("1–20 of 45"));
+    await waitFor(() => expect(range()).toBe("1–10 of 45"));
   });
 
   it("offers a retry rather than an empty ledger when a page fails", async () => {
@@ -91,6 +98,13 @@ describe("transaction history pages", () => {
     expect(await screen.findByText("Transactions could not be loaded.")).toBeInTheDocument();
     expect(screen.queryByText("dash.billing.no_transactions")).not.toBeInTheDocument();
     fireEvent.click(button(/retry/i));
-    await waitFor(() => expect(range()).toBe("1–20 of 45"));
+    await waitFor(() => expect(range()).toBe("1–10 of 45"));
+  });
+
+  it("caps requested page sizes at ten", async () => {
+    render(<TransactionHistory customerId="c" pageSize={50} />);
+    await waitFor(() => expect(range()).toBe("1–10 of 45"));
+    expect(fetchWalletHistoryPage).toHaveBeenCalledWith("c", { limit: 10, before: null });
+    expect(screen.getByTestId("transaction-rows").children).toHaveLength(10);
   });
 });

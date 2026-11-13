@@ -1176,6 +1176,16 @@ export async function fetchInvoices(customerId: string, limit = 12) {
   );
 }
 
+export async function fetchUsageStatement(customerId: string, periodStart: number, periodEnd: number) {
+  const params = new URLSearchParams({
+    period_start: String(periodStart),
+    period_end: String(periodEnd),
+  });
+  return apiFetch<{ ok: boolean; invoice: UsageStatement }>(
+    `/api/billing/invoice/${encodeURIComponent(customerId)}?${params}`,
+  );
+}
+
 export async function downloadInvoice(
   customerId: string,
   format: "csv" | "txt",
@@ -3641,6 +3651,28 @@ export interface Invoice {
   status: string;
 }
 
+export interface UsageStatement {
+  invoice_id: string;
+  customer_id: string;
+  period_start: number;
+  period_end: number;
+  currency: string;
+  status: string;
+  subtotal_cad: number;
+  tax_amount_cad: number;
+  total_cad: number;
+  line_items: {
+    description: string;
+    category: string;
+    quantity: number;
+    unit: string;
+    unit_price_cad: number;
+    subtotal_cad: number;
+    gpu_model: string;
+    job_id: string;
+  }[];
+}
+
 export interface Payout {
   job_id: string;
   provider_id: string;
@@ -4410,6 +4442,12 @@ export interface SavedPaymentMethod {
   is_default: boolean;
 }
 
+export interface SavedWalletPaymentMethod {
+  id: string;
+  type: "link";
+  email: string;
+}
+
 export async function createBillingPortalSession() {
   return apiFetch<{
     ok: boolean;
@@ -4429,7 +4467,7 @@ export async function createSetupIntent() {
 }
 
 export async function fetchPaymentMethods() {
-  return apiFetch<{ ok: boolean; payment_methods: SavedPaymentMethod[] }>(
+  return apiFetch<{ ok: boolean; payment_methods: SavedPaymentMethod[]; wallet_payment_methods?: SavedWalletPaymentMethod[] }>(
     "/api/billing/payment-methods",
   );
 }

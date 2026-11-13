@@ -3198,7 +3198,7 @@ class BillingEngine:
         si = _stripe_mod.SetupIntent.create(
             customer=stripe_customer_id,
             usage="off_session",
-            automatic_payment_methods={"enabled": True},
+            payment_method_types=["card"],
             metadata={"xcelsior_customer_id": customer_id},
         )
         return {
@@ -3249,6 +3249,21 @@ class BillingEngine:
                 }
             )
         return out
+
+    def list_wallet_payment_methods(self, customer_id: str) -> list[dict]:
+        """Display saved Link wallets separately from directly chargeable cards."""
+        from stripe_connect import STRIPE_ENABLED, stripe as stripe_mod
+
+        if not STRIPE_ENABLED or not stripe_mod:
+            return []
+        customer = (self.get_wallet(customer_id).get("stripe_customer_id") or "").strip()
+        if not customer:
+            return []
+        methods = stripe_mod.PaymentMethod.list(customer=customer, type="link", limit=100)
+        return [
+            {"id": pm["id"], "type": "link", "email": pm["link"]["email"]}
+            for pm in methods.data
+        ]
 
     def welcome_bonus_eligible(self, customer_id: str) -> bool:
         """Require a saved card and a settled, unrefunded $5 CAD card top-up.

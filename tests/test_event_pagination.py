@@ -111,3 +111,26 @@ def test_events_still_require_platform_admin(monkeypatch):
     with TestClient(app) as client:
         response = client.get("/api/events")
     assert response.status_code in {401, 403}
+
+
+def test_historical_failures_are_classified_without_changing_the_record(history):
+    kind, _, store = history
+    with store._conn() as conn:
+        conn.execute("INSERT INTO events (event_id,event_type,entity_type,entity_id,timestamp,actor,data,metadata,event_hash) VALUES (%s,'job.failed','job',%s,%s,'worker','{}','{}','unchanged-hash')", (kind + '-failed', kind, time.time()))
+    body = store.get_event_page(limit=25, severity="error", query=kind)
+    failed = next(row for row in body["events"] if row["event_id"] == kind + '-failed')
+    assert failed["severity"] == "error"
+    assert failed["event_hash"] == "unchanged-hash"
+    assert failed["data"] == {}
+    assert body["severity_counts"]["error"] == 2
+
+
+def test_renewals_are_available_only_when_verbose_is_requested(history):
+    kind, _, store = history
+    with store._conn() as conn:
+        conn.execute("INSERT INTO events (event_id,event_type,entity_type,entity_id,timestamp,actor,data,metadata) VALUES (%s,'job.lease.renewed','job',%s,%s,'worker','{}','{}')", (kind + '-renewal', kind, time.time()))
+    normal = store.get_event_page(limit=25, query=kind)
+    verbose = store.get_event_page(limit=25, query=kind, include_verbose=True)
+    assert not any(row['event_type'] == 'job.lease.renewed' for row in normal['events'])
+    assert any(row['event_type'] == 'job.lease.renewed' for row in verbose['events'])
+    assert verbose['total'] == normal['total'] + 1

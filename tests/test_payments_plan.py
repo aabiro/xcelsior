@@ -95,12 +95,20 @@ class TestWalletHardStopShippedPath:
         assert 'payment_method_types=["card"]' not in src
         assert "payment_method_types=['card']" not in src
 
-    def test_setup_intent_source_uses_dynamic_pms(self):
+    def test_add_card_setup_intent_saves_a_card_not_an_invisible_link_wallet(self, monkeypatch):
         from billing import BillingEngine
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        import stripe_connect
 
-        src = inspect.getsource(BillingEngine.create_setup_intent)
-        assert "automatic_payment_methods" in src
-        assert 'payment_method_types=["card"]' not in src
+        create = Mock(return_value=SimpleNamespace(client_secret="test-secret", id="seti-test"))
+        monkeypatch.setattr(stripe_connect, "STRIPE_ENABLED", True)
+        monkeypatch.setattr(stripe_connect, "stripe", SimpleNamespace(SetupIntent=SimpleNamespace(create=create)))
+        engine = BillingEngine.__new__(BillingEngine)
+        monkeypatch.setattr(engine, "ensure_stripe_customer", lambda customer_id, email: "cus-test")
+        engine.create_setup_intent("customer-test")
+        assert create.call_args.kwargs["payment_method_types"] == ["card"]
+        assert "automatic_payment_methods" not in create.call_args.kwargs
 
 
 # ── Criterion 2: meters dual-write isolation ───────────────────────────

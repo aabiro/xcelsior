@@ -16,12 +16,13 @@ import { CryptoDepositModal } from "@/components/billing/crypto-deposit-modal";
 import { LightningDepositModal } from "@/components/billing/lightning-deposit-modal";
 import { PaymentMethodModal } from "@/components/billing/payment-method-modal";
 import { TransactionHistory } from "@/components/billing/transaction-history";
+import { UsageStatementDialog } from "@/components/billing/usage-statement-dialog";
 import { ScaResumePanel } from "@/components/billing/sca-resume-panel";
 import {
   CreditCard, DollarSign, RefreshCw, Download, Plus, FileText,
   ArrowUpRight, ArrowDownRight, HardDrive, Leaf, Clock, Zap, Receipt, Loader2,
   Bitcoin, Activity, Gift, Sparkles, CheckCircle2, RotateCcw, Trash2,
-  TrendingDown, Cloud, Wallet as WalletIcon,
+  TrendingDown, Cloud, Wallet as WalletIcon, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -46,6 +47,7 @@ const FREE_CREDIT_SUCCESS_HOLD_MS = 1400;
 // See roadmap UI-5.2. When false, the page skips the reserved-plan fetches and
 // hides the "Reserved Plans" + "Active Commitments" sections entirely.
 const RESERVED_PLANS_ENABLED = false;
+const STATEMENTS_PAGE_SIZE = 3;
 
 // Refunds are credited to the wallet ledger as `tx_type = 'refund'` with a
 // description like "Refund for job <id> (<classification>)" (see
@@ -99,6 +101,8 @@ export default function BillingPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [selectedStatement, setSelectedStatement] = useState<{ customerId: string; invoice: Invoice } | null>(null);
+  const [statementPage, setStatementPage] = useState(0);
   const [usage, setUsage] = useState<{
     job_count: number; total_gpu_hours: number; total_cost_cad: number;
     hosts_used: number;
@@ -113,6 +117,12 @@ export default function BillingPage() {
     realized_savings_cad: number; projected_monthly_savings_cad: number;
   } | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[]>([]);
+  const [walletPaymentMethods, setWalletPaymentMethods] = useState<api.SavedWalletPaymentMethod[]>([]);
+  const [cardsLoading, setCardsLoading] = useState(true);
+  const [cardsFailed, setCardsFailed] = useState(false);
+  const cardRequest = useRef(0);
+  const invalidateCardRequest = useCallback(() => { cardRequest.current++; }, []);
+  const closeAddCard = useCallback(() => setShowAddCard(false), []);
   const [showAddCard, setShowAddCard] = useState(false);
   const [autoTopup, setAutoTopup] = useState<{
     enabled: boolean;
@@ -203,7 +213,10 @@ export default function BillingPage() {
       ]);
       if (walletRes.status === "fulfilled") setWallet(walletRes.value.wallet);
       if (histRes.status === "fulfilled") setTransactions(histRes.value.transactions || []);
-      if (invoiceRes.status === "fulfilled") setInvoices(invoiceRes.value.invoices || []);
+      if (invoiceRes.status === "fulfilled") {
+        setInvoices(invoiceRes.value.invoices || []);
+        setStatementPage(0);
+      }
       if (usageRes.status === "fulfilled") {
         const u = usageRes.value;
         setUsage({ job_count: u.job_count, total_gpu_hours: u.total_gpu_hours, total_cost_cad: u.total_cost_cad, hosts_used: u.hosts_used });
@@ -260,15 +273,23 @@ export default function BillingPage() {
   // authenticated user server-side), so they don't take customerId.
   const loadPaymentMethods = useCallback(async () => {
     if (!customerId) return;
+    const request = ++cardRequest.current;
+    setCardsLoading(true);
+    setCardsFailed(false);
     const [pmRes, topupRes] = await Promise.allSettled([
       api.fetchPaymentMethods(),
       api.fetchAutoTopup(),
     ]);
+    if (request !== cardRequest.current) return;
     let cards: SavedPaymentMethod[] = [];
     if (pmRes.status === "fulfilled") {
       cards = pmRes.value.payment_methods || [];
       setPaymentMethods(cards);
+      setWalletPaymentMethods(pmRes.value.wallet_payment_methods || []);
+    } else {
+      setCardsFailed(true);
     }
+    setCardsLoading(false);
     if (topupRes.status === "fulfilled") {
       const at = topupRes.value.auto_topup;
       setAutoTopup({
@@ -279,9 +300,17 @@ export default function BillingPage() {
         payment_method_id: at.payment_method_id || cards[0]?.id || "",
       });
     }
+    if (pmRes.status === "rejected") throw pmRes.reason;
   }, [customerId]);
 
-  useEffect(() => { loadPaymentMethods(); }, [loadPaymentMethods]);
+  useEffect(() => {
+    setPaymentMethods([]);
+    setWalletPaymentMethods([]);
+    void loadPaymentMethods().catch(() => {});
+    const refresh = () => { void loadPaymentMethods().catch(() => {}); };
+    window.addEventListener("xcelsior-team-changed", refresh);
+    return () => { invalidateCardRequest(); window.removeEventListener("xcelsior-team-changed", refresh); };
+  }, [loadPaymentMethods, invalidateCardRequest]);
 
   const handleSaveAutoTopup = useCallback(
     async (next: Partial<typeof autoTopup>) => {
@@ -544,11 +573,11 @@ export default function BillingPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `invoice-${inv.invoice_id}.csv`;
+      a.download = `usage-statement-${inv.invoice_id}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      toast.error("Invoice download failed");
+      toast.error("Usage statement download failed");
     }
   };
 
@@ -1303,7 +1332,14 @@ export default function BillingPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {paymentMethods.length === 0 ? (
+              {cardsFailed && (
+                <div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                  <p className="text-sm text-text-secondary">Saved cards could not be loaded.</p>
+                  <Button variant="outline" size="sm" onClick={() => void loadPaymentMethods().catch(() => {})}>Retry</Button>
+                </div>
+              )}
+              {cardsLoading && <p role="status" className="text-sm text-text-muted">Loading saved cards…</p>}
+              {!cardsLoading && !cardsFailed && paymentMethods.length === 0 ? (
                 <p className="text-sm text-text-muted">No saved cards yet.</p>
               ) : (
                 <div className="space-y-2">
@@ -1347,6 +1383,19 @@ export default function BillingPage() {
                   ))}
                 </div>
               )}
+              {walletPaymentMethods.map((method) => (
+                <div key={method.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <WalletIcon className="h-4 w-4 shrink-0 text-text-muted" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">Stripe Link wallet</p>
+                      <p className="truncate text-xs text-text-muted">{method.email}</p>
+                      <p className="mt-1 text-xs text-text-muted">Saved with Stripe. Add a card directly below to use saved-card top-ups and auto-reload.</p>
+                    </div>
+                  </div>
+                  <button type="button" className="shrink-0 rounded-lg p-1.5 text-text-muted hover:text-accent-red" aria-label="Remove Link wallet" onClick={() => void handleDeleteCard(method.id)}><Trash2 className="h-4 w-4" /></button>
+                </div>
+              ))}
               <Button variant="success" size="sm" onClick={() => setShowAddCard(true)}>
                 <Plus className="h-3.5 w-3.5" /> Add card
               </Button>
@@ -1463,12 +1512,17 @@ export default function BillingPage() {
                 <p className="text-sm text-text-muted">{t("dash.billing.no_invoices")}</p>
               ) : (
                 <div className="space-y-2">
-                  {invoices.map((inv) => (
+                  {invoices.slice(statementPage * STATEMENTS_PAGE_SIZE, (statementPage + 1) * STATEMENTS_PAGE_SIZE).map((inv) => (
                     <div
                       key={inv.invoice_id}
                       className="flex items-center justify-between rounded-lg border border-border p-3"
                     >
-                      <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left hover:text-ice-blue focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ice-blue"
+                        onClick={() => setSelectedStatement({ customerId, invoice: inv })}
+                        aria-label={`${t("dash.billing.statement_view")} ${new Date(inv.period_start * 1000).toLocaleDateString("en-CA", { year: "numeric", month: "long", timeZone: "UTC" })}`}
+                      >
                         <FileText className="h-4 w-4 text-text-muted" />
                         <div>
                           <p className="text-sm font-medium">
@@ -1478,24 +1532,40 @@ export default function BillingPage() {
                             {inv.line_items} item{inv.line_items !== 1 ? "s" : ""} · {t("dash.billing.pretax_credits")}
                           </p>
                         </div>
-                      </div>
+                      </button>
                       <div className="flex items-center gap-3">
                         <div className="text-right">
                           <p className="text-sm font-mono font-medium">${inv.total_cad.toFixed(2)}</p>
-                          <Badge variant={inv.status === "paid" ? "active" : inv.status === "void" ? "dead" : "info"}>
-                            {inv.status}
-                          </Badge>
                         </div>
-                        <Button variant="ghost" size="icon" aria-label={`Download invoice ${inv.invoice_id}`} onClick={() => handleInvoiceDownload(inv)}>
+                        <Button variant="ghost" size="icon" aria-label={`Download usage statement ${inv.invoice_id}`} onClick={() => handleInvoiceDownload(inv)}>
                           <Download className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
                   ))}
+                  {invoices.length > STATEMENTS_PAGE_SIZE && (
+                    <nav aria-label="Usage statement pagination" className="flex items-center justify-between gap-3 pt-3">
+                      <p className="text-xs text-text-muted">{statementPage * STATEMENTS_PAGE_SIZE + 1}–{Math.min((statementPage + 1) * STATEMENTS_PAGE_SIZE, invoices.length)} of {invoices.length}</p>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" aria-label="Newer usage statements" disabled={statementPage === 0} onClick={() => setStatementPage((page) => page - 1)}><ChevronLeft className="h-3.5 w-3.5" /> Newer</Button>
+                        <Button variant="outline" size="sm" aria-label="Older usage statements" disabled={(statementPage + 1) * STATEMENTS_PAGE_SIZE >= invoices.length} onClick={() => setStatementPage((page) => page + 1)}>Older <ChevronRight className="h-3.5 w-3.5" /></Button>
+                      </div>
+                    </nav>
+                  )}
                 </div>
               )}
             </CardContent>
           </Card>
+
+          {selectedStatement && selectedStatement.customerId === customerId && (
+            <UsageStatementDialog
+              key={`${customerId}:${selectedStatement.invoice.invoice_id}`}
+              customerId={customerId}
+              invoice={selectedStatement.invoice}
+              onClose={() => setSelectedStatement(null)}
+              onDownload={() => void handleInvoiceDownload(selectedStatement.invoice)}
+            />
+          )}
 
           {/* Refunds, credited automatically for host-side job failures */}
           {(() => {
@@ -1652,8 +1722,8 @@ export default function BillingPage() {
       {/* Add Card Modal (Stripe SetupIntent) */}
       {showAddCard && canManageBilling && (
         <PaymentMethodModal
-          onClose={() => setShowAddCard(false)}
-          onSuccess={() => loadPaymentMethods()}
+          onClose={closeAddCard}
+          onSuccess={loadPaymentMethods}
           autoReload={autoTopup}
         />
       )}

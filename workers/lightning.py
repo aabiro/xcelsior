@@ -234,10 +234,21 @@ def get_service_status() -> dict:
         result["num_active_channels"] = info.get("num_active_channels", 0)
         result["blockheight"] = info.get("blockheight", 0)
         result["network"] = info.get("network", "")
+        if info.get("warning_bitcoind_sync"):
+            result["reason"] = "Bitcoin node is synchronizing with the network"
+            return result
+        if info.get("warning_lightningd_sync"):
+            result["reason"] = "Lightning node is synchronizing Bitcoin blocks"
+            return result
+        if not result["num_active_channels"]:
+            result["reason"] = "Lightning node has no active payment channels"
+            return result
         result["available"] = True
     except Exception as e:
         msg = str(e).lower()
-        if any(
+        if "certificate_verify_failed" in msg or "certificate verify failed" in msg:
+            result["reason"] = "Lightning connection certificate could not be verified"
+        elif any(
             token in msg
             for token in (
                 "connection refused",
@@ -247,9 +258,10 @@ def get_service_status() -> dict:
                 "urlopen error",
             )
         ):
-            result["reason"] = "Lightning node is starting (waiting for Bitcoin node)"
+            result["reason"] = "Lightning node connection is unavailable"
         else:
-            result["reason"] = f"Lightning node unavailable: {e}"
+            log.warning("Lightning status check failed: %s", type(e).__name__)
+            result["reason"] = "Lightning node is unavailable"
 
     return result
 

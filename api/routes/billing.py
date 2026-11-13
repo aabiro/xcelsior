@@ -3121,7 +3121,13 @@ def api_billing_list_payment_methods(request: Request):
     _require_scope(user, "billing:read")
     be = get_billing_engine()
     customer_id = _analytics_customer_scope(user)
-    return {"ok": True, "payment_methods": be.list_payment_methods(customer_id)}
+    try:
+        methods = be.list_payment_methods(customer_id)
+        wallets = be.list_wallet_payment_methods(customer_id)
+    except Exception as exc:
+        log.warning("Could not list saved payment methods: %s", type(exc).__name__)
+        raise HTTPException(503, "Saved cards could not be loaded. Please retry.") from exc
+    return {"ok": True, "payment_methods": methods, "wallet_payment_methods": wallets}
 
 
 @router.delete("/api/billing/payment-methods/{payment_method_id}", tags=["Billing"])

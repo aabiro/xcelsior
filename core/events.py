@@ -26,6 +26,27 @@ from typing import Optional
 
 log = logging.getLogger("xcelsior")
 
+# Read-time classification keeps existing tamper-evident records intact.
+# Explicit severities win; older lifecycle writers did not supply one.
+EVENT_SEVERITY_SQL = """COALESCE(
+    NULLIF(LOWER(data->>'severity'), ''),
+    NULLIF(LOWER(metadata->>'severity'), ''),
+    CASE
+      WHEN event_type IN ('security.isolation_breach', 'security.container_escape') THEN 'critical'
+      WHEN event_type IN ('job.failed', 'job_failed', 'billing.payment_failed',
+                          'payment.failed', 'host.failed')
+        OR (event_type = 'job_status' AND data->>'status' = 'failed') THEN 'error'
+      WHEN event_type IN ('job.lease.expired', 'job.preempted', 'job.requeued',
+                          'host.rejected', 'host.deverified', 'host.removed',
+                          'security.mining_detected', 'billing.suspended') THEN 'warning'
+      ELSE 'info'
+    END)"""
+
+VERBOSE_EVENT_TYPES = (
+    'job_log', 'spot_prices', 'host_update', 'job.lease.renewed',
+    'host.updated', 'security.version_check',
+)
+
 
 # ── Job States ────────────────────────────────────────────────────────
 
@@ -489,15 +510,20 @@ class EventStore:
         event_type: str | None = None,
         severity: str | None = None,
         include_verbose: bool = False,
+        query: str | None = None,
     ) -> dict:
         """Newest-first audit pages; a new event cannot shift older-page boundaries."""
         clauses, params = [], []
         if not include_verbose:
-            clauses.append("event_type NOT IN ('job_log', 'spot_prices', 'host_update')")
+            clauses.append("NOT (event_type = ANY(%s))")
+            params.append(list(VERBOSE_EVENT_TYPES))
         if event_type:
             clauses.append("event_type = %s")
             params.append(event_type)
-        severity_sql = "COALESCE(data->>'severity', metadata->>'severity', 'info')"
+        if query:
+            clauses.append("concat_ws(' ', event_type, entity_type, entity_id, actor, data::text) ILIKE %s")
+            params.append(f"%{query}%")
+        severity_sql = EVENT_SEVERITY_SQL
         if severity:
             clauses.append(f"{severity_sql} = %s")
             params.append(severity)
@@ -508,6 +534,10 @@ class EventStore:
             ).fetchone()["n"]
             types = conn.execute(
                 "SELECT DISTINCT event_type FROM events ORDER BY event_type"
+            ).fetchall()
+            severity_counts = conn.execute(
+                f"SELECT {severity_sql} AS severity, COUNT(*) AS count FROM events WHERE {where} GROUP BY 1",
+                params,
             ).fetchall()
             if before:
                 where += " AND (timestamp, event_id) < (%s, %s)"
@@ -522,6 +552,7 @@ class EventStore:
             "has_more": len(rows) > limit,
             "total": total,
             "event_types": [row["event_type"] for row in types],
+            "severity_counts": {row["severity"]: row["count"] for row in severity_counts},
         }
 
 

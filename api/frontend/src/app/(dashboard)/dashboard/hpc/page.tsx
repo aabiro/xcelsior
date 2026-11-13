@@ -64,6 +64,7 @@ function HpcConsole() {
 
   const load = useCallback(async () => {
     const id = ++request.current;
+    setLoadingMore(false);
     setRefreshing(true);
     const filtered = scope !== "open" || clusterFilter !== "";
     const [c, open, list] = await Promise.allSettled([
@@ -121,6 +122,7 @@ function HpcConsole() {
 
   const loadMore = useCallback(async () => {
     if (!nextCursor) return;
+    const id = request.current;
     setLoadingMore(true);
     try {
       const page = await api.fetchHpcJobs({
@@ -128,15 +130,16 @@ function HpcConsole() {
         clusterId: clusterFilter || undefined,
         cursor: nextCursor,
       });
+      if (id !== request.current) return;
       setJobs((prev) => {
         const seen = new Set(prev.map((j) => j.mapping_id));
         return [...prev, ...(page.jobs ?? []).filter((j) => !seen.has(j.mapping_id))];
       });
       setNextCursor(page.next_cursor ?? null);
     } catch (err) {
-      setJobsError(errorMessage(err, "Could not load more jobs"));
+      if (id === request.current) setJobsError(errorMessage(err, "Could not load more jobs"));
     } finally {
-      setLoadingMore(false);
+      if (id === request.current) setLoadingMore(false);
     }
   }, [nextCursor, scope, clusterFilter]);
 

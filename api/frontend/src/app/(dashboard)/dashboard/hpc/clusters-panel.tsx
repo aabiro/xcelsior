@@ -66,7 +66,7 @@ export function ClustersPanel({ clusters, loading, error, now, onChanged }: Prop
     );
   }
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+    <div className={cn("grid grid-cols-1 gap-4", clusters.length > 1 && "xl:grid-cols-2")}>
       {clusters.map((cluster) => (
         <ClusterCard key={cluster.cluster_id} cluster={cluster} now={now} onChanged={onChanged} />
       ))}
@@ -77,12 +77,12 @@ export function ClustersPanel({ clusters, loading, error, now, onChanged }: Prop
 function Signal({ label, at, late, now }: { label: string; at: string | null; late: boolean; now: number }) {
   const Icon = late ? XCircle : CheckCircle2;
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background/40 px-3 py-2">
+    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-lg border border-border bg-background/40 px-3 py-2">
       <span className="flex items-center gap-1.5 text-xs font-medium text-text-secondary">
         <Icon className={cn("h-3.5 w-3.5 shrink-0", late ? "text-accent-red" : "text-emerald")} />
         {label}
       </span>
-      <span className="text-xs tabular-nums text-text-muted" title={formatTimestamp(at)}>
+      <span className="whitespace-nowrap text-xs tabular-nums text-text-muted" title={formatTimestamp(at)}>
         {formatAge(at, now)}
       </span>
     </div>

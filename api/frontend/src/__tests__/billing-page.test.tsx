@@ -8,6 +8,7 @@ const apiMocks = vi.hoisted(() => ({
   // The transaction list pages through history on its own.
   fetchWalletHistoryPage: vi.fn(),
   fetchInvoices: vi.fn(),
+  fetchUsageStatement: vi.fn(),
   downloadInvoice: vi.fn(),
   fetchUsageSummary: vi.fn(),
   fetchReservedPlans: vi.fn(),
@@ -115,8 +116,7 @@ vi.mock("framer-motion", async () => {
 
 import BillingPage from "@/app/(dashboard)/dashboard/billing/page";
 
-describe("BillingPage free credits flow", () => {
-  vi.setConfig({ testTimeout: 15_000 });
+vi.setConfig({ testTimeout: 15_000 });
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     authMocks.useAuth.mockReturnValue({
@@ -181,6 +181,7 @@ describe("BillingPage free credits flow", () => {
     vi.clearAllMocks();
   });
 
+describe("BillingPage free credits flow", () => {
   it("shows transfer state, then check state, then removes the promo banner", async () => {
     render(<BillingPage />);
 
@@ -390,7 +391,7 @@ describe("BillingPage free credits flow", () => {
         year: "numeric", month: "short", timeZone: "UTC",
       });
       expect(await screen.findByText(month, { exact: true })).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Download invoice DRAFT-february" }));
+      fireEvent.click(screen.getByRole("button", { name: "Download usage statement DRAFT-february" }));
       await waitFor(() => expect(apiMocks.downloadInvoice).toHaveBeenCalledWith(
         "cust-1", "csv", periodStart, periodEnd,
       ));
@@ -401,5 +402,65 @@ describe("BillingPage free credits flow", () => {
       revokeUrl.mockRestore();
       click.mockRestore();
     }
+  });
+});
+
+describe("BillingPage usage statements", () => {
+  it("shows three statements at a time without draft chips", async () => {
+    const invoices = Array.from({ length: 5 }, (_, i) => ({
+      invoice_id: `period-${i}`, period_start: Date.UTC(2026, 10 - i, 1) / 1000,
+      period_end: Date.UTC(2026, 11 - i, 1) / 1000,
+      subtotal_cad: 1, tax_cad: 0, total_cad: 1, tax_rate: 0, line_items: 1, status: "draft",
+    }));
+    apiMocks.fetchInvoices.mockResolvedValue({ ok: true, invoices });
+    render(<BillingPage />);
+    await screen.findByRole("navigation", { name: "Usage statement pagination" });
+    expect(screen.getAllByRole("button", { name: /dash.billing.statement_view/ })).toHaveLength(3);
+    expect(screen.queryByText("draft")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Older usage statements" }));
+    expect(screen.getAllByRole("button", { name: /dash.billing.statement_view/ })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Older usage statements" })).toBeDisabled();
+  });
+
+  it("shows both saved cards and saved Link wallets", async () => {
+    apiMocks.fetchPaymentMethods.mockResolvedValue({ ok: true,
+      payment_methods: [{ id: "pm-card", brand: "visa", last4: "4242", exp_month: 8, exp_year: 2028 }],
+      wallet_payment_methods: [{ id: "pm-link", type: "link", email: "wallet@example.test" }],
+    });
+    render(<BillingPage />);
+    await screen.findByText("visa •••• 4242");
+    expect(screen.getByText("Stripe Link wallet")).toBeInTheDocument();
+    expect(screen.getByText("wallet@example.test")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Link wallet" })).toBeInTheDocument();
+  });
+
+  it("reports a failed card read rather than claiming there are no saved cards", async () => {
+    apiMocks.fetchPaymentMethods.mockRejectedValueOnce(new Error("503"));
+    render(<BillingPage />);
+    await screen.findByText("Saved cards could not be loaded.");
+    expect(screen.queryByText("No saved cards yet.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Retry$/ }));
+    await screen.findByText("No saved cards yet.");
+  });
+
+  it("opens a statement from its month and hides it when the workspace changes", async () => {
+    authMocks.useAuth.mockReturnValue({ user: { user_id: "user-1", customer_id: "cust-1", is_admin: false } });
+    const invoice = {
+      invoice_id: "usage-october", period_start: 1790812800, period_end: 1793491200,
+      subtotal_cad: 12.5, tax_cad: 0, total_cad: 12.5, tax_rate: 0, line_items: 1, status: "draft",
+    };
+    apiMocks.fetchInvoices.mockResolvedValue({ ok: true, invoices: [invoice] });
+    apiMocks.fetchUsageStatement.mockResolvedValue({ ok: true, invoice: {
+      ...invoice, customer_id: "cust-1", currency: "CAD", tax_amount_cad: 0,
+      line_items: [{ description: "Completed GPU compute", category: "compute", quantity: 2.5,
+        unit: "GPU-hours", unit_price_cad: 5, subtotal_cad: 12.5, gpu_model: "RTX 4090", job_id: "job-1" }],
+    } });
+    const { rerender } = render(<BillingPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /dash.billing.statement_view October 2026/ }));
+    await screen.findByText("Completed GPU compute");
+    expect(apiMocks.fetchUsageStatement).toHaveBeenCalledWith("cust-1", invoice.period_start, invoice.period_end);
+    authMocks.useAuth.mockReturnValue({ user: { user_id: "user-2", customer_id: "cust-2", is_admin: false } });
+    rerender(<BillingPage />);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

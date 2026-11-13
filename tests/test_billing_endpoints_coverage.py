@@ -345,6 +345,13 @@ def test_billing_payment_rate_limit(auth, monkeypatch):
 
     monkeypatch.setattr(deps_mod, "_BILLING_PAYMENT_RATE_LIMIT_REQUESTS", 2)
     monkeypatch.setattr(deps_mod, "_BILLING_PAYMENT_RATE_LIMIT_WINDOW_SEC", 300)
+    # Other suites can reset the default shared namespace between these calls.
+    # Exercise the real shared limiter with a counter owned by this test run.
+    monkeypatch.setattr(
+        deps_mod,
+        "_BILLING_PAYMENT_RATE_STATE_NAMESPACE",
+        f"test.billing_payment_rate_limit.{uuid.uuid4().hex}",
+    )
     deps_mod._BILLING_PAYMENT_RATE_BUCKETS.clear()
 
     email, headers = auth

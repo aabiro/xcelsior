@@ -1,10 +1,8 @@
 "use client";
 
 import { Users, Wallet, Eye, Server } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { useLocale } from "@/lib/locale";
 import type { TeamContext, InstanceConcurrency } from "@/lib/team-context";
-import { formatPlanLabel, formatTeamRoleLabel } from "@/lib/team-context";
 import { cn } from "@/lib/utils";
 
 interface TeamContextBannerProps {
@@ -24,7 +22,6 @@ export function TeamContextBanner({
 
   if (!team.isTeamMember) return null;
 
-  const roleLabel = formatTeamRoleLabel(team.teamRole);
   const atCap = concurrency ? concurrency.active >= concurrency.cap : false;
 
   return (
@@ -44,16 +41,6 @@ export function TeamContextBanner({
               <p className="text-sm font-semibold text-text-primary">
                 {t("dash.team.banner_title", { name: team.teamName || team.teamId || "Team" })}
               </p>
-              {roleLabel && (
-                <Badge variant="info">
-                  {roleLabel}
-                </Badge>
-              )}
-              {team.teamPlan && (
-                <Badge variant="default">
-                  {formatPlanLabel(team.teamPlan)}
-                </Badge>
-              )}
             </div>
             <p className="mt-0.5 text-xs text-text-muted">
               {variant === "billing"

@@ -89,6 +89,7 @@ def api_get_all_events(
     event_type: str | None = Query(None, max_length=128),
     severity: Literal["info", "warning", "error", "critical"] | None = None,
     include_verbose: bool = False,
+    query: str | None = Query(None, max_length=200),
 ):
     """Filtered event history, newest first, with an opaque next-page cursor (admin only)."""
     _require_admin(request)
@@ -109,6 +110,7 @@ def api_get_all_events(
         event_type=event_type,
         severity=severity,
         include_verbose=include_verbose,
+        query=query.strip() if query else None,
     )
     rows = page["events"]
     last = rows[-1] if rows else None

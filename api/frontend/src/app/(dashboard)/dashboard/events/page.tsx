@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { Calendar, RefreshCw, Radio, Download, Wifi, WifiOff, EyeOff } from "lucide-react";
 import { createEventSource, isEventStreamAvailable, apiFetch } from "@/lib/api";
 import { toast } from "sonner";
@@ -14,7 +15,10 @@ interface Event {
   id?: string;
   type: string;
   severity?: "info" | "warning" | "error" | "critical";
-  data?: any;
+  data?: Record<string, unknown>;
+  entity_type?: string;
+  entity_id?: string;
+  actor?: string;
   timestamp: string | number;
   event_type?: string;
   event_id?: string;
@@ -29,7 +33,28 @@ const SEVERITY_COLORS: Record<string, { dot: string; badge: "info" | "warning" |
 };
 
 /** Event types that are verbose logs, not meaningful lifecycle events. */
-const VERBOSE_EVENT_TYPES = new Set(["job_log", "spot_prices", "host_update"]);
+const VERBOSE_EVENT_TYPES = new Set(["job_log", "spot_prices", "host_update", "job.lease.renewed", "host.updated", "security.version_check"]);
+
+function relatedUrl(event: Event): string | null {
+  if (!event.entity_id) return null;
+  const id = encodeURIComponent(event.entity_id);
+  if (event.entity_type === "job" || event.entity_type === "instance") return `/dashboard/instances/${id}`;
+  if (event.entity_type === "host") return `/dashboard/hosts/${id}`;
+  if (event.entity_type === "billing" || event.entity_type === "wallet") return "/dashboard/billing";
+  if (event.entity_type === "volume") return "/dashboard/volumes";
+  return null;
+}
+
+function eventMessage(event: Event): string {
+  if (event.message) return event.message;
+  const data = event.data ?? {};
+  for (const key of ["message", "reason", "error", "detail", "description", "failure_reason"]) {
+    if (typeof data[key] === "string" && data[key]) return data[key];
+  }
+  const transition = [data.from_state ?? data.old_state, data.to_state ?? data.new_state ?? data.status].filter(Boolean);
+  if (transition.length) return transition.join(" → ");
+  return event.type.replace(/[_.]/g, " ");
+}
 
 const MAX_RECONNECT_DELAY = 30000;
 
@@ -40,6 +65,9 @@ export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [filter, setFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [severityCounts, setSeverityCounts] = useState<Record<string, number>>({});
   const [showVerbose, setShowVerbose] = useState(false);
   const [live, setLive] = useState(false);
   const [connStatus, setConnStatus] = useState<ConnectionStatus>("disconnected");
@@ -52,6 +80,7 @@ export default function EventsPage() {
   const [failed, setFailed] = useState(false);
   const [newEvents, setNewEvents] = useState(0);
   const latest = useRef(0);
+  const invalidateRequest = useCallback(() => { latest.current++; }, []);
   const before = cursors[pageIndex];
   const esRef = useRef<EventSource | null>(null);
   const reconnectAttempt = useRef(0);
@@ -66,22 +95,24 @@ export default function EventsPage() {
     if (before) query.set("before", before);
     if (filter !== "all") query.set("event_type", filter);
     if (severityFilter !== "all") query.set("severity", severityFilter);
+    if (search.trim()) query.set("query", search.trim());
     try {
-      const data = await apiFetch<{ events: Event[]; total: number; next_cursor: string | null; event_types: string[] }>(`/api/events?${query}`);
+      const data = await apiFetch<{ events: Event[]; total: number; next_cursor: string | null; event_types: string[]; severity_counts?: Record<string, number> }>(`/api/events?${query}`);
       if (request !== latest.current) return;
       setEvents((data.events || []).map((event) => ({ ...event, id: event.event_id ?? event.id, type: event.event_type ?? event.type })));
       setTotal(data.total);
       setNextCursor(data.next_cursor);
       setAllTypes(data.event_types || []);
+      setSeverityCounts(data.severity_counts || {});
       setNewEvents(0);
     } catch {
       if (request === latest.current) { setFailed(true); toast.error("Failed to load events"); }
     } finally {
       if (request === latest.current) setLoading(false);
     }
-  }, [before, filter, severityFilter, showVerbose]);
+  }, [before, filter, severityFilter, showVerbose, search]);
 
-  useEffect(() => { void loadHistory(); return () => { latest.current++; }; }, [loadHistory]);
+  useEffect(() => { void loadHistory(); return invalidateRequest; }, [loadHistory, invalidateRequest]);
 
   useEffect(() => {
     if (!live) { setConnStatus("disconnected"); return; }
@@ -100,13 +131,19 @@ export default function EventsPage() {
         const es = createEventSource();
         esRef.current = es;
         es.onopen = () => { if (active) { reconnectAttempt.current = 0; setConnStatus("connected"); } };
-        es.onmessage = (message) => {
+        const receive = (message: MessageEvent) => {
           if (!active) return;
           try {
             const event = JSON.parse(message.data);
-            if (event.type || event.event_type) setNewEvents((count) => count + 1);
+            const type = event.type || event.event_type || event.event || message.type;
+            if (type && (showVerbose || !VERBOSE_EVENT_TYPES.has(type))) setNewEvents((count) => count + 1);
           } catch { /* Ignore stream keepalives. */ }
         };
+        es.onmessage = receive;
+        // The API emits named SSE events; onmessage receives only unnamed ones.
+        for (const type of new Set([...allTypes, "job_status", "job_submitted", "job_cancelled", "host_update", "host_removed", "queue_processed", "billing_update", "user_registered", "team_created", "team_member_added", "team_deleted", "spot_prices"])) {
+          es.addEventListener(type, receive as EventListener);
+        }
         es.onerror = () => {
           es.close();
           if (active) reconnect();
@@ -125,7 +162,7 @@ export default function EventsPage() {
       esRef.current = null;
       clearTimeout(reconnectTimer.current);
     };
-  }, [live]);
+  }, [live, showVerbose, allTypes]);
 
   const filtered = events.filter((e) => {
     if (!showVerbose && VERBOSE_EVENT_TYPES.has(e.type)) return false;
@@ -183,6 +220,17 @@ export default function EventsPage() {
         </div>
       </div>
 
+      <p className="text-sm text-text-muted">Browse recorded instance, account and infrastructure events. Routine lease renewals and telemetry are hidden unless you show verbose events.</p>
+      <div className="flex flex-wrap gap-3" aria-label="Event severity totals">
+        {Object.entries(severityCounts).map(([severity, count]) => (
+          <span key={severity} className="rounded-lg border border-border px-3 py-2 text-sm"><span className="capitalize">{severity}</span> <strong className="ml-2 tabular-nums">{count}</strong></span>
+        ))}
+      </div>
+      <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setSearch(query); resetPage(); }}>
+        <Input aria-label="Search events" placeholder="Search by instance, host, actor or message" value={query} onChange={(event) => setQuery(event.target.value)} />
+        <Button type="submit" variant="outline">Search</Button>
+        {search && <Button type="button" variant="ghost" onClick={() => { setQuery(""); setSearch(""); resetPage(); }}>Clear</Button>}
+      </form>
       <div className="flex gap-3 flex-wrap">
         <Select value={filter} aria-label="Event type" onChange={(e) => { setFilter(e.target.value); resetPage(); }}>
           <option value="all">All Types</option>
@@ -223,7 +271,7 @@ export default function EventsPage() {
             <div className="p-12 text-center">
               <Calendar className="mx-auto h-12 w-12 text-text-muted mb-4" />
               <h3 className="text-lg font-semibold mb-1">No events</h3>
-              <p className="text-sm text-text-secondary">Events will stream here in real-time.</p>
+              <p className="text-sm text-text-secondary">No recorded events match these filters. Change the filters or show verbose events.</p>
             </div>
           ) : (
             <div className="divide-y divide-border max-h-[600px] overflow-y-auto">
@@ -243,13 +291,19 @@ export default function EventsPage() {
                           {event.timestamp ? new Date(typeof event.timestamp === "number" ? event.timestamp * 1000 : event.timestamp).toLocaleString() : "-"}
                         </span>
                       </div>
-                      <p className="text-sm text-text-secondary truncate">
-                        {event.message || (event.data
-                          ? Object.entries(event.data)
-                              .map(([k, v]) => `${k}: ${v}`)
-                              .join(" · ")
-                          : event.type?.replace(/_/g, " ") || "-")}
-                      </p>
+                      <p className="break-words text-sm text-text-secondary">{eventMessage(event)}</p>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
+                        {event.actor && <span>Actor: {event.actor}</span>}
+                        {event.entity_id && (relatedUrl(event)
+                          ? <Link href={relatedUrl(event)!} className="break-all text-ice-blue hover:underline">{event.entity_type}: {event.entity_id}</Link>
+                          : <span className="break-all">{event.entity_type}: {event.entity_id}</span>)}
+                      </div>
+                      {event.data && Object.keys(event.data).length > 0 && (
+                        <details className="mt-2 text-xs text-text-muted">
+                          <summary className="cursor-pointer hover:text-text-primary">Event details</summary>
+                          <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-3">{JSON.stringify(event.data, null, 2)}</pre>
+                        </details>
+                      )}
                     </div>
                   </div>
                 );

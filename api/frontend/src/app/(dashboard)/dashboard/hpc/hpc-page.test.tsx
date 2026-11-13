@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { HpcCluster, HpcJob } from "@/lib/api";
 import { attentionItems, clusterStatus, formatDuration, jobStateLabel, summarise } from "./hpc-format";
 
@@ -232,6 +232,24 @@ describe("HPC operator console", () => {
     await screen.findByText("platform admin or a scoped machine principal is required");
     openTab(/dash.hpc.tab_jobs/);
     await screen.findByText("train-a1");
+  });
+
+  it("ignores a delayed older page after the job filter changes", async () => {
+    let resolveOlder!: (value: unknown) => void;
+    fetchHpcJobs.mockImplementation((options: { cursor?: string; state: string }) => {
+      if (options.cursor) return new Promise((resolve) => { resolveOlder = resolve; });
+      if (options.state === "all") return Promise.resolve({ ok: true, jobs: [job({ mapping_id: "all", submission_name: "all-filter-job" })], next_cursor: null });
+      return Promise.resolve({ ok: true, jobs: [job()], next_cursor: "older" });
+    });
+    render(<HpcPage />);
+    await screen.findByTestId("cluster-xcl-local");
+    openTab(/dash.hpc.tab_jobs/);
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    fireEvent.click(screen.getByRole("button", { name: /^All$/ }));
+    await screen.findByText("all-filter-job");
+    await act(async () => { resolveOlder({ ok: true, jobs: [job({ mapping_id: "old", submission_name: "old-filter-job" })], next_cursor: null }); });
+    expect(screen.queryByText("old-filter-job")).not.toBeInTheDocument();
+    expect(screen.getByText("all-filter-job")).toBeInTheDocument();
   });
 
   it("is admin-only, like the routes behind it", async () => {

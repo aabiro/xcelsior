@@ -12,11 +12,9 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale";
 import type { TeamContext } from "@/lib/team-context";
-import { formatTeamRoleLabel } from "@/lib/team-context";
 
 export type OAuthScopeValue =
   | "instances:read"
@@ -66,7 +64,6 @@ interface CredentialScopePanelProps {
 export function CredentialScopePanel({ team, clientCount, className }: CredentialScopePanelProps) {
   const { t } = useLocale();
   const isTeam = team.isTeamMember;
-  const roleLabel = formatTeamRoleLabel(team.teamRole);
   const workspaceName = isTeam
     ? team.teamName || team.teamId || t("dash.settings.credentials.team_workspace")
     : t("dash.settings.credentials.personal_workspace");
@@ -109,16 +106,6 @@ export function CredentialScopePanel({ team, clientCount, className }: Credentia
                 <p className="text-sm font-semibold text-text-primary truncate">
                   {t("dash.settings.credentials.workspace_title", { name: workspaceName })}
                 </p>
-                {roleLabel && (
-                  <Badge variant="info" className="text-[10px] uppercase tracking-wide">
-                    {roleLabel}
-                  </Badge>
-                )}
-                {team.teamPlan && (
-                  <Badge variant="default" className="text-[10px] capitalize">
-                    {team.teamPlan}
-                  </Badge>
-                )}
               </div>
               <p className="mt-1 text-xs text-text-muted leading-relaxed max-w-xl">
                 {isTeam

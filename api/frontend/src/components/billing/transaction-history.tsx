@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import * as api from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 
-export const HISTORY_PAGE_SIZE = 20;
+export const HISTORY_PAGE_SIZE = 10;
 
 /**
  * The wallet's transactions, a page at a time, newest first.
@@ -31,6 +31,9 @@ export function TransactionHistory({
   pageSize?: number;
 }) {
   const { t } = useLocale();
+  const limit = Number.isFinite(pageSize)
+    ? Math.max(1, Math.min(HISTORY_PAGE_SIZE, Math.floor(pageSize)))
+    : HISTORY_PAGE_SIZE;
   // cursors[i] is the `before` that fetches page i; page 0 needs none.
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const [pageIndex, setPageIndex] = useState(0);
@@ -53,14 +56,14 @@ export function TransactionHistory({
     setLoading(true);
     setFailed(false);
     try {
-      const result = await api.fetchWalletHistoryPage(customerId, { limit: pageSize, before });
+      const result = await api.fetchWalletHistoryPage(customerId, { limit, before });
       if (id === latest.current) setPage(result);
     } catch {
       if (id === latest.current) setFailed(true);
     } finally {
       if (id === latest.current) setLoading(false);
     }
-  }, [customerId, pageSize, before]);
+  }, [customerId, limit, before]);
 
   useEffect(() => {
     void fetchPage();
@@ -76,8 +79,8 @@ export function TransactionHistory({
 
   const rows = page?.transactions ?? [];
   const total = page?.total ?? 0;
-  const first = rows.length ? pageIndex * pageSize + 1 : 0;
-  const last = pageIndex * pageSize + rows.length;
+  const first = rows.length ? pageIndex * limit + 1 : 0;
+  const last = pageIndex * limit + rows.length;
 
   return (
     <Card>
