@@ -3,6 +3,7 @@
 import json
 import base64
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -41,9 +42,13 @@ def test_worker_requirements_install_in_fresh_venv():
 
 def test_install_sh_has_platform_guard_and_npx_fallback():
     text = INSTALL_SH.read_text()
-    wizard_version = json.loads((ROOT / "api" / "wizard" / "package.json").read_text())["version"]
+    source_version = json.loads((ROOT / "api" / "wizard" / "package.json").read_text())["version"]
+    # The source tree may already carry the next, unpublished version. The
+    # bootstrap must pin a concrete release rather than inherit that draft.
+    pin = re.search(r'^readonly WIZARD_PACKAGE="@xcelsior-gpu/wizard@(\d+\.\d+\.\d+)"$', text, re.M)
+    assert pin is not None
+    assert tuple(map(int, pin.group(1).split("."))) <= tuple(map(int, source_version.split(".")))
     assert "check_platform" in text
-    assert f'WIZARD_PACKAGE="@xcelsior-gpu/wizard@{wizard_version}"' in text
     assert 'npx --yes "$WIZARD_PACKAGE"' in text
     assert "@latest" not in text
     assert "falling back to direct agent install" in text
