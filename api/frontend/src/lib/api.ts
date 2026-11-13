@@ -1831,11 +1831,11 @@ export async function requeueInstance(instanceId: string) {
 
 // ── Host Detail ───────────────────────────────────────────────────────
 export async function fetchHost(hostId: string) {
-  return apiFetch<{ ok: boolean; host: Host }>(`/host/${encodeURIComponent(hostId)}`);
+  return apiFetch<{ ok: boolean; host: Host }>(`/api/hosts/${encodeURIComponent(hostId)}`);
 }
 
 export async function deleteHost(hostId: string) {
-  return apiFetch<{ ok: boolean; removed: string }>(`/host/${encodeURIComponent(hostId)}`, {
+  return apiFetch<{ ok: boolean; removed: string }>(`/api/hosts/${encodeURIComponent(hostId)}`, {
     method: "DELETE",
   });
 }

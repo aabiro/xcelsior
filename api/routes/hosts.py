@@ -1482,6 +1482,14 @@ def api_host_spot_preview(host_id: str, request: Request, spot_min_cents: int | 
     return {"ok": True, "host_id": resolved, "spot_preview": preview}
 
 
+# The five routes below are product API (console and administrators), but they
+# were registered only under ``/host/``, which ``AgentIngressMiddleware`` treats
+# as worker protocol. With the public ingress in ``deny`` (production since the
+# gateway cutover) every one of them answered ``410 agent_ingress_retired``: the
+# console's host page could not load a host or remove one (CVP-01, 2026-11-11).
+# Each is now also served under ``/api/hosts/``, which the gate never touches;
+# the ``/host/`` spelling stays for the agent gateway and older clients.
+@router.get("/api/hosts/{host_id}", tags=["Hosts"])
 @router.get("/host/{host_id}", tags=["Hosts"])
 def api_get_host(host_id: str, request: Request):
     """Get a single host by ID."""
@@ -1514,6 +1522,7 @@ def api_list_hosts(request: Request, active_only: bool = True):
     return {"hosts": [enrich_host_for_api(h) for h in hosts]}
 
 
+@router.get("/api/hosts/{host_id}/maintenance", tags=["Hosts"])
 @router.get("/host/{host_id}/maintenance", tags=["Hosts"])
 def api_host_maintenance(host_id: str, request: Request):
     """Return maintenance readiness for a host."""
@@ -1616,6 +1625,7 @@ def api_enroll_host(host_id: str, request: Request):
     return {"ok": True, **enrollment}
 
 
+@router.post("/api/hosts/{host_id}/drain", tags=["Hosts"])
 @router.post("/host/{host_id}/drain", tags=["Hosts"])
 def api_drain_host(host_id: str, request: Request):
     """Stop new placements on a host without evicting active instances."""
@@ -1638,6 +1648,7 @@ def api_drain_host(host_id: str, request: Request):
     }
 
 
+@router.post("/api/hosts/{host_id}/undrain", tags=["Hosts"])
 @router.post("/host/{host_id}/undrain", tags=["Hosts"])
 def api_undrain_host(host_id: str, request: Request):
     """Restore a drained host to active or pending status."""
@@ -1683,6 +1694,7 @@ def machine_credential_may_not_delete(user: dict, entry: dict | None) -> bool:
     return str(entry.get("admission_state") or "").strip().lower() == "admitted"
 
 
+@router.delete("/api/hosts/{host_id}", tags=["Hosts"])
 @router.delete("/host/{host_id}", tags=["Hosts"])
 def api_remove_host(host_id: str, request: Request):
     """Remove a host."""

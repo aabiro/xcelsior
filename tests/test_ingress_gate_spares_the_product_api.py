@@ -68,3 +68,66 @@ def test_the_prefix_carries_the_trailing_slash_that_makes_this_work():
     assert (
         "/host" not in AgentIngressMiddleware.WORKER_PREFIXES
     ), "a bare '/host' prefix matches '/hosts' by startswith"
+
+
+# ── The product spellings of the per-host routes ─────────────────────
+#
+# Found 2026-11-11 (CVP-01): the console's host page and an administrator's
+# ``DELETE /host/{id}`` were answered 410 in production, because those product
+# routes were registered only under the worker prefix. They are served under
+# ``/api/hosts/`` as well, which the gate never matches.
+
+PRODUCT_HOST_ROUTES = {
+    ("GET", "/api/hosts/{host_id}"),
+    ("DELETE", "/api/hosts/{host_id}"),
+    ("GET", "/api/hosts/{host_id}/maintenance"),
+    ("POST", "/api/hosts/{host_id}/drain"),
+    ("POST", "/api/hosts/{host_id}/undrain"),
+}
+
+
+@pytest.mark.parametrize("path", ["/api/hosts/h-abc", "/api/hosts/h-abc/drain"])
+def test_the_product_host_routes_are_not_gated(path: str, is_worker_path):
+    assert not is_worker_path(path)
+
+
+def test_every_per_host_product_route_has_an_api_spelling():
+    from api import app
+
+    served = {
+        (method, route.path)
+        for route in app.routes
+        for method in (getattr(route, "methods", None) or ())
+    }
+    missing = PRODUCT_HOST_ROUTES - served
+    assert not missing, f"not served under /api/hosts: {sorted(missing)}"
+
+
+def test_the_console_calls_the_ungated_spelling():
+    """``fetchHost``/``deleteHost`` must not go back to ``/host/`` (410 in production)."""
+    import pathlib
+
+    src = (
+        pathlib.Path(__file__).resolve().parent.parent / "api/frontend/src/lib/api.ts"
+    ).read_text()
+    for name in ("fetchHost", "deleteHost"):
+        body = src[src.index(f"function {name}(") :][:400]
+        assert "`/api/hosts/${" in body, f"{name} must call /api/hosts/, not /host/"
+        assert "`/host/${" not in body
+
+
+def test_delete_under_api_hosts_reaches_the_route_in_deny_mode(monkeypatch):
+    """End to end: with the ingress in deny, the product spelling is answered by
+    the route (404 for an unknown host), while the worker spelling is 410."""
+    import os
+
+    from fastapi.testclient import TestClient
+
+    from api import app
+
+    monkeypatch.setenv("XCELSIOR_AGENT_PUBLIC_INGRESS", "deny")
+    os.environ.setdefault("XCELSIOR_ENV", "test")
+    with TestClient(app) as client:
+        assert client.delete("/host/no-such-host-xyz").status_code == 410
+        assert client.delete("/api/hosts/no-such-host-xyz").status_code == 404
+        assert client.get("/api/hosts/no-such-host-xyz").status_code == 404
