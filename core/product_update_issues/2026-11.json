@@ -1,0 +1,47 @@
+{
+  "slug": "2026-11",
+  "status": "draft",
+  "month_label": "November 2026",
+  "subject": "Xcelsior: clearer billing and a closer look at MCP",
+  "preview": "Open an itemized usage statement, browse ten transactions at a time, and read how MCP and Slurm fit together.",
+  "intro": "This month brings a clearer view of your compute spending and two new technical posts about how Xcelsior works. Here’s what you can open in your dashboard and read on the blog.",
+  "hero_image": "https://xcelsior.ca/email/product-updates/2026-11/hero.png",
+  "hero_alt": "Open Xcelsior’s November 2026 product updates",
+  "features": [
+    {
+      "title": "Open your usage statement",
+      "body": "Click a month under Usage statements to see its itemized compute and storage usage, quantities, rates and total credit usage. Download the same period as CSV. Transaction history now shows at most ten entries per page, with Newer and Older controls. Usage statements show pretax credit consumption; payment tax appears on your top-up receipt.",
+      "image": "https://xcelsior.ca/email/product-updates/2026-11/billing.png",
+      "image_alt": "Wallet transaction history with a ten-entry page and Newer and Older controls",
+      "cta_label": "Open your billing",
+      "cta_url": "https://xcelsior.ca/dashboard/billing"
+    },
+    {
+      "title": "A closer look at Xcelsior MCP",
+      "body": "Our new introduction walks through connecting a compatible MCP client, the customer tool surface and how authentication and permissions fit together. It also explains which tools belong to internal operators rather than customer agents.",
+      "image": "https://xcelsior.ca/blog/mcp-server-release.png",
+      "image_alt": "Xcelsior MCP: connecting AI agents to compute",
+      "cta_label": "Read the MCP introduction",
+      "cta_url": "https://xcelsior.ca/blog/mcp-server-release"
+    },
+    {
+      "title": "How Slurm fits into Xcelsior",
+      "body": "The Slurm article explains our integration architecture: a deterministic reconciler maintains Xcelsior’s copy of cluster state, while APIs and agents read that copy. It covers cached output, health signals and the shadow-accounting validation still underway. Slurm is integration-ready; it is not a public customer launch.",
+      "image": "https://xcelsior.ca/blog/slurm-at-xcelsior.png",
+      "image_alt": "Slurm at Xcelsior: cluster integration and reconciliation",
+      "cta_label": "Read about Slurm at Xcelsior",
+      "cta_url": "https://xcelsior.ca/blog/slurm-at-xcelsior"
+    }
+  ],
+  "improvements": [
+    {
+      "title": "Business profiles",
+      "body": "give a business account its own logo, display name, website and tagline in Settings."
+    },
+    {
+      "title": "A calmer sign-in handoff",
+      "body": "the authentication result page gives you time to read the result before returning to your app."
+    }
+  ],
+  "outro": "Reply if there’s a workflow you’d like us to explain in a future update."
+}

@@ -159,6 +159,13 @@ const hostCheck = (done) =>
   );
 
 const SCENES = {
+  "2026-11": {
+    stills: [
+      { file: "hero.png", html: hero.replace("October 2026", "November 2026"), width: 600, height: 220 },
+      { file: "billing.png", html: billing.replace("1&ndash;20 of 134", "1&ndash;10 of 134"), width: 536, height: 307 },
+    ],
+    animations: [],
+  },
   "2026-10": {
     stills: [
       { file: "hero.png", html: hero, width: 600, height: 220 },
