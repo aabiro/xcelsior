@@ -414,7 +414,17 @@ ssh_cmd() {
 ssh_cmd_host() {
     local host="$1"
     shift
-    ssh "${SSH_BASE_OPTS[@]}" "$(_remote_target "$host")" "$@"
+    if [[ "$REMOTE_USER" == root ]]; then
+        ssh "${SSH_BASE_OPTS[@]}" "$(_remote_target "$host")" "$@"
+    elif [[ $# -eq 0 ]]; then
+        ssh "${SSH_BASE_OPTS[@]}" "$(_remote_target "$host")" "sudo -n bash -s"
+    else
+        # Keep redirects, pipelines and stdin-fed scripts inside the privileged
+        # shell. The SSH login itself remains the configured non-root account.
+        local command
+        printf -v command '%q' "$*"
+        ssh "${SSH_BASE_OPTS[@]}" "$(_remote_target "$host")" "sudo -n bash -c $command"
+    fi
 }
 
 scp_file() {
@@ -429,7 +439,9 @@ scp_file_host() {
 rsync_to_host() {
     local host="$1" src="$2" dest="$3"
     shift 3
-    rsync "${RSYNC_BASE_OPTS[@]}" "${RSYNC_COMPRESS_OPTS[@]}" "$@" \
+    local remote_rsync=rsync
+    [[ "$REMOTE_USER" == root ]] || remote_rsync='sudo -n rsync'
+    rsync "${RSYNC_BASE_OPTS[@]}" "${RSYNC_COMPRESS_OPTS[@]}" --rsync-path="$remote_rsync" "$@" \
         -e "$(_rsync_shell_for_host)" "$src" "$(_remote_target "$host"):$dest"
 }
 
