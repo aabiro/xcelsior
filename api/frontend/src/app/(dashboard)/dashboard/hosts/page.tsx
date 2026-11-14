@@ -748,7 +748,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://xcelsior.ca";
 const APP_HOST = APP_URL.replace(/^https?:\/\//, "");
-const WIZARD_CMD = "npx @xcelsior-gpu/wizard@0.1.7";
+const WIZARD_CMD = "npx @xcelsior-gpu/wizard@0.1.8";
 const SDK_INSTALL_CMD = "npm install @xcelsior-gpu/sdk";
 
 const LLM_INSTALL_PROMPT = `I am setting up an Xcelsior GPU worker node to join the distributed GPU compute marketplace at ${APP_HOST}. Walk me through setup step-by-step. Mark any values I need to fill in with placeholder comments.
@@ -761,7 +761,7 @@ Register at ${APP_URL}/dashboard/hosts → "Register Host" (the wizard can also 
 ### 2. Run the wizard (one command on the GPU host)
 
 \`\`\`bash
-npx @xcelsior-gpu/wizard@0.1.7
+npx @xcelsior-gpu/wizard@0.1.8
 \`\`\`
 
 (\`npx\` runs the wizard without a global install, no \`-g\`, no \`/usr/lib/node_modules\` permission issues.)
