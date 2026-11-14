@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 const AUTH_COOKIE = "xcelsior_session";
+// The access cookie lives 15 minutes; the refresh cookie lives 30 days and is
+// rotated on every refresh. Holding either one is a session: the page's first
+// API call gets a 401, refreshes, and retries (lib/api.ts). Checking only the
+// access cookie sent everyone to /login whenever they opened a new window or
+// came back after 15 minutes, though their refresh token was still good.
+const REFRESH_COOKIE = "xcelsior_refresh";
 
 const NO_STORE_PATHS = new Set([
   "/login",
@@ -59,7 +65,7 @@ export async function proxy(request: NextRequest) {
     });
   }
 
-  const hasSession = request.cookies.has(AUTH_COOKIE);
+  const hasSession = request.cookies.has(AUTH_COOKIE) || request.cookies.has(REFRESH_COOKIE);
 
   // Protect dashboard routes, redirect to login if no session cookie
   if (pathname.startsWith("/dashboard") || pathname.startsWith("/onboarding")) {
