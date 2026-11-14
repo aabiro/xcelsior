@@ -92,6 +92,9 @@ _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9._:/@-]+$")
 # jobs) until it has been unreachable for this many seconds. Prevents a brief
 # systemd restart of the worker agent from cascading into container churn.
 HOST_DEATH_GRACE_SEC = 120
+# An agent heartbeats every 10 s. Nine missed in a row is not a slow network.
+# HOST_DEATH_GRACE_SEC then applies on top before the host is marked dead.
+AGENT_HEARTBEAT_STALE_SEC = int(os.environ.get("XCELSIOR_AGENT_HEARTBEAT_STALE_SEC", "90"))
 
 # First-miss timestamps per host, used to enforce the grace period above.
 _host_first_miss: dict = {}
@@ -1413,8 +1416,9 @@ def check_hosts():
     """
     Ping every registered host. Once.
     Dead? Mark it dead. Alive? Update last_seen.
-    If the host has a recent agent heartbeat (last_seen < 60s ago),
-    trust the heartbeat even if ping fails (Tailscale/Headscale IP mismatch).
+    A host that runs an agent is judged by its agent's own heartbeat alone.
+    A host that never reported one is pinged, and a recent last_seen is
+    trusted if the ping fails (Tailscale/Headscale IP mismatch).
     Returns dict of results.
     """
     hosts = load_hosts(active_only=False)
@@ -1431,12 +1435,21 @@ def check_hosts():
         # be pinged, so it is dead by definition — but a recent agent heartbeat
         # still counts, exactly as it does for a host whose ping fails.
         ip = str(h.get("ip") or "").strip()
-        alive = ping_host(ip) if ip and ping_is_evidence_of_a_host(ip) else False
-        # Trust recent agent heartbeat even if ping fails
-        if not alive:
-            last_seen = h.get("last_seen", 0)
-            if isinstance(last_seen, (int, float)) and (now - last_seen) < 60:
-                alive = True
+        heartbeat = h.get("last_agent_heartbeat")
+        if isinstance(heartbeat, (int, float)) and heartbeat > 0:
+            # A host that runs an agent is alive when its agent says so, and
+            # only then. The machine answering a ping says nothing about the
+            # worker on it: on 2026-11-13 a worker had been crash-looping for
+            # 55 hours while its host stayed "active" here, and a job placed on
+            # it would never have started.
+            alive = (now - heartbeat) < AGENT_HEARTBEAT_STALE_SEC
+        else:
+            alive = ping_host(ip) if ip and ping_is_evidence_of_a_host(ip) else False
+            # Trust recent agent heartbeat even if ping fails
+            if not alive:
+                last_seen = h.get("last_seen", 0)
+                if isinstance(last_seen, (int, float)) and (now - last_seen) < 60:
+                    alive = True
         updates.append((h["host_id"], ip, alive))
         results[h["host_id"]] = "alive" if alive else "dead"
 

@@ -153,7 +153,9 @@ def _photon_features(params: list[tuple[str, str]]) -> list[dict]:
     features = payload.get("features") if isinstance(payload, dict) else None
     if not isinstance(features, list):
         raise HTTPException(502, _ADDRESS_UNAVAILABLE)
-    features = [f for f in features if isinstance(f, dict) and isinstance(f.get("properties"), dict)]
+    features = [
+        f for f in features if isinstance(f, dict) and isinstance(f.get("properties"), dict)
+    ]
     if len(_PHOTON_CACHE) >= _PHOTON_CACHE_SIZE:
         _PHOTON_CACHE.pop(next(iter(_PHOTON_CACHE)))  # oldest first: dicts keep insertion order
     _PHOTON_CACHE[key] = (now, features)
@@ -179,7 +181,11 @@ def _street_was_typed(street: str, text: str) -> bool:
     from host_metadata import _fold
 
     street_words = _fold(street).replace("-", " ").split()
-    typed = [w for w in _fold(text).replace(",", " ").split() if len(w) >= 3 and not _HOUSE_NUMBER.match(w)]
+    typed = [
+        w
+        for w in _fold(text).replace(",", " ").split()
+        if len(w) >= 3 and not _HOUSE_NUMBER.match(w)
+    ]
     return any(word.startswith(t) for t in typed for word in street_words)
 
 
@@ -187,7 +193,12 @@ def _fully_typed(address: dict[str, str], text: str, number: str) -> bool:
     """Whether an address carries the typed number and every typed word starts one of its words."""
     from host_metadata import _fold
 
-    words = _fold(" ".join((address["address_line1"], address["city"]))).replace(",", " ").replace("-", " ").split()
+    words = (
+        _fold(" ".join((address["address_line1"], address["city"])))
+        .replace(",", " ")
+        .replace("-", " ")
+        .split()
+    )
     line = re.split(r"[\s,]+", address["address_line1"])
     typed = [w for w in _fold(text).replace(",", " ").split() if len(w) >= 3 and w != _fold(number)]
     return number in line and all(any(word.startswith(t) for word in words) for t in typed)
@@ -198,7 +209,9 @@ def _non_latin(value: str) -> bool:
     return any(ord(ch) >= 0x2E80 for ch in value)
 
 
-def _photon_address(properties: dict, typed_number: str = "", typed: str = "") -> dict[str, str] | None:
+def _photon_address(
+    properties: dict, typed_number: str = "", typed: str = ""
+) -> dict[str, str] | None:
     """One Photon result as the profile's address fields, or None if it isn't an address.
 
     ``typed_number`` is the house number in ``typed``, the search text. When
@@ -220,8 +233,12 @@ def _photon_address(properties: dict, typed_number: str = "", typed: str = "") -
     if kind == "street" and not street:
         street = text("name")
     if (
-        kind == "street" and not number and typed_number and country != "JP"
-        and typed_number not in street.split() and _street_was_typed(street, typed)
+        kind == "street"
+        and not number
+        and typed_number
+        and country != "JP"
+        and typed_number not in street.split()
+        and _street_was_typed(street, typed)
     ):
         number = typed_number
     place_city = text("city") or text("locality") or text("district")
@@ -296,7 +313,10 @@ def api_address_search(body: AddressSearchRequest, request: Request):
     if len(text) < 3:
         raise HTTPException(422, "Enter at least three address characters")
     suggestions = _address_suggestions(
-        text, country=country, lang=body.lang, visitor_country="" if country else _visitor_country_hint(request)
+        text,
+        country=country,
+        lang=body.lang,
+        visitor_country="" if country else _visitor_country_hint(request),
     )
     return {"ok": True, "suggestions": suggestions}
 
@@ -319,7 +339,8 @@ def _address_suggestions(text: str, *, country: str, lang: str, visitor_country:
     # country gave fewer than four addresses, so typing a local address costs one
     # request, not two.
     if not country and (
-        not batches or len([f for f in batches[0] if _photon_address(f["properties"], typed_number, text)]) < 4
+        not batches
+        or len([f for f in batches[0] if _photon_address(f["properties"], typed_number, text)]) < 4
     ):
         try:
             batches.append(_photon_features(base))
@@ -337,7 +358,9 @@ def _address_suggestions(text: str, *, country: str, lang: str, visitor_country:
             if address is None or (country and address["country"] != country):
                 continue
             # Several businesses at one door are one address.
-            key = tuple(address[field] for field in ("address_line1", "city", "postal_code", "country"))
+            key = tuple(
+                address[field] for field in ("address_line1", "city", "postal_code", "country")
+            )
             if key in seen:
                 continue
             seen.add(key)
@@ -354,7 +377,9 @@ def _address_suggestions(text: str, *, country: str, lang: str, visitor_country:
         rest = text.split(",", 1)[1] if "," in text else ""
         retry = ", ".join(part for part in (street_only, rest.strip()) if part)
         if len(retry) >= 3:
-            params = [("q", retry), *base[1:]] + ([("countrycode", near_country)] if country else [])
+            params = [("q", retry), *base[1:]] + (
+                [("countrycode", near_country)] if country else []
+            )
             try:
                 again = _photon_features(params)
             except HTTPException:
@@ -366,7 +391,9 @@ def _address_suggestions(text: str, *, country: str, lang: str, visitor_country:
                     continue
                 if not _fully_typed(address, text, typed_number):
                     continue
-                key = tuple(address[field] for field in ("address_line1", "city", "postal_code", "country"))
+                key = tuple(
+                    address[field] for field in ("address_line1", "city", "postal_code", "country")
+                )
                 if key not in seen:
                     seen.add(key)
                     numbered.append(address)
@@ -374,7 +401,11 @@ def _address_suggestions(text: str, *, country: str, lang: str, visitor_country:
     suggestions = []
     for index, address in enumerate(addresses[:8]):
         place = pycountry.countries.get(alpha_2=address["country"])
-        region = region_display(address["country"], address["province"]) if _region_in_postal_format(address["country"]) else ""
+        region = (
+            region_display(address["country"], address["province"])
+            if _region_in_postal_format(address["country"])
+            else ""
+        )
         if _fold(region) == _fold(address["city"]):
             region = ""
         description = ", ".join(
@@ -388,7 +419,12 @@ def _address_suggestions(text: str, *, country: str, lang: str, visitor_country:
             if part
         )
         suggestions.append(
-            {"id": f"photon-{index}", "text": address["address_line1"], "description": description, "address": address}
+            {
+                "id": f"photon-{index}",
+                "text": address["address_line1"],
+                "description": description,
+                "address": address,
+            }
         )
     return suggestions
 
@@ -744,6 +780,10 @@ def api_register_host(h: HostIn, request: Request):
         entry["agent_version"] = h.agent_version
     if h.agent_sha256:
         entry["agent_sha256"] = h.agent_sha256
+        # Only an agent sends its own hash, so this is the agent's word that
+        # it is running. The health check judges an agent host by this alone;
+        # `last_seen` is also written by the health check and by the web form.
+        entry["last_agent_heartbeat"] = time.time()
     if h.cpu_count:
         entry["cpu_count"] = int(h.cpu_count)
     if h.ssh_user:
