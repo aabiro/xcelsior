@@ -22,6 +22,22 @@ const REGIONS = [
   { value: "any", label: "Any region (lowest cost)" },
 ];
 
+const ARTIFACT_TYPES = [
+  { value: "model_weights", label: "Model Weights" },
+  { value: "dataset", label: "Dataset" },
+  { value: "checkpoint", label: "Checkpoint" },
+  { value: "job_output", label: "Session Output" },
+  { value: "log", label: "Log File" },
+  { value: "telemetry", label: "Telemetry" },
+  { value: "container_image", label: "Container Image" },
+];
+
+function artifactTypeLabel(value: string | undefined) {
+  if (!value) return "";
+  const plain = value.includes(".") ? value.split(".").pop()!.toLowerCase() : value;
+  return ARTIFACT_TYPES.find((item) => item.value === plain)?.label || plain;
+}
+
 const EXPIRY_OPTIONS = [
   { value: "7", label: "7 days" },
   { value: "30", label: "30 days" },
@@ -35,6 +51,21 @@ function formatSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+}
+
+function formatWhen(value: string | number | undefined) {
+  if (value == null || value === "") return "";
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (Number.isFinite(numeric)) {
+    const ms = numeric < 1e12 ? numeric * 1000 : numeric;
+    return new Date(ms).toLocaleDateString();
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toLocaleDateString();
+}
+
+function browserUrl(url: string | undefined) {
+  return !!url && /^https?:\/\//i.test(url);
 }
 
 export default function ArtifactsPage() {
@@ -92,25 +123,45 @@ export default function ArtifactsPage() {
     setUploadProgress(0);
 
     try {
-      // Step 1: Get presigned upload URL
-      setUploadProgress(20);
-      const res = await api.uploadArtifact({
+      setUploadProgress(15);
+      const ticket = await api.uploadArtifact({
         job_id: "",
         filename: uploadFile.name,
         artifact_type: artifactType,
         storage_policy: region,
+        retain_days: Number(expiryDays),
       });
+      if (ticket.max_upload_bytes && uploadFile.size > ticket.max_upload_bytes) {
+        throw new Error(`File exceeds the ${formatSize(ticket.max_upload_bytes)} upload limit`);
+      }
+      const sessionId = ticket.upload_session_id;
+      if (!sessionId) throw new Error("Upload did not return a session");
 
-      // Step 2: Upload file to presigned URL
-      setUploadProgress(50);
-      if (res.upload_url) {
-        await fetch(res.upload_url, {
-          method: "PUT",
-          body: uploadFile,
-          headers: { "Content-Type": uploadFile.type || "application/octet-stream" },
-        });
+      setUploadProgress(40);
+      const direct = ticket.upload_url || ticket.url;
+      let stored = false;
+      if (direct && browserUrl(direct)) {
+        try {
+          const put = await fetch(direct, {
+            method: ticket.method || "PUT",
+            body: uploadFile,
+            headers: ticket.headers || { "Content-Type": uploadFile.type || "application/octet-stream" },
+          });
+          stored = put.ok;
+        } catch {
+          stored = false;
+        }
+      }
+      if (!stored) {
+        await api.uploadArtifactBytes(
+          sessionId,
+          uploadFile,
+          uploadFile.type || "application/octet-stream",
+        );
       }
 
+      setUploadProgress(80);
+      await api.finalizeArtifact(sessionId);
       setUploadProgress(100);
       toast.success("Artifact uploaded successfully");
       setUploadFile(null);
@@ -127,15 +178,30 @@ export default function ArtifactsPage() {
   const handleDownload = async (artifact: ArtifactEntry) => {
     try {
       const res = await api.downloadArtifact({
+        artifact_id: artifact.artifact_id,
         job_id: artifact.job_id || "",
         filename: artifact.filename,
         artifact_type: artifact.artifact_type || "job_output",
       });
-      if (res.download_url) {
-        window.open(res.download_url, "_blank");
+      const href = res.download_url || res.url;
+      if (browserUrl(href)) {
+        window.open(href, "_blank");
+        return;
       }
-    } catch {
-      toast.error("Download failed");
+      const fileRes = await fetch(
+        `/api/artifacts/content/${encodeURIComponent(artifact.artifact_id)}`,
+        { credentials: "include" },
+      );
+      if (!fileRes.ok) throw new Error("Download failed");
+      const blob = await fileRes.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = artifact.filename || "artifact";
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Download failed");
     }
   };
 
@@ -193,7 +259,7 @@ export default function ArtifactsPage() {
                 <>
                   <Upload className="mx-auto h-8 w-8 text-text-muted mb-2" />
                   <p className="text-sm text-text-secondary">Drop a file here or click to browse</p>
-                  <p className="text-xs text-text-muted mt-1">Max 10GB per file</p>
+                  <p className="text-xs text-text-muted mt-1">The server enforces the upload size limit</p>
                 </>
               )}
             </div>
@@ -209,13 +275,9 @@ export default function ArtifactsPage() {
               <div className="space-y-1.5">
                 <Label className="text-xs">Artifact Type</Label>
                 <Select value={artifactType} onChange={(e) => setArtifactType(e.target.value)}>
-                  <option value="model_weights">Model Weights</option>
-                  <option value="dataset">Dataset</option>
-                  <option value="checkpoint">Checkpoint</option>
-                  <option value="job_output">Session Output</option>
-                  <option value="log">Log File</option>
-                  <option value="telemetry">Telemetry</option>
-                  <option value="container_image">Container Image</option>
+                  {ARTIFACT_TYPES.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
                 </Select>
               </div>
               <div className="space-y-1.5">
@@ -286,8 +348,8 @@ export default function ArtifactsPage() {
                         · <MapPin className="h-3 w-3" /> {a.storage_policy}
                       </span>
                     )}
-                    {a.artifact_type && <span>· {a.artifact_type}</span>}
-                    {a.created_at && <span>· {new Date(a.created_at).toLocaleDateString()}</span>}
+                    {a.artifact_type && <span>· {artifactTypeLabel(a.artifact_type)}</span>}
+                    {a.created_at && <span>· {formatWhen(a.created_at)}</span>}
                   </div>
                 </div>
               </div>

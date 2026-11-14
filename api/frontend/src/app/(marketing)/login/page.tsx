@@ -123,6 +123,18 @@ function LoginPageContent() {
     posthog.capture("demo_account_prefill");
   }
 
+  useEffect(() => {
+    if (mfaBootstrapping || authLoading || mfaRequired || !user) return;
+    if (
+      redirectTarget.startsWith("/oauth/authorize") ||
+      redirectTarget.startsWith("/api/")
+    ) {
+      window.location.replace(redirectTarget);
+      return;
+    }
+    router.replace(redirectTarget);
+  }, [authLoading, mfaBootstrapping, mfaRequired, redirectTarget, router, user]);
+
   if (mfaBootstrapping || authLoading) {
     return (
       <div className="site-auth-loading">
@@ -143,7 +155,6 @@ function LoginPageContent() {
   }
 
   if (!mfaRequired && user) {
-    navigateToRedirectTarget(redirectTarget);
     return null;
   }
 

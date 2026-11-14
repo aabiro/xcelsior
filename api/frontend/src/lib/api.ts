@@ -2577,14 +2577,63 @@ export async function updateMemberRole(teamId: string, email: string, role: stri
 }
 
 // ── Artifacts ─────────────────────────────────────────────────────────
-export async function uploadArtifact(data: { job_id: string; filename: string; artifact_type: string; storage_policy?: string }) {
-  return apiFetch<{ ok: boolean; upload_url: string; artifact_id: string }>(
+export interface ArtifactUploadTicket {
+  ok: boolean;
+  url?: string;
+  upload_url?: string;
+  method?: string;
+  headers?: Record<string, string>;
+  artifact_id: string;
+  upload_session_id?: string;
+  filename?: string;
+  max_upload_bytes?: number;
+}
+
+export async function uploadArtifact(data: {
+  job_id: string;
+  filename: string;
+  artifact_type: string;
+  storage_policy?: string;
+  retain_days?: number;
+}) {
+  return apiFetch<ArtifactUploadTicket>(
     "/api/artifacts/upload", { method: "POST", body: JSON.stringify(data) },
   );
 }
 
-export async function downloadArtifact(data: { job_id: string; filename: string; artifact_type: string }) {
-  return apiFetch<{ ok: boolean; download_url: string }>(
+/** Same-origin byte write. apiFetch forces JSON, so this uses fetch directly. */
+export async function uploadArtifactBytes(sessionId: string, file: Blob, contentType?: string) {
+  const res = await fetch(`/api/artifacts/sessions/${encodeURIComponent(sessionId)}/content`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": contentType || "application/octet-stream" },
+    body: file,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(
+      res.status,
+      body?.detail || body?.error?.message || body?.message || `Upload failed (HTTP ${res.status})`,
+      body,
+    );
+  }
+  return res.json() as Promise<{ ok: boolean; size_bytes?: number }>;
+}
+
+export async function finalizeArtifact(uploadSessionId: string) {
+  return apiFetch<{ ok: boolean; state?: string; artifact_id?: string }>(
+    "/api/artifacts/finalize",
+    { method: "POST", body: JSON.stringify({ upload_session_id: uploadSessionId }) },
+  );
+}
+
+export async function downloadArtifact(data: {
+  job_id?: string;
+  filename?: string;
+  artifact_type?: string;
+  artifact_id?: string;
+}) {
+  return apiFetch<{ ok: boolean; url?: string; download_url?: string }>(
     "/api/artifacts/download", { method: "POST", body: JSON.stringify(data) },
   );
 }
@@ -3781,7 +3830,7 @@ export interface ArtifactEntry {
   artifact_type: string;
   size_bytes?: number;
   storage_policy?: string;
-  created_at: string;
+  created_at: string | number;
 }
 
 // ── v2 Types ──────────────────────────────────────────────────────────

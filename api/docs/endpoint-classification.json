@@ -315,6 +315,10 @@
     "class": "gap",
     "notes": "P3 needs artifact read and promotion; no tool exposes them"
   },
+  "GET /api/artifacts/content/{artifact_id}": {
+    "class": "internal",
+    "notes": "browser download when the presigned URL is not http; agents use POST /api/artifacts/download"
+  },
   "GET /api/artifacts/{job_id}": {
     "class": "gap",
     "notes": "P3 needs artifact read and promotion; no tool exposes them"
@@ -2414,6 +2418,10 @@
   "PUT /api/alerts/config": {
     "class": "internal",
     "notes": "operator configuration — alert thresholds, the NFS mount, API token minting. Admin console, not the tool surface. The two alert paths are aliases of one handler"
+  },
+  "PUT /api/artifacts/sessions/{session_id}/content": {
+    "class": "internal",
+    "notes": "browser byte write when a presigned PUT is file:// or blocked; agents upload to the presigned URL"
   },
   "PUT /api/auth/me/profile": {
     "class": "internal",

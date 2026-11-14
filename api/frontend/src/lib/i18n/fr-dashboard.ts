@@ -1192,6 +1192,7 @@ const fr_dashboard: Record<string, string> = {
   "dash.settings.mcp.agent_cursor": "Cursor",
   "dash.settings.mcp.agent_claude": "Claude",
   "dash.settings.mcp.agent_vscode": "VS Code",
+  "dash.settings.mcp.agent_github": "GitHub",
   "dash.settings.mcp.token_input_label": "Jeton Bearer (facultatif)",
   "dash.settings.mcp.token_input_placeholder": "Collez votre jeton d'accès ici (facultatif)",
   "dash.settings.mcp.token_input_hint": "Utilisé pour les tests de santé et l'aperçu de config. Ne commitez jamais de jetons.",

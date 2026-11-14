@@ -3,13 +3,22 @@
 import time
 from typing import Optional
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 from routes._deps import (
     log,
 )
-from artifacts import get_artifact_manager, ArtifactType, StoragePolicy
+from artifacts import (
+    ArtifactType,
+    StoragePolicy,
+    StorageUnavailable,
+    catalog_text,
+    get_artifact_manager,
+)
 
 router = APIRouter()
 
@@ -22,6 +31,16 @@ class UploadRequest(BaseModel):
     filename: str
     artifact_type: str = "job_output"
     storage_policy: str = "any"
+    # None keeps the catalog default (90 days). 0 means the row has no expiry.
+    retain_days: Optional[int] = Field(default=None, ge=0, le=3650)
+
+
+def _expose_url(result: dict, browser_name: str) -> dict:
+    """The storage client returns ``url``. The dashboard also reads a named field."""
+    url = result.get("url")
+    if isinstance(url, str) and url:
+        result.setdefault(browser_name, url)
+    return {"ok": True, **result}
 
 
 def _user_upload_slot(user: dict) -> str:
@@ -81,15 +100,114 @@ def api_request_upload(req: UploadRequest, request: Request):
         spolicy = StoragePolicy(req.storage_policy)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    # A standalone upload has no job row. Store it on the active team when
+    # there is one, so the team workspace list and the catalog agree.
+    from routes._deps import _user_team_id
+
+    catalog_tenant = None
+    if job_id.startswith("user-"):
+        catalog_tenant = _user_team_id(user) or job_id
     mgr = get_artifact_manager()
-    result = mgr.request_upload(
-        atype,
-        job_id,
-        req.filename,
-        storage_policy=spolicy,
-        owner_user_id=user.get("user_id"),
-    )
+    try:
+        result = mgr.request_upload(
+            atype,
+            job_id,
+            req.filename,
+            storage_policy=spolicy,
+            owner_user_id=str(user.get("user_id") or ""),
+            tenant_id=catalog_tenant,
+            retain_days=req.retain_days,
+        )
+    except StorageUnavailable:
+        log.exception("artifact upload storage unavailable user=%s", user.get("user_id"))
+        raise HTTPException(503, "Artifact storage is unavailable")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception:
+        log.exception("artifact upload failed user=%s", user.get("user_id"))
+        raise HTTPException(500, "Failed to prepare upload")
+    return _expose_url(result, "upload_url")
+
+
+@router.put("/api/artifacts/sessions/{session_id}/content", tags=["Artifacts"])
+async def api_upload_session_content(session_id: str, request: Request):
+    """Write the file bytes for an upload session. Same origin as the dashboard."""
+    from routes._deps import _get_current_user, _require_scope
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "artifacts:write")
+    data = await request.body()
+    content_type = (request.headers.get("content-type") or "application/octet-stream").split(";", 1)[0].strip()
+    mgr = get_artifact_manager()
+    try:
+        result = mgr.write_session_bytes(
+            session_id,
+            data,
+            principal_id=str(user.get("user_id") or ""),
+            content_type=content_type or "application/octet-stream",
+        )
+    except PermissionError:
+        raise HTTPException(404, "Upload session not found")
+    except ValueError as e:
+        message = str(e)
+        status = 413 if "exceeds" in message else 400
+        raise HTTPException(status, message)
+    except StorageUnavailable:
+        log.exception("artifact content storage unavailable user=%s", user.get("user_id"))
+        raise HTTPException(503, "Artifact storage is unavailable")
+    except Exception:
+        log.exception("artifact content write failed user=%s", user.get("user_id"))
+        raise HTTPException(500, "Failed to store upload")
     return {"ok": True, **result}
+
+
+@router.get("/api/artifacts/content/{artifact_id}", tags=["Artifacts"])
+def api_artifact_content(artifact_id: str, request: Request):
+    """Download an artifact through the API when no browser-usable URL exists."""
+    from routes._deps import _get_current_user, _is_platform_admin, _require_scope
+
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    _require_scope(user, "artifacts:read")
+
+    def _authorize(owner: dict) -> None:
+        from routes.instances import _check_job_access
+
+        if _is_platform_admin(user):
+            return
+        job_id = str(owner.get("job_id") or "").strip()
+        if job_id:
+            _check_job_access(user, job_id)
+            return
+        caller = str(user.get("user_id") or "").strip()
+        if not caller or str(owner.get("owner_user_id") or "").strip() != caller:
+            raise HTTPException(404, "Artifact not found")
+
+    mgr = get_artifact_manager()
+    try:
+        data, content_type, name = mgr.read_artifact_bytes(artifact_id, authorize=_authorize)
+    except HTTPException:
+        raise
+    except KeyError:
+        raise HTTPException(404, "Artifact not found")
+    except FileNotFoundError:
+        raise HTTPException(404, "Artifact not found")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except StorageUnavailable:
+        raise HTTPException(503, "Artifact storage is unavailable")
+    except Exception:
+        log.exception("artifact content read failed user=%s", user.get("user_id"))
+        raise HTTPException(500, "Failed to read artifact")
+    filename = quote(name.replace('"', ""))
+    return Response(
+        content=data,
+        media_type=content_type or "application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
 
 
 # ── Model: FinalizeRequest ──
@@ -170,7 +288,7 @@ def api_request_download(req: DownloadRequest, request: Request):
 
         try:
             result = mgr.request_download_by_id(req.artifact_id, authorize=_authorize)
-            return {"ok": True, **result}
+            return _expose_url(result, "download_url")
         except KeyError as e:
             raise HTTPException(404, str(e))
         except ValueError as e:
@@ -187,7 +305,7 @@ def api_request_download(req: DownloadRequest, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     result = mgr.download_url_for(atype, job_id, req.filename)
-    return {"ok": True, **result}
+    return _expose_url(result, "download_url")
 
 
 @router.get("/api/artifacts", tags=["Artifacts"])
@@ -238,13 +356,22 @@ def api_list_all_artifacts(request: Request):
                        ORDER BY created_at DESC"""
                 ).fetchall()
             else:
-                active_team = _user_team_id(user) or _user_upload_slot(user)
+                # Team rows, the caller's personal slot, and anything they own.
+                # A standalone upload used to be stored as tenant ``user-{id}``
+                # while this query filtered on the team id, so the file the
+                # user had just uploaded never appeared.
+                user_slot = _user_upload_slot(user)
+                tenants = [t for t in (_user_team_id(user), user_slot) if t]
                 rows = conn.execute(
                     """SELECT artifact_id, object_key, logical_name, job_id, tenant_id, artifact_type, size_bytes, created_at
                        FROM storage.artifacts
-                       WHERE tenant_id = %s AND state = 'available'
+                       WHERE state = 'available'
+                         AND (
+                           tenant_id = ANY(%s)
+                           OR owner_user_id = %s
+                         )
                        ORDER BY created_at DESC""",
-                    (active_team,),
+                    (tenants, str(user.get("user_id") or "")),
                 ).fetchall()
 
         artifacts = []
@@ -256,7 +383,7 @@ def api_list_all_artifacts(request: Request):
                     "filename": r[2],
                     "job_id": r[3] or "",
                     "tenant_id": r[4],
-                    "artifact_type": r[5],
+                    "artifact_type": catalog_text(r[5]),
                     "size_bytes": r[6],
                     "created_at": r[7].timestamp() if r[7] else time.time(),
                 }

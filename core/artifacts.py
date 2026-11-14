@@ -148,6 +148,22 @@ def _provider_error_code(exc: Exception) -> str:
 _NOT_FOUND_CODES = frozenset({"404", "NoSuchKey", "NotFound"})
 
 
+def catalog_text(value: Any) -> str:
+    """Text stored in a catalog column.
+
+    ``str()`` on an ``Enum`` is ``Class.NAME``, so a model-weights upload was
+    saved and shown as ``ArtifactType.MODEL_WEIGHTS``. The column stores the
+    value, and rows already saved under the class name read back as that value.
+    """
+    if isinstance(value, Enum):
+        return str(value.value)
+    text = str(value or "")
+    prefix, _, rest = text.partition(".")
+    if prefix in {"ArtifactType", "StorageBackend", "StoragePolicy"} and rest:
+        return rest.lower()
+    return text
+
+
 class _FinalizeRejected(Exception):
     """Internal: a finalize verification failed.
 
@@ -473,6 +489,26 @@ class StorageClient:
             log.error("Failed to put %s: %s", key, e)
             raise
 
+    def read_object_bytes(self, key: str) -> tuple[bytes, str]:
+        """Read an object's bytes. Local files and remote objects share this."""
+        client = self._get_client()
+        if not client:
+            path = os.path.join(self._local_dir(), key.replace("/", os.sep))
+            if not os.path.isfile(path):
+                raise FileNotFoundError(key)
+            with open(path, "rb") as fh:
+                return fh.read(), "application/octet-stream"
+        try:
+            response = client.get_object(Bucket=self.config.bucket, Key=key)
+            body = response["Body"].read()
+            return body, response.get("ContentType") or "application/octet-stream"
+        except Exception as exc:
+            if _provider_error_code(exc) in _NOT_FOUND_CODES:
+                raise FileNotFoundError(key) from exc
+            raise StorageUnavailable(
+                f"GET {key} failed on {self.config.backend}: {exc}"
+            ) from exc
+
     def delete_object(self, key: str) -> bool:
         """Delete an artifact."""
         client = self._get_client()
@@ -610,6 +646,26 @@ class StorageClient:
 
 
 _CACHE_AUTO: Any = object()  # sentinel: auto-detect cache from env
+
+
+def _safe_artifact_filename(filename: str) -> str:
+    """Basename only. A dashboard filename is caller-controlled and becomes a path."""
+    name = os.path.basename((filename or "").replace("\\", "/")).replace("\x00", "").strip()
+    if not name or name in {".", ".."}:
+        return "artifact"
+    return name[:255]
+
+
+def _retain_span(retain_days: Optional[int]) -> tuple[bool, int]:
+    """(keep forever, day count). None keeps the historical 90-day clock."""
+    if retain_days is None:
+        return False, 90
+    days = int(retain_days)
+    if days < 0 or days > 3650:
+        raise ValueError("retain_days must be between 0 and 3650")
+    if days == 0:
+        return True, 0
+    return False, days
 
 
 class ArtifactManager:
@@ -853,21 +909,35 @@ class ArtifactManager:
         owner_user_id: Optional[str] = None,
         attempt_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        retain_days: Optional[int] = None,
     ) -> dict:
         """Request a presigned upload URL for an artifact.
 
         The caller (agent/worker) uses this URL to upload directly
         to storage without ever receiving storage credentials.
+
+        ``tenant_id`` overrides the catalog tenant. Dashboard uploads pass
+        the active team so the file shows up in that workspace; job uploads
+        leave it unset and keep the tenant stored on the job.
+        ``retain_days`` of 0 stores no expiry. None keeps the 90-day default.
         """
         import uuid
 
+        filename = _safe_artifact_filename(filename)
+        keep_forever, retain_for_days = _retain_span(retain_days)
+        # The catalog column is text. An unregistered Enum adapter turns a
+        # valid upload into a 500, and Enum.__str__ is the class name.
+        artifact_type = catalog_text(artifact_type)
+        explicit_tenant = (tenant_id or "").strip()
+
         # Resolve tenant_id and job_id for database
-        tenant_id = job_id or "system-tenant"
+        tenant_id = explicit_tenant or job_id or "system-tenant"
         db_job_id = None
         if job_id and not job_id.startswith("user-"):
             db_job_id = job_id
             # Try to resolve tenant_id from jobs table
-            if self._is_db_active():
+            if not explicit_tenant and self._is_db_active():
                 from control_plane.db import control_plane_transaction
 
                 try:
@@ -931,19 +1001,22 @@ class ArtifactManager:
                            primary_bucket, object_key, content_type,
                            retention_class, retain_until
                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'requested', %s, %s, %s, %s, 'standard',
-                                 clock_timestamp() + interval '90 days')""",
+                                 CASE WHEN %s THEN NULL
+                                      ELSE clock_timestamp() + make_interval(days => %s) END)""",
                     (
                         artifact_id,
                         tenant_id,
-                        owner_user_id,
+                        str(owner_user_id) if owner_user_id else None,
                         db_job_id,
                         uuid.UUID(attempt_id) if attempt_id else None,
                         artifact_type,
                         filename,
-                        provider,
+                        catalog_text(provider),
                         bucket,
                         key,
                         content_type,
+                        keep_forever,
+                        retain_for_days,
                     ),
                 )
                 # 2. Insert into storage.artifact_upload_sessions
@@ -969,7 +1042,82 @@ class ArtifactManager:
         result["storage_policy"] = storage_policy
         result["artifact_id"] = str(artifact_id)
         result["upload_session_id"] = str(upload_session_id)
+        result["filename"] = filename
+        result["max_upload_bytes"] = int(self.primary.config.max_upload_size_mb) * 1024 * 1024
         return result
+
+    def write_session_bytes(
+        self,
+        session_id: str,
+        data: bytes,
+        *,
+        principal_id: str,
+        content_type: str = "application/octet-stream",
+    ) -> dict:
+        """Store bytes for a session the caller owns.
+
+        The dashboard cannot PUT a ``file://`` presign, and a browser PUT to
+        object storage also depends on bucket CORS. This is the same-origin
+        write those two cases use. Finalize still HEADs the object.
+        """
+        import uuid
+
+        if not data:
+            raise ValueError("empty upload")
+        limit = int(self.primary.config.max_upload_size_mb) * 1024 * 1024
+        if len(data) > limit:
+            raise ValueError(
+                f"file exceeds the {self.primary.config.max_upload_size_mb} MB upload limit"
+            )
+        try:
+            sess_uuid = uuid.UUID(str(session_id))
+        except ValueError as exc:
+            raise ValueError(f"Invalid upload_session_id: {session_id}") from exc
+
+        from control_plane.db import control_plane_transaction
+
+        with control_plane_transaction() as conn:
+            sess = conn.execute(
+                """SELECT s.artifact_id, s.principal_id, s.completed_at,
+                          a.object_key, a.primary_provider, a.state
+                   FROM storage.artifact_upload_sessions s
+                   JOIN storage.artifacts a ON a.artifact_id = s.artifact_id
+                   WHERE s.upload_session_id = %s""",
+                (sess_uuid,),
+            ).fetchone()
+        if not sess:
+            raise ValueError(f"Upload session {session_id} not found")
+        artifact_id, stored_principal, completed_at, key, provider, state = sess
+        if completed_at or state not in {"requested", "uploading"}:
+            raise ValueError(f"Upload session {session_id} is not open")
+        caller = str(principal_id or "").strip()
+        if not caller or str(stored_principal or "").strip() != caller:
+            raise PermissionError("not your upload")
+
+        client = self.cache if catalog_text(provider) == StorageBackend.R2.value and self.cache else self.primary
+        client.put_object(key, data, content_type or "application/octet-stream")
+        with control_plane_transaction() as conn:
+            conn.execute(
+                """UPDATE storage.artifact_upload_sessions
+                   SET expected_size_bytes = %s
+                   WHERE upload_session_id = %s AND completed_at IS NULL""",
+                (len(data), sess_uuid),
+            )
+        return {
+            "artifact_id": str(artifact_id),
+            "upload_session_id": str(session_id),
+            "size_bytes": len(data),
+        }
+
+    def read_artifact_bytes(self, artifact_id: str, *, authorize: Callable) -> tuple[bytes, str, str]:
+        """Bytes of an available artifact, after ``authorize`` accepts it."""
+        located = self.request_download_by_id(artifact_id, authorize=authorize)
+        key = located["key"]
+        backend = str(located.get("backend") or "")
+        client = self.cache if backend == StorageBackend.R2 and self.cache else self.primary
+        data, content_type = client.read_object_bytes(key)
+        name = str(located.get("logical_name") or "artifact")
+        return data, content_type, name
 
     def finalize_upload(self, session_id: str, checksum: Optional[str] = None) -> dict:
         """Finalize an upload session: HEAD, verify, then mark available.

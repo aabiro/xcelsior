@@ -1356,6 +1356,7 @@ const en: Record<string, string> = {
   "dash.settings.mcp.agent_cursor": "Cursor",
   "dash.settings.mcp.agent_claude": "Claude",
   "dash.settings.mcp.agent_vscode": "VS Code",
+  "dash.settings.mcp.agent_github": "GitHub",
   "dash.settings.mcp.token_input_label": "Bearer token (optional)",
   "dash.settings.mcp.token_input_placeholder": "Paste your access token here (optional)",
   "dash.settings.mcp.token_input_hint": "Used for health checks and live config preview. Never commit tokens to source control.",

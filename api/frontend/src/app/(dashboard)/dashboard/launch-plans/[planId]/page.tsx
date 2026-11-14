@@ -100,8 +100,9 @@ export default function LaunchPlanApprovalPage() {
     setApproving(true);
     setError("");
     try {
-      // Re-read the plan instead of rendering the approve response: what this
-      // page draws must come from one shape, whatever that endpoint returns.
+      // Re-read the plan instead of rendering the approve response. That
+      // response used to be a short plan with no canonical_spec, and drawing
+      // it crashed the dashboard after a successful approval.
       await approveLaunchPlan(planId, data.plan.version);
       await refresh();
     } catch (cause) {
@@ -142,26 +143,27 @@ export default function LaunchPlanApprovalPage() {
   const isEviction = plan.action_type === "evict_host_workloads";
   // The declared graph, straight off the plan the user is approving — not off
   // the run. `canonical_spec` is the hash-bound copy, so what is rendered here
-  // is exactly what editing would invalidate.
-  const declaredStages = Array.isArray(
-    (plan.canonical_spec as { stages?: unknown }).stages,
-  )
-    ? ((plan.canonical_spec as { stages: Array<Record<string, unknown>> }).stages.map(
-        (stage, index) => ({
-          index,
-          name: String(stage.name ?? `stage ${index + 1}`),
-          action_type: String(stage.action_type ?? "—"),
-          on_failure: (stage.on_failure ?? "halt") as "halt" | "continue" | "retry",
-          max_attempts: Number(stage.max_attempts ?? 1),
-          estimate_micros: Number(stage.estimate_micros ?? 0),
-        }),
-      ))
+  // is exactly what editing would invalidate. A plan with no spec must still
+  // render: reading `.stages` on a missing spec crashed the dashboard.
+  const spec =
+    plan.canonical_spec && typeof plan.canonical_spec === "object"
+      ? (plan.canonical_spec as Record<string, unknown>)
+      : {};
+  const declaredStages = Array.isArray(spec.stages)
+    ? (spec.stages as Array<Record<string, unknown>>).map((stage, index) => ({
+        index,
+        name: String(stage.name ?? `stage ${index + 1}`),
+        action_type: String(stage.action_type ?? "—"),
+        on_failure: (stage.on_failure ?? "halt") as "halt" | "continue" | "retry",
+        max_attempts: Number(stage.max_attempts ?? 1),
+        estimate_micros: Number(stage.estimate_micros ?? 0),
+      }))
     : [];
   // Stage rows once a run exists, otherwise the declared graph with no state.
   // The declared graph is the fallback rather than an empty list, so a pipeline
   // that has not started still shows what it will do.
   const graphStages =
-    pipeline && pipeline.stages.length > 0 ? pipeline.stages : declaredStages;
+    pipeline?.stages && pipeline.stages.length > 0 ? pipeline.stages : declaredStages;
   const approvable = ["quoted", "awaiting_approval"].includes(plan.status);
   const approved = plan.status === "approved" || plan.status === "succeeded";
 
@@ -245,7 +247,7 @@ export default function LaunchPlanApprovalPage() {
               Canonical launch specification
             </div>
             <dl className="divide-y divide-border/50">
-              {Object.entries(plan.canonical_spec).map(([key, value]) => (
+              {Object.entries(spec).map(([key, value]) => (
                 <div key={key} className="grid grid-cols-[minmax(9rem,1fr)_2fr] gap-4 px-4 py-3 text-sm">
                   <dt className="text-text-muted">{key.replaceAll("_", " ")}</dt>
                   <dd className="break-words font-mono text-xs">{displayValue(value)}</dd>

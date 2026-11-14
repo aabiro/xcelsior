@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle, Eye, EyeOff, Mail } from "lucide-react";
@@ -123,8 +123,16 @@ function RegisterPageContent() {
     }
   }
 
+  useEffect(() => {
+    if (authLoading || !user) return;
+    router.replace(
+      user.profile_complete === false
+        ? `/onboarding/account?redirect=${encodeURIComponent(redirectTarget)}`
+        : redirectTarget,
+    );
+  }, [authLoading, redirectTarget, router, user]);
+
   if (!authLoading && user) {
-    router.replace(user.profile_complete === false ? `/onboarding/account?redirect=${encodeURIComponent(redirectTarget)}` : redirectTarget);
     return null;
   }
 
