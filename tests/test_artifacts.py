@@ -438,6 +438,42 @@ class TestRemoteBackendFailsClosed:
         assert client.list_objects("job_output/") == []
 
 
+class TestHalfConfiguredCache:
+    """A cache endpoint without a remote backend must not become local disk."""
+
+    def test_any_policy_uses_primary_when_cache_backend_is_missing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_CACHE_ENDPOINT_URL", "https://cache.example.invalid")
+        monkeypatch.delenv("XCELSIOR_CACHE_BACKEND", raising=False)
+        monkeypatch.delenv("XCELSIOR_CACHE_LOCAL_DIR", raising=False)
+        primary_dir = tmp_path / "primary"
+        primary = StorageClient(
+            StorageConfig(backend=StorageBackend.LOCAL, local_dir=str(primary_dir))
+        )
+        manager = ArtifactManager(primary=primary)
+        assert manager.cache is None
+        result = manager.request_upload(
+            artifact_type="model_weights",
+            job_id="user-1",
+            filename="weights.bin",
+            storage_policy=StoragePolicy.ANY,
+        )
+        assert str(primary_dir) in result["url"]
+        assert "/core/artifacts" not in result["url"]
+        assert result["backend"] == "local"
+
+    def test_remote_cache_backend_is_kept(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_CACHE_ENDPOINT_URL", "https://cache.example.invalid")
+        monkeypatch.setenv("XCELSIOR_CACHE_BACKEND", "r2")
+        monkeypatch.setenv("XCELSIOR_CACHE_BUCKET", "cache-bucket")
+        primary = StorageClient(
+            StorageConfig(backend=StorageBackend.LOCAL, local_dir=str(tmp_path / "primary"))
+        )
+        manager = ArtifactManager(primary=primary)
+        assert manager.cache is not None
+        assert manager.cache.config.backend == "r2"
+        assert manager.cache.config.bucket == "cache-bucket"
+
+
 class TestEndpointScheme:
     """Production held its B2 endpoint as a bare host, which boto3 refuses."""
 

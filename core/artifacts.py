@@ -567,7 +567,10 @@ class StorageClient:
 
     def _local_dir(self):
         d = self.config.local_dir or os.path.join(os.path.dirname(__file__), "artifacts")
-        os.makedirs(d, exist_ok=True)
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError as exc:
+            raise StorageUnavailable(f"local artifact directory is not writable: {d}") from exc
         return d
 
     def _local_upload_url(self, key):
@@ -646,6 +649,32 @@ class StorageClient:
 
 
 _CACHE_AUTO: Any = object()  # sentinel: auto-detect cache from env
+_REMOTE_CACHE_BACKENDS = frozenset(
+    {StorageBackend.B2.value, StorageBackend.R2.value, StorageBackend.S3.value}
+)
+
+
+def _cache_from_env() -> Optional[StorageClient]:
+    """Return a remote cache client, or None.
+
+    An endpoint URL alone is not a cache bucket. ``from_env`` defaults a
+    missing backend to local, and that client writes under the package
+    directory. The production image cannot create that directory, so a
+    dashboard upload with policy ``any`` failed before it reached the
+    primary bucket. A cache whose backend is not b2, r2, or s3 is ignored.
+    """
+    endpoint = os.environ.get("XCELSIOR_CACHE_ENDPOINT_URL", "").strip()
+    if not endpoint:
+        return None
+    cfg = StorageConfig.from_env("XCELSIOR_CACHE")
+    backend = catalog_text(cfg.backend)
+    if backend not in _REMOTE_CACHE_BACKENDS:
+        log.warning(
+            "ignoring artifact cache: endpoint is set but backend %r is not remote",
+            backend,
+        )
+        return None
+    return StorageClient(cfg)
 
 
 def _safe_artifact_filename(filename: str) -> str:
@@ -677,12 +706,9 @@ class ArtifactManager:
         cache: Optional[StorageClient] = _CACHE_AUTO,
     ):
         self.primary = primary or StorageClient(StorageConfig.from_env("XCELSIOR_STORAGE"))
-        # Cache backend (R2) — optional
+        # Cache backend (R2) — optional. A half-set endpoint is not a cache.
         if cache is _CACHE_AUTO:
-            cache_endpoint = os.environ.get("XCELSIOR_CACHE_ENDPOINT_URL", "")
-            self.cache = (
-                StorageClient(StorageConfig.from_env("XCELSIOR_CACHE")) if cache_endpoint else None
-            )
+            self.cache = _cache_from_env()
         else:
             self.cache = cache
 
