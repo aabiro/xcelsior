@@ -100,7 +100,10 @@ export default function LaunchPlanApprovalPage() {
     setApproving(true);
     setError("");
     try {
-      setData(await approveLaunchPlan(planId, data.plan.version));
+      // Re-read the plan instead of rendering the approve response: what this
+      // page draws must come from one shape, whatever that endpoint returns.
+      await approveLaunchPlan(planId, data.plan.version);
+      await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Approval failed.");
       await refresh();

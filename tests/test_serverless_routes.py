@@ -118,6 +118,16 @@ def test_serverless_endpoint_action_plan_is_approved_and_exactly_once(user_heade
         json={"confirm": True},
     )
     assert approval.status_code == 200, approval.text[:500]
+    # The approval screen renders straight from this response, so it must be
+    # the same plan shape the GET returns. Without `canonical_spec` and
+    # `action_type` a successful approval ended on the dashboard error page.
+    approved_plan = approval.json()["plan"]
+    fetched_plan = client.get(f"/api/v1/launch-plans/{plan_id}", headers=user_headers).json()[
+        "plan"
+    ]
+    assert approved_plan["status"] == "approved"
+    assert set(fetched_plan) <= set(approved_plan)
+    assert isinstance(approved_plan["canonical_spec"], dict) and approved_plan["action_type"]
 
     first = client.post(
         f"/api/v1/serverless/endpoint-plans/{plan_id}/execute",
