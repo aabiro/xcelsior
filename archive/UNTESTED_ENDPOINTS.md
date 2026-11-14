@@ -1,8 +1,8 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-11-13 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-11-14 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**13 of 572 routes (2%)** and **0 of 46 CLI commands** (0%) have no test signal.
+**13 of 574 routes (2%)** and **0 of 46 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -97,8 +97,10 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 
 ### `routes/artifacts.py` (0 untested)
 - [x] `GET /api/artifacts` — `api_list_all_artifacts`  ✓ test_artifacts_endpoints_coverage.py
+- [x] `GET /api/artifacts/content/{artifact_id}` — `api_artifact_content`
 - [x] `POST /api/artifacts/download` — `api_request_download`  ✓ test_artifacts_endpoints_coverage.py
 - [x] `POST /api/artifacts/finalize` — `api_finalize_upload`  ✓ test_untested_endpoints_coverage.py
+- [x] `PUT /api/artifacts/sessions/{session_id}/content` — `api_upload_session_content`
 - [x] `POST /api/artifacts/upload` — `api_request_upload`
 - [x] `GET /api/artifacts/{job_id}` — `api_list_artifacts`  ✓ test_artifacts_endpoints_coverage.py
 - [x] `GET /api/artifacts/{job_id}/expiry` — `api_artifact_expiry`  ✓ test_artifacts_endpoints_coverage.py
