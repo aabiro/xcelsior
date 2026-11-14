@@ -277,10 +277,9 @@ def api_approve_launch_plan(plan_id: str, request: Request, body: _ApproveIn | N
         is_human=_is_human(user),
         expected_version=body.expected_version if body else None,
     )
-    # Answer with the same plan shape the GET gives. The approval screen puts
-    # this response straight into the state it renders from; the short shape
-    # had no `canonical_spec` or `action_type`, so a successful approval ended
-    # on the dashboard's error page (2026-11-13).
+    # Same plan shape as the GET. The approval screen renders this response,
+    # and the short shape had no canonical_spec, so approval ended on the
+    # dashboard error page.
     full = get_owned_plan(plan_id, principal=principal)["plan"]
     return {**result, "plan": {**full, **result.get("plan", {})}}
 
