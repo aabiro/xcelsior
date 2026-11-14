@@ -2,6 +2,16 @@
   "name": "@xcelsior-gpu/wizard",
   "version": "0.1.9",
   "description": "Xcelsior interactive CLI wizard — Ink-based setup & onboarding",
+  "homepage": "https://docs.xcelsior.ca",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aabiro/xcelsior.git",
+    "directory": "api/wizard"
+  },
+  "bugs": {
+    "url": "https://github.com/aabiro/xcelsior/issues"
+  },
+  "keywords": ["xcelsior", "gpu", "compute", "cli", "onboarding", "ink"],
   "license": "BUSL-1.1",
   "type": "module",
   "bin": {

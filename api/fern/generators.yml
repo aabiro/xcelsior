@@ -25,5 +25,13 @@ groups:
         config:
           bundle: true
           packageJson:
+            homepage: https://docs.xcelsior.ca
+            repository:
+              type: git
+              url: git+https://github.com/aabiro/xcelsior.git
+              directory: api/frontend/sdk
+            bugs:
+              url: https://github.com/aabiro/xcelsior/issues
+            keywords: [xcelsior, gpu, compute, api, typescript, sdk]
             publishConfig:
               access: public

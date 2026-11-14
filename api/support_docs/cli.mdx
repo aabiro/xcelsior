@@ -52,16 +52,26 @@ npm install @xcelsior-gpu/sdk
 ```ts
 import { XcelsiorApiClient } from "@xcelsior-gpu/sdk";
 
-const client = new XcelsiorApiClient({ token: process.env.XCELSIOR_ACCESS_TOKEN });
+const token = process.env.XCELSIOR_ACCESS_TOKEN || process.env.XCELSIOR_API_TOKEN;
+const client = new XcelsiorApiClient({ token });
 
-const gpus = await client.gpu.listAvailable();
-const quote = await client.billing.estimateCost();
-const run = await client.instances.create({ name: "training-run" });
+const listings = await client.marketplace.list();
+const quote = await client.billing.estimateCost({
+  gpu_model: "RTX 4090",
+  duration_hours: 1,
+  spot: true,
+});
+const run = await client.instances.create({
+  name: "training-run",
+  gpu_model: "RTX 4090",
+  num_gpus: 1,
+  pricing_mode: "spot",
+});
 const logs = await client.instances.getLogs({ job_id: "JOB_ID" });
 await client.instances.cancel({ job_id: "JOB_ID" });
 ```
 
-The client is organised by resource — `instances`, `marketplace`, `billing`, `gpu`, `serverless`, `volumes`, `teams`, `sshKeys` — mirroring the REST API. Authenticate with an API credential from **Dashboard → Settings**. See the TypeScript SDK and API Overview pages for the full surface.
+The published client is organised by resource — `artifacts`, `auth`, `billing`, `inference`, `instances`, `marketplace`, `marketplaceV2`, `serverless`, and `volumes`. Filtered marketplace search is `marketplace.searchGet`. Spot prices are `marketplaceV2.getSpotPrices`. Authenticate with an `xcel_ai_...` key from **Dashboard → MCP** or **Settings → API & SSH**. Quick Connect exports it as `XCELSIOR_ACCESS_TOKEN`; the SDK README uses `XCELSIOR_API_TOKEN` for the same value. See the TypeScript SDK page for the full surface.
 
 ## Driving Xcelsior from an AI agent
 

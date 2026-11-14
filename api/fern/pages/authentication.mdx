@@ -102,10 +102,13 @@ When using the TypeScript SDK:
 ```typescript
 import { XcelsiorApiClient, XcelsiorApiEnvironment } from "@xcelsior-gpu/sdk";
 
+const token =
+  process.env.XCELSIOR_ACCESS_TOKEN ||
+  process.env.XCELSIOR_API_TOKEN ||
+  process.env.XCELSIOR_BEARER_TOKEN;
+
 const client = new XcelsiorApiClient({
+  token,
   environment: XcelsiorApiEnvironment.Production,
-  headers: {
-    Authorization: `Bearer ${process.env.XCELSIOR_BEARER_TOKEN}`,
-  },
 });
 ```

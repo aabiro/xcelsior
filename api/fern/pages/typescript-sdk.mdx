@@ -23,25 +23,24 @@ pnpm add @xcelsior-gpu/sdk
 ```typescript
 import { XcelsiorApiClient, XcelsiorApiEnvironment } from "@xcelsior-gpu/sdk";
 
+const token =
+  process.env.XCELSIOR_ACCESS_TOKEN ||
+  process.env.XCELSIOR_API_TOKEN ||
+  process.env.XCELSIOR_BEARER_TOKEN;
+
 const client = new XcelsiorApiClient({
+  token,
   environment: XcelsiorApiEnvironment.Production,
-  headers: {
-    Authorization: `Bearer ${process.env.XCELSIOR_BEARER_TOKEN}`,
-  },
 });
 
-// Submit an instance
 const instance = await client.instances.create({
   name: "llama-inference",
-  vramNeededGb: 24,
-  priority: 5,
-  tier: "dedicated",
+  gpu_model: "RTX 4090",
+  num_gpus: 1,
+  pricing_mode: "on_demand",
 });
-console.log(`Instance ${instance.jobId} created`);
 
-// Check wallet balance
-const wallet = await client.billing.getWallet("customer-123");
-console.log(`Balance: $${wallet.balance} CAD`);
+const wallet = await client.billing.getWallet({ customer_id: "customer-123" });
 ```
 
 ## Configuration
@@ -50,17 +49,10 @@ console.log(`Balance: $${wallet.balance} CAD`);
 import { XcelsiorApiClient, XcelsiorApiEnvironment } from "@xcelsior-gpu/sdk";
 
 const client = new XcelsiorApiClient({
-  // Environment (defaults to production)
+  token: process.env.XCELSIOR_ACCESS_TOKEN,
   environment: XcelsiorApiEnvironment.Production, // "https://xcelsior.ca"
-
-  // Authentication via headers
-  headers: {
-    Authorization: "Bearer your-api-key",
-  },
-
-  // Optional settings
-  timeoutInSeconds: 60,  // request timeout
-  maxRetries: 2,         // retry count (default: 2)
+  timeoutInSeconds: 60,
+  maxRetries: 2,
 });
 ```
 
@@ -68,8 +60,9 @@ const client = new XcelsiorApiClient({
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
+| `token` | `string` | No | Bearer token. Sends `Authorization: Bearer`. Quick Connect uses `XCELSIOR_ACCESS_TOKEN`; the SDK README uses `XCELSIOR_API_TOKEN` for the same value. |
 | `environment` | `string` | No | API base URL. Defaults to `https://xcelsior.ca` |
-| `headers` | `Record<string, string>` | No | Additional headers (use for `Authorization`) |
+| `headers` | `Record<string, string>` | No | Additional headers |
 | `timeoutInSeconds` | `number` | No | Request timeout in seconds |
 | `maxRetries` | `number` | No | Number of retries on failure (default: 2) |
 | `fetch` | `typeof fetch` | No | Custom fetch implementation |
@@ -79,113 +72,104 @@ const client = new XcelsiorApiClient({
 ### Instance Management
 
 ```typescript
-// Submit an instance (GPU job)
 const instance = await client.instances.create({
   name: "training-run",
-  vramNeededGb: 48,
-  priority: 8,
+  gpu_model: "RTX 4090",
+  num_gpus: 1,
+  vram_needed_gb: 48,
+  pricing_mode: "spot",
 });
 
-// Check status
-const status = await client.instances.get("job-id-123");
-
-// List all instances
+const status = await client.instances.get({ job_id: "job-id-123" });
 const instances = await client.instances.list();
-
-// Cancel an instance
-await client.instances.cancel("job-id-123");
-
-// Get logs
-const logs = await client.instances.getLogs("job-id-123");
+await client.instances.cancel({ job_id: "job-id-123" });
+const logs = await client.instances.getLogs({ job_id: "job-id-123" });
 ```
 
 ### Billing
 
 ```typescript
-// Check wallet balance
-const wallet = await client.billing.getWallet("customer-123");
-console.log(`Balance: $${wallet.balance} CAD`);
+const wallet = await client.billing.getWallet({ customer_id: "customer-123" });
 
-// Deposit credits
-await client.billing.deposit("customer-123", {
-  amount: 100.0,
-  currency: "CAD",
+await client.billing.deposit({
+  customer_id: "customer-123",
+  amount_cad: 100,
 });
 
-// Get invoice
-const invoice = await client.billing.getInvoice("customer-123");
+const invoice = await client.billing.getInvoice({ customer_id: "customer-123" });
+const usage = await client.billing.getUsage({ customer_id: "customer-123" });
 
-// Get usage
-const usage = await client.billing.getUsage("customer-123");
-
-// Estimate cost
 const estimate = await client.billing.estimateCost({
-  gpuModel: "RTX 4090",
-  hours: 24,
+  gpu_model: "RTX 4090",
+  duration_hours: 24,
+  spot: true,
 });
+
+const reference = await client.billing.referencePricing();
 ```
 
 ### Marketplace
 
 ```typescript
-// Browse available GPUs
 const listings = await client.marketplace.list();
 
-// Search marketplace
-const results = await client.marketplace.search({ query: "RTX 4090" });
+const results = await client.marketplace.searchGet({
+  gpu_model: "RTX 4090",
+  min_vram: 24,
+});
 
-// Get marketplace stats
 const stats = await client.marketplace.getStats();
+const spot = await client.marketplaceV2.getSpotPrices();
 
-// Create a reservation for capacity
 const reservation = await client.marketplaceV2.createReservation({
-  gpuModel: "RTX 4090",
-  count: 1,
-  hours: 4,
+  gpu_model: "RTX 4090",
+  gpu_count: 1,
+  period_months: 1,
 });
 ```
 
 ### Volumes
 
 ```typescript
-// Create a volume
-const volume = await client.volumes.create({
+await client.volumes.create({
   name: "training-data",
-  sizeGb: 100,
+  size_gb: 100,
 });
 
-// Attach to an instance
-await client.volumes.attach(volume.volumeId, { jobId: "job-id-123" });
+await client.volumes.attach({
+  volume_id: "VOLUME_ID",
+  instance_id: "JOB_ID",
+});
 
-// Detach
-await client.volumes.detach(volume.volumeId);
-
-// List volumes
+await client.volumes.detach({ volume_id: "VOLUME_ID" });
 const volumes = await client.volumes.list();
 ```
 
 ### Inference
 
 ```typescript
-// Submit inference job
 const job = await client.inference.submit({
-  model: "llama-3-70b",
-  prompt: "Explain GPU computing",
+  model: "distilbert-base-uncased-finetuned-sst-2-english",
+  inputs: "Explain GPU computing",
 });
 
-// List available models
 const models = await client.inference.listModels();
 
-// Serverless, create endpoint, run job, OpenAI chat
-const { endpoint } = await client.serverless.createEndpoint({
+await client.serverless.createEndpoint({
   name: "my-llama",
   mode: "preset",
-  modelName: "meta-llama/Llama-3.1-8B-Instruct",
-  minWorkers: 0,
-  maxWorkers: 2,
+  model_name: "meta-llama/Llama-3.1-8B-Instruct",
+  min_workers: 0,
+  max_workers: 2,
 });
-const job = await client.serverless.runJob(endpoint.endpointId, { input: { prompt: "Hi" } });
-const chat = await client.serverless.chatCompletions(endpoint.endpointId, {
+
+const serverlessJob = await client.serverless.run({
+  endpoint_id: "ENDPOINT_ID",
+  body: { input: { prompt: "Hi" } },
+});
+
+const chat = await client.serverless.chatCompletions({
+  endpoint_id: "ENDPOINT_ID",
   model: "meta-llama/Llama-3.1-8B-Instruct",
   messages: [{ role: "user", content: "Hello" }],
 });
@@ -213,7 +197,7 @@ The SDK is organized around the main product areas exposed in Xcelsior's public 
 import { XcelsiorApiClient, XcelsiorApiError, XcelsiorApiTimeoutError } from "@xcelsior-gpu/sdk";
 
 try {
-  const instance = await client.instances.create({ name: "my-job", vramNeededGb: 24 });
+  const instance = await client.instances.create({ name: "my-job", vram_needed_gb: 24 });
 } catch (error) {
   if (error instanceof XcelsiorApiTimeoutError) {
     console.error("Request timed out");
