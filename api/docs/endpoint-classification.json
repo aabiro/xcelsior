@@ -1793,7 +1793,7 @@
   },
   "POST /api/locations/search": {
     "class": "internal",
-    "notes": "authenticated first-party profile address entry; sends typed text and chosen country to Photon (OpenStreetMap search), never a general agent lookup"
+    "notes": "authenticated first-party profile address entry; sends typed text, page language and at most one country to HERE Autocomplete, or to Photon (OpenStreetMap search) when HERE fails or finds nothing; never a general agent lookup"
   },
   "POST /api/mcp/permission-requests": {
     "class": "covered",

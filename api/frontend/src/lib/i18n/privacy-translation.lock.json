@@ -1,7 +1,7 @@
 {
   "_comment": "Digests of the ENGLISH privacy strings as of the last time French was reconciled to them. A mismatch means an English sentence changed and French did not follow. Update fr-public.ts and fr.ts, then rerun with --write.",
   "english_digests": {
-    "privacy.effective": "d954b70f369db6ce",
+    "privacy.effective": "3b7593819e92f50d",
     "privacy.meta_desc": "5dfc25c9e2dfc445",
     "privacy.s10_p1": "240e1a84c4ba9107",
     "privacy.s10_p2": "d26cb7ef539ae071",
@@ -49,12 +49,15 @@
     "privacy.s7_title": "6c5a4be839b4874b",
     "privacy.s8_contact": "413f578aa802fcba",
     "privacy.s8_contact_suffix": "109068cb4309ece6",
+    "privacy.s8_deactivate": "5e31b73d3d36bee7",
+    "privacy.s8_delete_data": "0ca4da9a32b27f70",
     "privacy.s8_intro": "166101b280e6a2a8",
     "privacy.s8_p1": "18c30b660b42d189",
     "privacy.s8_p2": "3eff98802ac4493e",
     "privacy.s8_p3": "6b99e97bc4674fa0",
     "privacy.s8_p4": "109ef3bede6c6c68",
     "privacy.s8_p5": "bedf10d96caa7813",
+    "privacy.s8_self_serve": "85fbc66bc3d3f5af",
     "privacy.s8_title": "670e74ad530835e5",
     "privacy.s9_p1": "c85f80e794dcba3e",
     "privacy.s9_p2": "4a5499e2790074b0",
@@ -63,7 +66,7 @@
     "privacy.s9_p5": "9bfe6aaa3c3a1aa8",
     "privacy.s9_p6": "02053dd06f1bfaae",
     "privacy.s9_p7": "3c3ca909c96d5246",
-    "privacy.s9_p8": "628293bc091944a5",
+    "privacy.s9_p8": "222935919b105c94",
     "privacy.s9_title": "7a84690fdb2f7cb7",
     "privacy.title": "506ff394621596dd"
   }

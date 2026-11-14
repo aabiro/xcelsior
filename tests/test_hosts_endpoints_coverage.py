@@ -350,6 +350,9 @@ def _fresh_photon(monkeypatch):
 
     monkeypatch.setattr(hosts, "_PHOTON_CACHE", {})
     monkeypatch.setattr(hosts, "_photon_paused_until", 0.0)
+    monkeypatch.setattr(hosts, "_HERE_CACHE", {})
+    monkeypatch.setattr(hosts, "_here_paused_until", 0.0)
+    monkeypatch.delenv("XCELSIOR_HERE_API_KEY", raising=False)
 
 
 def _photon(monkeypatch, features, calls=None, status=200, by_country=None):
@@ -495,6 +498,173 @@ def test_regions_come_from_the_name_the_country_uses(user_headers, monkeypatch):
     assert found["ES"]["address"]["province"] == "M"           # the province Spanish post uses
     assert found["GB"]["address"]["province"] == "ENG"
     assert found["GB"]["description"] == "London, SW1A 2AA, United Kingdom"  # the UK post names no region
+
+
+def test_a_street_segment_zip_names_the_region_but_is_not_the_houses(user_headers, monkeypatch):
+    """The H in H3B says Quebec. It does not say this building's postal code."""
+    _photon(monkeypatch, [
+        {"type": "Feature", "properties": {"type": "street", "name": "Rue Sainte-Catherine Ouest", "city": "Montréal", "postcode": "H3B 5L1", "countrycode": "CA"}},
+    ])
+    suggestion = _search(user_headers, {"text": "1000 Rue Sainte-Catherine"}).json()["suggestions"][0]
+    assert suggestion["address"]["address_line1"] == "1000 Rue Sainte-Catherine Ouest"
+    assert suggestion["address"]["province"] == "QC"
+    assert suggestion["address"]["postal_code"] == ""
+    assert suggestion["description"] == "Montréal, QC, Canada"
+
+
+def test_the_houses_zip_is_kept_when_the_street_segment_disagrees(user_headers, monkeypatch):
+    _photon(monkeypatch, [
+        {"type": "Feature", "properties": {"type": "street", "name": "Dufferin Avenue", "city": "London", "state": "Ontario", "postcode": "N6A 0A1", "countrycode": "CA"}},
+        _feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="N6B 1Z2", countrycode="CA"),
+    ])
+    suggestions = _search(user_headers, {"country": "CA", "text": "300 Dufferin"}).json()["suggestions"]
+    assert [(s["address"]["address_line1"], s["address"]["postal_code"]) for s in suggestions] == [
+        ("300 Dufferin Avenue", "N6B 1Z2"),
+    ]
+
+
+def test_two_zips_for_one_door_are_not_guessed(user_headers, monkeypatch):
+    """A shop inside a building often carries a neighbour's ZIP. Clicking either used to fill it."""
+    _photon(monkeypatch, [
+        _feature(housenumber="1600", street="Pennsylvania Avenue Northwest", city="Washington", state="DC", postcode="20500", countrycode="US"),
+        _feature(housenumber="1600", street="Pennsylvania Avenue Northwest", city="Washington", state="DC", postcode="20006", countrycode="US"),
+    ])
+    suggestions = _search(user_headers, {"country": "US", "text": "1600 Pennsylvania"}).json()["suggestions"]
+    assert len(suggestions) == 1
+    address = suggestions[0]["address"]
+    assert address["address_line1"] == "1600 Pennsylvania Avenue Northwest"
+    assert address["postal_code"] == ""
+    assert address["province"] == "DC"
+    assert "20500" not in suggestions[0]["description"]
+    assert "20006" not in suggestions[0]["description"]
+
+
+def _here_item(**address):
+    return {"address": address, "resultType": "houseNumber"}
+
+
+def test_here_autocomplete_fills_the_postal_code_from_one_request(user_headers, monkeypatch):
+    """HERE Autocomplete already carries the house's postal code. 30,000 of these are free."""
+    import httpx
+
+    calls = []
+
+    def provider(url, **kwargs):
+        calls.append((url, kwargs))
+        return httpx.Response(
+            200,
+            json={"items": [_here_item(
+                countryCode="CAN", state="Ontario", stateCode="ON", city="London",
+                street="Dufferin Avenue", houseNumber="300", postalCode="N6B 2P8",
+            )]},
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setenv("XCELSIOR_HERE_API_KEY", "test-here-key")
+    monkeypatch.setattr(httpx, "get", provider)
+    response = _search(user_headers, {"country": "CA", "text": "300 Dufferin", "lang": "fr"})
+    assert response.status_code == 200, response.text
+    (suggestion,) = response.json()["suggestions"]
+    assert suggestion["id"].startswith("here-")
+    assert suggestion["address"] == {
+        "address_line1": "300 Dufferin Avenue", "address_line2": "", "city": "London",
+        "postal_code": "N6B 2P8", "country": "CA", "province": "ON",
+    }
+    assert suggestion["description"] == "London, ON, N6B 2P8, Canada"
+    (url, kwargs), = calls
+    assert url == "https://autocomplete.search.hereapi.com/v1/autocomplete"
+    params = kwargs["params"]
+    assert ("q", "300 Dufferin") in params
+    assert ("types", "address") in params
+    assert ("in", "countryCode:CAN") in params
+    assert ("lang", "fr") in params
+    assert ("apiKey", "test-here-key") in params
+    assert set(kwargs["headers"]) == {"User-Agent"}
+
+
+def test_a_rejected_here_key_uses_photon_until_the_pause_ends(user_headers, monkeypatch):
+    import httpx
+
+    calls = []
+
+    def provider(url, **kwargs):
+        calls.append(url)
+        if "hereapi.com" in url:
+            return httpx.Response(401, json={"error": "Unauthorized"}, request=httpx.Request("GET", url))
+        return httpx.Response(
+            200,
+            json={"type": "FeatureCollection", "features": [
+                _feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="N6B 1Z2", countrycode="CA"),
+            ]},
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setenv("XCELSIOR_HERE_API_KEY", "maven-repo-token")
+    monkeypatch.setattr(httpx, "get", provider)
+    first = _search(user_headers, {"country": "CA", "text": "300 Dufferin"})
+    second = _search(user_headers, {"country": "CA", "text": "301 Dufferin"})
+    assert first.status_code == 200 and first.json()["suggestions"][0]["id"].startswith("photon-")
+    assert second.status_code == 200
+    assert [url for url in calls if "hereapi.com" in url] == ["https://autocomplete.search.hereapi.com/v1/autocomplete"]
+
+
+@pytest.mark.parametrize("failure", [429, 503, "timeout"])
+def test_a_spent_quota_or_here_outage_falls_back_to_photon(user_headers, monkeypatch, failure):
+    """Past the free 30,000 a month HERE answers 429. The form must keep working."""
+    import httpx
+
+    def provider(url, **kwargs):
+        if "hereapi.com" in url:
+            if failure == "timeout":
+                raise httpx.ReadTimeout("slow", request=httpx.Request("GET", url))
+            return httpx.Response(failure, json={"error": "nope"}, request=httpx.Request("GET", url))
+        return httpx.Response(
+            200,
+            json={"type": "FeatureCollection", "features": [
+                _feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="N6B 1Z2", countrycode="CA"),
+            ]},
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setenv("XCELSIOR_HERE_API_KEY", "test-here-key")
+    monkeypatch.setattr(httpx, "get", provider)
+    response = _search(user_headers, {"country": "CA", "text": "300 Dufferin"})
+    assert response.status_code == 200, response.text
+    assert response.json()["suggestions"][0]["id"].startswith("photon-")
+
+
+def test_photon_is_asked_when_here_finds_nothing(user_headers, monkeypatch):
+    import httpx
+
+    calls = []
+
+    def provider(url, **kwargs):
+        calls.append(url)
+        if "hereapi.com" in url:
+            return httpx.Response(200, json={"items": []}, request=httpx.Request("GET", url))
+        return httpx.Response(
+            200,
+            json={"type": "FeatureCollection", "features": [
+                _feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="N6B 1Z2", countrycode="CA"),
+            ]},
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setenv("XCELSIOR_HERE_API_KEY", "test-here-key")
+    monkeypatch.setattr(httpx, "get", provider)
+    suggestions = _search(user_headers, {"country": "CA", "text": "300 Dufferin"}).json()["suggestions"]
+    assert [s["id"] for s in suggestions] == ["photon-0"]
+    assert ["hereapi.com" in url for url in calls] == [True, False]
+
+
+def test_a_postcode_that_is_not_one_is_left_blank(user_headers, monkeypatch):
+    _photon(monkeypatch, [
+        _feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="12345", countrycode="CA"),
+    ])
+    suggestion = _search(user_headers, {"country": "CA", "text": "300 Dufferin"}).json()["suggestions"][0]
+    assert suggestion["address"]["postal_code"] == ""
+    assert suggestion["address"]["province"] == "ON"
+    assert "12345" not in suggestion["description"]
 
 
 def test_a_typed_house_number_is_kept_on_a_street_osm_knows_without_it(user_headers, monkeypatch):
@@ -734,6 +904,9 @@ def test_a_number_osm_has_never_heard_of_still_finds_the_typed_street(user_heade
     assert [(s["address"]["address_line1"], s["address"]["city"]) for s in found] == [
         ("Via del Corso 300", "Roma"), ("Vía Corso Oriente 300", "San Pedro Garza García")]
     assert found[0]["address"]["province"] == "RM"  # Rome's province, from the city
+    # 00187 is the street segment's code, not house 300's. Don't fill it in.
+    assert found[0]["address"]["postal_code"] == ""
+    assert "00187" not in found[0]["description"]
     assert calls == ["Via del Corso 300", "Via del Corso"]
     # A full match needs no second request.
     calls.clear()

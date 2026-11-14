@@ -235,9 +235,13 @@ def test_a_postal_code_from_the_next_province_warns_but_never_blocks():
     ("NL", "1234ab", "1234 AB"), ("JP", "1008994", "100-8994"), ("CA", "12345", "12345"), ("CA", "", ""),
 ])
 def test_postal_codes_are_stored_the_way_each_country_writes_them(country, typed, stored):
-    from host_metadata import profile_address_values, standard_postal_code
+    from host_metadata import accepted_postal_code, profile_address_values, standard_postal_code
 
     assert standard_postal_code(country, typed) == stored
+    if stored and stored != "12345":
+        assert accepted_postal_code(country, typed) == stored
+    else:
+        assert accepted_postal_code(country, typed) == ""
     if country == "CA" and typed.startswith("n"):
         cleaned, _ = profile_address_values({"country":"CA", "province":"ON", "address_line1":"300 Dufferin Ave", "city":"London", "postal_code":typed})
         assert cleaned["postal_code"] == stored

@@ -1,5 +1,6 @@
 """Routes: hosts."""
 
+import logging
 import os
 import re
 import time
@@ -117,6 +118,17 @@ _PHOTON_CACHE_SECONDS = 600.0
 _PHOTON_CACHE_SIZE = 2048
 _PHOTON_PAUSE_SECONDS = 60.0
 _photon_paused_until = 0.0
+# HERE Autocomplete includes the postal code in the suggestion. When HERE fails
+# (a rejected key - the Maven repository token is not a REST key - the monthly
+# quota spent, an outage) it is left alone for a minute, and search falls back
+# to Photon instead of failing the form.
+_HERE_CACHE: dict[tuple[tuple[str, str], ...], tuple[float, list[dict]]] = {}
+_here_paused_until = 0.0
+_HERE_AUTOCOMPLETE = "https://autocomplete.search.hereapi.com/v1/autocomplete"
+
+
+class _HereUnavailable(Exception):
+    """HERE gave no usable answer: a refused key, a spent quota, a timeout or an outage."""
 
 
 def _photon_features(params: list[tuple[str, str]]) -> list[dict]:
@@ -216,10 +228,12 @@ def _photon_address(
 
     ``typed_number`` is the house number in ``typed``, the search text. When
     OpenStreetMap knows the typed street but not that number, the street is
-    offered with it, as Google Maps does; the confirm step shows the address
+    offered with it, as Google Maps does. The street's postcode stays off that
+    house: it belongs to one segment of the road, and copying it is how a
+    suggestion arrives with the wrong ZIP. The confirm step shows the address
     back before it is saved.
     """
-    from host_metadata import _fold, resolve_subdivision, standard_postal_code
+    from host_metadata import _fold, accepted_postal_code, resolve_subdivision, standard_postal_code
 
     def text(key: str) -> str:
         value = properties.get(key)
@@ -271,7 +285,10 @@ def _photon_address(
         line1 = f"{street} {number}"
     else:
         line1 = f"{number} {street}"
-    postal = standard_postal_code(country, text("postcode"))
+    # The segment code can still name the region (Montreal's H is Quebec) even
+    # when it must not be offered as this building's ZIP.
+    formatted = standard_postal_code(country, text("postcode"))
+    postal = "" if kind == "street" else accepted_postal_code(country, formatted)
     return {
         "address_line1": line1,
         "address_line2": "",
@@ -280,7 +297,7 @@ def _photon_address(
         "country": country,
         # Only an exact match fills the region; otherwise the person picks it.
         "province": resolve_subdivision(
-            country, state=text("state"), county=text("county"), city=place_city, postal_code=postal
+            country, state=text("state"), county=text("county"), city=place_city, postal_code=formatted
         ),
     }
 
@@ -294,16 +311,150 @@ def _region_in_postal_format(country: str) -> bool:
     return "%S" in get_validation_rules({"country_code": country}).address_format
 
 
+def _here_api_key() -> str:
+    return (os.environ.get("XCELSIOR_HERE_API_KEY") or "").strip()
+
+
+def _here_items(params: list[tuple[str, str]]) -> list[dict]:
+    """One HERE Autocomplete call. The key stays on this server and out of the cache.
+
+    Autocomplete is the free tier with 30,000 transactions a month, and each
+    item already carries the house number, street, city, region and postal code.
+    """
+    import httpx
+
+    cache_key = tuple(params)
+    now = time.monotonic()
+    cached = _HERE_CACHE.get(cache_key)
+    if cached is not None and now - cached[0] < _PHOTON_CACHE_SECONDS:
+        return cached[1]
+    try:
+        response = httpx.get(
+            _HERE_AUTOCOMPLETE,
+            params=[*params, ("apiKey", _here_api_key())],
+            headers={"User-Agent": "Xcelsior address search (+https://xcelsior.ca)"},
+            timeout=6.0,
+            follow_redirects=False,
+        )
+    except httpx.HTTPError as exc:
+        raise _HereUnavailable(type(exc).__name__) from None
+    try:
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        raise _HereUnavailable(f"HTTP {response.status_code}") from None
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        raise _HereUnavailable("no items in the answer")
+    items = [item for item in items if isinstance(item, dict) and isinstance(item.get("address"), dict)]
+    if len(_HERE_CACHE) >= _PHOTON_CACHE_SIZE:
+        _HERE_CACHE.pop(next(iter(_HERE_CACHE)))
+    _HERE_CACHE[cache_key] = (now, items)
+    return items
+
+
+def _here_address(item: dict) -> dict[str, str] | None:
+    """One HERE suggestion as the profile's address fields.
+
+    The postal code is HERE's, from its own address file, so it is filled in.
+    A street-segment code from OpenStreetMap is a different problem and is not
+    copied onto a house.
+    """
+    import pycountry
+    from host_metadata import accepted_postal_code, resolve_subdivision, standard_postal_code
+
+    address = item["address"]
+
+    def text(key: str) -> str:
+        value = address.get(key)
+        return " ".join(str(value).split()) if isinstance(value, (str, int)) else ""
+
+    country3 = text("countryCode").upper()
+    found = pycountry.countries.get(alpha_3=country3) if len(country3) == 3 else None
+    country = found.alpha_2 if found is not None else ""
+    if not country:
+        return None
+    street, number = text("street"), text("houseNumber")
+    city = text("city") or text("district")
+    if not street and not number:
+        return None
+    if not street:
+        line1 = f"{city} {number}".strip()
+    elif not number:
+        line1 = street
+    elif country in _NUMBER_AFTER_STREET or _non_latin(street):
+        line1 = f"{street} {number}"
+    else:
+        line1 = f"{number} {street}"
+    formatted = standard_postal_code(country, text("postalCode"))
+    state_code = text("stateCode")
+    if state_code.upper().startswith(f"{country}-"):
+        state_code = state_code.split("-", 1)[1]
+    return {
+        "address_line1": line1,
+        "address_line2": text("building"),
+        "city": city,
+        "postal_code": accepted_postal_code(country, formatted),
+        "country": country,
+        "province": resolve_subdivision(
+            country,
+            state=text("state") or state_code,
+            county=text("county"),
+            city=text("city"),
+            postal_code=formatted,
+        ),
+    }
+
+
+def _here_suggestions(text: str, *, country: str, lang: str, visitor_country: str) -> list[dict]:
+    """HERE Autocomplete, ranked like the Photon search: nearby first, then the world."""
+    lang = lang.strip().lower()[:2]
+    base = [("q", text), ("limit", "8"), ("types", "address")]
+    if len(lang) == 2 and lang.isalpha():
+        base.append(("lang", lang))
+    near = country or visitor_country
+    batches: list[list[dict]] = []
+    if near:
+        import pycountry
+
+        found = pycountry.countries.get(alpha_2=near)
+        if found is not None:
+            batches.append(_here_items([*base, ("in", f"countryCode:{found.alpha_3}")]))
+    if not country and (not batches or len(batches[0]) < 4):
+        try:
+            batches.append(_here_items(base))
+        except _HereUnavailable:
+            if not batches:
+                raise
+    addresses: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for batch in batches:
+        for item in batch:
+            address = _here_address(item)
+            if address is None or (country and address["country"] != country):
+                continue
+            door = (address["address_line1"], address["city"], address["country"])
+            if door in seen:
+                continue
+            seen.add(door)
+            addresses.append(address)
+            if len(addresses) == 8:
+                break
+        if len(addresses) == 8:
+            break
+    return _suggestion_rows(addresses, id_prefix="here")
+
+
 @router.post("/api/locations/search", tags=["Account"])
 def api_address_search(body: AddressSearchRequest, request: Request):
     """Suggest addresses while someone types, the way Google Maps does.
 
-    Results near the visitor come first without hiding the rest of the world:
-    with no country chosen, one search is limited to the visitor's country and
-    one is worldwide, and the two are merged. Names come in the page's language
-    where OpenStreetMap has them. Each suggestion carries its whole address, so
-    picking one costs nothing more. The data is OpenStreetMap's, which is why
-    the form shows the result back before it is saved.
+    With XCELSIOR_HERE_API_KEY set to a HERE REST key, suggestions come from
+    HERE Autocomplete and include that service's postal code. The Maven
+    repository token is not that key. When HERE fails or finds nothing, and
+    when no key is set, results come from Photon (OpenStreetMap). Each
+    suggestion carries its whole address, so picking one costs nothing more.
+    The form shows the result back before it is saved.
     """
     from routes._deps import _require_user_grant
 
@@ -321,11 +472,87 @@ def api_address_search(body: AddressSearchRequest, request: Request):
     return {"ok": True, "suggestions": suggestions}
 
 
-def _address_suggestions(text: str, *, country: str, lang: str, visitor_country: str) -> list[dict]:
-    """Search, parse and rank: the part of address search that needs no request."""
+def _suggestion_rows(addresses: list[dict[str, str]], *, id_prefix: str) -> list[dict]:
+    """The dropdown rows: the street on the first line, the rest beside it."""
     import pycountry
     from host_metadata import _fold, region_display
 
+    suggestions = []
+    for index, address in enumerate(addresses[:8]):
+        place = pycountry.countries.get(alpha_2=address["country"])
+        region = (
+            region_display(address["country"], address["province"])
+            if _region_in_postal_format(address["country"])
+            else ""
+        )
+        if _fold(region) == _fold(address["city"]):
+            region = ""
+        description = ", ".join(
+            part
+            for part in (
+                address["city"],
+                region,
+                address["postal_code"],
+                place.name if place is not None else address["country"],
+            )
+            if part
+        )
+        suggestions.append(
+            {
+                "id": f"{id_prefix}-{index}",
+                "text": address["address_line1"],
+                "description": description,
+                "address": address,
+            }
+        )
+    return suggestions
+
+
+def _one_postcode_per_door(addresses: list[dict[str, str]]) -> list[dict[str, str]]:
+    """One row per door, and only a postcode every record agrees on.
+
+    Photon often returns the same building twice: the house, and a shop or
+    office inside it, each with a different ZIP. Offering both lets the click
+    fill the wrong one. A blank code does not erase a real one. Two different
+    codes are dropped, and the person types theirs.
+    """
+    folded: list[dict[str, str]] = []
+    index: dict[tuple[str, str, str], int] = {}
+    for address in addresses:
+        door = (address["address_line1"], address["city"], address["country"])
+        slot = index.get(door)
+        if slot is None:
+            index[door] = len(folded)
+            folded.append(dict(address))
+            continue
+        current = folded[slot]
+        codes = {code for code in (current["postal_code"], address["postal_code"]) if code}
+        if len(codes) == 1:
+            current["postal_code"] = next(iter(codes))
+        elif len(codes) > 1:
+            current["postal_code"] = ""
+        if not current["province"] and address["province"]:
+            current["province"] = address["province"]
+    return folded
+
+
+def _address_suggestions(text: str, *, country: str, lang: str, visitor_country: str) -> list[dict]:
+    """Search, parse and rank: the part of address search that needs no request."""
+    global _here_paused_until
+
+    if _here_api_key() and time.monotonic() >= _here_paused_until:
+        try:
+            found = _here_suggestions(
+                text, country=country, lang=lang, visitor_country=visitor_country
+            )
+        except _HereUnavailable as exc:
+            logging.getLogger(__name__).warning(
+                "HERE address search unavailable (%s); using Photon for a minute", exc
+            )
+            _here_paused_until = time.monotonic() + _PHOTON_PAUSE_SECONDS
+        else:
+            if found:
+                return found
     lang = lang.strip().lower()
     base = [("q", text), ("limit", "12"), ("layer", "house"), ("layer", "street")]
     if lang in _PHOTON_LANGUAGES:
@@ -398,35 +625,8 @@ def _address_suggestions(text: str, *, country: str, lang: str, visitor_country:
                     seen.add(key)
                     numbered.append(address)
             addresses = numbered + addresses
-    suggestions = []
-    for index, address in enumerate(addresses[:8]):
-        place = pycountry.countries.get(alpha_2=address["country"])
-        region = (
-            region_display(address["country"], address["province"])
-            if _region_in_postal_format(address["country"])
-            else ""
-        )
-        if _fold(region) == _fold(address["city"]):
-            region = ""
-        description = ", ".join(
-            part
-            for part in (
-                address["city"],
-                region,
-                address["postal_code"],
-                place.name if place is not None else address["country"],
-            )
-            if part
-        )
-        suggestions.append(
-            {
-                "id": f"photon-{index}",
-                "text": address["address_line1"],
-                "description": description,
-                "address": address,
-            }
-        )
-    return suggestions
+    addresses = _one_postcode_per_door(addresses)
+    return _suggestion_rows(addresses, id_prefix="photon")
 
 
 @router.post("/api/locations/check", tags=["Account"])

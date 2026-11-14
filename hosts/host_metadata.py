@@ -655,6 +655,28 @@ def standard_postal_code(country: str, value: str) -> str:
     return text
 
 
+def accepted_postal_code(country: str, value: str) -> str:
+    """A postal code this country actually uses, written the way that post writes it.
+
+    ``standard_postal_code`` keeps text it cannot format ("12345" in Canada, a
+    street segment's code pasted onto a house). A suggestion must not fill the
+    ZIP field with that. Saving still rejects it in the normal check.
+    """
+    from i18naddress import get_validation_rules
+
+    country_code = str(country or "").strip().upper()
+    postal = standard_postal_code(country_code, value)
+    if not postal or not country_code:
+        return ""
+    try:
+        rules = get_validation_rules({"country_code": country_code})
+    except Exception:
+        return ""
+    if all(matcher.match(postal) for matcher in rules.postal_code_matchers):
+        return postal
+    return ""
+
+
 def _postal_label(country: str) -> str:
     from i18naddress import get_validation_rules
 
