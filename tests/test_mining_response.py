@@ -45,12 +45,16 @@ def test_prior_adds_at_most_five_points_and_never_acts_alone():
     assert mr.score([mr.Signal("S4", 0.5, "", 0)], prior=0.5) == 0.55
 
 
-def test_gpu_only_evidence_never_passes_the_suspend_threshold():
-    ep = mr.Episode("j", "c", confidence=mr.score([mr.Signal("S1", mr.S1_LONG, "", 0)], 0.05))
+def test_gpu_only_evidence_is_flagged_and_never_acted_on():
+    """T8b, 2026-11-13: ordinary training and inference matched the GPU profile on
+    every sample. Whatever its score, that signal alone changes nothing for a tenant."""
+    s1 = mr.Signal("S1", mr.S1_LONG, "", 0)
+    ep = mr.Episode("j", "c", confidence=mr.score([s1], 0.05))
+    ep.signals = [s1]
     ep.above_throttle_since = t(0)
     assert ep.confidence == 0.75
-    assert mr.decide(ep, t(11)) == mr.THROTTLE
-    assert mr.decide(ep, t(120)) == mr.THROTTLE
+    assert mr.decide(ep, t(11)) == mr.FLAG
+    assert mr.decide(ep, t(120)) == mr.FLAG
 
 
 # ── the ladder ────────────────────────────────────────────────────────
@@ -58,6 +62,7 @@ def test_gpu_only_evidence_never_passes_the_suspend_threshold():
 
 def test_flag_then_throttle_after_ten_minutes_above_seventy():
     ep = mr.Episode("j", "c", confidence=0.72, above_throttle_since=t(0))
+    ep.signals = [mr.Signal("S1", mr.S1_SHORT, "", 0), mr.Signal("S4", 0.5, "", 0)]
     assert mr.decide(ep, t(1)) == mr.FLAG
     assert mr.decide(ep, t(10)) == mr.THROTTLE
 
@@ -294,7 +299,7 @@ def test_a_quiet_container_opens_no_episode(host, tmp_path):
     assert r.episodes == {}
 
 
-def test_gpu_profile_alone_flags_then_throttles_and_never_suspends(host, tmp_path):
+def test_gpu_profile_alone_is_flagged_and_changes_nothing_for_the_tenant(host, tmp_path):
     now = SimpleNamespace(v=t(0))
     r = responder(host, tmp_path, lambda: now.v)
     for m in range(0, 130):
@@ -303,6 +308,31 @@ def test_gpu_profile_alone_flags_then_throttles_and_never_suspends(host, tmp_pat
         ep = observe(r)
         if m == 15:
             assert ep and ep.rung == mr.FLAG
+    assert ep.rung == mr.FLAG, "two hours of the GPU profile alone must not throttle"
+    assert not host.paused and host.terminated == []
+    assert not [c for c in host.calls if c[0] == "update"]
+    assert not [op for op, _ in host.privd_calls if op in ("gpu_power_limit", "tenant_rate_limit")]
+    assert ep.throttle == {}
+    assert host.notes == [], "a flag is for the operator; the tenant is told nothing"
+
+
+CATALOGUED = TOP + "18 1024 minerd minerd --threads 8\n"
+
+
+def catalogued(host, tmp_path, clock):
+    """A responder whose operator catalogue names one process (S2 by name, 0.80)."""
+    r = responder(host, tmp_path, clock)
+    r.signatures = {"names": ["minerd"], "arg_patterns": list(mr.DEFAULT_ARG_PATTERNS)}
+    host.top = CATALOGUED
+    return r
+
+
+def test_a_catalogued_process_throttles_with_every_limit(host, tmp_path):
+    now = SimpleNamespace(v=t(0))
+    r = catalogued(host, tmp_path, lambda: now.v)
+    for m in range(0, 15):
+        now.v = t(m)
+        ep = observe(r)
     assert ep.rung == mr.THROTTLE
     assert not host.paused and host.terminated == []
     assert ["update", "--cpus=4.0", "xcl-1"] in host.calls
@@ -317,10 +347,9 @@ def test_gpu_profile_alone_flags_then_throttles_and_never_suspends(host, tmp_pat
 
 def test_shared_gpu_skips_the_power_rung(host, tmp_path):
     now = SimpleNamespace(v=t(0))
-    r = responder(host, tmp_path, lambda: now.v)
-    for m in range(0, 80):
+    r = catalogued(host, tmp_path, lambda: now.v)
+    for m in range(0, 15):
         now.v = t(m)
-        r.record_gpu_samples([{"gpu_uuid": "GPU-1", **gpu_sample()}], now.v)
         observe(r, shared_gpu=True)
     assert r.episodes["xcl-1"].rung == mr.THROTTLE
     assert all(op != "gpu_power_limit" for op, _ in host.privd_calls)
@@ -398,15 +427,14 @@ def test_suspension_resumes_after_a_day_without_a_decision(host, tmp_path):
 
 def test_signals_that_go_away_close_the_episode_and_undo_the_throttle(host, tmp_path):
     now = SimpleNamespace(v=t(0))
-    r = responder(host, tmp_path, lambda: now.v)
-    for m in range(0, 80):
+    r = catalogued(host, tmp_path, lambda: now.v)
+    for m in range(0, 15):
         now.v = t(m)
-        r.record_gpu_samples([{"gpu_uuid": "GPU-1", **gpu_sample()}], now.v)
         observe(r)
     assert r.episodes["xcl-1"].rung == mr.THROTTLE
-    for m in range(80, 112):
+    host.top = TOP
+    for m in range(15, 47):
         now.v = t(m)
-        r.record_gpu_samples([{"gpu_uuid": "GPU-1", **gpu_sample(pcie_rx_mb_s=80)}], now.v)
         observe(r)
     assert r.episodes == {}
     assert ["update", "--cpus=8.0", "xcl-1"] in host.calls
@@ -441,3 +469,33 @@ def test_the_control_plane_prior_is_capped(host, tmp_path):
         r.record_gpu_samples([{"gpu_uuid": "GPU-1", **gpu_sample()}], now.v)
         ep = observe(r)
     assert ep.prior == mr.S5_MAX and ep.confidence == 0.65
+
+
+# ── T8b: what real GPUs reported, 2026-11-13 ──────────────────────────
+#
+# RTX 2060 and RTX 3060, sampled through nvml_telemetry while idle and under
+# ordinary PyTorch work. Neither card reports a power limit, and the PCIe
+# counters read 0 on every sample, busy or not.
+
+MEASURED = {
+    "training, data already on the GPU": {"utilization": 100.0, "memory_util": 98.0},
+    "inference, fixed weights": {"utilization": 99.0, "memory_util": 100.0},
+}
+
+
+@pytest.mark.parametrize("name", sorted(MEASURED))
+def test_ordinary_work_on_a_card_with_dead_pcie_counters_is_not_a_profile_match(name):
+    sample = gpu_sample(
+        pcie_tx_mb_s=0, pcie_rx_mb_s=0, power_draw_w=85.0, power_limit_w=None, **MEASURED[name]
+    )
+    assert mr._s1_sample_matches(sample), "the per-sample rule alone does match; that was the bug"
+    series = [(t(m), sample) for m in range(0, 70)]
+    assert mr.gpu_profile_signal(series, t(69)) is None
+
+
+def test_one_reading_proves_the_counter_works():
+    quiet = gpu_sample(pcie_tx_mb_s=0, pcie_rx_mb_s=0)
+    series = [(t(-5), gpu_sample(pcie_tx_mb_s=0.2, pcie_rx_mb_s=0))] + [
+        (t(m), quiet) for m in range(0, 16)
+    ]
+    assert mr.gpu_profile_signal(series, t(15)) is not None

@@ -165,6 +165,9 @@ class Episode:
     throttle: dict = field(default_factory=dict)  # what was changed, to undo it
     last_report: float = 0.0
 
+    def has_evidence_beyond_gpu_profile(self) -> bool:
+        return any(sig.family != "S1" for sig in self.signals)
+
     def has_network(self) -> bool:
         return any(s.family == "S3" and s.strength >= S3_POOL for s in self.signals)
 
@@ -198,8 +201,10 @@ def decide(ep: Episode, now: float) -> str | None:
 
     Terminate needs 0.90 and either a second incident on the account or an
     administrator's confirmation. Suspend needs 0.90, or 0.70 held for half
-    an hour with a network signal. Throttle needs 0.70 held for ten minutes.
-    GPU-only evidence tops out at 0.70 (+0.05 prior) and so never suspends.
+    an hour with a network signal. Throttle needs 0.70 held for ten minutes
+    and at least one signal that is not the GPU profile.
+    GPU-only evidence tops out at 0.70 (+0.05 prior): it is flagged for the
+    operator and changes nothing for the tenant.
     """
     c = ep.confidence
     held = lambda since, secs: since is not None and now - since >= secs  # noqa: E731
@@ -215,7 +220,15 @@ def decide(ep: Episode, now: float) -> str | None:
         and held(ep.above_throttle_since, SUSPEND_WITH_NETWORK_SUSTAIN_S)
     ):
         proposed = SUSPEND
-    elif c >= THROTTLE_AT and held(ep.above_throttle_since, THROTTLE_SUSTAIN_S):
+    elif (
+        c >= THROTTLE_AT
+        and held(ep.above_throttle_since, THROTTLE_SUSTAIN_S)
+        and ep.has_evidence_beyond_gpu_profile()
+    ):
+        # The GPU profile alone is reported, never acted on: it is the one
+        # signal an honest workload produces (T8b). Taking CPU, bandwidth and
+        # GPU power from a tenant needs a process, a connection or a CPU signal
+        # as well.
         proposed = THROTTLE
     elif c >= FLAG_AT:
         proposed = FLAG
@@ -249,12 +262,24 @@ def _s1_sample_matches(g: dict) -> bool:
     )
 
 
+def _pcie_reading(g: dict) -> float:
+    return float(g.get("pcie_tx_mb_s") or 0) + float(g.get("pcie_rx_mb_s") or 0)
+
+
 def gpu_profile_signal(samples: list[tuple[float, dict]], now: float) -> Signal | None:
     """S1 over the samples (timestamp, telemetry) of one GPU.
 
     Every sample of the last 15 minutes must match and the VRAM footprint must
     stay within ±2 %; a window with too few samples says nothing.
     """
+    # The profile is "busy, and the bus is quiet". On a device whose PCIe
+    # counters never read anything (measured 2026-11-13: both fleet GPUs report
+    # 0 MB/s idle and under load) the second half is always true, and what is
+    # left matches ordinary training and inference on every sample. A counter
+    # that has never moved is not evidence of a quiet bus, so without one
+    # non-zero reading in the history this signal says nothing.
+    if not any(_pcie_reading(g) > 0 for _, g in samples):
+        return None
     window = [(t, g) for t, g in samples if now - t <= S1_LONG_WINDOW_S]
     recent = [(t, g) for t, g in window if now - t <= S1_WINDOW_S]
     if len(recent) < S1_MIN_SAMPLES or not all(_s1_sample_matches(g) for _, g in recent):
