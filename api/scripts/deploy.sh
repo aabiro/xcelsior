@@ -1265,6 +1265,10 @@ validate_build_env() {
     elif grep -qE '^XCELSIOR_MCP_CLIENT_ID=.+$' "$ENV_FILE" && grep -qE '^XCELSIOR_MCP_CLIENT_SECRET=.+$' "$ENV_FILE"; then
         : # no static token, but client credentials exist — the smoke mints a
           # short-lived MCP-audience token at runtime (see mint_mcp_smoke_token)
+    elif [[ -n "${SKIP_PROD_ENV_PUSH:-}" ]]; then
+        # The smoke reads /opt/xcelsior/.env on the host. An empty local file
+        # must not abort a deploy that is keeping that file.
+        log "MCP smoke credentials stay in production's .env"
     else
         error "MCP promotion gate needs either XCELSIOR_MCP_SMOKE_TOKEN or XCELSIOR_MCP_CLIENT_ID + XCELSIOR_MCP_CLIENT_SECRET in $ENV_FILE"
     fi
@@ -1287,7 +1291,12 @@ validate_build_env() {
     done < <(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null)
 
     if [[ $found -eq 0 ]]; then
-        error "No NEXT_PUBLIC_* vars found in $ENV_FILE"
+        if [[ -n "${SKIP_PROD_ENV_PUSH:-}" ]]; then
+            # Compose fills the frontend build args from production's .env.
+            log "No local NEXT_PUBLIC_* vars; the frontend build takes production's .env"
+        else
+            error "No NEXT_PUBLIC_* vars found in $ENV_FILE"
+        fi
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
@@ -1378,7 +1387,9 @@ PY
 frontend_build_hash() {
     local source_hash env_hash
     source_hash=$(hash_repo_subset frontend api/frontend)
-    env_hash=$(grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
+    # grep exits 1 when the local file has no NEXT_PUBLIC_* lines. pipefail
+    # would abort the fingerprint even though production supplies those args.
+    env_hash=$({ grep '^NEXT_PUBLIC_' "$ENV_FILE" 2>/dev/null || true; } | sort | sha256sum | cut -d' ' -f1)
     printf '%s%s' "$source_hash" "$env_hash" | sha256sum | cut -d' ' -f1
 }
 
