@@ -77,6 +77,45 @@ export function readableDetail(body: string): string {
     return body;
 }
 
+/**
+ * The server's own sentence from a parsed response body, or null when it gave
+ * none. Every API error arrives as `{"error":{"message":…}}`; code that read
+ * `data.detail` never saw it and fell back to its own guess.
+ */
+export function serverMessage(data: unknown): string | null {
+    if (typeof data === "string") return data.trim() || null;
+    if (!data || typeof data !== "object") return null;
+    const text = readableDetail(JSON.stringify(data)).trim();
+    return text && !text.startsWith("{") ? text : null;
+}
+
+/**
+ * A 402 from `POST /instance`, classified by what the server said. Only a
+ * shortfall is a reason to top up: the same status also means the wallet is
+ * suspended, or that a hold could not be placed while the balance was fine.
+ */
+export function launchPaymentError(message: string | null, billingUrl: string): WizardError {
+    if (message && /suspend/i.test(message)) {
+        return new WizardError("Your wallet is suspended", {
+            code: "wallet_suspended",
+            remediation: "Resolve it on the Billing page, then press Enter to retry.",
+            url: billingUrl,
+        });
+    }
+    if (message && /insufficient|hold required|deposit credits/i.test(message)) {
+        return new WizardError(message, {
+            code: "insufficient_balance",
+            remediation: "Top up your wallet, then press Enter to retry.",
+            url: billingUrl,
+        });
+    }
+    return new WizardError(message ?? "The launch was refused (HTTP 402)", {
+        code: "payment_required",
+        remediation: "The server did not say your balance is too low. Press Enter to retry; if it happens again, contact support with this message.",
+        url: billingUrl,
+    });
+}
+
 function mapHttpError(status: number, body: string, baseUrl: string): WizardError {
     const detail = readableDetail(body);
     if (status === 401) {
@@ -489,54 +528,79 @@ export async function createOAuthClient(
 
 // ── Marketplace ──────────────────────────────────────────────────────
 
-export interface MarketplaceListing {
-    host_id: string;
+/**
+ * Free GPUs on admitted, ready hosts that reported in recently, grouped by
+ * model, VRAM and region (`GET /api/v2/gpu/available`). This is the snapshot
+ * the scheduler places from. `/marketplace/search` returns every listing row
+ * ever written, including ones for hosts that are offline or never existed.
+ */
+export interface AvailableGpu {
     gpu_model: string;
     vram_gb: number;
-    price_per_hour: number;
-    owner: string;
-    active: boolean;
-    total_jobs: number;
-    total_earned: number;
-    description: string;
+    region: string;
+    province: string;
+    count_available: number;
+    /** The rate a launch is charged: the catalog price when one exists. */
+    price_per_hour_cad: number;
+    /** False when no price exists for this GPU yet, so a launch is refused. */
+    service_tiers_available?: boolean;
 }
 
-export interface MarketplaceSearchResult {
-    ok: boolean;
-    total: number;
-    listings: MarketplaceListing[];
-}
-
-export interface MarketplaceFilters {
-    gpu_model?: string;
-    min_vram?: number;
-    max_price?: number;
-    sort_by?: "price" | "vram" | "reputation" | "score";
-    limit?: number;
-}
-
-export async function searchMarketplace(
-    baseUrl: string,
-    token: string,
-    filters?: MarketplaceFilters,
-): Promise<MarketplaceSearchResult> {
-    const params = new URLSearchParams();
-    if (filters?.gpu_model) params.set("gpu_model", filters.gpu_model);
-    if (filters?.min_vram) params.set("min_vram", String(filters.min_vram));
-    if (filters?.max_price) params.set("max_price", String(filters.max_price));
-    if (filters?.sort_by) params.set("sort_by", filters.sort_by);
-    if (filters?.limit) params.set("limit", String(filters.limit));
-
-    const qs = params.toString();
-    const path = `/marketplace/search${qs ? `?${qs}` : ""}`;
-
-    const { status, data } = await jsonRequest<MarketplaceSearchResult>(
-        "GET", baseUrl, path, undefined, token,
+export async function listAvailableGpus(baseUrl: string, token: string): Promise<AvailableGpu[]> {
+    const { status, data } = await jsonRequest<{ ok: boolean; gpus?: AvailableGpu[] }>(
+        "GET", baseUrl, "/api/v2/gpu/available", undefined, token,
     );
     if (status !== 200) {
-        throw mapHttpError(status, `Marketplace search failed: HTTP ${status}`, baseUrl);
+        throw mapHttpError(status, serverMessage(data) ?? `GPU availability failed: HTTP ${status}`, baseUrl);
     }
-    return data;
+    return Array.isArray(data.gpus) ? data.gpus : [];
+}
+
+/** The platform's hourly rate for one GPU variant: what a renter is charged for it. */
+export interface PlatformRate {
+    gpu_model: string;
+    vram_gb: number;
+    rate_per_hour: number;
+    /** True when no variant matched this exact VRAM and the model's standard one was priced. */
+    standard_variant: boolean;
+}
+
+async function fetchRate(
+    baseUrl: string, gpuModel: string, vramGb?: number, opts?: { maxRetries?: number },
+): Promise<{ status: number; data: Record<string, unknown> }> {
+    const params = new URLSearchParams({ gpu_model: gpuModel, mode: "on_demand" });
+    if (vramGb) params.set("vram_gb", String(vramGb));
+    return jsonRequest<Record<string, unknown>>("GET", baseUrl, `/api/pricing/rates?${params.toString()}`, undefined, undefined, opts);
+}
+
+/**
+ * The rate renters pay for this GPU (`GET /api/pricing/rates`), the number a
+ * provider's own rate should be judged against. Prices are per VRAM variant;
+ * when this exact size has no price, the model's standard variant is used,
+ * as host registration does when no rate is given.
+ */
+export async function getPlatformRate(baseUrl: string, gpuModel: string, vramGb?: number): Promise<PlatformRate> {
+    const size = vramGb && vramGb > 0 ? Math.round(vramGb) : undefined;
+    let standard = !size;
+    // An unpriced variant answers 503: that is an answer, not an outage. The
+    // exact-size probe is not retried, and the fallback retries once for a
+    // blip rather than backing off for ~15 s before saying "no price".
+    let { status, data } = await fetchRate(baseUrl, gpuModel, size, { maxRetries: size ? 0 : 1 });
+    if (status !== 200 && size) {
+        ({ status, data } = await fetchRate(baseUrl, gpuModel, undefined, { maxRetries: 1 }));
+        standard = true;
+    }
+    const rate = Number(data.base_rate_cad);
+    if (status !== 200 || !Number.isFinite(rate) || rate <= 0) {
+        throw mapHttpError(status === 200 ? 503 : status,
+            serverMessage(data) ?? `No platform rate for ${gpuModel}`, baseUrl);
+    }
+    return {
+        gpu_model: String(data.gpu_model ?? gpuModel),
+        vram_gb: Number(data.vram_gb) || size || 0,
+        rate_per_hour: rate,
+        standard_variant: standard,
+    };
 }
 
 // ── Billing / Wallet ─────────────────────────────────────────────────
@@ -544,9 +608,17 @@ export async function searchMarketplace(
 export interface Wallet {
     customer_id: string;
     balance_cad: number;
+    /** Balance minus funds held for launches in progress: what a launch can use. */
+    available_cad?: number;
     total_deposited_cad: number;
     total_spent_cad: number;
     status: string;
+}
+
+/** What a launch can spend: the server checks holds against this, not the balance. */
+export function spendableCad(wallet: Wallet): number {
+    const available = Number(wallet.available_cad);
+    return Number.isFinite(available) ? available : Number(wallet.balance_cad) || 0;
 }
 
 export async function getWallet(
@@ -559,7 +631,7 @@ export async function getWallet(
         undefined, token,
     );
     if (status !== 200) {
-        throw mapHttpError(status, `Wallet fetch failed: HTTP ${status}`, baseUrl);
+        throw mapHttpError(status, serverMessage(data) ?? `Wallet fetch failed: HTTP ${status}`, baseUrl);
     }
     return data.wallet;
 }
@@ -595,7 +667,9 @@ export async function checkFreeCreditStatus(
 
 export interface LaunchParams {
     name: string;
-    host_id: string;
+    /** Pin to one host. Omit it and the scheduler places the job by GPU model. */
+    host_id?: string;
+    gpu_model?: string;
     image: string;
     interactive?: boolean;
     num_gpus?: number;
@@ -620,31 +694,24 @@ export async function launchInstance(
     token: string,
     params: LaunchParams,
 ): Promise<InstanceInfo> {
+    const body: Record<string, unknown> = {
+        name: params.name,
+        image: params.image,
+        interactive: params.interactive ?? true,
+        num_gpus: params.num_gpus ?? 1,
+        vram_needed_gb: params.vram_needed_gb ?? 0,
+    };
+    if (params.host_id) body.host_id = params.host_id;
+    if (params.gpu_model) body.gpu_model = params.gpu_model;
     const { status, data } = await jsonRequest<{ ok: boolean; instance: InstanceInfo }>(
-        "POST", baseUrl, "/instance",
-        {
-            name: params.name,
-            host_id: params.host_id,
-            image: params.image,
-            interactive: params.interactive ?? true,
-            num_gpus: params.num_gpus ?? 1,
-            vram_needed_gb: params.vram_needed_gb ?? 0,
-        },
-        token,
+        "POST", baseUrl, "/instance", body, token,
     );
     if (status !== 200 || !data.instance) {
-        const detail = (data as Record<string, unknown>)?.detail;
+        const message = serverMessage(data);
         if (status === 402) {
-            const msg = typeof detail === "string" && /suspend/i.test(detail)
-                ? "Wallet suspended — visit the dashboard to resolve"
-                : `Insufficient balance — add funds at ${baseUrl.replace(/\/api$/, "")}/dashboard/billing`;
-            throw new WizardError(msg, {
-                code: "payment_required",
-                remediation: "Add funds in the billing dashboard.",
-                url: `${baseUrl.replace(/\/api$/, "")}/dashboard/billing`,
-            });
+            throw launchPaymentError(message, `${baseUrl.replace(/\/api$/, "")}/dashboard/billing`);
         }
-        throw mapHttpError(status, typeof detail === "string" ? detail : `Instance launch failed: HTTP ${status}`, baseUrl);
+        throw mapHttpError(status, message ?? `Instance launch failed: HTTP ${status}`, baseUrl);
     }
     return data.instance;
 }

@@ -14,6 +14,7 @@ import { COLORS, GLYPHS } from "./theme.js";
 import { useTerminalWidth } from "./use-terminal-width.js";
 import type { WizardTask } from "./task-model.js";
 import type { LearnSlide } from "./learn-content.js";
+import { ASK_HEXARA_KEY } from "./wizard-flow.js";
 
 export { useTerminalWidth };
 
@@ -86,7 +87,7 @@ function StatusPane({ log, tail, aiAvailable = true, inputActive = true }: Statu
 
     const askLines = aiAvailable
         ? [
-            "Press A or ? to ask Hexara about this step.",
+            `Press ${ASK_HEXARA_KEY} to ask Hexara about this step.`,
             "She can read your live check results and walk you through any fix.",
         ]
         : [

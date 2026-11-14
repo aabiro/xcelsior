@@ -70,12 +70,12 @@ export async function createOAuthClient() {
     };
 }
 
-let _marketplaceListings: unknown[] = [];
-/** Override the mock marketplace listings (used by Learn-pane/e2e tests). */
-export function setMockMarketplaceListings(listings: unknown[]) {
-    _marketplaceListings = listings;
+let _availableGpus: unknown[] = [];
+/** Override the mock live GPU feed (used by Learn-pane/e2e tests). */
+export function setMockAvailableGpus(gpus: unknown[]) {
+    _availableGpus = gpus;
 }
 
-export async function searchMarketplace() {
-    return { ok: true, total: _marketplaceListings.length, listings: _marketplaceListings };
+export async function listAvailableGpus() {
+    return _availableGpus;
 }

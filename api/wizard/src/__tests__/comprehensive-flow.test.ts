@@ -967,8 +967,8 @@ describe("buildWizardContext — extended scenarios", () => {
 
     it("includes GPU listings count for browse step", () => {
         const listings = [
-            { host_id: "h1", gpu_model: "RTX 4090", vram_gb: 24, price_per_hour: 1.50, owner: "alice", active: true, total_jobs: 5, total_earned: 50, description: "Fast GPU" },
-            { host_id: "h2", gpu_model: "A100", vram_gb: 80, price_per_hour: 3.00, owner: "bob", active: true, total_jobs: 12, total_earned: 200, description: "Data center GPU" },
+            { id: "RTX 4090|24", gpu_model: "RTX 4090", vram_gb: 24, price_per_hour: 1.50, count_available: 2, regions: ["ca-on"] },
+            { id: "A100|80", gpu_model: "A100", vram_gb: 80, price_per_hour: 3.00, count_available: 1, regions: [] },
         ];
         const ctx = buildWizardContext("browse-gpus", { mode: "rent" }, {}, null, listings, null);
         // Should include listing info

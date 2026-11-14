@@ -6,7 +6,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { Text, Box, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import TextInput from "ink-text-input";
-import { DEVICE_BROWSER_DELAY_MS, type SelectOption } from "./wizard-flow.js";
+import { ASK_HEXARA_KEY, DEVICE_BROWSER_DELAY_MS, type SelectOption } from "./wizard-flow.js";
 import type { AutoCheckResults, ProviderSummaryData } from "./useWizardFlow.js";
 import { openUrl } from "./open-url.js";
 import { tokenFilePath } from "./wizard-state.js";
@@ -174,6 +174,7 @@ export function AutoCheckStep({ results, canRetry, awaitContinue, required, succ
   }
 
   const allPassed = results.items.every((r) => r.ok);
+  const needsTopUp = results.items.some((r) => !r.ok && r.topUp);
 
   return (
     <Box flexDirection="column">
@@ -214,7 +215,9 @@ export function AutoCheckStep({ results, canRetry, awaitContinue, required, succ
       {canRetry && (
         <Box marginTop={1}>
           <Text dimColor>
-            Press <Text bold>Enter</Text> to retry
+            {needsTopUp
+              ? <>Top up your wallet, then press <Text bold>Enter</Text> to retry</>
+              : <>Press <Text bold>Enter</Text> to retry</>}
             {!required && <Text>, <Text bold>s</Text> to skip</Text>}
             {onChangePath && <Text>, <Text bold>b</Text> to go back and choose a different path</Text>}
             , <Text bold>q</Text> to quit
@@ -557,15 +560,16 @@ export function PaymentGateStep({ balance, required, polling, billingUrl, onSkip
 
   return (
     <Box flexDirection="column">
-      <Text>Balance: <Text bold color="#ffcc00">${balance.toFixed(2)}</Text> — need at least <Text bold>${required.toFixed(2)}/hr</Text></Text>
+      <Text>Available: <Text bold color="#ffcc00">${balance.toFixed(2)}</Text> — a launch holds about <Text bold>${required.toFixed(2)}</Text> (one hour at this GPU's rate)</Text>
       <Box marginTop={1}>
-        <Text>Add funds → <Text bold color="#00d4ff">{billingUrl}</Text></Text>
+        <Text>Top up → <Text bold color="#00d4ff">{billingUrl}</Text></Text>
       </Box>
+      <Text dimColor>The launch retries on its own as soon as the deposit lands.</Text>
       {polling && (
-        <BrandSpinner label="Checking for deposit..." />
+        <BrandSpinner label="Waiting for your top-up..." />
       )}
       <Box marginTop={1}>
-        <Text dimColor>Press <Text bold>s</Text> to skip (instance may stop if balance runs out)</Text>
+        <Text dimColor>Press <Text bold>s</Text> to skip launching for now (nothing is started)</Text>
       </Box>
     </Box>
   );
@@ -833,7 +837,7 @@ export function AiResponse({ response, streaming, onDismiss, chatHistory, curren
       )}
       {!streaming && !pendingConfirmation && (
         <Box marginTop={1}>
-          <Text dimColor>Press <Text bold>Enter</Text> to continue · <Text bold>?</Text> to ask another question</Text>
+          <Text dimColor>Press <Text bold>Enter</Text> to continue · <Text bold>{ASK_HEXARA_KEY}</Text> to ask another question</Text>
         </Box>
       )}
     </Box>

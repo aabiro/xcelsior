@@ -13,7 +13,7 @@ import { HexaraDirector } from "./useWizardAnimation.js";
 import { spriteCapable } from "./capability.js";
 import { useRepaintOnNarrow, useTerminalSize } from "./use-terminal-width.js";
 import { STATE_COLORS } from "../sprites/wizard/wizard-sprite.js";
-import { WIZARD_STEPS, STATIC_STEP_HELP } from "./wizard-flow.js";
+import { WIZARD_STEPS, STATIC_STEP_HELP, ASK_HEXARA_KEY } from "./wizard-flow.js";
 import { useWizardFlow } from "./useWizardFlow.js";
 import { StatusGate } from "./StatusGate.js";
 import { WorkScreen } from "./WorkScreen.js";
@@ -252,16 +252,11 @@ export function App() {
       if (input === "n" || input === "N") confirmAi(false);
       return;
     }
-    if (input === "?" && aiAvailable && aiResponse === null && !showAiPrompt && !aiStreaming) {
+    if (input === ASK_HEXARA_KEY && aiAvailable && aiResponse === null && !showAiPrompt && !aiStreaming) {
       // Only on steps where text input isn't active (text steps handle ? natively)
       if (step.type !== "text" && step.type !== "device-auth" && step.type !== "done") {
         toggleAiPrompt();
       }
-    }
-    // Interactive nudge: "Press A to ask Hexara" during long-running work steps
-    if ((input === "a" || input === "A") && aiAvailable && aiResponse === null && !showAiPrompt && !aiStreaming
-      && WORK_STEP_TYPES.includes(step.type)) {
-      toggleAiPrompt();
     }
     // Reveal buffered AI details
     if ((input === "d" || input === "D") && hasAiDetails && !aiStreaming) {
@@ -402,7 +397,7 @@ export function App() {
             log={statusLog}
             tail={checkProgress}
             intro={timeHintForStep(step.id)}
-            nudge={aiAvailable ? "Press A to ask Hexara anything while you wait" : null}
+            nudge={aiAvailable ? `Press ${ASK_HEXARA_KEY} to ask Hexara anything while you wait` : null}
             aiAvailable={aiAvailable}
           />
         </Box>
@@ -577,8 +572,8 @@ export function App() {
         <Box marginTop={1} width={64}>
           <Text dimColor>
             {step.type === "text"
-              ? <>Type <Text bold>?</Text> followed by a question to ask Hexara for help</>
-              : <>Press <Text bold>?</Text> to ask Hexara for help</>
+              ? <>Type <Text bold>{ASK_HEXARA_KEY}</Text> followed by a question to ask Hexara for help</>
+              : <>Press <Text bold>{ASK_HEXARA_KEY}</Text> to ask Hexara for help</>
             }
           </Text>
         </Box>
@@ -610,6 +605,7 @@ export function App() {
             aiAvailable,
             isWorkStep,
             canRetry: checkCanRetry,
+            needsTopUp: checkResults[step.id]?.items.some((item) => !item.ok && item.topUp) ?? false,
             awaitContinue: checkAwaitContinue,
             showAiPrompt,
             aiResponseOpen: aiResponse !== null,

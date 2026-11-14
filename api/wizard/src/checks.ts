@@ -21,6 +21,8 @@ export interface CheckResult {
     remediation?: string;
     /** Optional link the user can open to resolve the failure. */
     url?: string;
+    /** The fix is adding funds: the retry prompt says "top up, then retry". */
+    topUp?: boolean;
 }
 
 async function run(cmd: string, args: string[]): Promise<{ stdout: string; ok: boolean }> {

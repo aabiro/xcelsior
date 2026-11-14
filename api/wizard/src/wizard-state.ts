@@ -9,7 +9,8 @@ import { join } from "node:path";
 import { configDirectory, writePrivateFile } from "./config-files.js";
 import { clampStepIndex, mergeTokenIntoAnswers, stripSecretsFromAnswers } from "./wizard-guards.js";
 import type { GpuInfo, BenchmarkResult, NetworkBenchResult, VersionCheck } from "./provider-checks.js";
-import type { MarketplaceListing, InstanceInfo } from "./api-client.js";
+import type { InstanceInfo } from "./api-client.js";
+import type { GpuChoice } from "./gpu-choices.js";
 import type { ProviderSummaryData } from "./useWizardFlow.js";
 
 export const CHECKPOINT_VERSION = 1;
@@ -39,7 +40,8 @@ export interface WizardRuntime {
     benchmark: BenchmarkResult | null;
     network: NetworkBenchResult | null;
     versions: VersionCheck[];
-    listings: MarketplaceListing[];
+    /** GPUs offered at the pick step, from the live feed. */
+    listings: GpuChoice[];
     providerSummary: ProviderSummaryData | null;
     instance: InstanceInfo | null;
 }
@@ -96,8 +98,19 @@ export function validateCheckpoint(
         savedAt: cp.savedAt,
         runtime: cp.runtime && typeof cp.runtime === "object"
             && Array.isArray(cp.runtime.versions) && Array.isArray(cp.runtime.listings)
-            ? cp.runtime : undefined,
+            ? { ...cp.runtime, listings: cp.runtime.listings.filter(isGpuChoice) } : undefined,
     };
+}
+
+/**
+ * Checkpoints written before 0.1.9 hold legacy listing rows (keyed by host id,
+ * with listing prices). They are dropped: the pick is made again from live data.
+ */
+function isGpuChoice(value: unknown): value is GpuChoice {
+    if (!value || typeof value !== "object") return false;
+    const v = value as Record<string, unknown>;
+    return typeof v.id === "string" && typeof v.gpu_model === "string"
+        && typeof v.vram_gb === "number" && typeof v.price_per_hour === "number";
 }
 
 export function loadWizardCheckpoint(): WizardCheckpoint | null {

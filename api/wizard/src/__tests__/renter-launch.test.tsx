@@ -5,6 +5,7 @@ import { useWizardFlow, type UseWizardFlowReturn } from "../useWizardFlow.js";
 import { writePrivateFile } from "../config-files.js";
 import { saveWizardCheckpoint, tokenFilePath } from "../wizard-state.js";
 import { WIZARD_STEPS } from "../wizard-flow.js";
+import { launchPaymentError } from "../api-client.js";
 
 // A launch costs money, so a retry must never start a second instance when
 // the first attempt's response was lost after the server created it.
@@ -33,7 +34,7 @@ async function startAtLaunch() {
         stepIndex: WIZARD_STEPS.findIndex((step) => step.id === "launch-instance"),
         answers: {
             mode: "rent", "api-key": token, "want-launch": "yes", workload: "other",
-            "gpu-pick": "host-1", "image-pick": "nvidia/cuda:12.4.1-devel-ubuntu22.04",
+            "gpu-pick": "RTX 4090|24", "image-pick": "nvidia/cuda:12.4.1-devel-ubuntu22.04",
         },
         completedStepIds: ["mode", "device-auth", "want-launch", "gpu-pick", "image-pick", "confirm-launch", "wallet-check"],
         savedAt: new Date().toISOString(),
@@ -90,6 +91,55 @@ describe("launching from the wizard", () => {
         await settle();
         expect(api.launchInstance).toHaveBeenCalledTimes(1);
         expect(flow.instanceInfo?.job_id).toBe("job-1");
+    });
+
+    it("launches by GPU model and lets the scheduler pick the machine", async () => {
+        api.launchInstance.mockImplementationOnce(async (_url: string, _token: string, params: { name: string }) => launched(params.name));
+        await startAtLaunch();
+        const params = api.launchInstance.mock.calls[0][2];
+        expect(params).toMatchObject({ gpu_model: "RTX 4090", vram_needed_gb: 24 });
+        expect(params.host_id).toBeUndefined();
+        expect(flow.checkResults["launch-instance"].allPassed).toBe(true);
+    });
+
+    it("says to top up, then retry, when the server reports a shortfall", async () => {
+        api.launchInstance.mockRejectedValueOnce(launchPaymentError(
+            "Insufficient available wallet balance for launch (~$0.35 CAD hold required; $0.10 CAD available after holds)",
+            "https://xcelsior.ca/dashboard/billing",
+        ));
+        await startAtLaunch();
+        const [item] = flow.checkResults["launch-instance"].items;
+        expect(item.topUp).toBe(true);
+        expect(item.detail).toContain("$0.10 CAD available");
+        expect(item.remediation).toMatch(/top up/i);
+        expect(item.remediation).toMatch(/retry/i);
+        expect(item.url).toBe("https://xcelsior.ca/dashboard/billing");
+    });
+
+    it("does not call a failed fund hold a low balance", async () => {
+        // The same 402 the server sends when it cannot place a hold at all.
+        api.launchInstance.mockRejectedValueOnce(launchPaymentError(
+            "Unable to reserve wallet funds for launch", "https://xcelsior.ca/dashboard/billing",
+        ));
+        await startAtLaunch();
+        const [item] = flow.checkResults["launch-instance"].items;
+        expect(item.topUp).toBe(false);
+        expect(item.detail).toBe("Unable to reserve wallet funds for launch");
+        expect(`${item.detail} ${item.remediation}`).not.toMatch(/insufficient|top up/i);
+    });
+
+    it("refuses to launch a pick that does not name a GPU (an old host-id checkpoint)", async () => {
+        saveWizardCheckpoint({
+            stepIndex: WIZARD_STEPS.findIndex((step) => step.id === "launch-instance"),
+            answers: { mode: "rent", "api-key": token, "want-launch": "yes", "gpu-pick": "host-1" },
+            completedStepIds: ["mode"], savedAt: new Date().toISOString(),
+        });
+        render(<Probe />);
+        await settle();
+        await vi.advanceTimersByTimeAsync(2_000);
+        await settle();
+        expect(api.launchInstance).not.toHaveBeenCalled();
+        expect(flow.checkResults["launch-instance"].items[0].remediation).toMatch(/pick a GPU/);
     });
 
     it("launches nothing when it cannot tell whether the first attempt went through", async () => {

@@ -41,6 +41,28 @@ export interface WizardStep {
 }
 
 /**
+ * The one key that opens "Ask Hexara". Every hint names it from here. Work
+ * steps used to also take the letter a, and their copy named that letter
+ * while the rest of the wizard said "?".
+ */
+export const ASK_HEXARA_KEY = "?";
+
+/** "Competitive" pricing asks this much under the platform rate. */
+export const COMPETITIVE_DISCOUNT = 0.15;
+
+/**
+ * A provider's hourly ask for a pricing choice, from the platform rate for
+ * their GPU. It used to average `/marketplace/search` rows, which included
+ * test listings for hosts that never existed, so the suggestion could be off
+ * by any amount. Renters pay the platform rate; a lower ask ranks the host
+ * ahead of dearer ones when the scheduler places a job.
+ */
+export function providerRateFor(pricing: string | undefined, platformRate: number): number {
+    const factor = pricing === "competitive" ? 1 - COMPETITIVE_DISCOUNT : 1;
+    return Math.max(0.01, Math.round(platformRate * factor * 100) / 100);
+}
+
+/**
  * How long the sign-in screen shows the code before opening the browser.
  * It was 15s, which read as the wizard having stalled; Enter still opens it now.
  */
@@ -249,8 +271,8 @@ export const WIZARD_STEPS: WizardStep[] = [
         type: "select",
         prompt: "How would you like to price your GPU time?",
         options: [
-            { label: "💰 Recommended — use marketplace average pricing", value: "recommended" },
-            { label: "📊 Competitive — slightly below average", value: "competitive" },
+            { label: "💰 Recommended — the platform rate renters pay for your GPU", value: "recommended" },
+            { label: "📊 Competitive — 15% under it; the scheduler prefers cheaper hosts", value: "competitive" },
             { label: "✏️  Custom — set your own rate", value: "custom" },
         ],
         condition: (a) => a.mode === "provide" || a.mode === "both",

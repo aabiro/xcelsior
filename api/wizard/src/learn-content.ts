@@ -7,6 +7,7 @@
 
 import { sparkline, barChart, lineChart, pipeline, trimNumber } from "./ascii-viz.js";
 import type { MarketplaceStats } from "./marketplace-stats.js";
+import { ASK_HEXARA_KEY } from "./wizard-flow.js";
 
 export type SlideMode = "learn" | "tips";
 
@@ -23,6 +24,9 @@ export interface LearnSlide {
 }
 
 // ── Sample data (illustrative, not live) ─────────────────────────────
+// Every chart drawn from these says "Example" in its caption. Figures that
+// read as the state of the fleet (how many GPUs are free) are never invented:
+// buildMarketplaceSlides draws those from the live feed.
 
 const XCU_BARS = barChart([
     { label: "H100", value: 99 },
@@ -36,11 +40,6 @@ const SPOT_SPARK = sparkline([42, 38, 45, 40, 33, 36, 30, 28, 34, 31, 26, 29]);
 const EARNINGS_LINE = lineChart([120, 180, 240, 210, 320, 380, 460, 540], {
     width: 26, height: 5, axis: true,
 });
-
-const AVAILABILITY = barChart([
-    { label: "Available", value: 64 },
-    { label: "In use", value: 36 },
-], { width: 22 });
 
 const JOB_PIPELINE = pipeline(["submit", "schedule", "run", "settle"], 2);
 
@@ -72,7 +71,7 @@ export const LEARN_SLIDES: LearnSlide[] = [
             "transfer and heat, then scored (XCU), so",
             "you compare real performance, not names.",
         ],
-        chartCaption: "XCU score by GPU",
+        chartCaption: "Example XCU scores",
         chart: XCU_BARS,
     },
     {
@@ -83,7 +82,7 @@ export const LEARN_SLIDES: LearnSlide[] = [
             "fraction of on-demand price. Set a floor;",
             "the market clears the rest.",
         ],
-        chartCaption: "Spot ¢/hr (last 12 ticks)",
+        chartCaption: "Example: spot ¢/hr over a day",
         chart: [SPOT_SPARK],
     },
     {
@@ -94,7 +93,7 @@ export const LEARN_SLIDES: LearnSlide[] = [
             "Reputation tiers unlock higher rates and",
             "priority placement over time.",
         ],
-        chartCaption: "Provider earnings ($/wk)",
+        chartCaption: "Example earnings ramp ($/wk)",
         chart: EARNINGS_LINE,
     },
     {
@@ -123,8 +122,6 @@ export const LEARN_SLIDES: LearnSlide[] = [
             "places your job the moment a matching GPU",
             "frees up — no manual hunting.",
         ],
-        chartCaption: "Fleet availability",
-        chart: AVAILABILITY,
     },
     {
         mode: "learn",
@@ -143,14 +140,14 @@ export const LEARN_SLIDES: LearnSlide[] = [
             "dashboard to spot idle capacity worth",
             "renting out.",
         ],
-        chartCaption: "GPU utilization",
+        chartCaption: "Example: per-GPU utilization",
         chart: UTIL_BARS,
     },
     {
         mode: "tips",
         heading: "Tip — ask Hexara anything",
         lines: [
-            "Press ? at almost any step to ask Hexara",
+            `Press ${ASK_HEXARA_KEY} at almost any step to ask Hexara`,
             "for help — she can read your check results",
             "and walk you through fixes.",
         ],
@@ -202,7 +199,7 @@ export function buildMarketplaceSlides(stats: MarketplaceStats): LearnSlide[] {
             mode: "learn",
             heading: "Live marketplace — price by GPU",
             lines: [
-                `${stats.count} GPUs listed · ${stats.activeCount} available now.`,
+                `${stats.count} GPU(s) free right now across ${stats.byModel.length} model(s).`,
                 `Avg $${trimNumber(stats.avgPrice)}/hr across the fleet.`,
             ],
             chartCaption: "Avg $/hr by model (live)",
@@ -241,6 +238,22 @@ export function buildMarketplaceSlides(stats: MarketplaceStats): LearnSlide[] {
     }
 
     return slides;
+}
+
+/**
+ * How long a slide stays up: long enough to read it. Every slide used to get
+ * 6 s, which cut off the text-and-chart slides mid-read. About 300 ms a word
+ * (a relaxed 200 words a minute) plus time to take in a chart, between 9 s
+ * and 20 s.
+ */
+export const SLIDE_MIN_MS = 9_000;
+export const SLIDE_MAX_MS = 20_000;
+
+export function slideDwellMs(slide: LearnSlide): number {
+    const words = [slide.heading, ...slide.lines, slide.chartCaption ?? ""]
+        .join(" ").split(/\s+/).filter((w) => /\w/.test(w)).length;
+    const chart = slide.chart && slide.chart.length > 0 ? 4_000 : 0;
+    return Math.min(SLIDE_MAX_MS, Math.max(SLIDE_MIN_MS, 2_000 + words * 300 + chart));
 }
 
 /** Pure helper: index of the next slide, wrapping. Exported for tests. */

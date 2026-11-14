@@ -8,6 +8,34 @@ import { TaskListPane } from "../TaskListPane.js";
 import { LearnSlides } from "../LearnSlides.js";
 import { WorkScreen, shouldReflow, REFLOW_COLUMNS, cycleTab } from "../WorkScreen.js";
 import { buildTaskList, computeTaskStates } from "../task-model.js";
+import { LEARN_SLIDES, SDK_LEARN_SLIDES, SLIDE_MAX_MS, SLIDE_MIN_MS, slideDwellMs } from "../learn-content.js";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+describe("slideDwellMs", () => {
+    it("gives every shipped slide 9–20 s, never the old 6 s", () => {
+        for (const slide of [...LEARN_SLIDES, ...SDK_LEARN_SLIDES]) {
+            const ms = slideDwellMs(slide);
+            expect(ms).toBeGreaterThanOrEqual(SLIDE_MIN_MS);
+            expect(ms).toBeLessThanOrEqual(SLIDE_MAX_MS);
+        }
+    });
+
+    it("gives a slide with a chart more time than the same text alone", () => {
+        const text = { mode: "learn" as const, heading: "Spot pricing explained", lines: ["Spot runs on idle capacity at a fraction of the price.", "Set a floor and the market clears the rest of it."] };
+        expect(slideDwellMs({ ...text, chart: ["▁▂▃▄▅"] })).toBeGreaterThan(slideDwellMs(text));
+    });
+});
+
+describe("one key opens Ask Hexara", () => {
+    it("no source file tells people to press A", () => {
+        const dir = join(__dirname, "..");
+        const offenders = readdirSync(dir)
+            .filter((name) => /\.(ts|tsx)$/.test(name))
+            .filter((name) => /Press A\b|press A\b|Press A or/.test(readFileSync(join(dir, name), "utf8")));
+        expect(offenders).toEqual([]);
+    });
+});
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -70,11 +98,26 @@ describe("LearnSlides", () => {
         const { lastFrame } = render(
             <LearnSlides intervalMs={100000}
                 intro="Benchmarks take ~60s — XCU scoring while you wait"
-                nudge="Press A to ask Hexara anything" />,
+                nudge="Press ? to ask Hexara anything" />,
         );
         const out = lastFrame() ?? "";
         expect(out).toContain("Benchmarks take ~60s");
-        expect(out).toContain("Press A to ask Hexara");
+        expect(out).toContain("Press ? to ask Hexara");
+    });
+
+    it("keeps a slide up long enough to read it, by default", async () => {
+        vi.useFakeTimers();
+        const slides = [
+            { mode: "learn" as const, heading: "First Slide AAA", lines: ["one two three four five six seven", "eight nine ten eleven twelve"] },
+            { mode: "learn" as const, heading: "Second Slide BBB", lines: ["b"] },
+        ];
+        const { lastFrame, unmount } = render(<LearnSlides slides={slides} />);
+        // The old fixed interval moved on at 6 s.
+        await act(async () => { await vi.advanceTimersByTimeAsync(6_500); });
+        expect(lastFrame()).toContain("First Slide AAA");
+        await act(async () => { await vi.advanceTimersByTimeAsync(slideDwellMs(slides[0]) - 6_500 + 50); });
+        expect(lastFrame()).toContain("Second Slide BBB");
+        unmount();
     });
 
     it("renders a single slide without advancing", async () => {
@@ -135,7 +178,8 @@ describe("WorkScreen", () => {
         await delay(20);
         stdin.write("\t"); // → ask
         await delay(20);
-        expect(lastFrame()).toContain("ask Hexara about this step");
+        expect(lastFrame()).toContain("Press ? to ask Hexara about this step");
+        expect(lastFrame()).not.toContain("Press A");
     });
 
     it("switches to the Tail logs tab on Tab keypress", async () => {

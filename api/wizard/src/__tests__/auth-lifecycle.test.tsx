@@ -10,7 +10,7 @@ import { WIZARD_STEPS } from "../wizard-flow.js";
 
 const api = vi.hoisted(() => ({
     requestDeviceCode: vi.fn(), pollDeviceToken: vi.fn(), getMe: vi.fn(),
-    searchMarketplace: vi.fn(), getWallet: vi.fn(), claimFreeCredits: vi.fn(), launchInstance: vi.fn(),
+    listAvailableGpus: vi.fn(), getWallet: vi.fn(), claimFreeCredits: vi.fn(), launchInstance: vi.fn(),
 }));
 const sdk = vi.hoisted(() => ({ checkSdkPackage: vi.fn(), checkSdkProject: vi.fn() }));
 vi.mock("../sdk-checks.js", async (original) => ({
@@ -26,6 +26,8 @@ vi.mock("../preflight.js", () => ({
 vi.mock("../marketplace-stats.js", () => ({ fetchMarketplaceStats: vi.fn(async () => null) }));
 
 const token = "xoa_test_credential_123456789";
+/** The live feed's RTX 4090 24 GB, as the GPU pick names it. */
+const PICK = "RTX 4090|24";
 const profile = { user_id: "user-1", email: "wizard@example.test", customer_id: "customer-1" };
 const deviceCode = {
     device_code: "device-1", user_code: "ABCD-EFGH", verification_uri: "https://example.test/device",
@@ -65,10 +67,10 @@ beforeEach(() => {
     api.requestDeviceCode.mockReset().mockResolvedValue(deviceCode);
     api.pollDeviceToken.mockReset().mockResolvedValue({ status: "pending" });
     api.getMe.mockReset().mockResolvedValue(profile);
-    api.searchMarketplace.mockReset().mockResolvedValue({ listings: [{
-        host_id: "host-1", gpu_model: "RTX 4090", vram_gb: 24, price_per_hour: 3,
-        owner: "Test provider", active: true,
-    }] });
+    api.listAvailableGpus.mockReset().mockResolvedValue([{
+        gpu_model: "RTX 4090", vram_gb: 24, region: "ca-on", province: "ON",
+        count_available: 1, price_per_hour_cad: 3, service_tiers_available: true,
+    }]);
     api.getWallet.mockReset().mockResolvedValue({ balance_cad: 1 });
     api.claimFreeCredits.mockReset().mockResolvedValue({ already_claimed: true, amount: 0 });
     api.launchInstance.mockReset();
@@ -203,9 +205,9 @@ describe("completion and cancellation", () => {
         await start("browse-gpus", { mode: "rent", "want-launch": "yes" });
         await vi.advanceTimersByTimeAsync(2_000);
         await settle();
-        expect(api.searchMarketplace).toHaveBeenCalledTimes(1);
+        expect(api.listAvailableGpus).toHaveBeenCalledTimes(1);
         expect(flow.step.id).toBe("gpu-pick");
-        expect(flow.gpuOptions[0].value).toBe("host-1");
+        expect(flow.gpuOptions[0].value).toBe(PICK);
     });
 
     it("preserves marketplace observations across unmount and resume", async () => {
@@ -219,18 +221,18 @@ describe("completion and cancellation", () => {
         render(<Probe />);
         await settle();
         expect(flow.step.id).toBe("gpu-pick");
-        expect(flow.gpuOptions[0].value).toBe("host-1");
+        expect(flow.gpuOptions[0].value).toBe(PICK);
         expect(flow.gpuListings[0].price_per_hour).toBe(3);
     });
 
     it("discards a marketplace result after exit", async () => {
         writePrivateFile(tokenFilePath(), JSON.stringify({ access_token: token }));
-        const search = deferred<{ listings: never[] }>();
-        api.searchMarketplace.mockReturnValueOnce(search.promise);
+        const search = deferred<never[]>();
+        api.listAvailableGpus.mockReturnValueOnce(search.promise);
         const app = await start("browse-gpus", { mode: "rent", "want-launch": "yes" });
         app.unmount();
         await settle();
-        search.resolve({ listings: [] });
+        search.resolve([]);
         await settle();
         await vi.advanceTimersByTimeAsync(5_000);
         const checkpoint = JSON.parse(readFileSync(wizardStateFile(), "utf8"));
@@ -244,7 +246,7 @@ describe("completion and cancellation", () => {
         await vi.advanceTimersByTimeAsync(6_000);
         await settle();
         expect(flow.step.id).toBe("gpu-pick");
-        flow.submitAnswer("host-1");
+        flow.submitAnswer(PICK);
         await vi.advanceTimersByTimeAsync(2_000);
         await settle();
         flow.submitAnswer("nvidia/cuda:12.4.1-devel-ubuntu22.04");
@@ -256,7 +258,9 @@ describe("completion and cancellation", () => {
         expect(flow.step.id).toBe("wallet-check");
         expect(flow.paymentGate.required).toBe(3);
         expect(flow.answers["_wallet_insufficient"]).toBe("true");
-        flow.skipCheck();
+        const [shortfall] = flow.checkResults["wallet-check"].items;
+        expect(shortfall).toMatchObject({ name: "Wallet Balance", ok: false, topUp: true });
+        // A shortfall goes to the top-up screen by itself; no "s to skip" detour.
         await vi.advanceTimersByTimeAsync(2_000);
         await settle();
         expect(flow.step.id).toBe("payment-gate");
@@ -270,6 +274,48 @@ describe("completion and cancellation", () => {
         expect(flow.isComplete).toBe(true);
         expect(flow.answers["want-launch"]).toBe("no");
         expect(api.launchInstance).not.toHaveBeenCalled();
+    });
+
+    const atWalletCheck = async () => {
+        writePrivateFile(tokenFilePath(), JSON.stringify({ access_token: token }));
+        await start("wallet-check", {
+            mode: "rent", "want-launch": "yes", workload: "other", "gpu-pick": PICK,
+            "image-pick": "nvidia/cuda:12.4.1-devel-ubuntu22.04", "_customer_id": profile.customer_id,
+        });
+        await vi.advanceTimersByTimeAsync(2_000);
+        await settle();
+    };
+
+    it("never reports a failed balance lookup as a low balance", async () => {
+        api.getWallet.mockRejectedValueOnce(new Error("Wallet fetch failed: HTTP 503"));
+        await atWalletCheck();
+        const [item] = flow.checkResults["wallet-check"].items;
+        expect(item).toMatchObject({ name: "Balance lookup", ok: false });
+        expect(item.topUp).toBeFalsy();
+        expect(item.detail).toContain("HTTP 503");
+        expect(flow.answers["_wallet_insufficient"]).toBeUndefined();
+        expect(flow.wizardMessage.toLowerCase()).not.toMatch(/low|short|top up|add funds/);
+        await vi.advanceTimersByTimeAsync(4_000);
+        await settle();
+        expect(flow.step.id).toBe("wallet-check"); // retry offered, no top-up screen
+        expect(flow.checkCanRetry).toBe(true);
+    });
+
+    it("prices a resumed pick from the live feed and passes a funded wallet", async () => {
+        api.getWallet.mockResolvedValue({ balance_cad: 59.45, available_cad: 59.4 });
+        await atWalletCheck();
+        expect(api.listAvailableGpus).toHaveBeenCalledTimes(1);
+        const [item] = flow.checkResults["wallet-check"].items;
+        expect(item).toMatchObject({ name: "Wallet Balance", ok: true });
+        expect(item.detail).toContain("$59.40 available");
+        expect(flow.answers["_wallet_insufficient"]).toBe("false");
+    });
+
+    it("checks what a launch can spend after holds, not the raw balance", async () => {
+        api.getWallet.mockResolvedValue({ balance_cad: 100, available_cad: 1 });
+        await atWalletCheck();
+        expect(flow.answers["_wallet_insufficient"]).toBe("true");
+        expect(flow.paymentGate.balance).toBe(1);
     });
 
     it("does not start delayed step initialization after exit", async () => {

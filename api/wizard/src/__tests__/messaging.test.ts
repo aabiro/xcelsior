@@ -20,8 +20,18 @@ describe("summarizeFailure", () => {
         expect(summarizeFailure([bad("FP16 Matmul")]).toLowerCase()).toContain("benchmark");
     });
 
-    it("names a wallet failure", () => {
-        expect(summarizeFailure([bad("Wallet Balance")]).toLowerCase()).toContain("funds");
+    it("names a balance shortfall and says to top up", () => {
+        expect(summarizeFailure([bad("Wallet Balance")]).toLowerCase()).toContain("top up");
+    });
+
+    it("never calls a failed balance lookup a low balance", () => {
+        // "Could not fetch profile" used to read "Wallet balance is low — let's add funds".
+        for (const name of ["Wallet", "Balance lookup", "GPU"]) {
+            const msg = summarizeFailure([bad(name)]).toLowerCase();
+            expect(msg).not.toContain("low");
+            expect(msg).not.toContain("top up");
+            expect(msg).not.toContain("short");
+        }
     });
 
     it("names every failed check instead of a leftover count", () => {

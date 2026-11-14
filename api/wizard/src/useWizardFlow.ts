@@ -8,16 +8,24 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { openUrl as openBrowser } from "./open-url.js";
 import { configDirectory, updateEnvFile, writePrivateFile } from "./config-files.js";
-import { WIZARD_STEPS, getNextStep, STATIC_STEP_HELP, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP, DEVICE_BROWSER_DELAY_MS } from "./wizard-flow.js";
+import {
+    WIZARD_STEPS, getNextStep, STATIC_STEP_HELP, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP, DEVICE_BROWSER_DELAY_MS,
+    COMPETITIVE_DISCOUNT, providerRateFor,
+} from "./wizard-flow.js";
 import {
     streamChat, confirmAction, type ApiClientConfig,
     requestDeviceCode, pollDeviceToken,
-    getMe, createOAuthClient, searchMarketplace, type MarketplaceListing, type MarketplaceFilters,
-    getWallet, claimFreeCredits,
+    getMe, createOAuthClient, getPlatformRate,
+    listAvailableGpus, WizardError,
+    getWallet, spendableCad, claimFreeCredits,
     launchInstance, listInstances, type InstanceInfo,
     registerHost, reportVersions, reportBenchmark, reportVerification,
 } from "./api-client.js";
 import type { WizardState } from "../sprites/wizard/wizard-sprite.js";
+import {
+    buildGpuChoices, sortGpuChoices, gpuChoiceLabel, parseGpuChoiceId, unpricedGpuCount,
+    TRAINING_MIN_VRAM_GB, type GpuChoice,
+} from "./gpu-choices.js";
 import { checkDocker, type CheckResult } from "./checks.js";
 import { checkGpuBasic } from "./gpu-detect.js";
 import {
@@ -108,8 +116,8 @@ export interface UseWizardFlowReturn {
     browserOpened: boolean | null;
     /** Manual token submission */
     submitManualToken: (token: string) => void;
-    /** GPU marketplace listings for gpu-pick step */
-    gpuListings: MarketplaceListing[];
+    /** Free GPUs offered at the gpu-pick step (live feed) */
+    gpuListings: GpuChoice[];
     /** Dynamic select options for gpu-pick */
     gpuOptions: { label: string; value: string }[];
     /** Dynamic select options for image-pick */
@@ -286,7 +294,7 @@ export function buildWizardContext(
     answers: Record<string, string | string[]>,
     checkResults: Record<string, AutoCheckResults>,
     providerSummary: ProviderSummaryData | null,
-    gpuListings: MarketplaceListing[],
+    gpuListings: GpuChoice[],
     browseError: string | null,
     earlyGpu?: GpuInfo | null,
     earlyBench?: BenchmarkResult | null,
@@ -355,7 +363,7 @@ export function buildWizardContext(
         if (answers.workload) push("workload", String(answers.workload));
         if (answers["gpu-preference"]) push("gpu_pref", String(answers["gpu-preference"]));
         if (answers["gpu-pick"]) {
-            const listing = gpuListings.find((l) => l.host_id === (answers["gpu-pick"] as string));
+            const listing = gpuListings.find((l) => l.id === (answers["gpu-pick"] as string));
             if (listing) {
                 push("picked_gpu", `${listing.gpu_model}/${listing.vram_gb}GB/$${listing.price_per_hour}/hr`);
                 push("rate", `$${listing.price_per_hour}/hr`);
@@ -368,6 +376,15 @@ export function buildWizardContext(
     }
 
     return parts.join(" | ");
+}
+
+/** What the person is setting up, in words, for prompts sent to Hexara. */
+export function setupKind(mode: string | undefined): string {
+    if (mode === "rent") return "renter (launching a GPU instance)";
+    if (mode === "provide") return "provider (sharing this machine's GPU)";
+    if (mode === "both") return "renter and provider";
+    if (mode === "sdk") return "SDK integration";
+    return "wizard";
 }
 
 /** Generate a memorable instance name — exported for testing */
@@ -480,12 +497,12 @@ export function useWizardFlow(): UseWizardFlowReturn {
     const manualAuthInFlightRef = useRef(false);
 
     // Marketplace
-    const [gpuListings, setGpuListings] = useState<MarketplaceListing[]>(initialCheckpoint?.runtime?.listings ?? []);
+    const [gpuListings, setGpuListings] = useState<GpuChoice[]>(initialCheckpoint?.runtime?.listings ?? []);
     const [browseError, setBrowseError] = useState<string | null>(null);
     const [gpuOptions, setGpuOptions] = useState<{ label: string; value: string }[]>(() =>
-        (initialCheckpoint?.runtime?.listings ?? []).map((listing) => ({
-            label: `${listing.gpu_model} · ${listing.vram_gb} GB · $${listing.price_per_hour.toFixed(2)}/hr · ${listing.owner}`,
-            value: listing.host_id,
+        (initialCheckpoint?.runtime?.listings ?? []).map((choice) => ({
+            label: gpuChoiceLabel(choice),
+            value: choice.id,
         })));
     const [imageOptions, setImageOptions] = useState<{ label: string; value: string }[]>([]);
 
@@ -511,7 +528,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
     const lastAdvanceRef = useRef<number>(0);
     const checkpointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const flowGenRef = useRef(0);
-    const gpuListingsRef = useRef<MarketplaceListing[]>(initialCheckpoint?.runtime?.listings ?? []);
+    const gpuListingsRef = useRef<GpuChoice[]>(initialCheckpoint?.runtime?.listings ?? []);
     const lastAutoAnalysisRef = useRef<{ key: string; at: number } | null>(null);
 
     // Device auth — detected .env path for display
@@ -606,13 +623,13 @@ export function useWizardFlow(): UseWizardFlowReturn {
     // Compute launch summary for confirm-launch step
     const launchSummary: string[] = [];
     if (step.id === "confirm-launch") {
-        const pickedHost = answers["gpu-pick"] as string;
-        const listing = gpuListingsRef.current.find((l) => l.host_id === pickedHost);
+        const picked = answers["gpu-pick"] as string;
+        const listing = gpuListingsRef.current.find((l) => l.id === picked);
         const image = answers["image-pick"] as string;
         if (listing) {
             launchSummary.push(`GPU: ${listing.gpu_model} · ${listing.vram_gb} GB`);
-            launchSummary.push(`Host: ${listing.owner}`);
-            launchSummary.push(`Rate: $${listing.price_per_hour.toFixed(2)}/hr`);
+            launchSummary.push(`Rate: $${listing.price_per_hour.toFixed(2)}/hr — the scheduler picks the machine`);
+            if (listing.regions.length) launchSummary.push(`Where: ${listing.regions.join(", ")}`);
         }
         if (image) {
             const tpl = IMAGE_TEMPLATES.find((t) => t.value === image);
@@ -924,38 +941,41 @@ export function useWizardFlow(): UseWizardFlowReturn {
         const isCurrent = () => mountedRef.current && !completedRef.current
             && gen === flowGenRef.current && origin === stepIndexRef.current;
         setWizardState("thinking");
-        setWizardMessage("Searching the marketplace...");
+        setWizardMessage("Looking for free GPUs...");
         setBrowseError(null);
 
         const token = currentAnswers["api-key"] as string;
         const workload = currentAnswers.workload as string;
         const preference = currentAnswers["gpu-preference"] as string;
 
-        const filters: MarketplaceFilters = { limit: 20 };
-        if (preference === "cheapest") filters.sort_by = "price";
-        else if (preference === "best") filters.sort_by = "vram";
-        else filters.sort_by = "score";
-        if (workload === "training") filters.min_vram = 24;
-
         try {
-            const result = await searchMarketplace(API_BASE_URL, token, filters);
+            const feed = await listAvailableGpus(API_BASE_URL, token);
             if (!isCurrent()) return;
-            if (result.listings.length === 0) {
-                setBrowseError("No GPUs available right now. Hexara suggests checking back shortly.");
+            const all = buildGpuChoices(feed);
+            if (all.length === 0) {
+                const unpriced = unpricedGpuCount(feed);
+                setBrowseError(unpriced > 0
+                    ? `${unpriced} GPU(s) are online but can't be booked yet (no price set). Check back shortly.`
+                    : "No GPUs are free right now: every online machine is busy or still being verified. Check back shortly.");
                 setWizardState("error");
-                setWizardMessage("No GPUs found — press Enter to retry");
+                setWizardMessage("No free GPUs — press Enter to check again");
                 return;
             }
+            // Training wants 24 GB+. When none is free, show what is rather than nothing.
+            const bigEnough = workload === "training"
+                ? all.filter((choice) => choice.vram_gb >= TRAINING_MIN_VRAM_GB)
+                : all;
+            const choices = sortGpuChoices(bigEnough.length > 0 ? bigEnough : all, preference);
+            const free = choices.reduce((sum, choice) => sum + choice.count_available, 0);
 
-            gpuListingsRef.current = result.listings;
-            setGpuListings(result.listings);
-            setGpuOptions(result.listings.map((l) => ({
-                label: `${l.gpu_model} · ${l.vram_gb} GB · $${l.price_per_hour.toFixed(2)}/hr · ${l.owner}`,
-                value: l.host_id,
-            })));
+            gpuListingsRef.current = choices;
+            setGpuListings(choices);
+            setGpuOptions(choices.map((choice) => ({ label: gpuChoiceLabel(choice), value: choice.id })));
 
             setWizardState("success");
-            setWizardMessage(`Found ${result.listings.length} GPU(s)! Pick one:`);
+            setWizardMessage(bigEnough.length === 0
+                ? `No ${TRAINING_MIN_VRAM_GB} GB+ GPU is free right now — showing the ${free} that are. Pick one:`
+                : `${free} GPU(s) free right now. Pick one:`);
 
             // Auto-advance to gpu-pick
             const updated = { ...currentAnswers, "browse-gpus": "done" };
@@ -991,106 +1011,146 @@ export function useWizardFlow(): UseWizardFlowReturn {
 
     // ── Wallet check ─────────────────────────────────────────────────
 
-    const checkWallet = useCallback(async (currentAnswers: Record<string, string | string[]>): Promise<CheckResult[]> => {
-        const token = currentAnswers["api-key"] as string;
-        const customerId = currentAnswers["_customer_id"] as string;
-
-        if (!customerId) {
-            // Try to get customer ID
-            try {
-                const profile = await getMe(API_BASE_URL, token);
-                const updated = { ...currentAnswers, "_customer_id": profile.customer_id };
-                answersRef.current = updated;
-                setAnswers(updated);
-                return checkWalletInner(token, profile.customer_id, currentAnswers);
-            } catch (err) {
-                // Mark insufficient so payment-gate shows and user can retry after fixing auth
-                const updated = { ...currentAnswers, "_wallet_insufficient": "true" };
-                answersRef.current = updated;
-                setAnswers(updated);
-                return [{ name: "Wallet", ok: false, detail: "Could not fetch profile" }];
-            }
-        }
-
-        return checkWalletInner(token, customerId, currentAnswers);
+    /**
+     * The GPU the renter picked. A resumed run whose checkpoint predates the
+     * live list still has the pick's model and VRAM in its id, so its current
+     * price is looked up again rather than guessed.
+     */
+    const resolvePickedChoice = useCallback(async (
+        token: string,
+        currentAnswers: Record<string, string | string[]>,
+    ): Promise<GpuChoice | null> => {
+        const id = currentAnswers["gpu-pick"] as string | undefined;
+        const known = gpuListingsRef.current.find((choice) => choice.id === id);
+        if (known) return known;
+        if (!parseGpuChoiceId(id)) return null;
+        const fresh = buildGpuChoices(await listAvailableGpus(API_BASE_URL, token));
+        return fresh.find((choice) => choice.id === id) ?? null;
     }, []);
 
-    const checkWalletInner = useCallback(async (
-        token: string,
-        customerId: string,
-        currentAnswers: Record<string, string | string[]>,
-    ): Promise<CheckResult[]> => {
-        try {
-            // Try claiming free credits first (idempotent, best-effort)
-            let creditResult = { already_claimed: true, amount: 0 };
+    const setWalletInsufficient = useCallback((insufficient: boolean | null) => {
+        const updated = { ...answersRef.current };
+        if (insufficient === null) delete updated["_wallet_insufficient"];
+        else updated["_wallet_insufficient"] = insufficient ? "true" : "false";
+        answersRef.current = updated;
+        setAnswers(updated);
+    }, []);
+
+    const checkWallet = useCallback(async (currentAnswers: Record<string, string | string[]>): Promise<CheckResult[]> => {
+        const token = currentAnswers["api-key"] as string;
+        const billingUrl = `${API_BASE_URL}/dashboard/billing`;
+        // A failure to *read* the balance is not a low balance. It used to set
+        // `_wallet_insufficient`, so any error ended on "Your balance is too low".
+        const lookupFailed = (err: unknown): CheckResult[] => {
+            setWalletInsufficient(null);
+            return [{
+                name: "Balance lookup",
+                ok: false,
+                detail: `Couldn't read your balance: ${err instanceof Error ? err.message : "unknown error"}.`,
+                remediation: "Press Enter to try again. This is not a statement about your funds.",
+            }];
+        };
+
+        let customerId = currentAnswers["_customer_id"] as string | undefined;
+        if (!customerId) {
             try {
-                creditResult = await claimFreeCredits(API_BASE_URL, token, customerId);
-            } catch {
-                // credit claim is best-effort — don't block wallet check
-            }
-
-            const wallet = await getWallet(API_BASE_URL, token, customerId);
-            const balance = wallet.balance_cad;
-
-            // Determine required rate
-            const pickedHost = currentAnswers["gpu-pick"] as string;
-            const listing = gpuListingsRef.current.find((l) => l.host_id === pickedHost);
-            if (!listing || !Number.isFinite(listing.price_per_hour) || listing.price_per_hour < 0) {
-                throw new Error("The selected GPU price is unavailable. Return to marketplace selection before launching.");
-            }
-            const required = listing.price_per_hour;
-
-            if (balance < required) {
-                // Mark insufficient — payment-gate step will show
-                const updated = { ...currentAnswers, "_wallet_insufficient": "true" };
+                customerId = (await getMe(API_BASE_URL, token)).customer_id;
+                const updated = { ...answersRef.current, "_customer_id": customerId };
                 answersRef.current = updated;
                 setAnswers(updated);
-                setPaymentGate({
-                    balance,
-                    required,
-                    polling: false,
-                    billingUrl: `${API_BASE_URL}/dashboard/billing`,
-                });
-            } else {
-                const updated = { ...currentAnswers, "_wallet_insufficient": "false" };
-                answersRef.current = updated;
-                setAnswers(updated);
+            } catch (err) {
+                return lookupFailed(err);
             }
-
-            const detail = creditResult.already_claimed
-                ? `$${balance.toFixed(2)}`
-                : `$${balance.toFixed(2)} (includes $${creditResult.amount.toFixed(2)} welcome credit)`;
-
-            return [{ name: "Wallet Balance", ok: balance >= required, detail }];
-        } catch (err) {
-            // Wallet check failed — mark insufficient so payment-gate shows
-            const updated = { ...currentAnswers, "_wallet_insufficient": "true" };
-            answersRef.current = updated;
-            setAnswers(updated);
-            return [{ name: "Wallet", ok: false, detail: err instanceof Error ? err.message : "Failed to check wallet" }];
         }
-    }, [gpuListings]);
+
+        let choice: GpuChoice | null;
+        try {
+            choice = await resolvePickedChoice(token, currentAnswers);
+        } catch (err) {
+            return lookupFailed(err);
+        }
+        if (!choice) {
+            setWalletInsufficient(null);
+            const named = parseGpuChoiceId(currentAnswers["gpu-pick"] as string);
+            return [{
+                name: "GPU",
+                ok: false,
+                detail: named
+                    ? `The ${named.gpu_model} you picked is no longer free, so there is no price to check against.`
+                    : "This run has no GPU pick to check your balance against.",
+                remediation: "Press b to start over and pick a GPU that is free now.",
+            }];
+        }
+
+        let creditResult = { already_claimed: true, amount: 0 };
+        try {
+            // Idempotent and best-effort; it never blocks the balance read.
+            creditResult = await claimFreeCredits(API_BASE_URL, token, customerId);
+        } catch {
+            // ignore
+        }
+
+        let available: number;
+        try {
+            available = spendableCad(await getWallet(API_BASE_URL, token, customerId));
+        } catch (err) {
+            return lookupFailed(err);
+        }
+        // The server holds about one hour at this rate before it launches.
+        const required = choice.price_per_hour;
+        const credit = creditResult.already_claimed ? "" : ` (includes $${creditResult.amount.toFixed(2)} welcome credit)`;
+
+        if (available + 1e-9 < required) {
+            setWalletInsufficient(true);
+            setPaymentGate({ balance: available, required, polling: false, billingUrl });
+            return [{
+                name: "Wallet Balance",
+                ok: false,
+                topUp: true,
+                detail: `$${available.toFixed(2)} available${credit}; ${choice.gpu_model} needs about $${required.toFixed(2)} held for the first hour.`,
+                remediation: "Top up your wallet, then retry. The next screen waits for the deposit and continues on its own.",
+                url: billingUrl,
+            }];
+        }
+        setWalletInsufficient(false);
+        const hours = Math.floor(available / required);
+        return [{
+            name: "Wallet Balance",
+            ok: true,
+            detail: `$${available.toFixed(2)} available${credit} — about ${hours} hour${hours === 1 ? "" : "s"} on ${choice.gpu_model}`,
+        }];
+    }, [resolvePickedChoice, setWalletInsufficient]);
 
     // ── Instance launch ──────────────────────────────────────────────
 
     const launchGpuInstance = useCallback(async (currentAnswers: Record<string, string | string[]>): Promise<CheckResult[]> => {
         const token = currentAnswers["api-key"] as string;
-        const hostId = currentAnswers["gpu-pick"] as string;
+        // The pick names a GPU model and VRAM; the scheduler chooses the machine.
+        const pickId = currentAnswers["gpu-pick"] as string;
+        const pick = parseGpuChoiceId(pickId);
         const image = currentAnswers["image-pick"] as string;
-        const listing = gpuListingsRef.current.find((l) => l.host_id === hostId);
+        if (!pick) {
+            return [{
+                name: "GPU",
+                ok: false,
+                detail: "This run has no GPU pick from the live list, so nothing was launched.",
+                remediation: "Press b to start over and pick a GPU that is free now.",
+            }];
+        }
 
         // The launch intent is saved before the POST. A retry after an
         // ambiguous failure (a timeout or 5xx after the server committed), or
         // a resume, first looks for the instance the earlier attempt created.
         // An empty list cannot prove the POST failed: it may still be in flight.
         // Until this endpoint supports durable idempotency, never replay it.
-        const priorName = currentAnswers["_launch_host"] === hostId ? currentAnswers["_launch_name"] as string | undefined : undefined;
+        // `_launch_host` keeps its name for old checkpoints; it holds the pick.
+        const priorName = currentAnswers["_launch_host"] === pickId ? currentAnswers["_launch_name"] as string | undefined : undefined;
         const startedAt = priorName ? Number(currentAnswers["_launch_started_at"] || 0) : Date.now();
         if (priorName) {
             let existing: InstanceInfo | undefined;
             try {
                 const matches = (await listInstances(API_BASE_URL, token)).filter((instance) =>
-                    instance.name === priorName && (!instance.host_id || instance.host_id === hostId)
+                    instance.name === priorName
                     // Allow for clock skew between this machine and the server.
                     && (instance.submitted_at ?? 0) * 1000 >= startedAt - 5 * 60_000);
                 if (matches.length === 1) existing = matches[0];
@@ -1113,7 +1173,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
         const name = priorName ?? generateInstanceName();
         const intent = {
             ...answersRef.current,
-            "_launch_name": name, "_launch_host": hostId, "_launch_started_at": String(startedAt),
+            "_launch_name": name, "_launch_host": pickId, "_launch_started_at": String(startedAt),
         };
         answersRef.current = intent;
         setAnswers(intent);
@@ -1122,10 +1182,11 @@ export function useWizardFlow(): UseWizardFlowReturn {
         try {
             const instance = await launchInstance(API_BASE_URL, token, {
                 name,
-                host_id: hostId,
+                gpu_model: pick.gpu_model,
                 image: image || "nvidia/cuda:12.4.1-devel-ubuntu22.04",
                 interactive: true,
-                vram_needed_gb: listing?.vram_gb ?? 0,
+                // Selects the priced variant (e.g. 12 GB vs 24 GB of one model).
+                vram_needed_gb: pick.vram_gb,
             });
 
             setInstanceInfo(instance);
@@ -1140,10 +1201,15 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 detail: `${instance.job_id} — ${instance.status}`,
             }];
         } catch (err) {
+            // Keep the server's reason and its fix; a 402 is not always a low balance.
+            const wizardErr = err instanceof WizardError ? err : null;
             return [{
                 name: "Instance",
                 ok: false,
                 detail: err instanceof Error ? err.message : "Launch failed",
+                remediation: wizardErr?.remediation,
+                url: wizardErr?.url,
+                topUp: wizardErr?.code === "insufficient_balance",
             }];
         }
     }, [flushCheckpoint]);
@@ -1273,16 +1339,16 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     costPerHour = Number(customRate);
                 } else {
                     try {
-                        const market = await checked(searchMarketplace(API_BASE_URL, token, { gpu_model: gpu.gpu_model, limit: 20 }));
-                        const rates = market.listings.map((listing) => listing.price_per_hour)
-                            .filter((rate) => Number.isFinite(rate) && rate > 0);
-                        if (!rates.length) throw new Error("No comparable marketplace rates are available");
-                        const average = rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
-                        costPerHour = Math.round(average * (pricing === "competitive" ? 0.85 : 1) * 100) / 100;
+                        // The rate renters pay for this GPU, not an average of
+                        // listing rows (those included test hosts that never existed).
+                        const platform = await checked(getPlatformRate(API_BASE_URL, gpu.gpu_model, gpu.total_vram_gb));
+                        costPerHour = providerRateFor(pricing, platform.rate_per_hour);
+                        streamItem("Rate", true, `$${costPerHour.toFixed(2)}/hr — ${pricing === "competitive"
+                            ? `${Math.round(COMPETITIVE_DISCOUNT * 100)}% under` : "the"} platform rate of $${platform.rate_per_hour.toFixed(2)}/hr for ${platform.gpu_model}${platform.standard_variant ? "" : ` ${platform.vram_gb} GB`}`);
                     } catch (err) {
                         assertCurrent();
                         return [{ name: "Host Registration", ok: false,
-                            detail: `Cannot determine your rate: ${err instanceof Error ? err.message : "marketplace unavailable"}. Retry when rates are available.` }];
+                            detail: `Cannot determine your rate: ${err instanceof Error ? err.message : "pricing unavailable"}. Retry in a moment, or choose a custom rate.` }];
                     }
                 }
                 if (!Number.isFinite(costPerHour) || costPerHour <= 0) {
@@ -1650,9 +1716,10 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         const wallet = await getWallet(API_BASE_URL, liveAnswers["api-key"] as string, customerId);
                         if (isFlowStale(pollGen)) return;
                         walletPollFailures = 0;
-                        setPaymentGate((prev) => ({ ...prev, balance: wallet.balance_cad }));
+                        const available = spendableCad(wallet);
+                        setPaymentGate((prev) => ({ ...prev, balance: available }));
                         const listing = gpuListingsRef.current.find(
-                            (l) => l.host_id === (liveAnswers["gpu-pick"] as string),
+                            (l) => l.id === (liveAnswers["gpu-pick"] as string),
                         );
                         if (!listing || !Number.isFinite(listing.price_per_hour) || listing.price_per_hour < 0) {
                             if (walletPollRef.current) clearInterval(walletPollRef.current);
@@ -1662,7 +1729,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             setWizardMessage("The selected GPU price is unavailable. Skip this launch and select a GPU again.");
                             return;
                         }
-                        if (wallet.balance_cad >= listing.price_per_hour) {
+                        if (available + 1e-9 >= listing.price_per_hour) {
                             if (walletPollRef.current) clearInterval(walletPollRef.current);
                             walletPollRef.current = null;
                             const updated = {
@@ -1736,6 +1803,23 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         [nextStep.id]: { items: results, allPassed },
                     }));
 
+                    // A real shortfall goes straight to the top-up screen: it
+                    // opens Billing and continues by itself once the deposit
+                    // lands. It used to stop here as a failed check whose only
+                    // way forward was "s to skip".
+                    if (nextStep.checkId === "wallet" && answersRef.current["_wallet_insufficient"] === "true") {
+                        setWizardState("waiting");
+                        setWizardMessage("Not enough balance for this GPU yet — top up and the launch continues");
+                        const updated = { ...answersRef.current, [nextStep.id]: "low" };
+                        answersRef.current = updated;
+                        setAnswers(updated);
+                        transitionTimerRef.current = setTimeout(() => {
+                            transitionTimerRef.current = null;
+                            if (isEntryCurrent()) void advanceToNext(updated);
+                        }, CHOREOGRAPHY_DELAY_MS);
+                        return;
+                    }
+
                     if (allPassed) {
                         // Use "excited" (dance) for big milestones, "success" (eureka) for routine
                         // Local checks and a pending registration are progress,
@@ -1766,13 +1850,17 @@ export function useWizardFlow(): UseWizardFlowReturn {
                             .join("; ");
                         setWizardState("error");
                         const failSummary = summarizeFailure(results);
-                        setWizardMessage(apiToken ? `${failSummary} — Hexara is on it` : failSummary);
+                        // A shortfall's fix is already on screen (top up, then
+                        // retry); an AI diagnosis of it is only noise.
+                        const needsTopUp = results.some((r) => !r.ok && r.topUp);
+                        setWizardMessage(apiToken && !needsTopUp ? `${failSummary} — Hexara is on it` : failSummary);
                         setCheckCanRetry(true);
 
                         // Auto-trigger AI analysis for check failures if authenticated
                         // (skip api-check — can't reach AI if API is down)
                         if (
                             apiToken
+                            && !needsTopUp
                             && nextStep.checkId
                             && nextStep.checkId !== "api"
                             && shouldRunAutoAnalysis(nextStep.id, failDetails)
@@ -1799,7 +1887,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                                 let explanation = "";
                                 try {
                                     for await (const event of streamChat(config,
-                                        `The following checks failed during provider setup: ${failDetails}. ` +
+                                        `The following checks failed at the "${nextStep.id}" step of ${setupKind(currentAnswers.mode as string | undefined)} setup: ${failDetails}. ` +
                                         `Diagnose each failure and give the exact commands to fix it.`,
                                         conversationIdRef.current ?? undefined,
                                     )) {

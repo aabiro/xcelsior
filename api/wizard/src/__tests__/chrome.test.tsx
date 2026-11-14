@@ -44,6 +44,18 @@ describe("footerHints", () => {
         expect(k).toContain("s");
     });
 
+    it("a shortfall's retry hint says to top up first", () => {
+        const hints = footerHints({ ...base, stepType: "auto-check", isWorkStep: true, canRetry: true, needsTopUp: true });
+        expect(hints.find((h) => h.key === "enter")?.label).toBe("retry after top-up");
+        const plain = footerHints({ ...base, stepType: "auto-check", isWorkStep: true, canRetry: true });
+        expect(plain.find((h) => h.key === "enter")?.label).toBe("retry");
+    });
+
+    it("the top-up screen says s skips the launch", () => {
+        const hints = footerHints({ ...base, stepType: "payment-gate", isWorkStep: true });
+        expect(hints.find((h) => h.key === "s")?.label).toBe("skip launch");
+    });
+
     it("work step awaiting continue shows continue", () => {
         const k = keys({ ...base, stepType: "auto-check", isWorkStep: true, awaitContinue: true });
         expect(k).toContain("Tab/←→");
@@ -79,7 +91,7 @@ describe("TitleBar / KeybindFooter render", () => {
         const out = lastFrame() ?? "";
         expect(out).toContain("Xcelsior Setup");
         expect(out).toContain(`v${WIZARD_VERSION}`);
-        expect(out).toContain("Ask Hexara: type ?");
+        expect(out).toContain("Ask Hexara: press ?");
     });
 
     it("footer renders the contextual keys", () => {

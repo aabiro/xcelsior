@@ -8,18 +8,18 @@
 import React, { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { COLORS, gradientAt, supportsTruecolor } from "./theme.js";
-import { LEARN_SLIDES, nextSlideIndex, type LearnSlide } from "./learn-content.js";
+import { LEARN_SLIDES, nextSlideIndex, slideDwellMs, type LearnSlide } from "./learn-content.js";
 
 interface LearnSlidesProps {
     /** Slides to cycle (defaults to all). */
     slides?: LearnSlide[];
-    /** Ms between advances (default 6000). */
+    /** Fixed ms between advances. Omit it and each slide stays up long enough to read (slideDwellMs). */
     intervalMs?: number;
     /** Heading shown above the cycling card. */
     title?: string;
     /** Step-aware time expectation, shown above the card (Part C). */
     intro?: string | null;
-    /** Interactive nudge surfaced during the wait (e.g. "Press A to ask Hexara"). */
+    /** Interactive nudge surfaced during the wait (e.g. "Press ? to ask Hexara"). */
     nudge?: string | null;
 }
 
@@ -38,18 +38,21 @@ function Chart({ lines }: { lines: string[] }) {
     );
 }
 
-export function LearnSlides({ slides = LEARN_SLIDES, intervalMs = 6000, title, intro, nudge }: LearnSlidesProps) {
+export function LearnSlides({ slides = LEARN_SLIDES, intervalMs, title, intro, nudge }: LearnSlidesProps) {
     const [idx, setIdx] = useState(0);
+    const shown = Math.min(idx, slides.length - 1);
+    const slide = slides[shown];
+    const dwell = intervalMs ?? (slide ? slideDwellMs(slide) : 0);
 
+    // One timer per slide shown, so a long slide keeps the screen longer.
     useEffect(() => {
-        if (slides.length <= 1) return;
-        const id = setInterval(() => {
-            setIdx((i) => nextSlideIndex(i, slides.length));
-        }, intervalMs);
-        return () => clearInterval(id);
-    }, [slides.length, intervalMs]);
+        if (slides.length <= 1 || dwell <= 0) return;
+        const id = setTimeout(() => {
+            setIdx((i) => nextSlideIndex(Math.min(i, slides.length - 1), slides.length));
+        }, dwell);
+        return () => clearTimeout(id);
+    }, [shown, slides.length, dwell]);
 
-    const slide = slides[Math.min(idx, slides.length - 1)];
     if (!slide) return null;
 
     const heading = title ?? (slide.mode === "tips" ? "Tips" : "Learn");

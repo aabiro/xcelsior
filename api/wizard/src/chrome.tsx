@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { Box, Text } from "ink";
 import { COLORS, GLYPHS, gradientAt, supportsTruecolor } from "./theme.js";
 import { useTerminalWidth } from "./use-terminal-width.js";
-import type { StepType } from "./wizard-flow.js";
+import { ASK_HEXARA_KEY, type StepType } from "./wizard-flow.js";
 import type { GatePhase } from "./useWizardFlow.js";
 
 /** Read the real version from the nearest package.json (no hardcoded drift). */
@@ -54,7 +54,7 @@ function GradientRule({ width }: { width: number }) {
 export function TitleBar() {
     const width = Math.max(20, useTerminalWidth());
     const left = "✦ Xcelsior Setup";
-    const right = "Ask Hexara: type ?";
+    const right = `Ask Hexara: press ${ASK_HEXARA_KEY}`;
     const version = `v${WIZARD_VERSION}`;
     // Spread left (title+version) and right hint across the width.
     const used = left.length + version.length + 1 + right.length;
@@ -79,6 +79,8 @@ export interface FooterContext {
     aiAvailable: boolean;
     isWorkStep: boolean;
     canRetry: boolean;
+    /** The failed check's fix is adding funds. */
+    needsTopUp?: boolean;
     awaitContinue: boolean;
     showAiPrompt: boolean;
     aiResponseOpen: boolean;
@@ -98,7 +100,7 @@ export function footerHints(ctx: FooterContext): Hint[] {
 
     // An open AI prompt / response owns input.
     if (ctx.aiResponseOpen) {
-        return [{ key: "enter", label: "continue" }, { key: "?", label: "ask again" }];
+        return [{ key: "enter", label: "continue" }, { key: ASK_HEXARA_KEY, label: "ask again" }];
     }
     if (ctx.showAiPrompt) {
         return [{ key: "type", label: "your question" }, { key: "esc", label: "cancel" }];
@@ -138,15 +140,16 @@ export function footerHints(ctx: FooterContext): Hint[] {
         case "payment-gate":
             if (ctx.isWorkStep) hints.push({ key: "Tab/←→", label: "switch tab" });
             if (ctx.canRetry) {
-                hints.push({ key: "enter", label: "retry" }, { key: "s", label: "skip" });
+                hints.push({ key: "enter", label: ctx.needsTopUp ? "retry after top-up" : "retry" }, { key: "s", label: "skip" });
                 if (ctx.stepType === "auto-check") hints.push({ key: "b", label: "back" });
             } else if (ctx.awaitContinue) hints.push({ key: "enter", label: "continue" });
+            else if (ctx.stepType === "payment-gate") hints.push({ key: "s", label: "skip launch" });
             break;
         default:
             break;
     }
 
-    if (ctx.aiAvailable) hints.push({ key: "?", label: "ask Hexara" });
+    if (ctx.aiAvailable) hints.push({ key: ASK_HEXARA_KEY, label: "ask Hexara" });
     hints.push({ key: "q", label: "quit" });
     return hints;
 }

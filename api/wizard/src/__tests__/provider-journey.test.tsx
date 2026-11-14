@@ -11,7 +11,7 @@ import { WIZARD_STEPS } from "../wizard-flow.js";
 // Drives the real controller through the provider track. Only the machine
 // (GPU, Docker, network) and the HTTP boundary are replaced.
 const api = vi.hoisted(() => ({
-    getMe: vi.fn(), searchMarketplace: vi.fn(), createOAuthClient: vi.fn(),
+    getMe: vi.fn(), getPlatformRate: vi.fn(), createOAuthClient: vi.fn(),
     registerHost: vi.fn(), reportVersions: vi.fn(), reportBenchmark: vi.fn(),
 }));
 const machine = vi.hoisted(() => ({
@@ -92,10 +92,10 @@ async function drive(answers: Record<string, string>, stopAt: string) {
 beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     api.getMe.mockReset().mockResolvedValue({ user_id: "user-1", email: "provider@example.test", customer_id: "customer-1" });
-    api.searchMarketplace.mockReset().mockResolvedValue({ listings: [
-        { host_id: "peer-1", gpu_model: "RTX 4090", vram_gb: 24, price_per_hour: 0.8, owner: "peer", active: true },
-        { host_id: "peer-2", gpu_model: "RTX 4090", vram_gb: 24, price_per_hour: 1.0, owner: "peer", active: true },
-    ] });
+    // The platform rate renters pay for an RTX 4090 24 GB (prod, 2026-11-14).
+    api.getPlatformRate.mockReset().mockResolvedValue({
+        gpu_model: "RTX 4090", vram_gb: 24, rate_per_hour: 0.49, standard_variant: false,
+    });
     api.createOAuthClient.mockReset().mockResolvedValue({ client_id: "oauth_worker", client_secret: "secret_worker" });
     api.registerHost.mockReset().mockImplementation(async (_url: string, _token: string, body: { host_id: string }) => ({ host_id: body.host_id }));
     api.reportVersions.mockReset().mockResolvedValue({
@@ -143,7 +143,8 @@ describe("provider journey through the flow controller", () => {
         expect(api.registerHost).toHaveBeenCalledTimes(1);
         const registered = api.registerHost.mock.calls[0][2];
         expect(registered.ip).toBe("100.64.0.9");
-        expect(registered.cost_per_hour).toBe(0.9);
+        expect(registered.cost_per_hour).toBe(0.49);
+        expect(api.getPlatformRate.mock.calls[0].slice(1)).toEqual([gpu.gpu_model, gpu.total_vram_gb]);
         expect(registered.spot_enabled).toBe(false);
         expect(machine.installWorkerAgent).toHaveBeenCalledTimes(1);
         expect(machine.installWorkerAgent.mock.calls[0][2]).toBe(registered.host_id);
@@ -154,6 +155,26 @@ describe("provider journey through the flow controller", () => {
             expect(visited).toEqual(expect.arrayContaining(["want-launch", "confirm-setup"]));
             expect(visited).not.toContain("launch-instance");
         }
+    });
+
+    it("asks 15% under the platform rate when competitive pricing is chosen", async () => {
+        render(<Probe />);
+        await settle();
+        await drive({ pricing: "competitive", "spot-enabled": "no", "want-launch": "no" }, "done");
+        // 0.49 × 0.85 = 0.4165 → 0.42
+        expect(api.registerHost.mock.calls[0][2].cost_per_hour).toBe(0.42);
+    });
+
+    it("registers nothing when the platform rate cannot be read", async () => {
+        api.getPlatformRate.mockRejectedValue(new Error("Stripe compute pricing is unavailable"));
+        render(<Probe />);
+        await settle();
+        await expect(drive({ pricing: "recommended", "spot-enabled": "no" }, "done"))
+            .rejects.toThrow(/host-register failed/);
+        expect(api.registerHost).not.toHaveBeenCalled();
+        const [item] = flow.checkResults["host-register"].items;
+        expect(item.detail).toContain("Cannot determine your rate: Stripe compute pricing is unavailable");
+        expect(item.detail).toContain("custom rate");
     });
 
     it("stops at the network test instead of verifying with invented numbers", async () => {

@@ -23,7 +23,9 @@ const FAILURE_PHRASES: FailurePhrase[] = [
     { match: /pcie/i, phrase: "PCIe bandwidth is below target — re-measuring" },
     { match: /thermal|temp/i, phrase: "GPU is running hot — let it cool, then retry" },
     { match: /jitter|latency|packet|throughput|network/i, phrase: "Network quality is below target — checking your link" },
-    { match: /wallet|balance/i, phrase: "Wallet balance is low — let's add funds" },
+    // Only the real shortfall result. Matching /wallet|balance/ named every
+    // failed lookup ("Could not fetch profile") a low balance.
+    { match: /^wallet balance$/i, phrase: "Your balance is short for this GPU — top up, then retry" },
     { match: /admission/i, phrase: "Admission requirements aren't met yet — fixing versions" },
     { match: /verif|fingerprint|integrity|posture/i, phrase: "A verification check failed — guiding you through it" },
     { match: /api|connection|control plane/i, phrase: "Can't reach the control plane — retrying" },

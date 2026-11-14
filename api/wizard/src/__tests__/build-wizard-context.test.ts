@@ -6,7 +6,7 @@ import {
     type AutoCheckResults,
     type ProviderSummaryData,
 } from "../useWizardFlow.js";
-import type { MarketplaceListing } from "../api-client.js";
+import { gpuChoiceId, type GpuChoice } from "../gpu-choices.js";
 
 function makeSummary(overrides: Partial<ProviderSummaryData> = {}): ProviderSummaryData {
     return {
@@ -27,17 +27,16 @@ function makeSummary(overrides: Partial<ProviderSummaryData> = {}): ProviderSumm
     };
 }
 
-function makeListing(overrides: Partial<MarketplaceListing> = {}): MarketplaceListing {
+function makeListing(overrides: Partial<GpuChoice> = {}): GpuChoice {
+    const model = overrides.gpu_model ?? "RTX 4090";
+    const vram = overrides.vram_gb ?? 24;
     return {
-        host_id: "host-1",
-        gpu_model: "RTX 4090",
-        vram_gb: 24,
+        id: gpuChoiceId(model, vram),
+        gpu_model: model,
+        vram_gb: vram,
         price_per_hour: 0.50,
-        owner: "datacenter-alpha",
-        active: true,
-        total_jobs: 10,
-        total_earned: 100,
-        description: "Fast GPU",
+        count_available: 1,
+        regions: ["ca-on"],
         ...overrides,
     };
 }
@@ -123,10 +122,10 @@ describe("buildWizardContext", () => {
     });
 
     it("includes picked GPU details", () => {
-        const listings = [makeListing({ host_id: "host-1", gpu_model: "A100", vram_gb: 80, price_per_hour: 2.50 })];
+        const listings = [makeListing({ gpu_model: "A100", vram_gb: 80, price_per_hour: 2.50 })];
         const ctx = buildWizardContext("confirm-launch", {
             mode: "rent",
-            "gpu-pick": "host-1",
+            "gpu-pick": gpuChoiceId("A100", 80),
         }, {}, null, listings, null);
         expect(ctx).toContain("picked_gpu=A100/80GB/$2.5/hr");
     });
