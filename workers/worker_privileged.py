@@ -651,9 +651,16 @@ def _conntrack_lines() -> list[str]:
             return fh.read().splitlines()
     except OSError:
         pass
-    out = subprocess.run(
-        ["conntrack", "-L", "-p", "tcp"], capture_output=True, text=True, timeout=15
-    )
+    try:
+        out = subprocess.run(
+            ["conntrack", "-L", "-p", "tcp"], capture_output=True, text=True, timeout=15
+        )
+    except FileNotFoundError as exc:
+        # Said plainly so the worker's log names the missing piece. An empty
+        # list here would read as "this container has no connections".
+        raise Refused(
+            "connection tracking is unreadable: install the conntrack package on this host"
+        ) from exc
     return out.stdout.splitlines() if out.returncode == 0 else []
 
 

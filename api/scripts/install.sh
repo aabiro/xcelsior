@@ -719,6 +719,15 @@ install_egress_isolation() {
                  && sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq squid >/dev/null; } \
             || fail "Could not install squid, which protects rented containers"
     fi
+    # The resource-abuse response reads one container's open connections
+    # through the root helper, which needs the conntrack tool where the kernel
+    # does not expose /proc/net/nf_conntrack (current Ubuntu does not). Without
+    # it that one signal is blind; nothing else depends on it, so a failed
+    # install is a warning, not a stop.
+    if ! command -v conntrack >/dev/null 2>&1 && [ ! -r /proc/net/nf_conntrack ]; then
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq conntrack >/dev/null 2>&1 \
+            || warn "Could not install conntrack; the network signal of abuse detection is off on this host"
+    fi
     # The packaged service listens on every interface; ours binds only the
     # rented containers' gateway.
     sudo systemctl disable --now squid.service >/dev/null 2>&1 || true

@@ -454,3 +454,24 @@ def test_net_snapshot_reads_drop_log_for_the_restricted_bridge(conf, host_cmds, 
     reply = wp.handle(_req("tenant_net_snapshot", ip="172.30.242.5"), conf)
     assert reply["dropped"] == [{"dst": "203.0.113.9", "dport": 3333}]
     assert wp.handle(_req("tenant_net_snapshot", ip="10.0.0.1"), conf)["refused"]
+
+
+def test_net_snapshot_names_the_missing_conntrack_tool(monkeypatch):
+    """Found on both fleet hosts 2026-11-13: no /proc/net/nf_conntrack and no
+    conntrack binary. The helper died with a bare FileNotFoundError, and an
+    empty list would have read as "no connections"."""
+    monkeypatch.setattr(wp, "_CONNTRACK", "/nonexistent/nf_conntrack")
+
+    def missing(*a, **k):
+        raise FileNotFoundError(2, "No such file or directory", "conntrack")
+
+    monkeypatch.setattr(wp.subprocess, "run", missing)
+    with pytest.raises(wp.Refused, match="install the conntrack package"):
+        wp._conntrack_lines()
+
+
+def test_the_installer_provides_conntrack():
+    from pathlib import Path
+
+    text = (Path(__file__).parent.parent / "api/scripts/install.sh").read_text()
+    assert "apt-get install -y -qq conntrack" in text
