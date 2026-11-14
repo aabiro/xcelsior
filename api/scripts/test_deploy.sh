@@ -238,11 +238,15 @@ else
     fail "No proxy_next_upstream — no failover during swap"
 fi
 
-# 22. proxy_next_upstream includes 502/503/504
-if grep 'proxy_next_upstream ' nginx/xcelsior.conf | grep -q 'http_502.*http_503.*http_504'; then
-    pass "proxy_next_upstream handles 502/503/504"
+# 22. proxy_next_upstream fails over on unreachable/timeout only, never on the
+#     app's own 5xx: a listed status counts as a failed server, so one app 503
+#     disabled the primary for 10 s and every API request answered 502.
+if grep -hE '^\s*proxy_next_upstream ' nginx/xcelsior.conf nginx/mcp-xcelsior.conf | grep -v ' off;' | grep -qE 'http_5'; then
+    fail "proxy_next_upstream retries an app 5xx — one 503 takes the API down for fail_timeout"
+elif grep -q 'proxy_next_upstream error timeout;' nginx/xcelsior.conf; then
+    pass "proxy_next_upstream fails over on error/timeout only"
 else
-    fail "proxy_next_upstream missing error codes"
+    fail "proxy_next_upstream missing error/timeout failover"
 fi
 
 # 22b. WebSocket /ws has failover for blue-green API swap
