@@ -554,10 +554,29 @@ html:has(.site-nav) {
   margin-bottom: 20px;
 }
 
+.site-telemetry-head {
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+
+/* The model name and its VRAM keep one line each; when the badge has no
+   room beside them it moves under them rather than squeezing them into a
+   four-line column. */
 .site-telemetry-model {
   display: flex;
   align-items: center;
   gap: 11px;
+  white-space: nowrap;
+}
+
+.site-telemetry-head .site-live-badge {
+  white-space: nowrap;
+}
+
+.site-telemetry-regions {
+  color: var(--text);
+  font-size: 25px;
+  white-space: nowrap;
 }
 
 .site-telemetry-mark {
@@ -714,6 +733,12 @@ html:has(.site-nav) {
 .site-section {
   padding: 66px 52px;
   border-bottom: 1px solid var(--line);
+}
+
+/* "[ 01 ]" is one token: a long label wraps beside it, never through it. */
+.site-marker-code {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .site-marker {
@@ -1459,7 +1484,7 @@ html:has(.site-nav) {
 
 .site-map-image {
   object-fit: contain;
-  padding: 28px;
+  padding: 28px 28px 96px;
 }
 
 .site-map-footer {
@@ -3746,5 +3771,43 @@ html:has(.site-nav) {
 
   .site-setup-shell .site-hero-actions .site-button {
     width: 100%;
+  }
+}
+
+.site-fleet-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.site-fleet-best {
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
+  border-radius: 999px;
+  color: var(--green);
+  font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 640px) {
+  /* The pipeline art is wide and short: size its box to it instead of
+     floating it in a tall empty panel. */
+  .site-callout-visual {
+    min-height: 0;
+    aspect-ratio: 64 / 21;
+  }
+
+  /* Stacked flagship cards carry two lines; desktop's row height left them
+     half empty. */
+  .site-flagship-card {
+    min-height: 0;
+  }
+
+  .site-map-panel {
+    min-height: 360px;
   }
 }

@@ -340,7 +340,7 @@ export function GPUAvailabilityContent() {
       width: "100%",
     },
     {
-      label: t("gpus.stat_models"),
+      label: t("gpus.stat_in_stock"),
       value: `${modelsWithStock}/${gpus.length || 0}`,
       width: barWidth(modelsWithStock, gpus.length || 1, 44),
     },
@@ -413,9 +413,9 @@ export function GPUAvailabilityContent() {
 
                 <div className="site-telemetry-price">
                   <span className="site-mono" style={{ color: "var(--text-4)", fontSize: 11, textTransform: "uppercase" }}>
-                    {t("gpus.stat_models")}
+                    {t("gpus.stat_regions")}
                   </span>
-                  <strong style={{ color: "var(--text)", fontSize: 25 }}>{regionsLive || 0} regions</strong>
+                  <strong className="site-telemetry-regions">{regionsLive > 0 ? regionsLive : t("gpus.on_request")}</strong>
                 </div>
               </div>
             </div>
@@ -601,7 +601,6 @@ export function GPUAvailabilityContent() {
                     <th>{t("pricing.col_vram")}</th>
                     <th>{t("pricing.col_spot")}</th>
                     <th>{t("pricing.col_ondemand")}</th>
-                    <th>{t("gpus.updated")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -633,10 +632,13 @@ export function GPUAvailabilityContent() {
                           <div className="site-fleet-model">
                             <span className="site-fleet-dot" style={{ color: availability.color }} />
                             <div>
-                              <div>{marketingGpuLabel(gpu.gpu_model)}</div>
-                              <div className="site-table-subtle">
-                                {gpu.locations.length > 0 ? gpu.locations.join(" · ") : t("gpus.on_request")}
+                              <div className="site-fleet-name">
+                                {marketingGpuLabel(gpu.gpu_model)}
+                                {isBest ? <span className="site-fleet-best">{t("gpus.best_value")}</span> : null}
                               </div>
+                              {gpu.locations.length > 0 ? (
+                                <div className="site-table-subtle">{gpu.locations.join(" · ")}</div>
+                              ) : null}
                             </div>
                           </div>
                         </td>
@@ -646,11 +648,6 @@ export function GPUAvailabilityContent() {
                         <td>{gpu.vram_gb} GB</td>
                         <td className={priceMode === "spot" ? "site-table-x" : undefined}>{formatPrice(gpu.spot_cad)}</td>
                         <td className={priceMode === "ondemand" ? "site-table-x" : undefined}>{formatPrice(gpu.price_cad)}</td>
-                        <td>
-                          <span className="site-row-action">
-                            {isBest ? "Best value" : t("gpus.card_price_hint")}
-                          </span>
-                        </td>
                       </tr>
                     );
                   })}
@@ -664,7 +661,6 @@ export function GPUAvailabilityContent() {
           <SectionMarker code="05" label={t("gpus.velocity_badge")} />
           <div className="site-callout site-callout-split">
             <div>
-              <div className="site-product-badge" style={{ color: "var(--violet)" }}>{t("gpus.velocity_badge")}</div>
               <h2 className="site-callout-title">{t("gpus.velocity_title")}</h2>
               <p className="site-callout-copy">{t("gpus.velocity_desc")}</p>
               <div className="site-callout-visual">
