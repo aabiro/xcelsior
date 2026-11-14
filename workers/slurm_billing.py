@@ -411,19 +411,21 @@ def _settle_finished(conn, attempt_id, decimal, micros_per, job_phase, engine_fn
         )
         if moved.rowcount != 1:
             raise ValueError(f"attempt {attempt_id} changed during settlement")
-        if attempt["job_status"] == "assigned" and attempt["phase"] == "scheduled":
+        # Assigned until Slurm runs it, running once the lifecycle task has
+        # seen it run (workers/slurm_lifecycle.py).
+        if attempt["job_status"] in ("assigned", "running"):
             closed = conn.execute(
                 """
                 UPDATE jobs
                    SET status = %s, phase = %s, version = version + 1,
                        updated_at = clock_timestamp()
                  WHERE job_id = %s AND active_attempt_id = %s
-                   AND status = 'assigned' AND phase = 'scheduled'
+                   AND status IN ('assigned', 'running')
                 """,
                 (job_status, job_phase(job_status), attempt["job_id"], attempt_id),
             )
             if closed.rowcount != 1:
-                raise ValueError(f"job {attempt['job_id']} was not assigned")
+                raise ValueError(f"job {attempt['job_id']} was not assigned or running")
 
     meter = conn.execute(
         "SELECT meter_id FROM usage_meters WHERE attempt_id = %s",

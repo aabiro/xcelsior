@@ -51,6 +51,39 @@ def _bool_env(name: str, default: bool) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+#: XCELSIOR_SLURM_PLACEMENT modes, in rollout order (plan P2.9). Only the
+#: last three charge, and a placement keeps the answer it was made under
+#: (slurm_submissions.charge, migration 163).
+SLURM_PLACEMENT_MODES = ("off", "shadow", "admin", "allowlist", "all")
+SLURM_CHARGING_MODES = frozenset({"admin", "allowlist", "all"})
+
+
+def slurm_placement_mode(raw: str | None = None) -> str:
+    """The Slurm placement mode from XCELSIOR_SLURM_PLACEMENT.
+
+    ``off`` places nothing. ``shadow`` places any job that names a cluster
+    and never charges it. ``admin`` places only a platform admin's jobs,
+    ``allowlist`` those and the tenants in XCELSIOR_SLURM_TENANTS, ``all``
+    everyone's, and those three charge. The old truthy values (``1``,
+    ``true``, ``yes``, ``on``) meant "place, don't charge", so they read as
+    ``shadow``: a switch set before charging existed must never start
+    charging by itself. Anything unrecognised is ``off``.
+    """
+    value = (os.environ.get("XCELSIOR_SLURM_PLACEMENT") if raw is None else raw) or ""
+    value = value.strip().lower()
+    if value in SLURM_PLACEMENT_MODES:
+        return value
+    if value in ("1", "true", "yes", "on"):
+        return "shadow"
+    if value:
+        log.error("XCELSIOR_SLURM_PLACEMENT=%r is not a mode; Slurm placement is off", value)
+    return "off"
+
+
+def slurm_charging_enabled() -> bool:
+    return slurm_placement_mode() in SLURM_CHARGING_MODES
+
+
 def _csv_env(name: str) -> frozenset[str]:
     raw = os.environ.get(name) or ""
     return frozenset(part.strip().lower() for part in raw.split(",") if part.strip())
@@ -100,8 +133,12 @@ class SchedulerConfig:
     lease_renewal_ttl_sec: int = 300
     # Off until a cluster is ready to take jobs. A job that names
     # hpc_cluster_id stays queued (reason slurm_placement_disabled) and is
-    # never placed on a host. On, the scheduler places it on that cluster.
+    # never placed on a host. On, the scheduler places it on that cluster,
+    # for the owners slurm_placement_mode admits (see slurm_placement_mode).
     slurm_placement: bool = False
+    slurm_placement_mode: str = "shadow"
+    # Tenant ids admitted in "allowlist" mode (XCELSIOR_SLURM_TENANTS).
+    slurm_tenants: frozenset[str] = frozenset()
 
     def owns_job(self, job: dict) -> bool:
         """Does the new scheduler own queued→assigned for this job?
@@ -150,5 +187,7 @@ class SchedulerConfig:
             tick_max_placements=_int_env("XCELSIOR_SCHEDULER_TICK_MAX_PLACEMENTS", 10),
             lease_claim_ttl_sec=_int_env("XCELSIOR_SCHEDULER_LEASE_CLAIM_TTL_SEC", 60),
             lease_renewal_ttl_sec=_int_env("XCELSIOR_SCHEDULER_LEASE_RENEWAL_TTL_SEC", 300),
-            slurm_placement=_bool_env("XCELSIOR_SLURM_PLACEMENT", False),
+            slurm_placement=slurm_placement_mode() != "off",
+            slurm_placement_mode=slurm_placement_mode(),
+            slurm_tenants=_csv_env("XCELSIOR_SLURM_TENANTS"),
         )

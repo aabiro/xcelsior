@@ -801,6 +801,18 @@ def main():
 
     register_task("slurm_billing_drift", _slurm_billing_drift, 3600)
 
+    # 22f. Slurm attempt lifecycle (blueprint 2.4). A Slurm attempt has no
+    # worker to report on it, so this moves it from what the reconciler saw:
+    # running, then closed when its mapping settles. It charges only a
+    # placement made in a charging mode of XCELSIOR_SLURM_PLACEMENT (admin,
+    # allowlist, all) while charging is on; a shadow placement never is.
+    def _slurm_lifecycle():
+        from slurm_lifecycle import advance_attempts
+
+        advance_attempts()
+
+    register_task("slurm_lifecycle", _slurm_lifecycle, 30)
+
     # ── Launch executor thread ───────────────────────────────────────
     def _executor_loop():
         log.info("Durable scheduled task executor started (worker_id=%s)", WORKER_ID)

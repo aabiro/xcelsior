@@ -21,6 +21,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from control_plane.job_specs import validate_execution_spec
+from control_plane.scheduler.config import SLURM_CHARGING_MODES
 from control_plane.scheduler.filters import FILTER_POLICY_VERSION
 from control_plane.scheduler.reservation import (
     ClaimLost,
@@ -75,6 +76,30 @@ def _gpu_count(spec: dict) -> int:
     return count
 
 
+def _admit_owner(conn, *, job_id: str, tenant_id, mode: str, tenants: frozenset[str]) -> None:
+    """Refuse an owner the rollout mode doesn't admit yet (plan P2.9)."""
+    if mode in ("shadow", "all"):
+        return
+    owner = str(tenant_id or "").strip()
+    if mode == "allowlist" and owner and owner in tenants:
+        return
+    admin = (
+        owner
+        and conn.execute(
+            "SELECT 1 FROM users WHERE customer_id = %s AND (is_admin = 1 OR role = 'admin') LIMIT 1",
+            (owner,),
+        ).fetchone()
+    )
+    if admin:
+        return
+    raise SlurmPlacementRefused(
+        "slurm_placement_not_allowed",
+        f"Slurm placement is {mode}-only; this job's owner is not admitted yet",
+        job_id=job_id,
+        mode=mode,
+    )
+
+
 def place_on_cluster(
     conn: Connection,
     *,
@@ -84,8 +109,16 @@ def place_on_cluster(
     cluster_id: str,
     expected_spec_hash: str | None,
     trace_id: str | None,
+    mode: str = "shadow",
+    tenants: frozenset[str] = frozenset(),
 ) -> SlurmPlacement:
     """Bind ``job_id`` to ``cluster_id`` inside the caller's transaction.
+
+    ``mode`` is the XCELSIOR_SLURM_PLACEMENT mode: in ``admin`` and
+    ``allowlist`` only the owners they admit are placed (anyone else is
+    refused with ``slurm_placement_not_allowed`` and stays queued). Whether
+    the placement may ever be charged is decided here, from the mode, and
+    kept on the submission (migration 163).
 
     Raises a :class:`ReservationConflict` when the claim, the spec or the
     cluster no longer allows it. The transaction rolls back with the exception.
@@ -198,6 +231,13 @@ def place_on_cluster(
             f"submission name {submission_name!r} is not a legal Slurm job name",
             submission_name=submission_name,
         )
+    _admit_owner(
+        conn,
+        job_id=job_id,
+        tenant_id=spec.get("tenant_id") or job["tenant_id"],
+        mode=mode,
+        tenants=tenants,
+    )
     target = f"slurm:{cluster_id}"
     fencing_token = int(
         _require(conn.execute("SELECT nextval('placement_fencing_token_seq')").fetchone())[0]
@@ -233,10 +273,18 @@ def place_on_cluster(
         conn.execute(
             """
             INSERT INTO slurm_submissions
-                (submission_name, cluster_id, xcelsior_job_id, attempt_id, tenant_id, state)
-            VALUES (%s, %s, %s, %s, %s, 'pending')
+                (submission_name, cluster_id, xcelsior_job_id, attempt_id, tenant_id, state,
+                 charge)
+            VALUES (%s, %s, %s, %s, %s, 'pending', %s)
             """,
-            (submission_name, cluster_id, job_id, attempt_id, tenant_id),
+            (
+                submission_name,
+                cluster_id,
+                job_id,
+                attempt_id,
+                tenant_id,
+                mode in SLURM_CHARGING_MODES,
+            ),
         )
     except UniqueViolation as exc:
         raise SlurmPlacementRefused(

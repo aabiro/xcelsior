@@ -53,6 +53,7 @@ TASK_SERVICES = {
     "slurm_reconcile": "api",  # writes slurm_job_mappings and slurm_clusters
     "slurm_submit": "api",  # writes slurm_submissions and slurm_job_mappings
     "slurm_billing_drift": "api",  # writes slurm_billing_drift; the ledger is not charged
+    "slurm_lifecycle": "api",  # moves Slurm attempts and jobs; charges wallets in charging modes
 }
 
 DDL_TASKS = frozenset({"audit_partition_maintenance", "telemetry_partition_maintenance"})

@@ -79,7 +79,9 @@ from psycopg import Connection
 # key's issuer reads. 162 stores agents' permission requests, which the
 # approval page and the MCP permission tools read. A database at 160 has
 # neither.
-REQUIRED_MIN_REVISION = "162"
+# 163 records whether a Slurm placement may be charged, which placement
+# writes and the lifecycle task reads. A database at 162 refuses that insert.
+REQUIRED_MIN_REVISION = "163"
 REQUIRED_MAX_REVISION: str | None = None
 
 

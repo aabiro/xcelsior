@@ -327,6 +327,8 @@ class SchedulerService:
                     cluster_id=cluster_id,
                     expected_spec_hash=claimed.spec_hash,
                     trace_id=trace_id,
+                    mode=self.config.slurm_placement_mode,
+                    tenants=self.config.slurm_tenants,
                 ),
                 what="sched_slurm_place",
                 isolation_level="SERIALIZABLE",

@@ -89,7 +89,7 @@ def _host(fleet, host_id, gpu_model):
     return payload
 
 
-def _job(fleet, job_id, *, gpu_model, cluster_id, preferred_host_id=None, owner=None):
+def _job(fleet, job_id, *, gpu_model, cluster_id, preferred_host_id=None, owner=None, tenant=None):
     payload = {
         "job_id": job_id,
         "name": job_id,
@@ -130,6 +130,8 @@ def _job(fleet, job_id, *, gpu_model, cluster_id, preferred_host_id=None, owner=
                 submitted,
             ),
         )
+        if tenant:
+            conn.execute("UPDATE jobs SET tenant_id = %s WHERE job_id = %s", (tenant, job_id))
         admit_fixture_job(conn, job_id)
         conn.commit()
     fleet["jobs"].append(job_id)
@@ -480,13 +482,15 @@ def test_a_research_only_cluster_does_not_take_the_job(fleet):
 # ── The Slurm-only tick (the staging shadow week, blueprint 2.3) ──────
 
 
-def _slurm_only(*, slurm_placement=True):
+def _slurm_only(*, slurm_placement=True, mode="shadow", tenants=frozenset()):
     return SchedulerService(
         SchedulerConfig(
             mode=SchedulerMode.SHADOW,  # the mode staging runs; the narrow tick ignores it
             replica_id=f"slurm-only-{uuid.uuid4().hex[:6]}",
             tick_max_placements=5,
             slurm_placement=slurm_placement,
+            slurm_placement_mode=mode,
+            slurm_tenants=frozenset(tenants),
         )
     ).tick_slurm_only()
 
@@ -580,3 +584,86 @@ def test_a_job_without_a_cluster_gets_no_cluster_key(fleet):
         spec = conn.execute("SELECT spec FROM jobs WHERE job_id = %s", (job["job_id"],)).fetchone()[0]
     assert "hpc_cluster_id" not in spec
     assert "hpc_cluster_id" not in spec["admission_request"]
+
+
+# ── Rollout modes (plan P2.9, migration 163) ─────────────────────────
+
+
+@pytest.fixture
+def admin_tenant():
+    tenant = f"admin-{uuid.uuid4().hex[:8]}"
+    with _pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO users (email, user_id, created_at, customer_id, is_admin) "
+            "VALUES (%s, %s, %s, %s, 1)",
+            (f"{tenant}@example.com", f"u-{tenant}", time.time(), tenant),
+        )
+        conn.commit()
+    yield tenant
+    with _pool.connection() as conn:
+        conn.execute("DELETE FROM users WHERE customer_id = %s", (tenant,))
+        conn.commit()
+
+
+def _submission(job_id):
+    with _pool.connection() as conn:
+        row = conn.execute(
+            "SELECT charge FROM slurm_submissions WHERE xcelsior_job_id = %s", (job_id,)
+        ).fetchone()
+    return None if row is None else {"charge": row[0]}
+
+
+def _cleanup_submissions(job_ids):
+    with _pool.connection() as conn:
+        conn.execute("DELETE FROM slurm_submissions WHERE xcelsior_job_id = ANY(%s)", (job_ids,))
+        conn.commit()
+
+
+def test_admin_mode_places_only_an_admins_job_and_marks_it_chargeable(fleet, admin_tenant):
+    marker = uuid.uuid4().hex[:8]
+    cluster_id = f"c{marker}"
+    theirs, ours = f"jobt{marker}", f"joba{marker}"
+    _cluster(fleet, cluster_id)
+    _job(fleet, theirs, gpu_model=f"SLURM-{marker}", cluster_id=cluster_id, tenant=f"t-{marker}")
+    _job(fleet, ours, gpu_model=f"SLURM-{marker}", cluster_id=cluster_id, tenant=admin_tenant)
+    try:
+        report = _slurm_only(mode="admin")
+        placed = [p.job_id for p in report.slurm_placements]
+        assert ours in placed and theirs not in placed
+        assert (theirs, "slurm_placement_not_allowed") in report.released
+        assert _job_row(theirs)["status"] == "queued"
+        assert _submission(theirs) is None
+        assert _submission(ours) == {"charge": True}
+    finally:
+        _cleanup_submissions([theirs, ours])
+
+
+def test_allowlist_mode_admits_a_listed_tenant(fleet):
+    marker = uuid.uuid4().hex[:8]
+    cluster_id = f"c{marker}"
+    listed, unlisted = f"jobl{marker}", f"jobu{marker}"
+    _cluster(fleet, cluster_id)
+    _job(fleet, listed, gpu_model=f"SLURM-{marker}", cluster_id=cluster_id, tenant=f"l-{marker}")
+    _job(fleet, unlisted, gpu_model=f"SLURM-{marker}", cluster_id=cluster_id, tenant=f"u-{marker}")
+    try:
+        report = _slurm_only(mode="allowlist", tenants={f"l-{marker}"})
+        placed = [p.job_id for p in report.slurm_placements]
+        assert listed in placed and unlisted not in placed
+        assert _submission(listed) == {"charge": True}
+        assert (unlisted, "slurm_placement_not_allowed") in report.released
+    finally:
+        _cleanup_submissions([listed, unlisted])
+
+
+def test_shadow_mode_places_anyone_and_never_marks_it_chargeable(fleet):
+    marker = uuid.uuid4().hex[:8]
+    cluster_id = f"c{marker}"
+    job_id = f"jobs{marker}"
+    _cluster(fleet, cluster_id)
+    _job(fleet, job_id, gpu_model=f"SLURM-{marker}", cluster_id=cluster_id, tenant=f"t-{marker}")
+    try:
+        report = _slurm_only(mode="shadow")
+        assert job_id in [p.job_id for p in report.slurm_placements]
+        assert _submission(job_id) == {"charge": False}
+    finally:
+        _cleanup_submissions([job_id])
