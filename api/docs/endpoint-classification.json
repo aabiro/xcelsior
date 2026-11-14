@@ -23,6 +23,10 @@
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
+  "DELETE /api/auth/me/business-logo": {
+    "class": "internal",
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
   "DELETE /api/auth/mfa/all": {
     "class": "internal",
     "notes": "account security enrolment (TOTP, SMS, passkeys, backup codes); first-party dashboard only and never an agent capability"
@@ -42,6 +46,10 @@
   "DELETE /api/billing/payment-methods/{payment_method_id}": {
     "class": "internal",
     "notes": "card and subscription management. The plan puts adding a card out of the agent surface entirely: card data belongs on a first-party page and the agent only ever references what is already on file"
+  },
+  "DELETE /api/hosts/{host_id}": {
+    "class": "redundant",
+    "notes": "Alias of DELETE /host/{host_id}, mounted under /api/hosts for the console. Counted once, on the DELETE /host/{host_id} row: inheriting its label here would double-count the capability."
   },
   "DELETE /api/keys/{key_preview}": {
     "class": "internal",
@@ -243,6 +251,10 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "GET /api/admin/security/mining": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
   "GET /api/admin/stats": {
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
@@ -332,6 +344,10 @@
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "GET /api/auth/me/avatar": {
+    "class": "internal",
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "GET /api/auth/me/business-logo": {
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
@@ -491,9 +507,17 @@
     "class": "covered",
     "notes": "get_event_history. The state-change log for a job or host; distinct from the §20.3 attempt timeline."
   },
+  "GET /api/hosts/{host_id}": {
+    "class": "redundant",
+    "notes": "Alias of GET /host/{host_id}, mounted under /api/hosts for the console. Counted once, on the GET /host/{host_id} row: inheriting its label here would double-count the capability."
+  },
   "GET /api/hosts/{host_id}/admission": {
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
+  },
+  "GET /api/hosts/{host_id}/maintenance": {
+    "class": "redundant",
+    "notes": "Alias of GET /host/{host_id}/maintenance, mounted under /api/hosts for the console. Counted once, on the GET /host/{host_id}/maintenance row: inheriting its label here would double-count the capability."
   },
   "GET /api/hosts/{host_id}/spot-preview": {
     "class": "gap",
@@ -522,6 +546,14 @@
   "GET /api/locations": {
     "class": "internal",
     "notes": "public location choices for first-party onboarding and Settings; complete ISO country/subdivision catalog and country-specific address requirements"
+  },
+  "GET /api/mcp/permission-requests/{code}": {
+    "class": "internal",
+    "notes": "the approval page (/dashboard/mcp/approve) reads the request; interactive sessions only (_require_user_grant), so no agent credential can call it"
+  },
+  "GET /api/mcp/permissions": {
+    "class": "covered",
+    "notes": "get_permissions (mcp/src/tools/permissions.ts), any granted scope. What the calling Quick Connect key holds and what it would unlock, in plain words; read-only."
   },
   "GET /api/mcp/quick-connect": {
     "class": "internal",
@@ -1419,6 +1451,10 @@
     "class": "internal",
     "notes": "platform admin console; operator surface, not the tool surface"
   },
+  "POST /api/admin/security/mining/{job_id}/decision": {
+    "class": "internal",
+    "notes": "platform admin console; operator surface, not the tool surface"
+  },
   "POST /api/admin/users/{email}/delete": {
     "class": "internal",
     "notes": "Platform-admin account removal through the durable privacy-deletion workflow; destructive operator administration is not exposed as a customer MCP tool."
@@ -1508,6 +1544,10 @@
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
   "POST /api/auth/me/avatar": {
+    "class": "internal",
+    "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "POST /api/auth/me/business-logo": {
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
@@ -1715,6 +1755,10 @@
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
   },
+  "POST /api/hosts/{host_id}/drain": {
+    "class": "redundant",
+    "notes": "Alias of POST /host/{host_id}/drain, mounted under /api/hosts for the console. Counted once, on the POST /host/{host_id}/drain row: inheriting its label here would double-count the capability. drain_host calls /api/v1/hosts/{id}/drain."
+  },
   "POST /api/hosts/{host_id}/enrollment": {
     "class": "gap",
     "notes": "Provider axis, like PUT /host: connects an owner's registered host to the agent gateway (single-use SPIRE join token and mesh key). The installer and wizard call it; the provider class has no tools yet."
@@ -1722,6 +1766,10 @@
   "POST /api/hosts/{host_id}/provider-evidence": {
     "class": "internal",
     "notes": "host admission handshake between platform and worker"
+  },
+  "POST /api/hosts/{host_id}/undrain": {
+    "class": "redundant",
+    "notes": "Alias of POST /host/{host_id}/undrain, mounted under /api/hosts for the console. Counted once, on the POST /host/{host_id}/undrain row: inheriting its label here would double-count the capability. undrain_host calls /api/v1/hosts/{id}/undrain."
   },
   "POST /api/inference": {
     "class": "redundant",
@@ -1746,6 +1794,14 @@
   "POST /api/locations/search": {
     "class": "internal",
     "notes": "authenticated first-party profile address entry; sends typed text and chosen country to Photon (OpenStreetMap search), never a general agent lookup"
+  },
+  "POST /api/mcp/permission-requests": {
+    "class": "covered",
+    "notes": "request_permission (mcp/src/tools/permissions.ts), any granted scope. Records a request and returns an approval link; grants nothing. Only the key's owner answers it, from an interactive session."
+  },
+  "POST /api/mcp/permission-requests/{code}/decision": {
+    "class": "internal",
+    "notes": "the person approves or declines; interactive sessions only. A tool here would let an agent grant itself a permission"
   },
   "POST /api/notifications/push/subscription": {
     "class": "internal",
@@ -2362,6 +2418,10 @@
   "PUT /api/auth/me/profile": {
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "PUT /api/mcp/quick-connect/permissions": {
+    "class": "internal",
+    "notes": "the dashboard's Read / Write / Custom picker for a Quick Connect key; changes what a credential may do, so never a tool"
   },
   "PUT /api/meta/consent": {
     "class": "internal",

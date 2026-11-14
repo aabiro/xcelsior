@@ -111,9 +111,38 @@ def _described() -> set[str]:
     return set(re.findall(r"^\s{2}([a-z_][a-z0-9_]*):", block, re.MULTILINE))
 
 
+def _mutating(scopes: list[str]) -> list[bool]:
+    return [scope.split(":", 1)[1] in MUTATING_SUFFIXES for scope in scopes]
+
+
 def _is_mutating(requirement: str) -> bool:
-    scopes = re.findall(r'"([a-z_]+):([a-z_]+)"', requirement)
-    return any(suffix in MUTATING_SUFFIXES for _domain, suffix in scopes)
+    """Whether the requirement *demands* a mutating scope.
+
+    Every `allOf` scope is demanded. An `anyOf` demands a mutating scope only
+    when it offers no other kind: `get_permissions` takes any granted scope,
+    reads included, so that a key holding only a write can still say what it
+    holds. A requirement whose shape this does not parse is treated as
+    demanding everything it names.
+    """
+    groups = {
+        kind: re.findall(r'"([a-z_]+:[a-z_]+)"', body)
+        for kind, body in re.findall(r"(allOf|anyOf):\s*\[([^\]]*)\]", requirement)
+    }
+    if not groups:
+        return any(_mutating(re.findall(r'"([a-z_]+:[a-z_]+)"', requirement)))
+    if any(_mutating(groups.get("allOf", []))):
+        return True
+    alternatives = groups.get("anyOf", [])
+    return bool(alternatives) and all(_mutating(alternatives))
+
+
+def test_an_alternative_is_not_a_demand():
+    """Calibrates `_is_mutating` both ways, so the relaxation cannot widen."""
+    assert _is_mutating('{ allOf: ["instances:write"] }')
+    assert _is_mutating('{ allOf: ["gpu:read", "instances:write"] }')
+    assert _is_mutating('{ anyOf: ["instances:write", "volumes:write"] }')
+    assert not _is_mutating('{ anyOf: ["instances:read", "instances:write"] }')
+    assert not _is_mutating('{ allOf: ["gpu:read"] }')
 
 
 # ── Calibration ───────────────────────────────────────────────────────

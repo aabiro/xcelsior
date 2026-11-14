@@ -2014,15 +2014,8 @@ def api_mcp_quick_connect_permissions(body: McpPermissionsUpdate, request: Reque
 # side changes a permission.
 
 
-def _public_base_url() -> str:
-    return (
-        os.environ.get("XCELSIOR_PUBLIC_URL")
-        or os.environ.get("XCELSIOR_BASE_URL")
-        or "https://xcelsior.ca"
-    ).rstrip("/")
-
-
 def _mcp_approve_url(code: str) -> str:
+    # _public_base_url is defined further down, beside the deletion flow.
     return f"{_public_base_url()}/dashboard/mcp/approve?code={code}"
 
 
@@ -2075,7 +2068,7 @@ def _permission_request_payload(row: dict, *, key_prefix: str | None = None) -> 
         "surface": row["surface"],
         "key_prefix": key_prefix,
         "reason": row["reason"],
-        "requested": _describe_scopes((row["scopes"] or "").split()),
+        "requested": _describe_scopes(str(row["scopes"] or "").split()),
         "created_at": row["created_at"].isoformat(),
         "expires_at": row["expires_at"].isoformat(),
     }

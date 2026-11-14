@@ -78,6 +78,12 @@ _AUTH_CALLS = (
     "_require_inference_endpoint_access",
     "_resolve_serverless_endpoint_auth",
     "_resolve_artifact_job_id",
+    # The calling credential must be a Quick Connect key (MCP permission
+    # requests); refuses everything else with 403.
+    "_require_quick_connect_key",
+    # Wise payout console: a platform admin at a first-party session (403
+    # for any machine, agent or connector credential).
+    "_require_wise_admin",
     "_prepare_authorization",
     "_refuse_undelegatable_scopes",
     "_authorize_instance_mutation",

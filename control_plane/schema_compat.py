@@ -75,7 +75,11 @@ from psycopg import Connection
 # 158 is the Slurm submit ledger and the shadow billing tables. Placement
 # counts an open submission against the team cap, and the submitter reads
 # that ledger. A database at 157 has the mapping rename and not the ledger.
-REQUIRED_MIN_REVISION = "158"
+# 161 records a Quick Connect key's Read / Write / Custom preset, which the
+# key's issuer reads. 162 stores agents' permission requests, which the
+# approval page and the MCP permission tools read. A database at 160 has
+# neither.
+REQUIRED_MIN_REVISION = "162"
 REQUIRED_MAX_REVISION: str | None = None
 
 
