@@ -742,6 +742,11 @@ services:
         NEXT_PUBLIC_GA_MEASUREMENT_ID: ${NEXT_PUBLIC_GA_MEASUREMENT_ID:-}
         META_PIXEL_ID: ${META_PIXEL_ID:-}
         NEXT_PUBLIC_REOWN_PROJECT_ID: ${NEXT_PUBLIC_REOWN_PROJECT_ID:-}
+        # Production .env has these. The Dockerfile does not declare them, so
+        # the image build does not inline them. The SSH host matches the
+        # fallback already in the dashboard.
+        NEXT_PUBLIC_REOWN_PROJECT_SECRET: ${NEXT_PUBLIC_REOWN_PROJECT_SECRET:-}
+        NEXT_PUBLIC_SSH_HOST: ${NEXT_PUBLIC_SSH_HOST:-}
         # Public/write-only phc_ token: Next.js must receive this while building
         # because NEXT_PUBLIC_* values are inlined into the browser bundle.
         NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
