@@ -98,16 +98,15 @@ def test_renaming_an_unknown_agent_key_is_404(user_headers) -> None:
 def test_demo_credentials_are_ip_gated() -> None:
     """Open by design to a whitelist, so the only useful assertion is the refusal.
 
-    `in (200, 403)` would pass whether the gate works or the route is wide open
-    — `tests/test_authz_assertions_can_fail.py` rejects exactly that shape. The
-    TestClient's peer is the literal string `testclient`, which is in no
-    whitelist and never will be, so 403 is the deterministic answer here and
-    the one worth pinning.
+    The TestClient's peer is the literal string `testclient`, which is in no
+    whitelist and never will be. The refusal is a 200 saying the demo is not
+    available (a 403 logged a console error for every visitor to /login), so
+    what is pinned is the whole body: no email, no password.
     """
     r = client.get("/api/auth/demo-credentials")
-    assert r.status_code == 403, (
-        f"an unwhitelisted caller got {r.status_code} from the demo-credentials "
-        f"route: {r.text[:200]}"
+    assert r.status_code == 200, r.text[:200]
+    assert r.json() == {"available": False}, (
+        f"an unwhitelisted caller was given more than a refusal: {r.text[:200]}"
     )
 
 

@@ -2629,9 +2629,15 @@ def api_auth_register(body: RegisterRequest, request: Request):
 def api_auth_demo_credentials(request: Request):
     """Reveal the standing demo-account credentials, but ONLY to whitelisted IPs
     (the owner's public IP, Tailscale nodes, home LAN, localhost). The login page
-    calls this on mount: 200 → show the one-click "Demo account" button and
-    prefill the fields; anything else → hide it. See demo_account.py for the
-    whitelist and the security caveats. Kill switch: XCELSIOR_DEMO_ENABLED=0."""
+    calls this on mount: credentials → show the one-click "Demo account" button
+    and prefill the fields; ``{"available": false}`` → hide it. See
+    demo_account.py for the whitelist and the security caveats. Kill switch:
+    XCELSIOR_DEMO_ENABLED=0.
+
+    A refusal is a 200, not a 403. Every visitor to /login outside the
+    whitelist gets one, and browsers log any 4xx in the console, so a 403 put
+    a red error in front of anyone who opened devtools on the sign-in page.
+    Nothing is revealed either way: the refusal carries no credentials."""
     from demo_account import (
         DEMO_EMAIL,
         DEMO_PASSWORD,
@@ -2639,13 +2645,9 @@ def api_auth_demo_credentials(request: Request):
         is_ip_whitelisted,
     )
 
-    if not demo_enabled():
-        raise HTTPException(404, "Not found")
-    client_ip = _deps_get_real_client_ip(request)
-    if not is_ip_whitelisted(client_ip):
-        # 403, not 404: the endpoint exists, this network just isn't allowed.
-        raise HTTPException(403, "Demo login is not available from this network.")
-    return {"email": DEMO_EMAIL, "password": DEMO_PASSWORD}
+    if not demo_enabled() or not is_ip_whitelisted(_deps_get_real_client_ip(request)):
+        return {"available": False}
+    return {"available": True, "email": DEMO_EMAIL, "password": DEMO_PASSWORD}
 
 
 @router.post("/api/auth/login", tags=["Auth"])
