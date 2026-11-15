@@ -940,6 +940,8 @@ const en_dashboard: Record<string, string> = {
   "dash.hpc.tab_submit": "Submit Job",
   "dash.hpc.tab_jobs": "Jobs",
   "dash.hpc.tab_clusters": "Clusters",
+  "dash.hpc.tab_ledger": "Billing ledger",
+  "dash.hpc.tab_submissions": "Submit log",
   "dash.hpc.internal_badge": "Internal · operators only",
   "dash.hpc.subtitle": "Every figure here is the reconciler's last observation. Refreshing this page never contacts a cluster.",
   "dash.hpc.submit_title": "Submit HPC Job",

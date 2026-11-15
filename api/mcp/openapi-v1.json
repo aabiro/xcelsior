@@ -1925,6 +1925,180 @@
         }
       }
     },
+    "/api/v1/hpc/billing": {
+      "get": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Hpc Billing",
+        "description": "The Slurm billing ledger and its daily drift against the cluster's own\naccounting, for the last `days` days.\n\n`segments`: one entry per accounting record of a settled job, newest\nfirst, with the seconds it bills and the rule that decided them (a\nrequeued job has one per run). `drift`: one entry per cluster per day,\nthe ledger's GPU seconds against `sacct`'s; `within_tolerance` is false\npast `tolerance_pct`. `totals` covers the whole window, not the page.\n`shadow_cost_micros` is what the rate card would charge; only `charged`\nsegments have been billed. Operators only. Read-only; never contacts a\ncluster.",
+        "operationId": "api_v1_hpc_billing_api_v1_hpc_billing_get",
+        "parameters": [
+          {
+            "name": "cluster_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cluster Id"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "default": 14,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hpc/submissions": {
+      "get": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Hpc Submissions",
+        "description": "The submit log: one entry per submission intent, newest first.\n\nA row is written before any `sbatch`, so this shows what never became a\njob as well as what did: `rejected` (sbatch refused it), `unknown` (the\ncall timed out and the job is being looked for by name) and `lost`\n(looked for and not found). `state`: one of those, `pending`,\n`submitting`, `submitted`, `open` (still to be resolved) or `all`.\nOperators only. Read-only; never contacts a cluster.",
+        "operationId": "api_v1_hpc_submissions_api_v1_hpc_submissions_get",
+        "parameters": [
+          {
+            "name": "cluster_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cluster Id"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "all",
+              "title": "State"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint": {
       "post": {
         "tags": [

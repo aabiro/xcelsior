@@ -617,3 +617,226 @@ class TestCancel:
         _problem(
             client.delete(f"/api/v1/hpc/jobs/{job_id}", headers=hpc["b"]), 404, "hpc_job_not_found"
         )
+
+
+# ── Fleet figures, the billing ledger and the submit log ──────────────
+# What the operator console adds to the registry: per-cluster job counts, the
+# ledger with its daily drift, and the submissions that never became a job.
+
+
+@pytest.fixture
+def ledger(world):
+    """The world's settled job with two billed runs (a requeue), two drift
+    days (one over tolerance) and two submissions (one rejected)."""
+    import json
+
+    from psycopg.types.json import Jsonb
+
+    cid, done = world["cid"], world["ids"]["a_done"]
+    jobs = [f"{cid}-s1", f"{cid}-s2"]
+    with pg_transaction() as conn:
+        conn.execute(
+            "UPDATE slurm_clusters SET rate_card = %s, failure_counts = %s WHERE cluster_id = %s",
+            (
+                Jsonb({"gpu_hour_micros": 360_000, "gpu_model": "RTX 3060", "junk": "x"}),
+                Jsonb({"pass:transport_timeout": 2}),
+                cid,
+            ),
+        )
+        mapping_id = conn.execute(
+            "SELECT mapping_id FROM slurm_job_mappings WHERE xcelsior_job_id = %s", (done,)
+        ).fetchone()[0]
+        for run, state, elapsed, rule, cost, age in (
+            (0, "REQUEUED", 75, "requeued_run", 7500, "2 hours"),
+            (1, "COMPLETED", 301, "ran_to_end", 30100, "1 hour"),
+        ):
+            conn.execute(
+                """
+                INSERT INTO slurm_billing_segments
+                    (mapping_id, run_index, cluster_id, slurm_job_id, xcelsior_job_id,
+                     slurm_state, started_at, ended_at, elapsed_sec, gpu_count, billable_sec,
+                     billing_rule, gpu_seconds, rate_micros_per_gpu_hour, shadow_cost_micros)
+                VALUES (%s, %s, %s, '102', %s, %s,
+                        clock_timestamp() - %s::interval - make_interval(secs => %s),
+                        clock_timestamp() - %s::interval, %s, 1, %s, %s, %s, 360000, %s)
+                """,
+                (
+                    mapping_id,
+                    run,
+                    cid,
+                    done,
+                    state,
+                    age,
+                    elapsed,
+                    age,
+                    elapsed,
+                    elapsed,
+                    rule,
+                    elapsed,
+                    cost,
+                ),
+            )
+        for back, sacct, ledger_s, pct in ((0, 376, 376, 0), (1, 400, 380, 5)):
+            conn.execute(
+                """
+                INSERT INTO slurm_billing_drift
+                    (cluster_id, day, sacct_gpu_seconds, ledger_gpu_seconds, sacct_records,
+                     ledger_records, drift_pct, unmatched)
+                VALUES (%s, current_date - %s::int, %s, %s, 2, 2, %s, %s)
+                """,
+                (cid, back, sacct, ledger_s, pct, Jsonb({"only_sacct": ["77@1"]} if pct else {})),
+            )
+        for job_id, state, code, err in (
+            (jobs[0], "submitted", None, None),
+            (jobs[1], "rejected", "invalid_partition", "sbatch: error: invalid partition\nmore"),
+        ):
+            conn.execute(
+                "INSERT INTO jobs (job_id, status, priority, submitted_at, payload, phase, "
+                "desired_state, effective_priority, queued_at, spec) "
+                "VALUES (%s, 'assigned', 10, %s, %s, 'scheduled', 'running', 10, "
+                "clock_timestamp(), %s)",
+                (job_id, time.time(), json.dumps({"job_id": job_id}), Jsonb({"name": job_id})),
+            )
+            attempt_id = conn.execute(
+                "INSERT INTO job_attempts (job_id, attempt_number, status, fencing_token, "
+                "job_generation, created_by) VALUES (%s, 1, 'reserved', "
+                "nextval('placement_fencing_token_seq'), 1, 'test') RETURNING attempt_id",
+                (job_id,),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO slurm_submissions (submission_name, cluster_id, xcelsior_job_id, "
+                "attempt_id, state, error_code, error, sbatch_calls) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, 1)",
+                (f"{job_id}-a1", cid, job_id, attempt_id, state, code, err),
+            )
+    yield world
+    with pg_transaction() as conn:
+        conn.execute("DELETE FROM slurm_submissions WHERE cluster_id = %s", (cid,))
+        conn.execute("DELETE FROM slurm_billing_drift WHERE cluster_id = %s", (cid,))
+        conn.execute("DELETE FROM slurm_billing_segments WHERE cluster_id = %s", (cid,))
+        for job_id in jobs:
+            conn.execute("DELETE FROM outbox_events WHERE aggregate_id = %s", (job_id,))
+            conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
+
+
+class TestFleetFigures:
+    def test_clusters_count_their_open_jobs(self, world):
+        with pg_transaction() as conn:
+            conn.execute(
+                "UPDATE slurm_job_mappings SET observed_state = 'pending', "
+                "last_observed_at = clock_timestamp() - interval '10 minutes' "
+                "WHERE xcelsior_job_id = %s",
+                (world["ids"]["b_open"],),
+            )
+        r = client.get("/api/v1/hpc/clusters", headers=world["admin"])
+        [mine] = [c for c in r.json()["clusters"] if c["cluster_id"] == world["cid"]]
+        # Two open (the settled one is not counted): one running, one pending and stale.
+        assert mine["open_jobs"] == {
+            "total": 2,
+            "running": 1,
+            "pending": 1,
+            "stale": 1,
+            "awaiting_accounting": 0,
+        }
+        assert mine["rate_card"] == {} and mine["failure_counts"] == {}
+        assert mine["suspend_holds_gres"] is True
+
+    def test_rate_card_and_failures_are_reported(self, ledger):
+        r = client.get("/api/v1/hpc/clusters", headers=ledger["admin"])
+        [mine] = [c for c in r.json()["clusters"] if c["cluster_id"] == ledger["cid"]]
+        # Only the keys the biller reads: an unknown one is not passed through.
+        assert mine["rate_card"] == {"gpu_hour_micros": 360_000, "gpu_model": "RTX 3060"}
+        assert mine["failure_counts"] == {"pass:transport_timeout": 2}
+
+
+class TestBillingLedger:
+    def _get(self, headers, **params):
+        return client.get("/api/v1/hpc/billing", headers=headers, params=params)
+
+    def test_segments_drift_and_totals(self, ledger):
+        r = self._get(ledger["admin"], cluster_id=ledger["cid"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["tolerance_pct"] == 1.0 and body["next_cursor"] is None
+        # Newest run first; each run of a requeued job is its own record.
+        assert [(s["run_index"], s["billing_rule"]) for s in body["segments"]] == [
+            (1, "ran_to_end"),
+            (0, "requeued_run"),
+        ]
+        first = body["segments"][0]
+        assert first["xcelsior_job_id"] == ledger["ids"]["a_done"]
+        assert first["billable_seconds"] == 301 and first["shadow_cost_micros"] == 30100
+        assert first["charged"] is False and first["meter_id"] is None
+        assert body["totals"] == {
+            "segments": 2,
+            "jobs": 1,
+            "gpu_seconds": 376,
+            "billable_seconds": 376,
+            "shadow_cost_micros": 37600,
+            "charged_micros": 0,
+            "charged_segments": 0,
+            "unpriced_segments": 0,
+        }
+        today, yesterday = body["drift"]
+        assert today["within_tolerance"] is True and today["drift_pct"] == 0
+        assert yesterday["within_tolerance"] is False and yesterday["drift_pct"] == 5
+        assert yesterday["unmatched"] == {"only_sacct": ["77@1"]}
+        assert (yesterday["sacct_gpu_seconds"], yesterday["ledger_gpu_seconds"]) == (400, 380)
+
+    def test_totals_cover_the_window_not_the_page(self, ledger):
+        first = self._get(ledger["admin"], cluster_id=ledger["cid"], limit=1).json()
+        assert len(first["segments"]) == 1 and first["next_cursor"]
+        assert first["totals"]["segments"] == 2
+        second = self._get(
+            ledger["admin"], cluster_id=ledger["cid"], limit=1, cursor=first["next_cursor"]
+        ).json()
+        assert [s["run_index"] for s in second["segments"]] == [0]
+        assert second["next_cursor"] is None
+
+    def test_another_cluster_sees_none_of_it(self, ledger):
+        body = self._get(ledger["admin"], cluster_id="no-such-cluster").json()
+        assert body["segments"] == [] and body["drift"] == []
+        assert body["totals"]["segments"] == 0 and body["totals"]["shadow_cost_micros"] == 0
+
+    def test_tenants_are_refused_and_bad_input_is_a_problem(self, ledger):
+        r = self._get(ledger["a"])
+        assert r.status_code == 403
+        assert r.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+        assert self._get(ledger["admin"], cursor="!!").status_code == 422
+        assert self._get(ledger["admin"], days=0).status_code == 422
+
+
+class TestSubmitLog:
+    def _get(self, headers, **params):
+        return client.get("/api/v1/hpc/submissions", headers=headers, params=params)
+
+    def test_lists_what_never_became_a_job(self, ledger):
+        r = self._get(ledger["admin"], cluster_id=ledger["cid"])
+        assert r.status_code == 200, r.text
+        body = r.json()
+        by_state = {s["state"]: s for s in body["submissions"]}
+        assert set(by_state) == {"submitted", "rejected"}
+        rejected = by_state["rejected"]
+        assert rejected["error_code"] == "invalid_partition"
+        # sbatch's stderr is cut to its first line.
+        assert rejected["error"] == "sbatch: error: invalid partition"
+        assert rejected["slurm_job_id"] is None and rejected["sbatch_calls"] == 1
+        assert body["counts"]["rejected"] == 1 and body["counts"]["submitted"] == 1
+        assert body["counts"]["lost"] == 0
+
+    def test_state_filter(self, ledger):
+        only = self._get(ledger["admin"], cluster_id=ledger["cid"], state="rejected").json()
+        assert [s["state"] for s in only["submissions"]] == ["rejected"]
+        # Nothing here is still waiting on the submitter.
+        open_ = self._get(ledger["admin"], cluster_id=ledger["cid"], state="open").json()
+        assert open_["submissions"] == []
+        # The counts ignore the state filter, so the tabs keep their numbers.
+        assert open_["counts"]["rejected"] == 1
+        r = self._get(ledger["admin"], state="everything")
+        assert r.status_code == 422
+        assert r.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+
+    def test_tenants_are_refused(self, ledger):
+        r = self._get(ledger["a"])
+        assert r.status_code == 403
+        assert r.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
