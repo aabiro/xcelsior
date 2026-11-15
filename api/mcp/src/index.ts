@@ -98,6 +98,17 @@ async function handleMcp(
     }
     return;
   }
+  // This stateless endpoint answers each RPC through its POST response. A GET
+  // stream has no session to notify and otherwise sits idle until a proxy or
+  // deploy cuts it off, making clients report repeated SSE disconnects.
+  // Streamable HTTP explicitly allows 405 when no standalone SSE is offered.
+  // Authenticate first so discovery and invalid-token challenges still work.
+  if (req.method === "GET") {
+    json(res, 405, { error: "method_not_allowed", message: "Send MCP messages with POST." }, {
+      Allow: "POST, DELETE",
+    });
+    return;
+  }
   const principalKey = user.subject || user.user_id || user.email || user.customer_id || "";
   const rate = await checkRateLimit(`${principalKey}:${user.client_id || "no-client"}`, config.rateLimit);
   if (!rate.ok) {

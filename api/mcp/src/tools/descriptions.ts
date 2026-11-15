@@ -30,11 +30,13 @@ import type { ToolName } from "../auth/scopes.js";
 const DESCRIPTIONS: Record<ToolName, string> = {
   // ── Discovery ───────────────────────────────────────────────────────────
   list_available_gpus:
-    "List GPUs currently offered by independent hosts on the Xcelsior marketplace, with VRAM, " +
-    "region, available count, and CAD hourly rate. Use when the user asks what hardware is " +
-    "available, or before launching anything, to find a real GPU model and region rather than " +
-    "assuming one. Read-only and free. Inventory is third-party and changes continuously, so a " +
-    "result from earlier in the conversation may already be stale.",
+    "List free marketplace GPUs with VRAM, region, count, and CAD hourly rate, plus capacity " +
+    "counts for online hosts and total, available, allocated, held, and unavailable GPUs. " +
+    "Use when the user asks what hardware is available, whether nodes are online, or why " +
+    "nothing is free. The gpus array contains only free GPUs; an empty array does not mean " +
+    "nodes are offline. Check capacity and the inventory breakdown by model and region. " +
+    "For the caller's running jobs, use list_instances with status running. Read-only and " +
+    "free. Counts use the placement snapshot and fresh worker observations; inventory changes continuously.",
 
   get_spot_prices:
     "Get live interruptible (spot) hourly rates in CAD for each GPU model. Use when the workload " +

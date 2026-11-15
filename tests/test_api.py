@@ -2756,6 +2756,39 @@ class TestGpuAvailability:
         assert data["ok"] is True
         assert data["gpus"] == []
         assert data["source"] == "none"
+        assert data["capacity"] == {
+            "hosts_online": 0, "hosts_ready": 0,
+            "gpus_total": 0, "gpus_available": 0, "gpus_allocated": 0,
+            "gpus_held": 0, "gpus_unavailable": 0,
+        }
+        assert data["inventory"] == []
+
+    def test_online_allocated_nodes_are_visible_without_private_workload_details(self):
+        for host_id, province in (("busy-east", "ON"), ("busy-west", "BC")):
+            _register_host(host_id, province=province, versions=GOOD_VERSIONS)
+            _authoritatively_admit(host_id)
+        jobs = [_submit_and_place(f"busy-{i}", 16) for i in range(2)]
+        assert all(job["status"] in ("assigned", "running") for job in jobs)
+
+        data = client.get("/api/v2/gpu/available").json()
+        assert data["gpus"] == []
+        assert data["capacity"] == {
+            "hosts_online": 2, "hosts_ready": 2,
+            "gpus_total": 2, "gpus_available": 0, "gpus_allocated": 2,
+            "gpus_held": 0, "gpus_unavailable": 0,
+        }
+        assert sum(row["count_allocated"] for row in data["inventory"]) == 2
+        assert {row["region"] for row in data["inventory"]} == {"ca-on", "ca-bc"}
+        assert data["observed_at"]
+        # This is public market capacity, so tenant job IDs and private host
+        # identities must not appear in the discovery response.
+        for private_id in ["busy-east", "busy-west", *(job["job_id"] for job in jobs)]:
+            assert private_id not in str(data)
+
+        scoped = client.get("/api/v2/gpu/available?region=ON").json()
+        assert scoped["capacity"]["hosts_online"] == 1
+        assert scoped["capacity"]["gpus_allocated"] == 1
+        assert [row["region"] for row in scoped["inventory"]] == ["ca-on"]
 
     def test_gpu_available_uses_physical_inventory(self):
         """An admitted worker reports the physical inventory used for discovery."""
@@ -2845,6 +2878,14 @@ class TestGpuAvailability:
         data = client.get("/api/v2/gpu/available").json()
         assert data["gpus"] == []
         assert data["source"] == "none"
+        if state in ("unobserved", "stale", "not_ready"):
+            assert data["capacity"]["gpus_total"] == 1
+            assert data["capacity"]["gpus_unavailable"] == 1
+            assert data["capacity"]["hosts_ready"] == 0
+            assert data["capacity"]["hosts_online"] == int(state == "not_ready")
+        else:
+            assert data["capacity"]["gpus_total"] == 0
+            assert data["inventory"] == []
 
     @pytest.mark.parametrize("state", ["synthetic", "retired", "unhealthy"])
     def test_offers_cannot_resurrect_unschedulable_devices(self, state):

@@ -139,6 +139,11 @@ tool schemas. The Streamable HTTP transport uses JSON responses so the SDK can
 carry its signed `Mcp-Session-Id` token across replicas. The shared
 `posthog-node` client is flushed during graceful shutdown.
 
+Authenticated `GET /mcp` returns 405: this stateless service sends RPC results
+through POST responses and has no standalone notification stream. This avoids
+opening idle SSE connections that clients report as disconnected on a deploy
+or proxy timeout. Unauthenticated GET still returns the OAuth challenge.
+
 If MCP analytics identifies users, production must also set
 `XCELSIOR_POSTHOG_PERSONAL_API_KEY` and `XCELSIOR_POSTHOG_PROJECT_ID` for the
 privacy-deletion worker. Startup validation rejects identification without
@@ -156,6 +161,13 @@ those deletion credentials.
 - **Diagnostics:** `explain_instance_placement`, `simulate_instance_placement`,
   `get_instance_timeline`, `get_active_lease`, `get_mcp_action_status`
 - **Operations (tenant):** `retry_instance`, `reconcile_instance`
+
+`list_available_gpus` keeps rentable GPUs in `gpus` and also returns `capacity`
+(online/ready hosts and total/free/allocated/held/unavailable GPU counts), an
+`inventory` breakdown by model and region, and `observed_at`. An empty `gpus`
+array can mean all online GPUs are allocated. Use `list_instances` with
+`status: "running"` for the caller's workloads. Public inventory never includes
+another tenant's job IDs, device UUIDs, or private host addresses.
 
 Operator profile only: `get_scheduler_health`, `get_host_capacity`,
 `list_reconciliation_findings`, `drain_host`, `undrain_host`,

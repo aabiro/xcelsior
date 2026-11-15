@@ -47,6 +47,14 @@ beforeAll(async () => {
     if (req.url === "/api/v1/mcp/tool-audit") {
       auditRows.push(body); return send(202, { ok: true, audit_id: "audit-e2e" });
     }
+    if (req.url === "/api/v2/gpu/available") return send(200, {
+      ok: true, gpus: [], source: "none",
+      capacity: { hosts_online: 2, hosts_ready: 2, gpus_total: 2, gpus_available: 0,
+        gpus_allocated: 2, gpus_held: 0, gpus_unavailable: 0 },
+      inventory: [{ gpu_model: "RTX 3060", vram_gb: 12, region: "ca-on", province: "ON",
+        count_total: 2, count_available: 0, count_allocated: 2, count_held: 0, count_unavailable: 0 }],
+      observed_at: "2026-11-14T22:00:00+00:00",
+    });
     if (req.url?.startsWith("/batch")) return send(200, { status: "ok" });
     if (req.url === "/instance/job-watch") return send(200, { instance: { job_id: "job-watch", status: instanceStatus } });
     if (req.url?.startsWith("/api/instances/job-watch/telemetry")) return send(200, { telemetry: {} });
@@ -155,6 +163,17 @@ afterAll(async () => {
 });
 
 describe("hosted Streamable HTTP MCP", () => {
+  it("explains online but allocated inventory in the actual discovery tool result", async () => {
+    const result = await client.callTool({ name: "list_available_gpus", arguments: {} });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      gpus: [], capacity: { hosts_online: 2, gpus_total: 2, gpus_available: 0, gpus_allocated: 2 },
+      inventory: [{ count_allocated: 2 }],
+    });
+    expect(JSON.parse((result.content as Array<{ text: string }>)[0].text)).toEqual(result.structuredContent);
+    const tool = (await client.listTools()).tools.find(tool => tool.name === "list_available_gpus");
+    expect(tool?.description).toContain("an empty array does not mean nodes are offline");
+  });
   it("publishes OAuth protected-resource metadata at both RFC 9728 locations", async () => {
     for (const path of [
       "/.well-known/oauth-protected-resource",
@@ -216,6 +235,29 @@ describe("hosted Streamable HTTP MCP", () => {
     const challenge = response.headers.get("www-authenticate") ?? "";
     expect(challenge).toContain('error="invalid_token"');
     expect(challenge).toContain("resource_metadata=");
+  });
+
+  it("declines standalone SSE without breaking authentication or subsequent RPCs", async () => {
+    for (const bearer of [undefined, "not-a-real-token", "e2e-token"]) {
+      const response = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+        headers: {
+          accept: "text/event-stream",
+          ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+        },
+        signal: AbortSignal.timeout(2_000),
+      });
+      expect(response.status).toBe(bearer === "e2e-token" ? 405 : 401);
+      if (bearer === "e2e-token") {
+        expect(response.headers.get("allow")).toContain("POST");
+        expect(response.headers.get("content-type")).toContain("application/json");
+      } else {
+        expect(response.headers.get("www-authenticate")).toContain("resource_metadata=");
+      }
+      await response.text();
+    }
+    expect((await client.listTools()).tools.length).toBeGreaterThan(25);
+    const metrics = await (await fetch(`http://127.0.0.1:${mcpPort}/metrics`)).text();
+    expect(metrics).toMatch(/xcelsior_mcp_active_transports\{transport="streamable_http"\} 0/);
   });
 
   it("mints a stateless analytics session token on initialize", async () => {
@@ -292,9 +334,10 @@ describe("hosted Streamable HTTP MCP", () => {
       preview: true, plan_id: "11111111-1111-4111-8111-111111111111",
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(auditRows).toHaveLength(1);
-    expect(JSON.stringify(auditRows[0])).not.toContain("secret-do-not-audit");
-    expect(auditRows[0]).toMatchObject({
+    const createAudits = auditRows.filter(row => (row as { tool_name?: string }).tool_name === "create_instance");
+    expect(createAudits).toHaveLength(1);
+    expect(JSON.stringify(createAudits[0])).not.toContain("secret-do-not-audit");
+    expect(createAudits[0]).toMatchObject({
       tool_name: "create_instance",
       tool_version: "2.0.0",
       tenant_id: "tenant-a",

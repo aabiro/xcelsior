@@ -11,7 +11,7 @@ router = APIRouter()
 
 @router.get("/api/v2/gpu/available", tags=["GPU"])
 def api_gpu_available(request: Request, region: str | None = None):
-    """Free physical GPUs on admitted, ready hosts with fresh observations.
+    """Free GPUs plus admitted inventory and online/allocated capacity counts.
 
     Use the same device/allocation snapshot as placement. Provider offers are
     pricing metadata; they never create devices or override host geography.
@@ -51,8 +51,14 @@ def api_gpu_available(request: Request, region: str | None = None):
         ctx = FilterContext(stale_host_ids=fleet.stale_host_ids)
         requested_region = normalize_region(region, default="") if region else None
         gpu_map = {}
+        inventory_map = {}
+        capacity = {
+            "hosts_online": 0, "hosts_ready": 0,
+            "gpus_total": 0, "gpus_available": 0, "gpus_allocated": 0,
+            "gpus_held": 0, "gpus_unavailable": 0,
+        }
         for host in fleet.hosts:
-            if host_admitted({}, host, ctx) or host_ready({}, host, ctx):
+            if host_admitted({}, host, ctx):
                 continue
             try:
                 location = require_location(
@@ -63,15 +69,42 @@ def api_gpu_available(request: Request, region: str | None = None):
             host_region = location["region"]
             if requested_region is not None and host_region != requested_region:
                 continue
+            ready = host_ready({}, host, ctx) is None
+            online = (
+                str(host["host_id"]) not in fleet.stale_host_ids
+                and str(host.get("status") or "").lower() in ("active", "ready")
+            )
+            capacity["hosts_online"] += int(online)
+            capacity["hosts_ready"] += int(ready)
             province = str(host.get("province") or "").upper()
             for device in host["gpu_devices"]:
-                if not device["free"]:
-                    continue
                 model = normalize_gpu_model(device["model"])
                 vram_gb = device["total_vram_mb"] / 1024
                 if not model or vram_gb <= 0:
                     continue
                 key = (model, vram_gb, host_region, province)
+                inventory = inventory_map.setdefault(key, {
+                    "gpu_model": model, "vram_gb": vram_gb,
+                    "region": host_region, "province": province,
+                    "count_total": 0, "count_available": 0, "count_allocated": 0,
+                    "count_held": 0, "count_unavailable": 0,
+                })
+                # These states partition physical devices. A preemption hold on
+                # an allocated GPU must not count that same GPU twice.
+                if device["allocated"]:
+                    state = "allocated"
+                elif device["held_by_plan"]:
+                    state = "held"
+                elif ready and device["free"]:
+                    state = "available"
+                else:
+                    state = "unavailable"
+                inventory["count_total"] += 1
+                inventory[f"count_{state}"] += 1
+                capacity["gpus_total"] += 1
+                capacity[f"gpus_{state}"] += 1
+                if state != "available":
+                    continue
                 observed_price = prices.get(
                     (str(host["host_id"]), model), float(host.get("cost_per_hour") or 0)
                 )
@@ -105,7 +138,15 @@ def api_gpu_available(request: Request, region: str | None = None):
             gpu["service_tiers_available"] = True
             gpu["price_per_hour_cad"] = micros_to_cad(catalog["base_rate_micros"])
         source = "host_gpu_devices" if gpus else "none"
-        return {"ok": True, "gpus": gpus, "source": source}
+        inventory = sorted(
+            inventory_map.values(),
+            key=lambda g: (g["gpu_model"], g["region"], g["vram_gb"], g["province"]),
+        )
+        return {
+            "ok": True, "gpus": gpus, "source": source,
+            "capacity": capacity, "inventory": inventory,
+            "observed_at": fleet.taken_at.isoformat(),
+        }
     except Exception as e:
         log.error("GPU availability query failed: %s", e)
         raise HTTPException(503, f"GPU availability service unavailable: {e}")
