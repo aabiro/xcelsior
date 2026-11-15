@@ -9,6 +9,8 @@ import {
   Globe, CreditCard, Download, Building2,
 } from "lucide-react";
 import { DashboardNav } from "@/components/nav/dashboard-nav";
+import { WorkspaceSwitch } from "@/components/hosting/workspace-switch";
+import { useWorkspaceMode } from "@/lib/use-workspace-mode";
 import { UserAvatar } from "@/components/user/user-avatar";
 import { BusinessMenuCard, BusinessTriggerIdentity } from "@/components/user/business-identity";
 import { businessName, isBusinessAccount } from "@/lib/business-profile";
@@ -64,6 +66,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading: authLoading, logout } = useAuth();
+  const { mode: workspaceMode } = useWorkspaceMode();
   const { t } = useLocale();
   const { theme } = useTheme();
   const team = getTeamContext(user);
@@ -302,11 +305,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         )}
       </div>
 
+      <WorkspaceSwitch collapsed={collapsed && !mobile} />
       <div className="dashboard-site-nav">
         <DashboardNav
           collapsed={collapsed}
           mobile={mobile}
           showServerless={showServerless}
+          mode={workspaceMode}
           canAccessRole={canAccessRole}
           t={t}
           onNavigate={mobile ? () => setMobileOpen(false) : undefined}

@@ -16,6 +16,7 @@ from routes._deps import (
     _require_admin,
     _require_auth,
     _require_scope,
+    _require_user_grant,
     broadcast_sse,
     log,
 )
@@ -1619,6 +1620,37 @@ def api_update_host_location(host_id: str, body: HostLocationUpdate, request: Re
     if updated is None:
         raise HTTPException(404, "Host not found")
     broadcast_sse("host_update", {"host_id": resolved, "region": updated["region"]})
+    return {"ok": True, "host": enrich_host_for_api(updated)}
+
+
+class HostAvailabilityUpdate(BaseModel):
+    accepting_jobs: bool
+    expected_version: int = Field(ge=0)
+
+
+@router.patch("/api/hosts/{host_id}/availability", tags=["Hosts"])
+def api_update_host_availability(host_id: str, body: HostAvailabilityUpdate, request: Request):
+    """Let an owner pause new placements without evicting running workloads."""
+    from control_plane.launch.service import PlanConflict
+
+    user = _require_user_grant(request)
+    _require_scope(user, "hosts:write")
+    resolved, hosts = _resolve_host_id(host_id)
+    if not resolved:
+        raise HTTPException(404, "Host not found")
+    _require_host_operator(user, resolved)
+    host = next(h for h in hosts if h.get("host_id") == resolved)
+    if host.get("status") == "dead":
+        raise HTTPException(409, "A retired host cannot accept jobs")
+    if body.accepting_jobs and host.get("admitted") is not True:
+        raise HTTPException(409, "Machine verification must finish before accepting jobs")
+    try:
+        updated = set_host_draining(resolved, draining=not body.accepting_jobs, expected_version=body.expected_version)
+    except PlanConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if updated is None:
+        raise HTTPException(404, "Host not found")
+    broadcast_sse("host_update", {"host_id": resolved, "status": updated["status"]})
     return {"ok": True, "host": enrich_host_for_api(updated)}
 
 

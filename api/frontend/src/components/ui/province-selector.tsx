@@ -331,7 +331,6 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
   const [city, setCity] = useState(user?.city || "");
   const [postal, setPostal] = useState(user?.postal_code || "");
   const [accountType, setAccountType] = useState(user?.account_type || "");
-  const [intent, setIntent] = useState(user?.onboarding_intent || "");
   const [businessName, setBusinessName] = useState(user?.business_name || "");
   const [gst, setGst] = useState(user?.gst_hst_number || "");
   const [requiredFields, setRequiredFields] = useState<string[] | null>(null);
@@ -350,7 +349,6 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
   const [savedSnapshot, setSavedSnapshot] = useState(() => ({
     name: (user?.name || "").trim(),
     account_type: user?.account_type || "",
-    onboarding_intent: user?.onboarding_intent || "",
     business_name: user?.account_type === "business" ? (user?.business_name || "").trim() : "",
     gst_hst_number: user?.account_type === "business" ? (user?.gst_hst_number || "").trim() : "",
     country: user?.country || "",
@@ -372,10 +370,9 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
 
   const nameRequired = !user?.name?.trim();
   const nameValid = !nameRequired || Boolean(name.trim());
-  const intentValid = !settings || Boolean(intent.trim());
   const typeValid = accountType === "individual" || accountType === "business";
   const businessValid = accountType !== "business" || Boolean(businessName.trim());
-  const accountValid = !accountFields || (nameValid && intentValid && typeValid && businessValid);
+  const accountValid = !accountFields || (nameValid && typeValid && businessValid);
 
   const line1Required = requiredFields?.includes("address_line1") ?? true;
   const cityRequired = requiredFields?.includes("city") ?? true;
@@ -404,7 +401,6 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
   const accountDirty =
     (!user?.name?.trim() && name.trim() !== savedSnapshot.name) ||
     accountType !== savedSnapshot.account_type ||
-    (settings && intent !== savedSnapshot.onboarding_intent) ||
     effectiveBusinessName !== savedSnapshot.business_name ||
     effectiveGst !== savedSnapshot.gst_hst_number;
   const addressDirty =
@@ -422,7 +418,6 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
       await updateProfile({
         ...(accountFields ? { ...(!user?.name?.trim() ? { name: name.trim() } : {}),
           account_type: accountType,
-          ...(settings ? { onboarding_intent: intent } : {}),
           business_name: effectiveBusinessName,
           gst_hst_number: effectiveGst } : {}),
         ...(addressFields ? address : {}),
@@ -436,7 +431,6 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
       setSavedSnapshot({
         name: (!user?.name?.trim() ? name : user?.name || "").trim(),
         account_type: accountType,
-        onboarding_intent: intent,
         business_name: effectiveBusinessName,
         gst_hst_number: effectiveGst,
         country: address.country,
@@ -488,13 +482,6 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
             onChange={(event) => { markEdited("name"); setName(event.target.value); }} />
           {nameInvalid && <p id={`${id}-name-error`} className="text-xs text-red-400">Enter your name.</p>}
         </div>}
-        {settings && <fieldset className="space-y-2"><legend className="text-sm font-medium">How will you use Xcelsior?</legend>
-          <p className="text-sm text-text-secondary">You can switch between renting and providing here anytime. Payout setup stays on Earnings.</p>
-          {[["rent", "Rent GPUs"], ["provide", "Provide GPUs"], ["both", "Rent and provide GPUs"]].map(([value, label]) =>
-            <label key={value} className={cn("flex cursor-pointer items-center gap-3 rounded-xl border p-4 text-sm transition-colors hover:bg-surface-hover", intent === value ? "border-accent-cyan/40 bg-accent-cyan/5" : "border-border bg-navy/30")}>
-              <input type="radio" name={`${id}-intent`} value={value} checked={intent === value} required onChange={() => setIntent(value)} className="h-4 w-4 accent-sky-500" /><span className="font-medium">{label}</span>
-            </label>)}
-        </fieldset>}
         <div className="space-y-1.5"><Label htmlFor={`${id}-type`}>Account type</Label>
           <Select id={`${id}-type`} data-field="account-type" required value={accountType}
             aria-invalid={typeInvalid ? "true" : "false"}

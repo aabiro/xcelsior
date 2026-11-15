@@ -717,6 +717,7 @@ const en: Record<string, string> = {
   "dash.nav.platform": "Platform",
   "dash.nav.more": "More",
   "dash.hosts": "Hosts",
+  "dash.hosting_setup": "Hosting setup",
   "dash.instances": "Instances",
   "dash.telemetry": "Telemetry",
   "dash.billing": "Billing",

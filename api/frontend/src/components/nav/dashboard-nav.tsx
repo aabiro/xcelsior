@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import type { WorkspaceMode } from "@/lib/hosting";
 
 const GROUPS_STORAGE_KEY = "xcelsior-nav-groups-open";
 
@@ -40,6 +41,7 @@ type NavItemDef = {
   badge?: string;
   roles?: string[];
   serverlessOnly?: boolean;
+  modes?: WorkspaceMode[];
 };
 
 type NavGroupDef = {
@@ -52,6 +54,7 @@ type NavGroupDef = {
 /** Pinned, always visible, never tucked in a group. */
 const PINNED_ITEMS: NavItemDef[] = [
   { href: "/dashboard", key: "dash.overview", icon: LayoutDashboard },
+  { href: "/dashboard/hosting", key: "dash.hosting_setup", icon: Server, modes: ["host"] },
   { href: "/dashboard/ai", key: "dash.ai", icon: Sparkles, badge: "New" },
   { href: "/dashboard/mcp", key: "dash.mcp", icon: Cable, badge: "New" },
   { href: "/dashboard/settings", key: "dash.settings", icon: Settings },
@@ -66,36 +69,36 @@ const NAV_GROUPS: NavGroupDef[] = [
     id: "compute",
     labelKey: "dash.nav.compute",
     items: [
-      { href: "/dashboard/hosts", key: "dash.hosts", icon: Server },
-      { href: "/dashboard/instances", key: "dash.instances", icon: Monitor },
-      { href: "/dashboard/templates", key: "dash.templates", icon: Layers },
-      { href: "/dashboard/inference", key: "dash.inference", icon: Zap, serverlessOnly: true },
-      { href: "/dashboard/hpc", key: "dash.hpc", icon: Cpu, roles: ["admin"] },
+      { href: "/dashboard/hosts", key: "dash.hosts", icon: Server, modes: ["host"] },
+      { href: "/dashboard/instances", key: "dash.instances", icon: Monitor, modes: ["rent"] },
+      { href: "/dashboard/templates", key: "dash.templates", icon: Layers, modes: ["rent"] },
+      { href: "/dashboard/inference", key: "dash.inference", icon: Zap, serverlessOnly: true, modes: ["rent"] },
+      { href: "/dashboard/hpc", key: "dash.hpc", icon: Cpu, roles: ["admin"], modes: ["rent"] },
     ],
   },
   {
     id: "storage",
     labelKey: "dash.nav.storage",
     items: [
-      { href: "/dashboard/volumes", key: "dash.volumes", icon: HardDrive },
-      { href: "/dashboard/artifacts", key: "dash.artifacts", icon: Package },
+      { href: "/dashboard/volumes", key: "dash.volumes", icon: HardDrive, modes: ["rent"] },
+      { href: "/dashboard/artifacts", key: "dash.artifacts", icon: Package, modes: ["rent"] },
     ],
   },
   {
     id: "business",
     labelKey: "dash.nav.business",
     items: [
-      { href: "/dashboard/billing", key: "dash.billing", icon: CreditCard },
-      { href: "/dashboard/marketplace", key: "dash.marketplace", icon: Store },
-      { href: "/dashboard/spot-pricing", key: "dash.spot_pricing", icon: TrendingUp },
-      { href: "/dashboard/earnings", key: "dash.earnings", icon: DollarSign },
+      { href: "/dashboard/billing", key: "dash.billing", icon: CreditCard, modes: ["rent"] },
+      { href: "/dashboard/marketplace", key: "dash.marketplace", icon: Store, modes: ["rent"] },
+      { href: "/dashboard/spot-pricing", key: "dash.spot_pricing", icon: TrendingUp, modes: ["rent"] },
+      { href: "/dashboard/earnings", key: "dash.earnings", icon: DollarSign, modes: ["host"] },
     ],
   },
   {
     id: "insights",
     labelKey: "dash.nav.insights",
     items: [
-      { href: "/dashboard/telemetry", key: "dash.telemetry", icon: Activity },
+      { href: "/dashboard/telemetry", key: "dash.telemetry", icon: Activity, modes: ["host"] },
       { href: "/dashboard/analytics", key: "dash.analytics", icon: BarChart3 },
       { href: "/dashboard/events", key: "dash.events", icon: Calendar },
     ],
@@ -137,7 +140,9 @@ function filterItem(
   item: NavItemDef,
   canAccessRole: (r: string) => boolean,
   showServerless: boolean,
+  mode: WorkspaceMode,
 ): boolean {
+  if (item.modes && !item.modes.includes(mode)) return false;
   if (item.serverlessOnly && !showServerless) return false;
   if (item.roles && !item.roles.some(canAccessRole)) return false;
   return true;
@@ -204,6 +209,7 @@ export function DashboardNav({
   canAccessRole,
   t,
   onNavigate,
+  mode = "rent",
 }: {
   collapsed: boolean;
   mobile: boolean;
@@ -211,6 +217,7 @@ export function DashboardNav({
   canAccessRole: (role: string) => boolean;
   t: (key: string) => string;
   onNavigate?: () => void;
+  mode?: WorkspaceMode;
 }) {
   const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(readGroupsOpen);
@@ -219,12 +226,12 @@ export function DashboardNav({
     () =>
       NAV_GROUPS.map((g) => ({
         ...g,
-        items: g.items.filter((item) => filterItem(item, canAccessRole, showServerless)),
+        items: g.items.filter((item) => filterItem(item, canAccessRole, showServerless, mode)),
       })).filter((g) => {
         if (g.roles && !g.roles.some(canAccessRole)) return false;
         return g.items.length > 0;
       }),
-    [canAccessRole, showServerless],
+    [canAccessRole, showServerless, mode],
   );
 
   const activeGroupId = useMemo(() => {
@@ -262,7 +269,7 @@ export function DashboardNav({
     <nav className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-2 py-3 space-y-1">
       {/* Pinned */}
       <div className="space-y-0.5 pb-2">
-        {PINNED_ITEMS.map((item) => (
+        {PINNED_ITEMS.filter(item => filterItem(item, canAccessRole, showServerless, mode)).map((item) => (
           <NavLink
             key={item.href}
             item={item}

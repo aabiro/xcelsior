@@ -14,6 +14,8 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { openLaunchModal } from "@/lib/launch-modal";
 import { cn } from "@/lib/utils";
 import { ThemeAssetIcon } from "@/components/ui/theme-asset-icon";
+import { StartHostingButton } from "@/components/hosting/start-hosting-button";
+import { hostingEnabled } from "@/lib/hosting";
 
 function OverviewActionVisual({
   accent,
@@ -45,6 +47,7 @@ function OverviewActionCard({
   accent,
   iconName,
   reverse = false,
+  action,
 }: {
   title: string;
   description: string;
@@ -54,13 +57,14 @@ function OverviewActionCard({
   accent: "launch" | "provider";
   iconName: string;
   reverse?: boolean;
+  action?: React.ReactNode;
 }) {
   return (
     <div className="dashboard-overview-action" data-accent={accent} data-reverse={reverse ? "true" : "false"}>
       <div className="dashboard-overview-action-copy">
         <div className="dashboard-overview-action-badges">
           <span className={cn("dashboard-overview-chip", accent === "launch" ? "dashboard-overview-chip--violet" : "dashboard-overview-chip--accent")}>
-            {accent === "launch" ? "Launch" : "Supply"}
+            {accent === "launch" ? "Rent" : "Host"}
           </span>
           <span className="dashboard-overview-chip">{accent === "launch" ? "GPU Ready" : "Hosts"}</span>
         </div>
@@ -69,7 +73,7 @@ function OverviewActionCard({
         <p className="site-card-copy">{description}</p>
 
         <div className="dashboard-overview-action-cta">
-          {onClick ? (
+          {action || (onClick ? (
             <button
               type="button"
               onClick={onClick}
@@ -86,7 +90,7 @@ function OverviewActionCard({
               <Plus className="h-4 w-4" />
               {buttonLabel}
             </Link>
-          )}
+          ))}
         </div>
       </div>
 
@@ -228,7 +232,7 @@ export default function DashboardOverview() {
         show={instances.length === 0}
       />
 
-      <DashboardSection code="02" label="Launch + Supply">
+      <DashboardSection code="02" label="Rent + Host">
         <FadeIn delay={0.12} className="dashboard-overview-actions">
           <OverviewActionCard
             title="Launch your next instance"
@@ -239,10 +243,11 @@ export default function DashboardOverview() {
             iconName="bolt"
           />
           <OverviewActionCard
-            title="Become a provider"
-            description="Bring spare GPUs online, register capacity, and start listing from Hosts."
-            href="/dashboard/hosts"
-            buttonLabel="Register Host"
+            title={hostingEnabled(user) ? "Your GPU hosting" : "Start hosting"}
+            description="Connect a GPU, verify your machine, then set pricing and availability. Keep renting with the same account."
+            href="/dashboard/hosting"
+            buttonLabel="Hosting setup"
+            action={hostingEnabled(user) ? undefined : <StartHostingButton className="dashboard-overview-action-button" />}
             accent="provider"
             iconName="server"
             reverse

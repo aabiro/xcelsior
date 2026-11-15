@@ -2,7 +2,8 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useCallback, useEffect, useState, useRef } from "react";
+import { Suspense, useCallback, useEffect, useState, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,12 @@ import { CodeBlock } from "@/components/ui/code-block";
 type SortKey = "hostname" | "gpu_model" | "status" | "vram_gb" | "cost_per_hour";
 type SortDir = "asc" | "desc";
 type InstallView = "sdk" | "quickstart";
+
+function ConnectIntent({ open }: { open: (view: InstallView) => void }) {
+  const search = useSearchParams();
+  useEffect(() => { if (search.get("setup") === "connect") open("quickstart"); }, [search, open]);
+  return null;
+}
 
 function HostSortIcon({
   col,
@@ -122,6 +129,8 @@ export default function HostsPage() {
 
   return (
     <div className="space-y-6">
+      <Suspense fallback={null}><ConnectIntent open={openInstallModal} /></Suspense>
+      <Link href="/dashboard/hosting" className="inline-flex items-center gap-2 text-sm text-accent-cyan"><ArrowLeft className="h-4 w-4" /> Hosting setup</Link>
       {/* Hero Header */}
       <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-surface via-surface to-accent-cyan/5 p-6 md:p-8">
         <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-accent-cyan/10 blur-3xl" />

@@ -276,10 +276,14 @@ it("disables Continue on the address step until all required address fields are 
 });
 
 
-it("tells someone already in settings that they can switch here", async () => {
+it("does not ask in settings how the account will be used", async () => {
+  // Renting is on for every account and hosting is turned on from the GPU
+  // hosting section (Start hosting), so the profile form no longer carries a
+  // rent/provide choice that could quietly change the account's role.
   authState.user = { name: "Original Name", account_type: "individual", onboarding_intent: "provide", country: "CA", province: "ON" };
   render(<AccountProfileForm settings />);
-  expect(screen.getByText("You can switch between renting and providing here anytime. Payout setup stays on Earnings.")).toBeInTheDocument();
+  expect(screen.queryByText("How will you use Xcelsior?")).not.toBeInTheDocument();
+  expect(screen.queryByRole("radio", { name: "Provide GPUs" })).not.toBeInTheDocument();
   expect(screen.getByText("A personal account does not need a business name, even if you provide GPUs.")).toBeInTheDocument();
   expect(await screen.findByRole("option", { name: "Canada" })).toBeInTheDocument();
 });

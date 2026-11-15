@@ -710,6 +710,7 @@ const fr: Record<string, string> = {
   "dash.nav.platform": "Plateforme",
   "dash.nav.more": "Plus",
   "dash.hosts": "Hôtes",
+  "dash.hosting_setup": "Configuration de l’hébergement",
   "dash.instances": "Instances",
   "dash.telemetry": "Télémétrie",
   "dash.billing": "Facturation",

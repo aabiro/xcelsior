@@ -641,6 +641,12 @@ export async function fetchHosts() {
   };
 }
 
+export async function updateHostAvailability(hostId: string, acceptingJobs: boolean, expectedVersion: number) {
+  return apiFetch<{ ok: boolean; host: Host }>(`/api/hosts/${encodeURIComponent(hostId)}/availability`, {
+    method: "PATCH", body: JSON.stringify({ accepting_jobs: acceptingJobs, expected_version: expectedVersion }),
+  });
+}
+
 export async function registerHost(data: Record<string, unknown>) {
   return apiFetch("/host", { method: "PUT", body: JSON.stringify(data) });
 }
@@ -3480,6 +3486,9 @@ export async function unsubscribePushNotifications(endpoint: string) {
 // ── Types ─────────────────────────────────────────────────────────────
 export interface Host {
   host_id: string;
+  owner?: string;
+  owner_id?: string;
+  provider_id?: string;
   version?: number;
   location_complete?: boolean;
   location_label?: string;

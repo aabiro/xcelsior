@@ -2494,7 +2494,9 @@ def api_auth_register(body: RegisterRequest, request: Request):
         "name": (body.name or "").strip(),
         "password_hash": password_hash,
         "salt": salt,
-        "role": requested_role,
+        # Every new account starts with renting. Hosting is enabled explicitly
+        # after signup; legacy clients may still send the old provider choice.
+        "role": "submitter",
         "is_admin": False,
         "customer_id": customer_id,
         "provider_id": None,
@@ -2553,7 +2555,7 @@ def api_auth_register(body: RegisterRequest, request: Request):
     # message (weekly uptime goal + how earning works + the don't-drop-mid-job
     # rule) so the guidance is waiting in their inbox even before the email lands.
     try:
-        if requested_role == "provider":
+        if user["role"] == "provider":
             from provider_expectations import provider_welcome_notification
 
             _notif_title, _notif_body = provider_welcome_notification()

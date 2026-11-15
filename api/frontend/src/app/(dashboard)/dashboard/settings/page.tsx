@@ -38,6 +38,8 @@ import { ProviderProfileForm } from "@/components/providers/seller-profile-card"
 import { ProfileAvatarUpload } from "@/components/user/profile-avatar-upload";
 import { BusinessProfileSection, BusinessProfileTeaser } from "@/components/settings/business-profile-section";
 import { isBusinessAccount } from "@/lib/business-profile";
+import { hostingEnabled } from "@/lib/hosting";
+import { StartHostingButton } from "@/components/hosting/start-hosting-button";
 import {
   SettingsLayout,
   SettingsLinkRow,
@@ -1082,7 +1084,12 @@ function ProfileTab({
               <div className="h-px bg-border/50" />
               <h3 className="text-base font-semibold">Account and address</h3>
               <AccountProfileForm settings />
-              {(user.provider_id || ["provide", "both"].includes(user.onboarding_intent || "")) &&
+              <div className="space-y-3 rounded-xl border border-border p-4">
+                <h3 className="font-semibold">GPU hosting</h3>
+                <p className="text-sm text-text-secondary">Renting is available on every account. Enable hosting to connect your GPUs and earn from compute jobs.</p>
+                {hostingEnabled(user) ? <Link href="/dashboard/hosting" className="text-sm font-medium text-accent-cyan underline">Manage hosting</Link> : <StartHostingButton />}
+              </div>
+              {hostingEnabled(user) &&
                 <ProviderProfileForm onSaved={() => { void onAvatarUpdated(); }} />}
 
             </div>
