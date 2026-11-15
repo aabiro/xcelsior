@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Generate the marketing illustrations drawn like the bolt icon.
+"""Generate original, theme-aware marketing illustrations.
+
+GPU-page scenes share the marketplace GPU's matte casing, gradient metal
+edges, gold contacts and restrained glow. MCP scenes retain the bolt recipe.
 
 The reference is public/brand-system/assets/icons/bolt.{dark,light}.svg:
 
@@ -14,7 +17,7 @@ No backgrounds, and every illustration is written for both themes.
 
   public/mcp/flow-{discover,launch,monitor}.{dark,light}.svg   MCP "How it works"
   public/mcp/cost-guardrails.{dark,light}.svg                  MCP guardrails panel
-  public/gpu-fleet/{training,inference,fleet-pulse,pipeline}.{dark,light}.svg
+  public/gpu-fleet/{training,inference,fleet-health,pipeline}-hardware-v2.{dark,light}.svg
 
 public/ is served `immutable` for a year, so changed art needs a new file name.
 
@@ -342,87 +345,129 @@ def mcp_guardrails(p: str, t: dict) -> str:
 # ── GPU page ─────────────────────────────────────────────────────────
 
 def gpu_training(p: str, t: dict) -> str:
-    # Three dies on one bus: a multi-GPU cluster training together.
-    out = circuit(p, t, 30, 450, 132, (188, 296), [100, 240, 380])
-    out += traces(t, [("M40 44h22l12 12", (40, 44), 0), ("M440 52h-22l-12 12", (440, 52), 2)])
-    # The bus between them: two lines, as on a board.
-    out += (
-        f'  <g stroke="url(#{p}-rail)" stroke-width="3" stroke-linecap="round">'
-        f'<path d="M150 78h38M150 92h38M292 78h38M292 92h38"/></g>\n'
-    )
-    out += floor(p, 240, 134, 150) + packets(p, t, 132, [62, 168, 318, 420])
-    out += chip(p, t, 110, 86, 60, "soft", "cyan")
-    out += chip(p, t, 370, 86, 60, "soft", "green")
-    out += chip(p, t, 240, 84, 92, fill="violet")
+    # A physical three-accelerator assembly, distinct from the inference card.
+    out = floor(p, 240, 146, 192)
+    out += f'<path d="M50 118H430L416 140H64Z" fill="url(#{p}-metal)" stroke="url(#{p}-fill)" stroke-width="1.5"/>'
+    out += f'<path d="M110 129H370" stroke="url(#{p}-gold)" stroke-width="3" stroke-linecap="round"/>'
+    for cx, scale in ((104, .82), (240, 1.04), (376, .82)):
+        out += accelerator(p, t, cx, 76, scale)
+    out += f'<g fill="url(#{p}-metal)" stroke="url(#{p}-fill)" stroke-width="2.2">'
+    for x in (158, 294):
+        out += f'<path d="M{x} 65h26v9h-26zM{x} 85h26v9h-26z"/>'
+    out += '</g>'
+    out += traces(t, [("M28 72h20l12 12", (28, 72), 0), ("M452 72h-20l-12 12", (452, 72), 2)])
     return out
 
 
 def gpu_inference(p: str, t: dict) -> str:
-    # One die, answers leaving it at speed.
-    out = circuit(p, t, 30, 450, 132, (78, 190), [130, 258, 386])
-    out += traces(t, [("M452 40h-22l-12 12", (452, 40), 2), ("M36 60h18", (36, 60), 0), ("M36 104h14", (36, 104), 1)])
-    out += floor(p, 132, 134, 100) + floor(p, 408, 134, 70) + packets(p, t, 132, [222, 300, 352])
-    out += chip(p, t, 132, 84, 92, fill="cyan")
-    for x, scale in ((236, 1.0), (286, 0.86), (330, 0.72)):
-        out += solid(place(CHEVRON, x, 86, scale), p, t, "soft", 1.8, fill="violet", facet=0)
-    out += solid(place(BOLT, 408, 82, 1.12), p, t, fill="warm", facet=0.56)
+    # A full dual-fan card with a visible backplate, cooling and PCIe fingers.
+    out = floor(p, 241, 148, 176)
+    out += traces(t, [
+        ("M28 72h28l18 18h20", (28, 72), 0),
+        ("M452 60h-28l-14 14h-34", (452, 60), 2),
+        ("M452 104h-18l-14 14h-44", (452, 104), 1),
+    ])
+    out += graphics_card(p, t, 92, 8, 1.04, -4)
     return out
 
 
 def gpu_fleet_health(p: str, t: dict) -> str:
-    # A rack with a steady heartbeat over it. Drawn in the top of the frame:
-    # the page lays a caption bar over the bottom.
-    # The trace stays clear of the rack: its lowest point ends above the top unit.
-    line = [(38, 62), (128, 62), (152, 26), (184, 84), (210, 44), (226, 62), (350, 62)]
-    fc, fo = t["facet"]
-    out = circuit(p, t, 40, 360, 236, (128, 276), [110, 200, 290])
-    out += traces(t, [("M52 150h20l12 12", (52, 150), 0), ("M352 176h-20l-12-12", (352, 176), 2)])
-    out += floor(p, 200, 240, 150) + packets(p, t, 236, [70, 322])
-    for i, y in enumerate((126, 172, 218)):
-        unit = place(slab(210, 36), 200, y, lean=LEAN)
-        out += solid(unit, p, t, "glow" if i == 1 else "soft", 2.2, fill=("cyan", "violet", "fill")[i], facet=0)
-        out += f'  <path d="{d_of(place(slab(196, 10), 201, y - 9, lean=LEAN))}" fill="{fc}" fill-opacity="{fo}"/>\n'
-        out += ink(place(slab(58, 6), 152, y + 3, lean=LEAN), p, t, ".85")
-        out += ink(place(die(9), 262, y + 2, lean=LEAN), p, t)
-        out += ink(place(die(9), 280, y + 2, lean=LEAN), p, t, ".6")
-    out += solid(ribbon(line, 15), p, t, fill="green", facet=0)
-    out += f'  <path d="{d_of(ribbon(line, 5))}" fill="{fc}" fill-opacity="{float(fo) + 0.08:.2f}"/>\n'
-    out += (
-        f'  <circle cx="362" cy="62" r="8" fill="{t["c"]}" filter="url(#{p}-soft)"/>\n'
-        f'  <circle cx="362" cy="62" r="8" stroke="{t["outline"][0]}" stroke-opacity="{t["outline"][1]}" stroke-width="2"/>\n'
-        f'  <circle cx="362" cy="62" r="15" stroke="{t["c"]}" stroke-opacity=".4" stroke-width="2"/>\n'
-    )
+    # Server hardware and a separate telemetry display; no floating check badge.
+    out = floor(p, 190, 221, 152)
+    out += rack(p, t, 51, 75, 1.03)
+    out += f'<path d="M266 116h30l14-14V75" stroke="{t["c"]}" stroke-opacity=".6" stroke-width="2" stroke-linecap="round"/>'
+    out += monitor(p, t, 242, 24, 1)
+    out += traces(t, [("M27 148h16l10-10", (27, 148), 0), ("M365 168h-18l-12 12h-48", (365, 168), 2)])
     return out
 
 
 def gpu_pipeline(p: str, t: dict) -> str:
-    # Pick, provision, pulse: three stations on one line.
-    fc, fo = t["facet"]
-    out = circuit(p, t, 34, 606, 148, (268, 372), [112, 320, 528])
-    out += traces(t, [("M40 46h20l12 12", (40, 46), 0), ("M604 60h-20l-12 12", (604, 60), 2)])
-    out += floor(p, 112, 150, 90) + floor(p, 320, 150, 110) + floor(p, 528, 150, 90)
-    out += packets(p, t, 148, [200, 236, 420, 456])
-    for x in (206, 432):
-        out += solid(place(CHEVRON, x, 84, 0.62), p, t, "soft", 1.6, fill="warm", facet=0)
-        out += solid(place(CHEVRON, x + 24, 84, 0.62), p, t, "soft", 1.6, fill="warm", facet=0)
-    # Pick: a die under a pointer.
-    out += chip(p, t, 112, 84, 92, fill="cyan")
-    pointer: Pts = [(0, 0), (40, 16), (22, 22), (34, 42), (24, 48), (12, 28), (0, 40)]
-    out += (
-        f'  <path d="{d_of(place(pointer, 126, 92))}" fill="{t["ink"]}" filter="url(#{p}-soft)"/>\n'
-        f'  <path d="{d_of(place(pointer, 126, 92))}" stroke="{t["b"]}" stroke-width="2" stroke-linejoin="round"/>\n'
-    )
-    # Provision: the rack it lands on.
-    for i, y in enumerate((46, 84, 122)):
-        out += solid(place(slab(128, 30), 320, y, lean=LEAN), p, t, "glow" if i == 1 else "soft", 2, fill="violet", facet=0)
-        out += f'  <path d="{d_of(place(slab(118, 8), 321, y - 8, lean=LEAN))}" fill="{fc}" fill-opacity="{fo}"/>\n'
-        out += ink(place(slab(36, 5), 292, y + 3, lean=LEAN), p, t, ".85")
-        out += ink(place(die(8), 362, y + 2, lean=LEAN), p, t)
-    # Pulse: a live reading.
-    gem = place(regular(6, 56, 0), 528, 84, lean=LEAN)
-    out += solid(gem, p, t, fill="green", facet=0.64)
-    out += ink(ribbon([(494, 86), (512, 86), (521, 62), (535, 108), (545, 78), (551, 88), (564, 88)], 7.5), p, t)
+    out = circuit(p, t, 36, 604, 149, (270, 364), [111, 320, 529])
+    out += graphics_card(p, t, 32, 45, .55, -4)
+    out += rack(p, t, 256, 32, .64)
+    out += monitor(p, t, 466, 50, 1.08)
+    for x in (217, 422):
+        out += f'<path d="M{x-13} 89h25m-8-7 8 7-8 7" stroke="url(#{p}-fill)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
     return out
+
+
+def hardware_defs(p: str, t: dict) -> str:
+    dark = t is THEMES["dark"]
+    surface = ("#1c2b43", "#0b1424") if dark else ("#ffffff", "#dde6f0")
+    return (
+        f'<linearGradient id="{p}-metal" x1="0" y1="0" x2=".7" y2="1">'
+        f'<stop stop-color="{surface[0]}"/><stop offset="1" stop-color="{surface[1]}"/></linearGradient>'
+        f'<linearGradient id="{p}-gold" x2="0" y2="1"><stop stop-color="#fde68a"/><stop offset="1" stop-color="#c99a35"/></linearGradient>'
+        f'<filter id="{p}-hardware-shadow" x="-25%" y="-35%" width="160%" height="190%" color-interpolation-filters="sRGB">'
+        f'<feDropShadow dx="0" dy="7" stdDeviation="7" flood-color="{t["b"] if dark else "#334155"}" flood-opacity=".19"/>'
+        f'<feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="{t["a"]}" flood-opacity=".22"/></filter>'
+    )
+
+
+def fan(p: str, t: dict, cx: float, cy: float, r: float) -> str:
+    dark = t is THEMES["dark"]
+    well, blade = ("#091321", "#293d55") if dark else ("#eff4f9", "#d2dce7")
+    out = f'<g transform="translate({cx} {cy}) scale({r / 32})">'
+    out += f'<circle r="32" fill="{well}" stroke="url(#{p}-fill)" stroke-width="2.2"/>'
+    out += f'<circle r="27.5" stroke="{t["a"]}" stroke-opacity=".2" stroke-width="1"/>'
+    for angle in range(0, 360, 60):
+        out += f'<path d="M4-7C9-22 23-24 26-13C20-15 12-7 8 3Z" transform="rotate({angle})" fill="{blade}" stroke="{t["a"]}" stroke-opacity=".4" stroke-width=".8"/>'
+    return out + f'<circle r="7.5" fill="url(#{p}-fill)"/><circle cx="-2" cy="-2" r="2" fill="white" fill-opacity=".45"/></g>'
+
+
+def graphics_card(p: str, t: dict, x: float, y: float, scale: float, angle: float = 0) -> str:
+    out = f'<g transform="translate({x} {y}) scale({scale}) rotate({angle} 142 72)" stroke-linejoin="round">'
+    out += f'<g filter="url(#{p}-hardware-shadow)" fill="url(#{p}-metal)" stroke="url(#{p}-fill)" stroke-width="2">'
+    out += '<path d="M14 28 30 14H284L270 28ZM270 28l14-14v88l-14 14Z"/>'
+    out += '<rect x="1" y="20" width="12" height="110" rx="3"/><rect x="14" y="28" width="256" height="88" rx="11"/></g>'
+    out += f'<path d="M27 39H252" stroke="{t["outline"][0]}" stroke-opacity=".18" stroke-width="2"/>'
+    out += f'<g stroke="{t["a"]}" stroke-opacity=".5" stroke-width="1.5" stroke-linecap="round">'
+    out += '<path d="M5 40h5M5 52h5M5 64h5M5 89h5M5 101h5M5 113h5"/>'
+    for yy in range(48, 103, 8):
+        out += f'<path d="M237 {yy}h20"/>'
+    out += '</g>' + fan(p, t, 79, 72, 32) + fan(p, t, 179, 72, 32)
+    out += f'<rect x="40" y="116" width="156" height="8" rx="1.5" fill="url(#{p}-gold)"/>'
+    for xx in range(49, 191, 12):
+        out += f'<path d="M{xx} 117v6" stroke="#5c4523" stroke-opacity=".6" stroke-width="2"/>'
+    for xx, yy in ((25, 39), (257, 39), (25, 105), (257, 105)):
+        out += f'<circle cx="{xx}" cy="{yy}" r="1.7" fill="{t["a"]}" fill-opacity=".7"/>'
+    return out + '</g>'
+
+
+def accelerator(p: str, t: dict, cx: float, cy: float, scale: float) -> str:
+    out = f'<g transform="translate({cx} {cy}) scale({scale}) rotate(-6)" stroke-linejoin="round">'
+    out += f'<path d="M-48-36-38-46H38L48-36V36L38 46H-38L-48 36Z" fill="url(#{p}-metal)" stroke="url(#{p}-fill)" stroke-width="2" filter="url(#{p}-hardware-shadow)"/>'
+    out += f'<rect x="-21" y="-21" width="42" height="42" rx="4" fill="url(#{p}-cyan)" stroke="{t["outline"][0]}" stroke-opacity=".5" stroke-width="1.5"/>'
+    out += f'<rect x="-14" y="-14" width="28" height="28" rx="2" fill="{t["ink"]}" fill-opacity=".12"/>'
+    for a in (-1, 1):
+        for b in (-1, 1):
+            out += f'<rect x="{a*12-6}" y="{b*33-5}" width="12" height="10" rx="1" fill="url(#{p}-metal)" stroke="{t["a"]}" stroke-opacity=".6"/>'
+            out += f'<rect x="{b*33-5}" y="{a*12-6}" width="10" height="12" rx="1" fill="url(#{p}-metal)" stroke="{t["b"]}" stroke-opacity=".6"/>'
+    out += f'<rect x="-28" y="46" width="56" height="6" rx="1" fill="url(#{p}-gold)"/>'
+    return out + '</g>'
+
+
+def rack(p: str, t: dict, x: float, y: float, scale: float) -> str:
+    out = f'<g transform="translate({x} {y}) scale({scale})" stroke-linejoin="round">'
+    out += f'<g fill="url(#{p}-metal)" stroke="url(#{p}-fill)" stroke-width="2" filter="url(#{p}-hardware-shadow)">'
+    out += '<path d="M8 20 28 0H224L204 20ZM204 20l20-20v120l-20 20Z"/><rect x="0" y="20" width="204" height="120" rx="9"/></g>'
+    for i, yy in enumerate((31, 66, 101)):
+        out += f'<rect x="12" y="{yy}" width="180" height="28" rx="4" fill="url(#{p}-metal)" stroke="{t["a"]}" stroke-opacity=".5" stroke-width="1.2"/>'
+        out += f'<rect x="21" y="{yy+9}" width="15" height="10" rx="2" fill="none" stroke="{t["b"]}" stroke-width="1.3"/>'
+        for xx in range(49, 118, 8):
+            out += f'<path d="M{xx} {yy+8}v12" stroke="{t["a"]}" stroke-opacity=".3" stroke-width="2" stroke-linecap="round"/>'
+        out += fan(p, t, 140, yy+14, 9)
+        out += f'<circle cx="174" cy="{yy+14}" r="3" fill="{(t["a"], t["b"], t["c"])[i]}"/>'
+    return out + '</g>'
+
+
+def monitor(p: str, t: dict, x: float, y: float, scale: float) -> str:
+    out = f'<g transform="translate({x} {y}) scale({scale})" stroke-linecap="round" stroke-linejoin="round">'
+    out += f'<rect width="112" height="70" rx="9" fill="url(#{p}-metal)" stroke="url(#{p}-fill)" stroke-width="2" filter="url(#{p}-hardware-shadow)"/>'
+    out += f'<path d="M12 22H100M12 48H100M32 12V58M58 12V58M84 12V58" stroke="{t["a"]}" stroke-opacity=".12"/>'
+    out += f'<path d="M12 39h18l9-16 13 31 12-24 9 9h27" stroke="{t["c"]}" stroke-width="2.5"/>'
+    out += f'<path d="M56 70v13M37 83h38" stroke="url(#{p}-fill)" stroke-width="2.5"/>'
+    return out + '</g>'
 
 
 def svg(prefix: str, theme: str, draw, w: int, h: int) -> str:
@@ -450,7 +495,8 @@ def svg(prefix: str, theme: str, draw, w: int, h: int) -> str:
         "    </linearGradient>\n"
         f'    <filter id="{p}-glow" x="-40%" y="-40%" width="180%" height="190%" color-interpolation-filters="sRGB">{t["glow"]}</filter>\n'
         f'    <filter id="{p}-soft" x="-50%" y="-50%" width="200%" height="210%" color-interpolation-filters="sRGB">{t["soft"]}</filter>\n'
-        "  </defs>\n" + draw(p, t) + "</svg>\n"
+        + (hardware_defs(p, t) if draw in (gpu_training, gpu_inference, gpu_fleet_health, gpu_pipeline) else "")
+        + "  </defs>\n" + draw(p, t) + "</svg>\n"
     )
 
 
@@ -459,10 +505,10 @@ ART = (
     ("mcp", "flow-launch", flow_launch, 320, 200),
     ("mcp", "flow-monitor", flow_monitor, 320, 200),
     ("mcp", "cost-guardrails", mcp_guardrails, 480, 290),
-    ("gpu-fleet", "training", gpu_training, 480, 172),
-    ("gpu-fleet", "inference", gpu_inference, 480, 172),
-    ("gpu-fleet", "fleet-pulse", gpu_fleet_health, 400, 270),
-    ("gpu-fleet", "pipeline", gpu_pipeline, 640, 190),
+    ("gpu-fleet", "training-hardware-v2", gpu_training, 480, 172),
+    ("gpu-fleet", "inference-hardware-v2", gpu_inference, 480, 172),
+    ("gpu-fleet", "fleet-health-hardware-v2", gpu_fleet_health, 400, 270),
+    ("gpu-fleet", "pipeline-hardware-v2", gpu_pipeline, 640, 190),
 )
 
 

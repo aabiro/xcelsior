@@ -22,8 +22,8 @@ type PriceMode = "spot" | "ondemand";
 type SiteTone = "cyan" | "coral" | "gold" | "green" | "violet";
 
 const WORKLOADS = [
-  { key: "training", icon: "activity", art: "training", tone: "violet" as const },
-  { key: "inference", icon: "sparkle", art: "inference", tone: "cyan" as const },
+  { key: "training", icon: "activity", art: "training-hardware-v2", tone: "violet" as const },
+  { key: "inference", icon: "sparkle", art: "inference-hardware-v2", tone: "cyan" as const },
 ] as const;
 
 const FLAGSHIP = [
@@ -517,13 +517,13 @@ export function GPUAvailabilityContent() {
             </article>
             <div className="site-media-panel site-map-panel">
               <Image
-                src="/gpu-fleet/fleet-pulse.dark.svg"
+                src="/gpu-fleet/fleet-health-hardware-v2.dark.svg"
                 alt={t("gpus.compliance_map_alt")}
                 fill
                 className="site-map-image site-theme-dark"
               />
               <Image
-                src="/gpu-fleet/fleet-pulse.light.svg"
+                src="/gpu-fleet/fleet-health-hardware-v2.light.svg"
                 alt={t("gpus.compliance_map_alt")}
                 fill
                 className="site-map-image site-theme-light"
@@ -666,8 +666,8 @@ export function GPUAvailabilityContent() {
               <div className="site-callout-visual">
                 {/* public/ is served `immutable` for a year through Cloudflare: changed
                     art needs a new file name, or visitors keep the cached old one. */}
-                <Image src="/gpu-fleet/pipeline.dark.svg" alt="" fill className="site-callout-visual-image site-theme-dark" />
-                <Image src="/gpu-fleet/pipeline.light.svg" alt="" fill className="site-callout-visual-image site-theme-light" />
+                <Image src="/gpu-fleet/pipeline-hardware-v2.dark.svg" alt="" fill className="site-callout-visual-image site-theme-dark" />
+                <Image src="/gpu-fleet/pipeline-hardware-v2.light.svg" alt="" fill className="site-callout-visual-image site-theme-light" />
               </div>
             </div>
             <div className="site-timeline">
