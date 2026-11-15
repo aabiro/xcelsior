@@ -3410,6 +3410,20 @@ html:has(.site-nav) {
   }
 }
 
+/* A phone has no room for desktop gutters on both the page and the card:
+   at 390 px they left 254 px, and every "Continue with …" label wrapped. */
+@media (max-width: 520px) {
+  .site-auth-rails {
+    padding: 28px 16px 48px;
+  }
+
+  .site-auth-card,
+  .site-auth-card-wide,
+  .site-auth-card-xl {
+    padding: 28px 20px;
+  }
+}
+
 @media (max-width: 980px) {
   .site-nav-links,
   .site-nav-actions .site-ghost-link,

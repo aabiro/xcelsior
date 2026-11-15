@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { fetchOAuthProviders } from "@/lib/api";
 
-export const OAUTH_PROVIDERS = ["github", "google", "huggingface", "facebook"] as const;
+export const OAUTH_PROVIDERS = ["github", "huggingface", "google", "facebook"] as const;
 export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
 
 /**
