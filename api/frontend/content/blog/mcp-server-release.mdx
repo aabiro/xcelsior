@@ -1,17 +1,16 @@
 ---
-title: "Introducing Xcelsior MCP: 87 Scoped Tools for Agent-Driven GPU Compute"
+title: "Introducing Xcelsior MCP: {mcpToolCount} Scoped Tools for Agent-Driven GPU Compute"
 description: "Connect Claude, ChatGPT, Cursor, VS Code, or headless CI agents to Xcelsior's GPU cloud over Streamable HTTP with paste-and-consent OAuth 2.1 and strict spend guardrails."
 date: "2026-11-11"
 author: "Xcelsior Team"
 tags: ["MCP", "AI Agents", "OAuth", "Developer Tools", "GPU Cloud"]
-image: "/blog/mcp-server-release.png"
 ---
 
 AI coding and research agents can write PyTorch training loops, debug CUDA kernels, and package Docker images — right up until they need an actual GPU. At that point, the workflow usually drops back to a human opening tabs, copying long-lived API keys into plaintext config files, clicking through instance forms, and hoping an autonomous loop does not leave eight GPUs running overnight.
 
 **Xcelsior MCP** is our hosted Model Context Protocol server at [https://mcp.xcelsior.ca/mcp](https://mcp.xcelsior.ca/mcp), published in the official MCP Registry as `io.github.aabiro/xcelsior`.
 
-With **87 scoped customer tools**, an AI assistant or autonomous workflow can discover live GPU availability, quote and execute approval-gated launch plans, manage serverless inference endpoints, attach persistent volumes, inspect telemetry, and track CAD billing — end to end, without ever touching an un-scoped API key.
+With **{mcpToolCount} scoped customer tools**, an AI assistant or autonomous workflow can discover live GPU availability, quote and execute approval-gated launch plans, manage serverless inference endpoints, attach persistent volumes, inspect telemetry, and track CAD billing — end to end, without ever touching an un-scoped API key.
 
 ---
 
@@ -28,7 +27,7 @@ There is no client secret to generate and nothing to paste into an environment f
 
 ---
 
-## 87 Tools Built Around Real Spend & Security Boundaries
+## {mcpToolCount} Tools Built Around Real Spend & Security Boundaries
 
 Exposing a cloud control plane to an LLM by blindly wrapping every REST route is a recipe for accidental spend and privilege escalation. Every tool on Xcelsior MCP is backed by an explicit contract, output schema, and cumulative scope check.
 

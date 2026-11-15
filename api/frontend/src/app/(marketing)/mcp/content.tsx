@@ -11,6 +11,7 @@ import { PixelField } from "@/components/ui/pixel-field";
 import { m } from "@/components/marketing/motion";
 import { siteIcon } from "@/lib/brand-assets";
 import { MCP_CONNECTOR_URL, oneClickInstalls } from "@/lib/mcp";
+import { MCP_TOOL_COUNT } from "@/lib/mcp-tool-count";
 import { useLocale } from "@/lib/locale";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -31,12 +32,12 @@ const FLOW_STEPS = [
 ] as const;
 
 const BENTO = [
-  { key: "discovery", icon: "globe", tools: 5, accent: "cyan" as const },
-  { key: "compute", icon: "server", tools: 2, accent: "violet" as const },
-  { key: "serverless", icon: "grid", tools: 4, accent: "green" as const },
-  { key: "billing", icon: "coins", tools: 3, accent: "gold" as const },
-  { key: "guardrails", icon: "shield-check", tools: 1, accent: "gold" as const },
-  { key: "monitoring", icon: "activity", tools: 1, accent: "cyan" as const },
+  { key: "discovery", icon: "globe", accent: "cyan" as const },
+  { key: "compute", icon: "server", accent: "violet" as const },
+  { key: "serverless", icon: "grid", accent: "green" as const },
+  { key: "billing", icon: "coins", accent: "gold" as const },
+  { key: "guardrails", icon: "shield-check", accent: "gold" as const },
+  { key: "monitoring", icon: "activity", accent: "cyan" as const },
 ] as const;
 
 // Same three checks the guardrails artwork draws: the estimate card, the
@@ -171,7 +172,7 @@ export function McpLandingContent() {
                     <div className="site-kpi-label">{t("mcp.landing.stat_gpus")}</div>
                   </div>
                   <div className="site-hero-stat-card site-hero-stat-card-accent">
-                    <div className="site-kpi-value">10+</div>
+                    <div className="site-kpi-value">{MCP_TOOL_COUNT}</div>
                     <div className="site-kpi-label">{t("mcp.landing.stat_tools")}</div>
                   </div>
                 </div>
@@ -247,9 +248,6 @@ export function McpLandingContent() {
                   <div className="site-icon-box">
                     <ThemeIcon name={card.icon} />
                   </div>
-                  <span className="site-bento-badge">
-                    {card.tools} {t(card.tools === 1 ? "mcp.landing.tool_label" : "mcp.landing.tools_label")}
-                  </span>
                 </div>
                 <h3 className="site-card-title">{t(`mcp.landing.bento_${card.key}_title`)}</h3>
                 <p className="site-card-copy">{t(`mcp.landing.bento_${card.key}_desc`)}</p>

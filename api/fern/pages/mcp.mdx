@@ -203,9 +203,9 @@ Always run `logout` first, as removing the server entry alone can leave stored t
 - **Idempotency & replay protection**: Spending and settlement tools (`request_provider_payout`, `top_up_wallet`, `claim_reputation_milestones`) are keyed in PostgreSQL so a network retry never double-pays or double-charges.
 - **Secret redaction at the boundary**: Provider and billing tools strip processor identifiers (`stripe_account_id`, `onboarding_url`, PayPal `merchant_id`/`payer_id`, Wise `wise_recipient_id`/`fingerprint`, and Stripe `client_secret`) before responses enter model context.
 
-## Available tools (89 customer tools)
+## Available customer tools
 
-The customer profile at `https://mcp.xcelsior.ca/mcp` exposes 89 tools grouped below.
+The customer profile at `https://mcp.xcelsior.ca/mcp` exposes the tools grouped below. Use `tools/list` for the current tools available to your connection.
 
 ### Connection permissions
 
@@ -363,4 +363,3 @@ If you want an AI assistant to read Xcelsior's public guides and API reference t
 - **OpenAPI 3.1 Specification**: `https://xcelsior.ca/openapi.json`
 
 No Xcelsior account, API token, or sign-in is required to read `llms.txt` or `openapi.json`. See [LLM Integration](/llm-integration) for code generation examples and details on the in-app **Xcel AI** assistant.
-

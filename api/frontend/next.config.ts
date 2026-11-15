@@ -72,6 +72,11 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
+        source: "/blog/mcp-server-release.png",
+        destination: "/blog/mcp-server-release/image",
+        permanent: true,
+      },
+      {
         source: "/docs",
         destination: "https://docs.xcelsior.ca",
         permanent: false,

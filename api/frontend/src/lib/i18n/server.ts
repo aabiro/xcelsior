@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import type { Locale } from "@/lib/locale";
 import enPublic from "@/lib/i18n/en-public";
 import frPublic from "@/lib/i18n/fr-public";
+import { withMcpToolCount } from "@/lib/mcp-tool-count";
 
 const dictionaries = { en: enPublic, fr: frPublic } as const;
 
@@ -13,5 +14,5 @@ export async function getServerLocale(): Promise<Locale> {
 
 export function createTranslator(locale: Locale) {
   const dict = dictionaries[locale];
-  return (key: string): string => dict[key] ?? dictionaries.en[key] ?? key;
+  return (key: string): string => withMcpToolCount(dict[key] ?? dictionaries.en[key] ?? key);
 }

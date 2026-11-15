@@ -4,7 +4,7 @@
 
 ### GPU compute your agent can run end to end
 
-**Launch it, connect to it, spend on it and tear it down — through 89 MCP tools,
+**Launch it, connect to it, spend on it and tear it down — through scoped MCP tools,
 without ever opening a browser. Every host admission-gated before it takes work.**
 
 [![CI](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml/badge.svg)](https://github.com/aabiro/xcelsior/actions/workflows/ci.yml)
@@ -33,7 +33,7 @@ graph TB
 
     subgraph platform["Xcelsior Platform"]
         api["FastAPI Gateway · public API + dashboard"]
-        scheduler["Scheduler · Job matching & compliance"]
+        scheduler["Scheduler · Job matching & admission"]
         db[("PostgreSQL 16 + SQLite auxiliaries")]
         billing["Billing · metering · holds · payouts"]
         reputation["Reputation · 6-tier trust scoring"]
@@ -63,7 +63,7 @@ graph TB
 |---|---|
 | **Global supply** | Capacity from independent hosts worldwide, ranked on price, availability, hardware, and host reputation. |
 | **4-Layer Security** | Version gating → least-privilege Docker → egress firewall → gVisor / Kata sandbox. |
-| **Agent-Native Surface** | 89 MCP tools with per-tool scopes — launch, connect, spend, snapshot, terminate. No dashboard step in any of it. |
+| **Agent-Native Surface** | MCP tools with per-tool scopes — launch, connect, spend, snapshot, terminate. No dashboard step in any of it. |
 | **Metered Billing** | Per-second metering against wallet holds that expire; Stripe, PayPal, and Wise payout rails; spending widened only through an approvable plan. |
 | **Reputation Engine** | Multi-factor scoring with 7-day grace decay. Bronze → Silver → Gold → Platinum → Diamond tiers. |
 | **Private Mesh** | Headscale overlay network — GPU workers never exposed to the public internet. |
@@ -177,6 +177,11 @@ tests/            1400+ backend tests (pytest) + 17 frontend tests (vitest)
 ---
 
 ## Deployment
+
+The website's advertised MCP total comes from `NEXT_PUBLIC_MCP_TOOL_COUNT` in
+`.env` (see [`.env.example`](.env.example)). Update it when the customer tool
+surface changes, then rebuild the frontend; both languages and the MCP release
+post use that value. The server reports its actual registered tool count.
 
 ### Docker Compose (production)
 

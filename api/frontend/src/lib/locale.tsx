@@ -11,6 +11,7 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import enPublic from "@/lib/i18n/en-public";
 import enDashboard from "@/lib/i18n/en-dashboard";
+import { withMcpToolCount } from "@/lib/mcp-tool-count";
 
 export type Locale = "en" | "fr";
 
@@ -104,7 +105,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
 
   const t = useCallback(
     (key: string, vars?: Record<string, string | number>): string => {
-      let str = dictionary[key] ?? enPublic[key] ?? key;
+      let str = withMcpToolCount(dictionary[key] ?? enPublic[key] ?? key);
       if (vars) {
         for (const [k, v] of Object.entries(vars)) {
           str = str.replaceAll(`{${k}}`, String(v));

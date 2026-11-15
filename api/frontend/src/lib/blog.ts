@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
+import { withMcpToolCount } from "@/lib/mcp-tool-count";
 
 const BLOG_DIR = path.join(process.cwd(), "content", "blog");
 
@@ -23,7 +24,7 @@ export function getAllPosts(): BlogPost[] {
   const posts = files.map((filename) => {
     const slug = filename.replace(/\.mdx$/, "");
     const raw = fs.readFileSync(path.join(BLOG_DIR, filename), "utf-8");
-    const { data, content } = matter(raw);
+    const { data, content } = matter(withMcpToolCount(raw));
 
     return {
       slug,
@@ -45,7 +46,7 @@ export function getPostBySlug(slug: string): BlogPost | null {
   if (!fs.existsSync(filePath)) return null;
 
   const raw = fs.readFileSync(filePath, "utf-8");
-  const { data, content } = matter(raw);
+  const { data, content } = matter(withMcpToolCount(raw));
 
   return {
     slug,
