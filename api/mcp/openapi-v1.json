@@ -3695,6 +3695,25 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HostAvailabilityUpdate": {
+        "properties": {
+          "accepting_jobs": {
+            "type": "boolean",
+            "title": "Accepting Jobs"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepting_jobs",
+          "expected_version"
+        ],
+        "title": "HostAvailabilityUpdate"
+      },
       "HostIn": {
         "properties": {
           "host_id": {
@@ -6601,11 +6620,6 @@
             "type": "string",
             "title": "Tier",
             "default": "community"
-          },
-          "monthly_spend_cad": {
-            "type": "number",
-            "title": "Monthly Spend Cad",
-            "default": 0.0
           }
         },
         "type": "object",
@@ -7549,6 +7563,19 @@
             "type": "string",
             "title": "Storage Policy",
             "default": "any"
+          },
+          "retain_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3650.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retain Days"
           }
         },
         "type": "object",

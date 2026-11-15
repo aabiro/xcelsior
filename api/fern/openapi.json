@@ -4468,6 +4468,19 @@
             "type": "string",
             "title": "Storage Policy",
             "default": "any"
+          },
+          "retain_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3650.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retain Days"
           }
         },
         "type": "object",

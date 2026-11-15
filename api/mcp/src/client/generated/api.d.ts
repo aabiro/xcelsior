@@ -1818,6 +1818,13 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HostAvailabilityUpdate */
+        HostAvailabilityUpdate: {
+            /** Accepting Jobs */
+            accepting_jobs: boolean;
+            /** Expected Version */
+            expected_version: number;
+        };
         /** HostIn */
         HostIn: {
             /** Host Id */
@@ -3058,11 +3065,6 @@ export interface components {
              * @default community
              */
             tier: string;
-            /**
-             * Monthly Spend Cad
-             * @default 0
-             */
-            monthly_spend_cad: number;
         };
         /** SellerProfileRequest */
         SellerProfileRequest: {
@@ -3483,6 +3485,8 @@ export interface components {
              * @default any
              */
             storage_policy: string;
+            /** Retain Days */
+            retain_days?: number | null;
         };
         /**
          * V1InferenceRequest
