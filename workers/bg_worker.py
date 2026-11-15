@@ -281,13 +281,12 @@ def main():
 
     register_task("burst_evaluator", _burst_evaluator, 120)
 
-    # 6. SLA credit issuance (every hour)
+    # 6. SLA: measure this month, credit last month's affected customers (every hour)
     def _sla_credits():
-        import datetime
         from sla import get_sla_engine
 
         se = get_sla_engine()
-        se.auto_issue_credits(datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m"))
+        se.run_cycle()
 
     register_task("sla_credits", _sla_credits, 3600)
 

@@ -400,51 +400,48 @@ def test_a_bitcoin_deposit_that_has_not_confirmed_credits_nothing(customer, monk
     assert _balance(cid) == pytest.approx(before)
 
 
-class _FakeSlaConn:
-    def __init__(self, rows: list, owner: str):
-        self.rows = rows
-        self.owner = owner
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def execute(self, sql: str, params=()):
-        rows, owner = self.rows, self.owner
-
-        class _Result:
-            def fetchall(self):
-                return rows
-
-            def fetchone(self):
-                return {"owner": owner}
-
-        return _Result()
-
-
-def test_an_sla_credit_is_recorded_as_a_credit_not_a_deposit(customer, monkeypatch):
+def test_an_sla_credit_is_recorded_as_a_credit_not_a_deposit(customer):
     """SLA credit is a service credit. Booking it as a deposit counted it as
     cash received in revenue and toward the FINTRAC 24-hour aggregate."""
-    from sla import SLAEngine
+    from sla import SLAEngine, month_bounds
 
     cid = customer["customer_id"]
-    month = f"2099-{uuid.uuid4().hex[:6]}"
+    month = "2011-03"
     host_id = f"h-sla-{uuid.uuid4().hex[:8]}"
-    rows = [{"host_id": host_id, "credit_micros": 3_000_000, "uptime_pct": 98.5}]
-    engine = SLAEngine.__new__(SLAEngine)
-    monkeypatch.setattr(engine, "_conn", lambda: _FakeSlaConn(rows, cid), raising=False)
+    start, _ = month_bounds(month)
+    engine = SLAEngine()
+    engine.sync_host_liveness(observed=[host_id], down={}, up=[host_id], now=start)
+    engine.sync_host_liveness(
+        observed=[host_id], down={host_id: start + 86400}, up=[], now=start + 86400
+    )
+    engine.sync_host_liveness(observed=[host_id], down={}, up=[host_id], now=start + 5 * 86400)
+    with get_billing_engine()._conn() as conn:
+        conn.execute(
+            """INSERT INTO billing_cycles
+               (cycle_id, job_id, customer_id, host_id, resource_type, period_start,
+                period_end, duration_seconds, rate_per_hour, gpu_model, tier,
+                amount_micros, status, created_at)
+               VALUES (%s, %s, %s, %s, 'gpu', %s, %s, 300, 0, '', '', 3000000, 'charged', %s)""",
+            (
+                f"BC-{uuid.uuid4().hex[:10]}",
+                f"j-{uuid.uuid4().hex[:8]}",
+                cid,
+                host_id,
+                start + 86400 - 300,
+                start + 86400,
+                start + 86400,
+            ),
+        )
     before = _balance(cid)
 
-    issued = engine.auto_issue_credits(month)
+    issued = engine.settle_month(month)
 
     assert len(issued) == 1
-    assert _balance(cid) == pytest.approx(before + 3.0)
+    assert _balance(cid) == pytest.approx(before + 3.0)  # four days down: under 90% → 100%
     be = get_billing_engine()
     with be._conn() as conn:
         tx = conn.execute(
             "SELECT tx_type FROM wallet_transactions WHERE idempotency_key = %s",
-            (f"sla:{host_id}:{month}",),
+            (f"sla:{host_id}:{month}:{cid}",),
         ).fetchone()
     assert tx["tx_type"] == "credit"

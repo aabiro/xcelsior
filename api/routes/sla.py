@@ -24,29 +24,27 @@ class SLAEnforceRequest(BaseModel):
     host_id: str
     month: str  # YYYY-MM
     tier: str = "community"
-    monthly_spend_cad: float = 0.0
 
 
 @router.post("/api/sla/enforce", tags=["SLA"])
 def api_sla_enforce(req: SLAEnforceRequest, request: Request):
-    """Run monthly SLA enforcement for a host.
+    """Measure one host's month and the credit owed to the customers it affected.
 
-    Calculates uptime percentage, downtime incidents, and credits owed
-    based on the SLA tier. Credits follow the Google Cloud / Azure model:
-    - 95–99% uptime → 10% credit
-    - 90–95% uptime → 25% credit
-    - <90% uptime   → 100% credit
+    Uptime counts only time the health check monitored. Credits follow the
+    Google Cloud / Azure model, starting at the tier's own target:
+    - 95% to the target → 10% credit
+    - 90–95% uptime     → 25% credit
+    - <90% uptime       → 100% credit
+
+    Each affected customer's credit is a share of their own spend on the host
+    that month, read from billing; the spend is no longer typed in here.
+    Measuring does not pay: credits are paid once the month has closed.
     """
     from routes._deps import _require_scope
 
     _require_scope(_require_admin(request), "sla:write")
     engine = get_sla_engine()
-    record = engine.enforce_monthly(
-        req.host_id,
-        req.tier,
-        req.month,
-        req.monthly_spend_cad,
-    )
+    record = engine.enforce_monthly(req.host_id, req.tier, req.month)
     return {
         "ok": True,
         "host_id": record.host_id,

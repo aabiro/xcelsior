@@ -130,6 +130,11 @@ CONTROL_TABLES = frozenset(
         "node_versions",
         "host_observations",
         "host_observation_sessions",
+        # The SLA downtime log is what the health check observed: the scheduler
+        # writes it as it marks hosts dead and alive. It was a marketplace table,
+        # which the scheduler may only read, so under per-service roles nothing
+        # could have written it.
+        "sla_downtime",
         "observed_workloads",
         "reconciliation_queue",
         "reconciliation_findings",
@@ -243,7 +248,6 @@ MARKETPLACE_TABLES = frozenset(
         "provider_accounts",
         "reputation_events",
         "reputation_scores",
-        "sla_downtime",
         "sla_monthly",
         "sla_violations",
     }

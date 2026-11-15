@@ -1426,6 +1426,9 @@ def check_hosts():
     updates = []
     alerts = []
     revivals = []
+    observed: list[str] = []
+    up: list[str] = []
+    down: dict[str, float] = {}
     now = time.time()
 
     for h in hosts:
@@ -1458,7 +1461,9 @@ def check_hosts():
             current = _get_host_by_id_conn(conn, host_id)
             if not current:
                 continue
+            observed.append(host_id)
             if alive:
+                up.append(host_id)
                 current["last_seen"] = time.time()
                 # Clear any pending death timer on revival
                 _host_first_miss.pop(host_id, None)
@@ -1484,7 +1489,10 @@ def check_hosts():
                     if current.get("status") != "dead":
                         alerts.append((host_id, ip))
                     current["status"] = "dead"
+                    down[host_id] = first_miss
             _upsert_host_row(conn, current)
+
+    _record_sla_liveness(observed=observed, down=down, up=up, now=now)
 
     for host_id, ip in revivals:
         log.info("HOST REVIVED %s (%s)", host_id, ip)
@@ -1495,6 +1503,24 @@ def check_hosts():
         _requeue_dead_host_jobs(host_id, ip)
 
     return results
+
+
+def _record_sla_liveness(*, observed: list[str], down: dict[str, float], up: list[str], now: float):
+    """Write this check's verdicts to the SLA downtime log, which nothing else writes.
+
+    Outside the host transaction and never raising: the SLA log is a record of
+    what the health check saw, and failing to write it must not stop the check
+    from marking hosts or requeueing their jobs. It is synced from state, so the
+    next check repairs a missed write.
+    """
+    if not observed or _active_backend() != "postgres":
+        return
+    try:
+        from sla import get_sla_engine
+
+        get_sla_engine().sync_host_liveness(observed=observed, down=down, up=up, now=now)
+    except Exception:
+        log.exception("SLA downtime log not updated; the next health check retries")
 
 
 def _requeue_dead_host_jobs(host_id: str, ip: str):
