@@ -16,6 +16,7 @@ serves as the provisioner's integration test.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import os
 
 import pytest
@@ -659,12 +660,15 @@ def test_strict_scheduled_task_executes_with_its_own_login(provisioned_roles, mo
                 )
 
 
-def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provisioned_roles):
-    from psycopg import sql
-    from psycopg.conninfo import make_conninfo
-    from scripts.maintain_db_partitions import maintain
+@contextmanager
+def _migrator_owns_the_application_schema(dsn: str, *, cleanup: tuple[str, ...] = ()):
+    """Hand the application schemas, tables and fencing sequence to
+    xcelsior_migrator, as a real cutover does, and give them back afterwards.
 
-    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
+    ``cleanup`` statements run last, after ownership is restored.
+    """
+    from psycopg import sql
+
     with psycopg.connect(dsn, autocommit=True) as admin:
         original_owner = admin.execute("SELECT current_user").fetchone()[0]
         schema_owners = admin.execute(
@@ -687,30 +691,8 @@ def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provision
                 )
             )
         admin.execute("ALTER SEQUENCE placement_fencing_token_seq OWNER TO xcelsior_migrator")
-        # A sample from a month with no partition, as if maintenance had lapsed:
-        # it lands in DEFAULT, and the migrator's run has to move it out.
-        admin.execute(
-            "INSERT INTO telemetry_samples (host_id, sample, received_at) "
-            "VALUES ('lapsed-window', '{}'::jsonb, '2033-04-10 12:00:00+00')"
-        )
-        default_grants = admin.execute(_DEFAULT_GRANTS).fetchone()
     try:
-        with psycopg.connect(make_conninfo(dsn, user="xcelsior_migrator")) as conn:
-            maintain(conn)
-            maintain(conn)
-        with psycopg.connect(dsn) as conn:
-            assert conn.execute(
-                "SELECT last_status FROM scheduled_tasks WHERE task_name='telemetry_partition_maintenance'"
-            ).fetchone() == ("succeeded",)
-            assert conn.execute(
-                "SELECT has_table_privilege('xcelsior_reconciler', 'telemetry_samples', 'INSERT'), "
-                "has_table_privilege('xcelsior_readonly', 'telemetry_samples', 'INSERT')"
-            ).fetchone() == (True, False)
-            assert conn.execute(
-                "SELECT tableoid::regclass::text FROM telemetry_samples WHERE host_id='lapsed-window'"
-            ).fetchall() == [("telemetry_samples_203304",)]
-            # The DEFAULT partition is a new table now; it got the old one's grants.
-            assert conn.execute(_DEFAULT_GRANTS).fetchone() == default_grants
+        yield
     finally:
         with psycopg.connect(dsn, autocommit=True) as admin:
             for schema, table in admin.execute(
@@ -746,8 +728,86 @@ def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provision
                 )
             )
             admin.execute("ALTER ROLE xcelsior_migrator NOLOGIN PASSWORD NULL")
-            admin.execute("DROP TABLE IF EXISTS telemetry_samples_203304")
-            admin.execute("DELETE FROM telemetry_samples WHERE host_id='lapsed-window'")
+            for statement in cleanup:
+                admin.execute(statement)
+
+
+def test_external_partitions_run_as_migrator_and_retain_runtime_grants(provisioned_roles):
+    from psycopg.conninfo import make_conninfo
+    from scripts.maintain_db_partitions import maintain
+
+    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
+    with _migrator_owns_the_application_schema(
+        dsn,
+        cleanup=(
+            "DROP TABLE IF EXISTS telemetry_samples_203304",
+            "DELETE FROM telemetry_samples WHERE host_id='lapsed-window'",
+        ),
+    ):
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            # A sample from a month with no partition, as if maintenance had
+            # lapsed: it lands in DEFAULT, and the migrator's run has to move it out.
+            admin.execute(
+                "INSERT INTO telemetry_samples (host_id, sample, received_at) "
+                "VALUES ('lapsed-window', '{}'::jsonb, '2033-04-10 12:00:00+00')"
+            )
+            default_grants = admin.execute(_DEFAULT_GRANTS).fetchone()
+        with psycopg.connect(make_conninfo(dsn, user="xcelsior_migrator")) as conn:
+            maintain(conn)
+            maintain(conn)
+        with psycopg.connect(dsn) as conn:
+            assert conn.execute(
+                "SELECT last_status FROM scheduled_tasks WHERE task_name='telemetry_partition_maintenance'"
+            ).fetchone() == ("succeeded",)
+            assert conn.execute(
+                "SELECT has_table_privilege('xcelsior_reconciler', 'telemetry_samples', 'INSERT'), "
+                "has_table_privilege('xcelsior_readonly', 'telemetry_samples', 'INSERT')"
+            ).fetchone() == (True, False)
+            assert conn.execute(
+                "SELECT tableoid::regclass::text FROM telemetry_samples WHERE host_id='lapsed-window'"
+            ).fetchall() == [("telemetry_samples_203304",)]
+            # The DEFAULT partition is a new table now; it got the old one's grants.
+            assert conn.execute(_DEFAULT_GRANTS).fetchone() == default_grants
+
+
+def test_deploy_grants_make_a_new_table_usable_and_touch_no_partition(provisioned_roles):
+    """What the deploy runs right after migrating (maintain_db_partitions.py
+    --grants-only). On 2026-11-14 a deploy created mcp_permission_requests and
+    prod's API could not read it until the grants were converged by hand."""
+    from psycopg.conninfo import make_conninfo
+    from scripts.maintain_db_partitions import converge_runtime_grants
+
+    dsn = os.environ["XCELSIOR_POSTGRES_DSN"]
+    table = "mcp_permission_requests"
+    assert db_roles.domain_of(f"public.{table}") is not None
+    bookkeeping = (
+        "SELECT task_name, last_status, last_run_at FROM scheduled_tasks "
+        "WHERE task_name LIKE '%partition_maintenance' ORDER BY task_name"
+    )
+    partitions = "SELECT count(*) FROM pg_inherits"
+    api_can = (
+        "SELECT has_table_privilege('xcelsior_api', %(t)s, 'SELECT'), "
+        "has_table_privilege('xcelsior_api', %(t)s, 'INSERT'), "
+        "has_table_privilege('xcelsior_api', %(t)s, 'UPDATE')"
+    )
+    with _migrator_owns_the_application_schema(dsn):
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            before = (admin.execute(bookkeeping).fetchall(), admin.execute(partitions).fetchone())
+        with psycopg.connect(make_conninfo(dsn, user="xcelsior_migrator")) as conn:
+            # As the migration leaves it: owned by the migrator, nothing granted.
+            conn.execute(f"REVOKE ALL ON public.{table} FROM xcelsior_api")
+            conn.commit()
+            assert conn.execute(api_can, {"t": table}).fetchone() == (False, False, False)
+            converge_runtime_grants(conn)
+            converge_runtime_grants(conn)
+            assert conn.execute(api_can, {"t": table}).fetchone() == (True, True, True)
+        with psycopg.connect(dsn, autocommit=True) as admin:
+            after = (admin.execute(bookkeeping).fetchall(), admin.execute(partitions).fetchone())
+        assert after == before
+    # Only a direct migrator login converges grants; any other login is refused.
+    with psycopg.connect(dsn) as conn:
+        with pytest.raises(RuntimeError, match="direct migration-role login"):
+            converge_runtime_grants(conn)
 
 
 #: What each runtime role may do with telemetry_samples' DEFAULT partition.

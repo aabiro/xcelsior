@@ -64,8 +64,28 @@ def run(
         command.extend(["-e", MIGRATOR_KEY, "-e", "XCELSIOR_DB_ROLES_REQUIRED=1"])
     migration = [*command, "api", "python", "-m", "alembic", "upgrade", target]
     result = subprocess.run(migration, cwd=project, env=env, check=False).returncode
-    if result or not import_compute_catalog:
+    if result:
         return result
+    if credential:
+        # A table this release created has no runtime grants yet, and only the
+        # nightly partition job used to add them, hours later. On 2026-11-14
+        # that left prod's API unable to read mcp_permission_requests for an
+        # hour and a quarter. Converge now, before the new API is activated, and
+        # from this release's image: the running API's image predates the table
+        # and would grant nothing on it.
+        print("Granting the runtime roles what this schema gives them...", flush=True)
+        grants = [
+            *command,
+            "api",
+            "python",
+            "api/scripts/maintain_db_partitions.py",
+            "--grants-only",
+        ]
+        result = subprocess.run(grants, cwd=project, env=env, check=False).returncode
+        if result:
+            return result
+    if not import_compute_catalog:
+        return 0
     print("Importing verified Stripe compute Price identities...", flush=True)
     catalog = [
         *command,

@@ -1779,7 +1779,10 @@ docker compose build $build_args frontend
     local migration_target="${XCELSIOR_DEPLOY_MIGRATION_TARGET:-head}"
     [[ "$migration_target" == "head" || "$migration_target" =~ ^[0-9]{3}$ ]] \
         || error "XCELSIOR_DEPLOY_MIGRATION_TARGET must be head or a three-digit revision"
-    ssh_cmd "cd /opt/xcelsior && python3 api/scripts/run_db_migrations.py --import-compute-catalog --target ${migration_target}" || error "Migration or Stripe catalog import failed — aborting before API activation."
+    # run_db_migrations.py also grants the runtime roles what the new schema
+    # gives them (from this release's image), so a table this release created
+    # is usable the moment its API goes live.
+    ssh_cmd "cd /opt/xcelsior && python3 api/scripts/run_db_migrations.py --import-compute-catalog --target ${migration_target}" || error "Migration, runtime grants or Stripe catalog import failed — aborting before API activation."
     success "Migrations applied (target ${migration_target})"
 
     # ── Blue-green zero-downtime swap ────────────────────────────────────
