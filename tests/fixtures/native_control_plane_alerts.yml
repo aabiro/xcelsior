@@ -93,15 +93,14 @@ tests:
     exp_alerts:
     - exp_labels:
         job: xcelsior-api
-        instance: api
         severity: critical
         platform: xcelsior
         component: control-plane
         owner: platform
       exp_annotations:
-        summary: Xcelsior API cannot be scraped
-        description: Check API readiness and the native Prometheus target before restarting
-          services.
+        summary: No Xcelsior API replica can be scraped
+        description: Both green and blue API targets have been unreachable for two minutes. Check API readiness
+          and the native Prometheus targets before restarting services.
 - name: XcelsiorWorkerCommandDeadLettered fires with native raw metrics
   interval: 1m
   input_series:
@@ -135,15 +134,13 @@ tests:
     exp_alerts:
     - exp_labels:
         job: xcelsior-api
-        instance: api
         severity: warning
         platform: xcelsior
         component: control-plane
         owner: platform
       exp_annotations:
         summary: Worker commands exhausted delivery or failed permanently
-        description: Inspect command error codes, worker sessions and claim history.
-          Preserve failed rows.
+        description: Inspect command error codes, worker sessions and claim history. Preserve failed rows.
 - name: XcelsiorUsageEvidenceMissing is classified independently
   interval: 1m
   input_series:
@@ -177,16 +174,14 @@ tests:
     exp_alerts:
     - exp_labels:
         job: xcelsior-api
-        instance: api
         severity: warning
         platform: xcelsior
         component: control-plane
         owner: platform
       exp_annotations:
         summary: A started attempt has no usage-meter evidence
-        description: Review the attempt age, owner and captured price. Historical
-          proof runs with incomplete evidence must stay visible; do not manufacture
-          charges or enable repair enforcement to clear this alert.
+        description: Review the attempt age, owner and captured price. Historical proof runs with incomplete evidence
+          must stay visible; do not manufacture charges or enable repair enforcement to clear this alert.
   - eval_time: 5m
     alertname: XcelsiorBillingInvariantViolation
     exp_alerts: []
@@ -223,15 +218,13 @@ tests:
     exp_alerts:
     - exp_labels:
         job: xcelsior-api
-        instance: api
         severity: critical
         platform: xcelsior
         component: control-plane
         owner: platform
       exp_annotations:
         summary: Attempt billing and lifecycle disagree
-        description: Preserve meter and attempt history; inspect the report-only billing
-          reconciliation findings.
+        description: Preserve meter and attempt history; inspect the report-only billing reconciliation findings.
 - name: XcelsiorBackupMetricMissing uses native host metrics
   interval: 1m
   input_series:
@@ -249,8 +242,8 @@ tests:
         component: control-plane
       exp_annotations:
         summary: Database backup freshness metric is missing
-        description: The native production-host freshness metric is absent. Check
-          node exporter, its textfile directory and the database timer.
+        description: The native production-host freshness metric is absent. Check node exporter, its textfile directory
+          and the database timer.
         runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 - name: XcelsiorBackupStale uses native host metrics
   interval: 1m
@@ -272,8 +265,7 @@ tests:
         instance: prod
       exp_annotations:
         summary: No successful PostgreSQL backup in 26 hours
-        description: Check the backup timer and repository without overwriting the
-          last known-good backup.
+        description: Check the backup timer and repository without overwriting the last known-good backup.
         runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 - name: XcelsiorBackupFailedSinceLastSuccess uses native host metrics
   interval: 1m
@@ -316,8 +308,8 @@ tests:
         component: control-plane
       exp_annotations:
         summary: Restore-drill freshness metric is missing
-        description: The native production-host freshness metric is absent. Check
-          node exporter, its textfile directory and the database timer.
+        description: The native production-host freshness metric is absent. Check node exporter, its textfile directory
+          and the database timer.
         runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 - name: XcelsiorRestoreDrillStale uses native host metrics
   interval: 1m
@@ -339,8 +331,7 @@ tests:
         instance: prod
       exp_annotations:
         summary: No successful restore drill in 35 days
-        description: Backups are not proven recoverable until an isolated restore
-          drill succeeds.
+        description: Backups are not proven recoverable until an isolated restore drill succeeds.
         runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 - name: XcelsiorRestoreDrillFailedSinceLastSuccess uses native host metrics
   interval: 1m
@@ -364,8 +355,7 @@ tests:
         instance: prod
       exp_annotations:
         summary: The latest restore drill failed
-        description: A restore failure timestamp is newer than the last successful
-          drill.
+        description: A restore failure timestamp is newer than the last successful drill.
         runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 - name: newer successful recovery clears historical failure
   interval: 1m

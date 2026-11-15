@@ -2,20 +2,25 @@ groups:
 - name: xcelsior.control-plane
   rules:
   - alert: XcelsiorApiUnavailable
-    expr: up{job="xcelsior-api"} == 0 or absent(up{job="xcelsior-api"})
+    expr: max by (job) (up{job="xcelsior-api"}) == 0 or absent(up{job="xcelsior-api"})
     for: 2m
+    keep_firing_for: 2m
     labels:
       severity: critical
       platform: xcelsior
       component: control-plane
       owner: platform
     annotations:
-      summary: Xcelsior API cannot be scraped
-      description: Check API readiness and the native Prometheus target before restarting
-        services.
+      summary: No Xcelsior API replica can be scraped
+      description: Both green and blue API targets have been unreachable for two minutes.
+        Check API readiness and the native Prometheus targets before restarting services.
   - alert: XcelsiorControlPlaneMetricsUnavailable
-    expr: xcelsior_control_plane_metrics_available{job="xcelsior-api"} == 0 or absent(xcelsior_control_plane_metrics_available{job="xcelsior-api"})
+    expr: |
+      (max by (job) (xcelsior_control_plane_metrics_available{job="xcelsior-api"}) == 0
+       or absent(xcelsior_control_plane_metrics_available{job="xcelsior-api"}))
+      and on (job) (max by (job) (up{job="xcelsior-api"}) == 1)
     for: 2m
+    keep_firing_for: 5m
     labels:
       severity: warning
       platform: xcelsior
@@ -26,9 +31,11 @@ groups:
       description: Missing database evidence is unknown; inspect collection errors
         and retain report_only repairs.
   - alert: XcelsiorControlPlaneMetricsStale
-    expr: time() - xcelsior_control_plane_metrics_last_success_timestamp_seconds{job="xcelsior-api"}
-      > 120
+    expr: |
+      (time() - max by (job) (xcelsior_control_plane_metrics_last_success_timestamp_seconds{job="xcelsior-api"}) > 120)
+      and on (job) (max by (job) (xcelsior_control_plane_metrics_available{job="xcelsior-api"}) == 1)
     for: 2m
+    keep_firing_for: 5m
     labels:
       severity: warning
       platform: xcelsior
@@ -38,8 +45,9 @@ groups:
       summary: Control-plane metrics stopped refreshing
       description: Inspect the API metrics collector and database connectivity.
   - alert: XcelsiorWorkerCommandDeadLettered
-    expr: xcelsior_commands_dead_lettered{job="xcelsior-api"} > 0
+    expr: max by (job) (xcelsior_commands_dead_lettered{job="xcelsior-api"}) > 0
     for: 2m
+    keep_firing_for: 10m
     labels:
       severity: warning
       platform: xcelsior
@@ -50,8 +58,9 @@ groups:
       description: Inspect command error codes, worker sessions and claim history.
         Preserve failed rows.
   - alert: XcelsiorQueueDelayed
-    expr: xcelsior_queue_oldest_age_seconds{job="xcelsior-api"} > 900
+    expr: max by (job) (xcelsior_queue_oldest_age_seconds{job="xcelsior-api"}) > 900
     for: 5m
+    keep_firing_for: 5m
     labels:
       severity: warning
       platform: xcelsior
@@ -62,8 +71,9 @@ groups:
       description: Inspect capacity, hard placement constraints, scheduler heartbeats
         and queue reasons.
   - alert: XcelsiorReconciliationCriticalFindings
-    expr: xcelsior_reconciliation_critical_findings{job="xcelsior-api"} > 0
+    expr: max by (job) (xcelsior_reconciliation_critical_findings{job="xcelsior-api"}) > 0
     for: 2m
+    keep_firing_for: 10m
     labels:
       severity: critical
       platform: xcelsior
@@ -74,8 +84,11 @@ groups:
       description: Inspect the finding and preserve report_only repair policy; do
         not enable automatic repair from an alert.
   - alert: XcelsiorServiceHeartbeatMissing
-    expr: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api"} == 0
+    expr: |
+      (max by (job, service) (xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api"}) == 0)
+      and on (job, service) (max by (job, service) (xcelsior_service_expected{job="xcelsior-api"}) == 1)
     for: 2m
+    keep_firing_for: 5m
     labels:
       severity: critical
       platform: xcelsior
@@ -86,8 +99,9 @@ groups:
       description: Check the named service and its readiness probe before a controlled
         handoff.
   - alert: XcelsiorBillingInvariantViolation
-    expr: xcelsior_billing_open_terminal_meters{job="xcelsior-api"} > 0
+    expr: max by (job) (xcelsior_billing_open_terminal_meters{job="xcelsior-api"}) > 0
     for: 2m
+    keep_firing_for: 10m
     labels:
       severity: critical
       platform: xcelsior
@@ -98,8 +112,9 @@ groups:
       description: Preserve meter and attempt history; inspect the report-only billing
         reconciliation findings.
   - alert: XcelsiorUsageEvidenceMissing
-    expr: xcelsior_billing_missing_meters{job="xcelsior-api"} > 0
+    expr: max by (job) (xcelsior_billing_missing_meters{job="xcelsior-api"}) > 0
     for: 2m
+    keep_firing_for: 10m
     labels:
       severity: warning
       platform: xcelsior
@@ -111,8 +126,9 @@ groups:
         runs with incomplete evidence must stay visible; do not manufacture charges
         or enable repair enforcement to clear this alert.
   - alert: XcelsiorEventDeliveryDeadLettered
-    expr: xcelsior_outbox_dead_letters{job="xcelsior-api"} > 0
+    expr: max by (job) (xcelsior_outbox_dead_letters{job="xcelsior-api"}) > 0
     for: 2m
+    keep_firing_for: 10m
     labels:
       severity: warning
       platform: xcelsior

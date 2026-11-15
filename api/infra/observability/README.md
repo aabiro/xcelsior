@@ -104,3 +104,49 @@ For future native monitoring changes, preserve existing scrape jobs, Tower
 rules and Alertmanager routing, validate the complete installed candidate with
 `promtool`, and verify targets and query results after reload. Syntax validation
 alone does not prove activation or receiver delivery.
+
+Native alert noise and replica handoffs:
+
+- `configure_native_alerts.py` adds both loopback API targets, merges managed
+  control-plane and Tower capacity rules into the installed inventory, and
+  preserves receiver credentials and unrelated rules. Run it on prod-hetzner
+  with `python3 api/scripts/configure_native_alerts.py` to validate, then add
+  `--apply` to back up changed files and reload the two services.
+  Concurrent edits abort the apply; failed validation/reload restores backups.
+  When Tower integrity rules are installed, it also removes the warning for a
+  successful CPU diagnostic completion; diagnostic failures still alert.
+- The API alert requires **all** replicas to fail for two minutes. Database
+  collection failures alert separately while the API is reachable. Shared
+  database gauges aggregate across replicas, so a green/blue swap retains the
+  same alert identity. Disabled worker services do not page.
+- Existing findings stay firing through up to ten minutes of missing telemetry
+  or recovery confirmation. This prevents a short deployment gap from looking
+  like repaired billing evidence. A longer telemetry outage is still unknown;
+  use the API/metrics availability alert before interpreting resolved findings.
+- Native control-plane warnings repeat every 12 hours, critical failures every
+  four hours. Parent outages inhibit redundant dependent alerts. Existing
+  destinations and resolved notifications are retained.
+- Tower disk warnings require both more than 85% usage and less than 100 GiB
+  free for 15 minutes. Less than 20 GiB free pages after five minutes regardless
+  of percentage. A six-hour trend projecting exhaustion within 24 hours warns
+  after 30 minutes, with at least 120 samples and over 80% usage.
+
+Verify the active `up{job="xcelsior-api"}` inventory, loaded rule expressions,
+rule evaluation health, both reload-success metrics, and Alertmanager's active
+routing after applying. Test real failures and quiet rollouts with:
+
+```sh
+promtool test rules tests/fixtures/native_control_plane_alerts.yml tests/fixtures/native_alert_noise.yml
+```
+
+The reviewed missing-meter findings for proof jobs `156a1375` and `21eb56eb`
+remain durable and report-only. Neither has a captured billing snapshot. Stable
+monitoring must not resolve these records or invent historical charges.
+
+On 2026-11-14, Tower's port-8001 inference router was also repaired: its Python
+3.12 virtual environment had followed `/usr/bin/python3` to Python 3.14 after
+an OS upgrade. Pinning `venv/bin/python3` to `/usr/bin/python3.12` restored its
+existing FastAPI/Uvicorn packages. For future interpreter upgrades, rebuild
+and validate the environment explicitly; check `/health`, `/metrics`, and
+`/v1/models` after restarting the router. `TowerOllamaDown` is the historical
+name of this router alert; Ollama itself listens separately on port 11434.

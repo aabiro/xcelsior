@@ -1,0 +1,6 @@
+# Install at /etc/fail2ban/jail.d/nginx-limit-req.local on the shared ingress.
+# Ordinary API, asset, and HLS bursts receive nginx's HTTP rate-limit response.
+# They must not ban a visitor from unrelated sites and the MCP connector.
+# Keep firewall bans for repeated requests exceeding authentication limits.
+[nginx-limit-req]
+filter = nginx-limit-req[ngx_limit_req_zones="auth_prod_limit_site|auth_test_limit_site|pixelspark_auth_prod|pixelspark_auth_test|pixelspark_reset_prod|pixelspark_reset_test"]

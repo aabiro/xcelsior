@@ -1,0 +1,50 @@
+# Merge these rules by alert name into the installed tower group. Preserve its
+# hardware, host and exporter rules. Percentage alone is noisy on a 1.8 TiB disk.
+groups:
+- name: tower
+  rules:
+  - alert: TowerDiskHigh
+    expr: |
+      ((1 - node_filesystem_avail_bytes{job="tower-host",mountpoint="/"}
+        / node_filesystem_size_bytes{job="tower-host",mountpoint="/"}) * 100 > 85)
+      and (node_filesystem_avail_bytes{job="tower-host",mountpoint="/"} < 100 * 1024^3)
+    for: 15m
+    keep_firing_for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Tower / has less than 100 GiB free and is over 85% full
+      description: '{{ $value | printf "%.1f" }}% used. Inspect capacity and growth before removing data.'
+  - alert: TowerSrvDiskHigh
+    expr: |
+      ((1 - node_filesystem_avail_bytes{job="tower-host",mountpoint="/srv"}
+        / node_filesystem_size_bytes{job="tower-host",mountpoint="/srv"}) * 100 > 85)
+      and (node_filesystem_avail_bytes{job="tower-host",mountpoint="/srv"} < 100 * 1024^3)
+    for: 15m
+    keep_firing_for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Tower /srv has less than 100 GiB free and is over 85% full
+  - alert: TowerDiskCritical
+    expr: node_filesystem_avail_bytes{job="tower-host",mountpoint=~"/|/srv"} < 20 * 1024^3
+    for: 5m
+    keep_firing_for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: Tower {{ $labels.mountpoint }} has less than 20 GiB free
+      description: '{{ $value | humanize1024 }}B available. Free space before writes fail.'
+  - alert: TowerDiskFillsWithin24h
+    expr: |
+      (predict_linear(node_filesystem_avail_bytes{job="tower-host",mountpoint=~"/|/srv"}[6h], 24 * 3600) < 0)
+      and (count_over_time(node_filesystem_avail_bytes{job="tower-host",mountpoint=~"/|/srv"}[6h]) >= 120)
+      and ((1 - node_filesystem_avail_bytes{job="tower-host",mountpoint=~"/|/srv"}
+        / node_filesystem_size_bytes{job="tower-host",mountpoint=~"/|/srv"}) > 0.80)
+    for: 30m
+    keep_firing_for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Tower {{ $labels.mountpoint }} is projected to fill within 24 hours
+      description: The six-hour free-space trend projects exhaustion within a day. Inspect growing files and workload storage.

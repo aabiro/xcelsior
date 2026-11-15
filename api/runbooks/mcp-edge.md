@@ -125,6 +125,17 @@ pool can exceed it in a way a single user never would.
 **Fix.** Raise the burst for that location, or exempt the provider's published
 egress range. Record the change — the rate limit is a published property.
 
+If the local client gets `ECONNREFUSED` but a loopback request to the same
+nginx vhost succeeds, also check `fail2ban-client status nginx-limit-req`.
+The shared host's jail previously banned a visitor from all HTTP/TLS sites
+after ordinary PixelEnhance demo HLS seek bursts. Those requests should receive
+an HTTP rate-limit response, rather than a cross-site firewall ban. Install
+`infra/fail2ban/nginx-limit-req.local` in `/etc/fail2ban/jail.d/`, validate with
+`fail2ban-client -t`, and reload that jail. It retains firewall bans for repeated
+authentication-limit violations. Unban a confirmed false positive explicitly;
+do not add a permanent IP exception or clear unrelated bans. PixelEnhance demo
+locations must also use their HLS rate budget, rather than the page budget.
+
 ---
 
 ## 5. Rate limits or Redis

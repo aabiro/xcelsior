@@ -1,0 +1,410 @@
+rule_files:
+- ../../api/infra/observability/prometheus/native-control-plane-rules.yml
+- ../../api/infra/observability/prometheus/native-tower-capacity-rules.yml
+evaluation_interval: 1m
+tests:
+- name: planned inactive green replica does not page
+  interval: 1m
+  input_series:
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9500",replica="green"}
+    values: '0x30'
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: 1x30
+  - series: xcelsior_control_plane_metrics_available{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: 1x30
+  - series: xcelsior_control_plane_metrics_last_success_timestamp_seconds{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: 0+60x30
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: XcelsiorApiUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: XcelsiorControlPlaneMetricsUnavailable
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: XcelsiorControlPlaneMetricsStale
+    exp_alerts: []
+- name: both replicas down pages once after grace without duplicate metrics alarm
+  interval: 1m
+  input_series:
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9500",replica="green"}
+    values: '0x20'
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: '0x20'
+  alert_rule_test:
+  - eval_time: 1m
+    alertname: XcelsiorApiUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: XcelsiorApiUnavailable
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: &id001
+        summary: No Xcelsior API replica can be scraped
+        description: Both green and blue API targets have been unreachable for two minutes. Check API readiness
+          and the native Prometheus targets before restarting services.
+  - eval_time: 5m
+    alertname: XcelsiorControlPlaneMetricsUnavailable
+    exp_alerts: []
+- name: missing API inventory still pages
+  interval: 1m
+  input_series: []
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: XcelsiorApiUnavailable
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: *id001
+- name: one minute rollout gap does not page
+  interval: 1m
+  input_series:
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9500",replica="green"}
+    values: 1x4 0x1 1x20
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: '0x30'
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: XcelsiorApiUnavailable
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: XcelsiorApiUnavailable
+    exp_alerts: []
+- name: healthy snapshot wins over failed or stale standby
+  interval: 1m
+  input_series:
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9500",replica="green"}
+    values: 1x20
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: 1x20
+  - series: xcelsior_control_plane_metrics_available{job="xcelsior-api",instance="127.0.0.1:9500",replica="green"}
+    values: '0x20'
+  - series: xcelsior_control_plane_metrics_available{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: 1x20
+  - series: xcelsior_control_plane_metrics_last_success_timestamp_seconds{job="xcelsior-api",instance="127.0.0.1:9500",replica="green"}
+    values: '0x20'
+  - series: xcelsior_control_plane_metrics_last_success_timestamp_seconds{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: 0+60x20
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: XcelsiorControlPlaneMetricsUnavailable
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: XcelsiorControlPlaneMetricsStale
+    exp_alerts: []
+- name: reachable API with failed database collection still alerts
+  interval: 1m
+  input_series:
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: 1x20
+  - series: xcelsior_control_plane_metrics_available{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: '0x20'
+  alert_rule_test:
+  - eval_time: 5m
+    alertname: XcelsiorApiUnavailable
+    exp_alerts: []
+  - eval_time: 3m
+    alertname: XcelsiorControlPlaneMetricsUnavailable
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: &id002
+        summary: Durable control-plane metrics are unavailable
+        description: Missing database evidence is unknown; inspect collection errors and retain report_only repairs.
+- name: reachable API with missing collection signal still alerts
+  interval: 1m
+  input_series:
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: 1x20
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: XcelsiorControlPlaneMetricsUnavailable
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: *id002
+- name: findings retain one stable identity throughout green blue handoff
+  interval: 1m
+  input_series:
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9500",replica="green"}
+    values: 1x5 0x20
+  - series: up{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: 0x4 1x20
+  - series: xcelsior_billing_missing_meters{job="xcelsior-api",instance="127.0.0.1:9500",replica="green"}
+    values: 2x5 stale
+  - series: xcelsior_billing_missing_meters{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: _ _ _ _ _ 2x20
+  - series: xcelsior_reconciliation_critical_findings{job="xcelsior-api",instance="127.0.0.1:9500",replica="green"}
+    values: 2x5 stale
+  - series: xcelsior_reconciliation_critical_findings{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: _ _ _ _ _ 2x20
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: XcelsiorUsageEvidenceMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: &id003
+        summary: A started attempt has no usage-meter evidence
+        description: Review the attempt age, owner and captured price. Historical proof runs with incomplete evidence
+          must stay visible; do not manufacture charges or enable repair enforcement to clear this alert.
+  - eval_time: 8m
+    alertname: XcelsiorUsageEvidenceMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: *id003
+  - eval_time: 15m
+    alertname: XcelsiorUsageEvidenceMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: *id003
+  - eval_time: 4m
+    alertname: XcelsiorReconciliationCriticalFindings
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: &id004
+        summary: Reconciliation found an unresolved critical inconsistency
+        description: Inspect the finding and preserve report_only repair policy; do not enable automatic repair
+          from an alert.
+  - eval_time: 8m
+    alertname: XcelsiorReconciliationCriticalFindings
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: *id004
+  - eval_time: 15m
+    alertname: XcelsiorReconciliationCriticalFindings
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: *id004
+  - eval_time: 8m
+    alertname: XcelsiorApiUnavailable
+    exp_alerts: []
+- name: short telemetry loss does not falsely resolve billing finding
+  interval: 1m
+  input_series:
+  - series: xcelsior_billing_missing_meters{job="xcelsior-api",instance="127.0.0.1:9500",replica="green"}
+    values: 2x4 stale _ _ _ _ _ 2x20
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: XcelsiorUsageEvidenceMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: *id003
+  - eval_time: 8m
+    alertname: XcelsiorUsageEvidenceMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: *id003
+  - eval_time: 12m
+    alertname: XcelsiorUsageEvidenceMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: *id003
+- name: real recovery resolves only after confirmation window
+  interval: 1m
+  input_series:
+  - series: xcelsior_billing_missing_meters{job="xcelsior-api",instance="127.0.0.1:9501",replica="blue"}
+    values: 2x4 0x30
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: XcelsiorUsageEvidenceMissing
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+      exp_annotations: *id003
+  - eval_time: 16m
+    alertname: XcelsiorUsageEvidenceMissing
+    exp_alerts: []
+- name: disabled service does not alert
+  interval: 1m
+  input_series:
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",instance="blue",service="outbox"}
+    values: '0x20'
+  - series: xcelsior_service_expected{job="xcelsior-api",instance="blue",service="outbox"}
+    values: '0x20'
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: XcelsiorServiceHeartbeatMissing
+    exp_alerts: []
+- name: expected service without heartbeat still alerts
+  interval: 1m
+  input_series:
+  - series: xcelsior_service_heartbeat_fresh_replicas{job="xcelsior-api",instance="blue",service="outbox"}
+    values: '0x20'
+  - series: xcelsior_service_expected{job="xcelsior-api",instance="blue",service="outbox"}
+    values: 1x20
+  alert_rule_test:
+  - eval_time: 3m
+    alertname: XcelsiorServiceHeartbeatMissing
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        platform: xcelsior
+        component: control-plane
+        owner: platform
+        job: xcelsior-api
+        service: outbox
+      exp_annotations:
+        summary: A control-plane service has no fresh heartbeat
+        description: Check the named service and its readiness probe before a controlled handoff.
+- name: 93 percent disk with 128 GiB stable headroom is quiet
+  interval: 1m
+  input_series:
+  - series: node_filesystem_avail_bytes{job="tower-host",instance="tower",host="tower",mountpoint="/",device="/dev/nvme0n1p2",fstype="ext4"}
+    values: 137438953472x40
+  - series: node_filesystem_size_bytes{job="tower-host",instance="tower",host="tower",mountpoint="/",device="/dev/nvme0n1p2",fstype="ext4"}
+    values: 1932735283200x40
+  alert_rule_test:
+  - eval_time: 30m
+    alertname: TowerDiskHigh
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: TowerDiskCritical
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: TowerDiskFillsWithin24h
+    exp_alerts: []
+- name: low disk headroom still warns
+  interval: 1m
+  input_series:
+  - series: node_filesystem_avail_bytes{job="tower-host",instance="tower",host="tower",mountpoint="/",device="/dev/nvme0n1p2",fstype="ext4"}
+    values: 53687091200x40
+  - series: node_filesystem_size_bytes{job="tower-host",instance="tower",host="tower",mountpoint="/",device="/dev/nvme0n1p2",fstype="ext4"}
+    values: 1932735283200x40
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: TowerDiskHigh
+    exp_alerts: []
+  - eval_time: 16m
+    alertname: TowerDiskHigh
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: tower-host
+        instance: tower
+        host: tower
+        mountpoint: /
+        device: /dev/nvme0n1p2
+        fstype: ext4
+      exp_annotations:
+        summary: Tower / has less than 100 GiB free and is over 85% full
+        description: 97.2% used. Inspect capacity and growth before removing data.
+  - eval_time: 20m
+    alertname: TowerDiskCritical
+    exp_alerts: []
+- name: critical free space pages even on a small filesystem
+  interval: 1m
+  input_series:
+  - series: node_filesystem_avail_bytes{job="tower-host",instance="tower",host="tower",mountpoint="/",device="/dev/nvme0n1p2",fstype="ext4"}
+    values: 10737418240x40
+  - series: node_filesystem_size_bytes{job="tower-host",instance="tower",host="tower",mountpoint="/",device="/dev/nvme0n1p2",fstype="ext4"}
+    values: 53687091200x40
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: TowerDiskCritical
+    exp_alerts:
+    - exp_labels:
+        severity: critical
+        job: tower-host
+        instance: tower
+        host: tower
+        mountpoint: /
+        device: /dev/nvme0n1p2
+        fstype: ext4
+      exp_annotations:
+        summary: Tower / has less than 20 GiB free
+        description: 10GiB available. Free space before writes fail.
+- name: fast disk growth warns before absolute free space threshold
+  interval: 1m
+  input_series:
+  - series: node_filesystem_avail_bytes{job="tower-host",instance="tower",host="tower",mountpoint="/",device="/dev/nvme0n1p2",fstype="ext4"}
+    values: 429496729600-1073741824x360
+  - series: node_filesystem_size_bytes{job="tower-host",instance="tower",host="tower",mountpoint="/",device="/dev/nvme0n1p2",fstype="ext4"}
+    values: 2199023255552x360
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: TowerDiskFillsWithin24h
+    exp_alerts: []
+  - eval_time: 180m
+    alertname: TowerDiskFillsWithin24h
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+        job: tower-host
+        instance: tower
+        host: tower
+        mountpoint: /
+        device: /dev/nvme0n1p2
+        fstype: ext4
+      exp_annotations:
+        summary: Tower / is projected to fill within 24 hours
+        description: The six-hour free-space trend projects exhaustion within a day. Inspect growing files and workload
+          storage.
+  - eval_time: 180m
+    alertname: TowerDiskHigh
+    exp_alerts: []
