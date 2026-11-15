@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Xcelsior End-to-End Production Test Suite.
 
-Tests every customer-facing flow against the live API at xcelsior.ca.
-Run from the project root with the venv activated.
+Legacy manual checks for customer-facing flows against an explicitly selected API.
+Imports make no requests. Running requires XCELSIOR_RUN_LIVE_E2E=1,
+XCELSIOR_E2E_BASE_URL, XCELSIOR_E2E_EMAIL and XCELSIOR_API_TOKEN.
+The email must be a real, unused mailbox or working alias: registration sends
+real verification mail. This harness also creates accounts, keys, jobs and
+payment intents; ordinary pytest collection must never execute it.
 """
 
 import json
@@ -12,11 +16,11 @@ import time
 import requests
 import secrets
 
-BASE = "https://xcelsior.ca"
-TOKEN = os.environ.get("XCELSIOR_API_TOKEN", "fW21UGgCbT-lkOri4h-UmRsKXsxEXEodDjKxtZK3lJY")
-AUTH = {"Authorization": f"Bearer {TOKEN}"}
-TEST_EMAIL = f"e2e-test-{secrets.token_hex(4)}@xcelsior.ca"
-TEST_PASS = f"TestPass!{secrets.token_hex(6)}"
+BASE = ""
+TOKEN = ""
+AUTH = {}
+TEST_EMAIL = ""
+TEST_PASS = ""
 
 results = []
 session_token = None
@@ -46,7 +50,6 @@ def api(method, path, **kwargs):
 # ═══════════════════════════════════════════════════════════════════════
 # 1. AUTHENTICATION
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 1. AUTHENTICATION ═══")
 
 
 def _e2e_healthz():
@@ -134,17 +137,9 @@ def _e2e_change_password():
     assert r2.status_code == 200
 
 
-run_test("Health check", _e2e_healthz)
-run_test("Register new account", _e2e_register)
-run_test("Login", _e2e_login)
-run_test("Auth /me", _e2e_auth_me)
-run_test("Change password", _e2e_change_password)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 2. API KEY MANAGEMENT
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 2. API KEY MANAGEMENT ═══")
 api_key_value = None
 
 
@@ -189,16 +184,9 @@ def _e2e_delete_api_key():
         assert r2.status_code == 200, f"Delete key failed: {r2.status_code} {r2.text[:200]}"
 
 
-run_test("Generate API key", _e2e_generate_api_key)
-run_test("List API keys", _e2e_list_api_keys)
-run_test("Auth with API key", _e2e_auth_with_api_key)
-run_test("Delete API key", _e2e_delete_api_key)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 3. SSH KEY MANAGEMENT
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 3. SSH KEY MANAGEMENT ═══")
 
 SSH_TEST_KEY = (
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA e2e-test"
@@ -240,15 +228,9 @@ def _e2e_delete_ssh_key():
             assert r2.status_code == 200, f"Delete SSH key failed: {r2.status_code} {r2.text[:200]}"
 
 
-run_test("Add SSH key", _e2e_add_ssh_key)
-run_test("List SSH keys", _e2e_list_ssh_keys)
-run_test("Delete SSH key", _e2e_delete_ssh_key)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 4. BILLING / WALLET
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 4. BILLING / WALLET ═══")
 
 
 def _e2e_get_wallet():
@@ -303,16 +285,9 @@ def _e2e_create_deposit():
         assert data.get("client_secret") or data.get("ok"), f"No client_secret: {data}"
 
 
-run_test("Get wallet", _e2e_get_wallet)
-run_test("Wallet history", _e2e_wallet_history)
-run_test("Invoices", _e2e_invoices)
-run_test("Create deposit intent", _e2e_create_deposit)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 5. HOSTS / GPU
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 5. HOSTS / GPU ═══")
 
 
 def _e2e_list_hosts():
@@ -332,14 +307,9 @@ def _e2e_compute_score():
     assert r.status_code in (200, 404), f"Compute score: {r.status_code}"
 
 
-run_test("List active hosts", _e2e_list_hosts)
-run_test("Compute score", _e2e_compute_score)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 6. JOB SUBMISSION
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 6. JOB SUBMISSION ═══")
 test_job_id = None
 
 
@@ -389,16 +359,9 @@ def _e2e_get_instance_status():
             )
 
 
-run_test("Submit job", _e2e_submit_job)
-run_test("Process queue", _e2e_process_queue)
-run_test("List instances", _e2e_list_instances)
-run_test("Get instance status", _e2e_get_instance_status)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 7. MARKETPLACE
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 7. MARKETPLACE ═══")
 
 
 def _e2e_marketplace_search():
@@ -406,13 +369,9 @@ def _e2e_marketplace_search():
     assert r.status_code == 200, f"Marketplace search: {r.status_code} {r.text[:200]}"
 
 
-run_test("Marketplace search", _e2e_marketplace_search)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 8. EVENTS / SSE
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 8. EVENTS ═══")
 
 
 def _e2e_events_list():
@@ -429,14 +388,9 @@ def _e2e_events_stream():
         pass  # Expected — SSE keeps connection open
 
 
-run_test("Events list", _e2e_events_list)
-run_test("SSE stream connects", _e2e_events_stream)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 9. COMPLIANCE
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 9. COMPLIANCE ═══")
 
 
 def _e2e_compliance():
@@ -446,13 +400,9 @@ def _e2e_compliance():
     assert "checks" in data or "compliance" in data or "ok" in data, f"No compliance data: {data}"
 
 
-run_test("Compliance checks", _e2e_compliance)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 10. TEAMS
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 10. TEAMS ═══")
 team_id = None
 
 
@@ -476,14 +426,9 @@ def _e2e_get_team():
     assert r.status_code == 200, f"Get team: {r.status_code} {r.text[:200]}"
 
 
-run_test("Create team", _e2e_create_team)
-run_test("Get team", _e2e_get_team)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 11. CHAT
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 11. CHAT ═══")
 
 
 def _e2e_chat():
@@ -500,13 +445,9 @@ def _e2e_chat():
     assert r.status_code in (200, 201), f"Chat: {r.status_code} {r.text[:200]}"
 
 
-run_test("Chat widget", _e2e_chat)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 12. ARTIFACTS
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 12. ARTIFACTS ═══")
 
 
 def _e2e_list_artifacts():
@@ -514,13 +455,9 @@ def _e2e_list_artifacts():
     assert r.status_code == 200, f"Artifacts: {r.status_code} {r.text[:200]}"
 
 
-run_test("List artifacts", _e2e_list_artifacts)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 13. SLURM PROFILES
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 13. SLURM / HPC ═══")
 
 
 def _e2e_slurm_profiles():
@@ -528,13 +465,9 @@ def _e2e_slurm_profiles():
     assert r.status_code == 200, f"Slurm profiles: {r.status_code} {r.text[:200]}"
 
 
-run_test("Slurm profiles", _e2e_slurm_profiles)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 14. COMPLIANCE
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 14. COMPLIANCE ═══")
 
 
 def _e2e_canada_routing():
@@ -547,14 +480,9 @@ def _e2e_ca_hosts():
     assert r.status_code == 200
 
 
-run_test("Canada routing config", _e2e_canada_routing)
-run_test("CA-only hosts", _e2e_ca_hosts)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 15. SPOT PRICING
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 15. SPOT PRICING ═══")
 
 
 def _e2e_spot_prices():
@@ -562,13 +490,9 @@ def _e2e_spot_prices():
     assert r.status_code == 200, f"Spot prices: {r.status_code} {r.text[:200]}"
 
 
-run_test("Spot prices", _e2e_spot_prices)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 16. REPUTATION
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 16. REPUTATION ═══")
 
 
 def _e2e_reputation():
@@ -576,13 +500,9 @@ def _e2e_reputation():
     assert r.status_code in (200, 404), f"Reputation: {r.status_code}"
 
 
-run_test("Reputation lookup", _e2e_reputation)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # 17. DASHBOARD PAGES (Frontend)
 # ═══════════════════════════════════════════════════════════════════════
-print("\n═══ 17. FRONTEND PAGES ═══")
 
 PAGES = [
     "/",
@@ -621,23 +541,178 @@ def _e2e_page(path):
     return _test
 
 
-for page in PAGES:
-    run_test(f"Page {page}", _e2e_page(page))
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # SUMMARY
 # ═══════════════════════════════════════════════════════════════════════
-print("\n" + "=" * 60)
-passed = sum(1 for r in results if r[0] == "PASS")
-failed = sum(1 for r in results if r[0] == "FAIL")
-total = len(results)
-print(f"RESULTS: {passed}/{total} passed, {failed} failed")
-if failed:
-    print("\nFAILURES:")
-    for r in results:
-        if r[0] == "FAIL":
-            print(f"  ✗ {r[1]}: {r[2]}")
-print("=" * 60)
+
+
+def configure_run(environ):
+    """Require an intentional live run and an operator-configured mailbox."""
+    from urllib.parse import urlsplit
+    import re
+
+    if environ.get("XCELSIOR_RUN_LIVE_E2E") != "1":
+        raise ValueError("Live E2E is disabled; set XCELSIOR_RUN_LIVE_E2E=1 explicitly")
+    base = environ.get("XCELSIOR_E2E_BASE_URL", "").strip().rstrip("/")
+    url = urlsplit(base)
+    if (
+        url.scheme not in {"http", "https"}
+        or not url.hostname
+        or url.username is not None
+        or url.password is not None
+        or url.query
+        or url.fragment
+    ):
+        raise ValueError("Set XCELSIOR_E2E_BASE_URL to the intended API URL")
+    email = environ.get("XCELSIOR_E2E_EMAIL", "").strip()
+    if not re.fullmatch(r"[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+", email):
+        raise ValueError("Set XCELSIOR_E2E_EMAIL to a real, unused test mailbox or working alias")
+    token = environ.get("XCELSIOR_API_TOKEN", "").strip()
+    if not token:
+        raise ValueError(
+            "Set XCELSIOR_API_TOKEN explicitly; this harness has no credential fallback"
+        )
+    return base, token, email
+
+
+def main():
+    global BASE, TOKEN, AUTH, TEST_EMAIL, TEST_PASS
+    try:
+        BASE, TOKEN, TEST_EMAIL = configure_run(os.environ)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    AUTH = {"Authorization": f"Bearer {TOKEN}"}
+    TEST_PASS = f"TestPass!{secrets.token_hex(6)}"
+    results.clear()
+
+    print("\n═══ 1. AUTHENTICATION ═══")
+
+    run_test("Health check", _e2e_healthz)
+
+    run_test("Register new account", _e2e_register)
+
+    run_test("Login", _e2e_login)
+
+    run_test("Auth /me", _e2e_auth_me)
+
+    run_test("Change password", _e2e_change_password)
+
+    print("\n═══ 2. API KEY MANAGEMENT ═══")
+
+    run_test("Generate API key", _e2e_generate_api_key)
+
+    run_test("List API keys", _e2e_list_api_keys)
+
+    run_test("Auth with API key", _e2e_auth_with_api_key)
+
+    run_test("Delete API key", _e2e_delete_api_key)
+
+    print("\n═══ 3. SSH KEY MANAGEMENT ═══")
+
+    run_test("Add SSH key", _e2e_add_ssh_key)
+
+    run_test("List SSH keys", _e2e_list_ssh_keys)
+
+    run_test("Delete SSH key", _e2e_delete_ssh_key)
+
+    print("\n═══ 4. BILLING / WALLET ═══")
+
+    run_test("Get wallet", _e2e_get_wallet)
+
+    run_test("Wallet history", _e2e_wallet_history)
+
+    run_test("Invoices", _e2e_invoices)
+
+    run_test("Create deposit intent", _e2e_create_deposit)
+
+    print("\n═══ 5. HOSTS / GPU ═══")
+
+    run_test("List active hosts", _e2e_list_hosts)
+
+    run_test("Compute score", _e2e_compute_score)
+
+    print("\n═══ 6. JOB SUBMISSION ═══")
+
+    run_test("Submit job", _e2e_submit_job)
+
+    run_test("Process queue", _e2e_process_queue)
+
+    run_test("List instances", _e2e_list_instances)
+
+    run_test("Get instance status", _e2e_get_instance_status)
+
+    print("\n═══ 7. MARKETPLACE ═══")
+
+    run_test("Marketplace search", _e2e_marketplace_search)
+
+    print("\n═══ 8. EVENTS ═══")
+
+    run_test("Events list", _e2e_events_list)
+
+    run_test("SSE stream connects", _e2e_events_stream)
+
+    print("\n═══ 9. COMPLIANCE ═══")
+
+    run_test("Compliance checks", _e2e_compliance)
+
+    print("\n═══ 10. TEAMS ═══")
+
+    run_test("Create team", _e2e_create_team)
+
+    run_test("Get team", _e2e_get_team)
+
+    print("\n═══ 11. CHAT ═══")
+
+    run_test("Chat widget", _e2e_chat)
+
+    print("\n═══ 12. ARTIFACTS ═══")
+
+    run_test("List artifacts", _e2e_list_artifacts)
+
+    print("\n═══ 13. SLURM / HPC ═══")
+
+    run_test("Slurm profiles", _e2e_slurm_profiles)
+
+    print("\n═══ 14. COMPLIANCE ═══")
+
+    run_test("Canada routing config", _e2e_canada_routing)
+
+    run_test("CA-only hosts", _e2e_ca_hosts)
+
+    print("\n═══ 15. SPOT PRICING ═══")
+
+    run_test("Spot prices", _e2e_spot_prices)
+
+    print("\n═══ 16. REPUTATION ═══")
+
+    run_test("Reputation lookup", _e2e_reputation)
+
+    print("\n═══ 17. FRONTEND PAGES ═══")
+
+    for page in PAGES:
+        run_test(f"Page {page}", _e2e_page(page))
+
+    print("\n" + "=" * 60)
+
+    passed = sum(1 for r in results if r[0] == "PASS")
+
+    failed = sum(1 for r in results if r[0] == "FAIL")
+
+    total = len(results)
+
+    print(f"RESULTS: {passed}/{total} passed, {failed} failed")
+
+    if failed:
+        print("\nFAILURES:")
+        for r in results:
+            if r[0] == "FAIL":
+                print(f"  ✗ {r[1]}: {r[2]}")
+
+    print("=" * 60)
+
+    return 1 if failed else 0
+
+
 if __name__ == "__main__":
-    sys.exit(1 if failed else 0)
+    raise SystemExit(main())
