@@ -28,7 +28,7 @@ def _payload(response: httpx.Response) -> dict:
 def suggestions(
     text: str, *, country: str, lang: str, visitor_country: str, session_token: str
 ) -> list[dict]:
-    body = {"input": text, "sessionToken": session_token}
+    body: dict[str, object] = {"input": text, "sessionToken": session_token}
     if country:
         body["includedRegionCodes"] = [country.lower()]
     if country or visitor_country:
@@ -109,7 +109,11 @@ def details(place_id: str, *, session_token: str, country: str, lang: str) -> di
 
     def component(kind: str, *, short: bool = False) -> str:
         for value in components:
-            if isinstance(value, dict) and isinstance(value.get("types"), list) and kind in value["types"]:
+            if (
+                isinstance(value, dict)
+                and isinstance(value.get("types"), list)
+                and kind in value["types"]
+            ):
                 text = value.get("shortText" if short else "longText", "")
                 return " ".join(text.split()) if isinstance(text, str) else ""
         return ""
