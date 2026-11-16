@@ -2,7 +2,7 @@
 # Start one ephemeral, sandboxed Actions runner. Re-run for each job, or loop it.
 #
 #     ./api/scripts/ci-runner/run-runner.sh            # one job, then exit
-#     ./api/scripts/ci-runner/run-runner.sh --loop     # keep serving jobs
+#     ./api/scripts/ci-runner/run-runner.sh --loop --workers 2
 #
 # The registration token is fetched fresh from the API each time and expires in an
 # hour. It is not a repository secret and is never written to disk.
@@ -14,6 +14,23 @@ set -euo pipefail
 REPO="${XCELSIOR_CI_REPO:-aabiro/xcelsior}"
 IMAGE="xcelsior-ci-runner"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mode=once
+workers=1
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --loop) mode=loop; shift ;;
+        --workers)
+            [[ "${2:-}" == 1 || "${2:-}" == 2 ]] || {
+                echo '--workers must be 1 or 2' >&2; exit 2;
+            }
+            workers="$2"; shift 2 ;;
+        *) echo "Unknown runner option: $1" >&2; exit 2 ;;
+    esac
+done
+if [[ "$workers" != 1 && "$mode" != loop ]]; then
+    echo '--workers requires --loop' >&2
+    exit 2
+fi
 
 command -v gh >/dev/null || { echo "gh CLI is required to mint a registration token" >&2; exit 2; }
 command -v docker >/dev/null || { echo "docker is required" >&2; exit 2; }
@@ -81,17 +98,41 @@ fi
 echo "fork-trigger check: ${#_sandboxed_workflows[@]} workflow(s) in $REPO target this runner, none fork-triggerable"
 
 build() {
-    echo "building $IMAGE (auditable by design — see the Dockerfile)"
-    docker build -q -t "$IMAGE" "$HERE" >/dev/null
+    local version cache_dir
+    # Check official release metadata before registration. The one-hour API
+    # cache bounds requests; a deprecated idle listener refreshes on reconnect.
+    version=$(gh api --cache 1h repos/actions/runner/releases/latest \
+        -q '.tag_name | ltrimstr("v")') || return 1
+    [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+        echo 'Invalid official runner release version' >&2; return 1;
+    }
+    cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/xcelsior-ci"
+    mkdir -p -m 0700 "$cache_dir"
+    (
+        flock -x 9
+        installed=$(docker image inspect "$IMAGE" \
+            --format '{{index .Config.Labels "ca.xcelsior.runner.version"}}' 2>/dev/null || true)
+        if [[ "$installed" != "$version" ]]; then
+            echo "building $IMAGE with official runner $version"
+            docker build -q --build-arg "RUNNER_VERSION=$version" -t "$IMAGE" "$HERE" >/dev/null
+        fi
+    ) 9>"$cache_dir/image-update.lock"
 }
 
 one_job() {
-    local token
+    local token runner_name runner_host runner_id status=0
+    build || return 1
+    # PID 1 is identical inside every ephemeral container. Generate the name
+    # on the host so a second executor cannot replace the first registration.
+    runner_host=$(hostname -s)
+    runner_name="xcelsior-${runner_host:0:16}-${BASHPID}-${RANDOM}"
     token="$(gh api -X POST "repos/$REPO/actions/runners/registration-token" -q .token)"
-    [[ -n "$token" ]] || { echo "could not mint a registration token" >&2; exit 1; }
+    [[ -n "$token" ]] || { echo "could not mint a registration token" >&2; return 1; }
     echo "starting ephemeral runner for $REPO (one job, then unregisters)"
     docker run --rm \
-        --name "xcelsior-ci-runner-$$" \
+        --name "$runner_name" \
+        --label "xcelsior-ci-pool=$$" \
+        --init \
         --network bridge \
         --read-only \
         `# tmpfs pages are host RAM, so this one is sized explicitly: an unbounded` \
@@ -117,16 +158,44 @@ one_job() {
         --cap-drop ALL \
         --security-opt no-new-privileges \
         --pids-limit 512 \
-        --memory 6g \
-        --cpus 6 \
+        --memory 4g \
+        --cpus 4 \
         -e RUNNER_REPO_URL="https://github.com/$REPO" \
         -e RUNNER_TOKEN="$token" \
-        "$IMAGE"
+        -e RUNNER_NAME="$runner_name" \
+        "$IMAGE" || status=$?
+    # A runner rejected before its first job never reaches ephemeral removal.
+    # Remove only this executor's exact registration, including fatal starts.
+    runner_id=$(gh api "repos/$REPO/actions/runners" --paginate \
+        -q ".runners[] | select(.name == \"$runner_name\") | .id") || return 1
+    if [[ -n "$runner_id" ]]; then
+        gh api -X DELETE "repos/$REPO/actions/runners/$runner_id" >/dev/null || return 1
+    fi
+    return "$status"
 }
 
-build
-if [[ "${1:-}" == "--loop" ]]; then
-    while true; do one_job || true; sleep 5; done
+if [[ "$mode" == loop ]]; then
+    worker_pids=()
+    stop_workers() {
+        trap - TERM INT
+        kill -TERM "${worker_pids[@]}" 2>/dev/null || true
+        local containers
+        containers=$(docker ps -q --filter "label=xcelsior-ci-pool=$$")
+        if [[ -n "$containers" ]]; then
+            # Only containers belonging to this supervisor; never other runners.
+            docker stop --time 30 $containers >/dev/null 2>&1 || true
+        fi
+        wait "${worker_pids[@]}" 2>/dev/null || true
+        exit 0
+    }
+    trap stop_workers TERM INT
+    for ((slot = 1; slot <= workers; slot++)); do
+        (while true; do one_job || true; sleep 30; done) &
+        worker_pids+=("$!")
+    done
+    # An unexpected worker exit must reach systemd, which restarts the pool.
+    wait -n "${worker_pids[@]}" || true
+    stop_workers
 else
     one_job
 fi

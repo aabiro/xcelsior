@@ -3,20 +3,25 @@
 from __future__ import annotations
 
 import functools
+import json
 import re
+from pathlib import Path
 from typing import Any
 
-from stripe_catalog import load_manifest
-
-# Canonical GPU titles and their smallest VRAM, from the versioned Stripe
-# catalog (billing/stripe_catalog.json) that deploy imports into gpu_pricing.
-# A missing catalog fails here rather than leaving every name unrecognised.
-_DEFAULT_VRAM_BY_MODEL: dict[str, int] = {}
-for _row in load_manifest()["service_tier_catalog"]["prices"]:
-    _model = str(_row["variant"]["gpu_model"])
-    _vram = int(_row["variant"]["vram_gb"])
-    if _vram < _DEFAULT_VRAM_BY_MODEL.get(_model, _vram + 1):
-        _DEFAULT_VRAM_BY_MODEL[_model] = _vram
+# Hardware identity is public source data. Stripe account IDs and prices stay
+# in the private deployment manifest and are not needed to import API routes.
+# Regenerate with api/scripts/export_gpu_hardware_catalog.py when models change.
+_DEFAULT_VRAM_BY_MODEL: dict[str, int] = json.loads(
+    Path(__file__).with_name("gpu_catalog.json").read_text()
+)
+if not _DEFAULT_VRAM_BY_MODEL or any(
+    not isinstance(model, str)
+    or not model.strip()
+    or type(vram) is not int
+    or vram <= 0
+    for model, vram in _DEFAULT_VRAM_BY_MODEL.items()
+):
+    raise ValueError("Invalid public GPU hardware catalog")
 CANONICAL_GPU_MODELS: frozenset[str] = frozenset(_DEFAULT_VRAM_BY_MODEL)
 
 _NVIDIA_PREFIX_RE = re.compile(r"^NVIDIA\s+(GeForce\s+)?", re.IGNORECASE)

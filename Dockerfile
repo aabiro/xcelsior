@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 LABEL org.opencontainers.image.title="Xcelsior API" \
       org.opencontainers.image.description="FastAPI backend for Xcelsior — global GPU marketplace" \
@@ -31,13 +31,14 @@ RUN groupadd --gid ${APP_GID} xcelsior \
     && chown -R ${APP_UID}:${APP_GID} /home/xcelsior /data \
     && chmod 700 /home/xcelsior/.ssh
 
-COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11@sha256:77280f2f771df71f90786c314fe1bbc1e023feac652969bbf139c280babf2eb7 /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
-COPY . .
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
     UV_LINK_MODE=copy
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
+# Application edits must not invalidate the locked dependency layer.
+COPY . .
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     HOME=/home/xcelsior \

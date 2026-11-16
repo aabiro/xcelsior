@@ -43,7 +43,7 @@ WorkingDirectory=/mnt/storage/projects/xcelsior
 # the old top-level `scripts/` path, so after that pull systemd had nothing to
 # exec, restarted every 30s, and the `sandboxed` runner showed Offline. Re-link
 # the unit (see Install above) after any move of this directory.
-ExecStart=/mnt/storage/projects/xcelsior/api/scripts/ci-runner/run-runner.sh --loop
+ExecStart=/mnt/storage/projects/xcelsior/api/scripts/ci-runner/run-runner.sh --loop --workers 2
 
 # The script already loops, so an exit means it could not start at all — a
 # missing `gh` credential, docker down, or the fork-trigger refusal firing.

@@ -12,7 +12,7 @@
 #     repository itself, like any hosted runner;
 #   * an unprivileged user, not in the docker group;
 #   * `--ephemeral`: one job per container, then the runner unregisters.
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 
 # Kept current deliberately, because entrypoint.sh passes `--disableupdate`.
 # A container that lives for one job has nothing to gain from self-updating and
@@ -20,9 +20,8 @@ FROM ubuntu:24.04
 # tmpfs mid-job, filled it, and died writing its log —
 # "No space left on device: _diag/Runner_....log", exit 134.
 #
-# Bump this when GitHub raises the minimum runner version; rebuilding the image
-# is the upgrade path.
-ARG RUNNER_VERSION=2.336.0
+# The supervisor checks the official release before registration and supplies
+# RUNNER_VERSION to the build. The default below is a reproducible baseline.
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Only what the static gates need.
@@ -67,6 +66,7 @@ RUN useradd -m -u 10001 -s /bin/bash runner
 # A volume rather than a tmpfs because this unpacks to 674 MB: 2.336.0 bundles
 # node24 with per-architecture OpenSSL headers. Holding that in RAM would take a
 # fifth of this host, and the host runs the dev pool.
+ARG RUNNER_VERSION=2.338.2
 RUN arch="$(dpkg --print-architecture)" \
     && case "$arch" in \
          amd64) rarch=x64 ;; \
@@ -79,6 +79,8 @@ RUN arch="$(dpkg --print-architecture)" \
     && tar xzf /tmp/runner.tar.gz -C /home/runner/actions-runner \
     && rm /tmp/runner.tar.gz \
     && chown -R runner:runner /home/runner
+
+LABEL ca.xcelsior.runner.version=${RUNNER_VERSION}
 
 USER runner
 WORKDIR /home/runner/actions-runner

@@ -1,9 +1,9 @@
 # Sandboxed self-hosted Actions runner
 
-CI has not executed since ~2026-07-21 (Actions billing), so every gate in this
-repository is local-only and runs when someone remembers. This is the free way to
-get remote verification back without handing a public repository's workflow code
-the keys to production.
+Hosted Actions remains gated by the account's billing restriction. This pool
+provides remote static checks and CodeQL on existing hardware, without exposing
+production credentials to workflow code. It does not replace the database-backed
+suite or prove application release readiness.
 
 **Read the threat model before enabling it.** It is safe only as a whole; each
 piece assumes the others.
@@ -46,7 +46,7 @@ between this and the twelve compromises in the internal
 | `--read-only` + tmpfs | the writable surface is `/tmp` and the work directory, both wiped with the container |
 | `--cap-drop ALL`, `no-new-privileges` | no capability escalation |
 | unprivileged uid 10001 | not root, not in the docker group |
-| `--memory 6g --cpus 6 --pids-limit 512` | a runaway job cannot take the host down. This box has 16 cores and 15 GB |
+| `--memory 4g --cpus 4 --pids-limit 512` per executor | bound each job; the service runs two isolated executors, with at most 8 GiB of container memory in total |
 
 `entrypoint.sh` refuses to start if it finds a docker socket or a credential file
 inside the sandbox — the two mistakes that would quietly turn the container back
@@ -74,6 +74,9 @@ this whole review sequence has been about.
 
 # keep serving jobs
 ./api/scripts/ci-runner/run-runner.sh --loop
+
+# two independent jobs, with separate workspaces and runner registrations
+./api/scripts/ci-runner/run-runner.sh --loop --workers 2
 ```
 
 The registration token is minted fresh from the API on each start, expires in an
@@ -121,8 +124,49 @@ to satisfy anything real.
 session ends, which is the same failure the unit was written to prevent, arriving
 later and less obviously.
 
+The service starts two executors. Lint and static contracts have no dependency
+between them, so they can run concurrently. Each job retains an anonymous
+workspace/cache volume that is destroyed on exit; `actions/cache` restores only
+uv package downloads keyed by OS, architecture, Python version and `uv.lock`.
+Registration files, credentials and virtual environments are never cached.
+Runner names are generated on the host so simultaneous PID-1 containers cannot
+replace one another. Database, Docker and GPU tests remain separate from this
+unprivileged runner pool.
+
 ## When to throw this away
 
-The moment hosted Actions billing is restored. This exists because remote
-verification is worth having and the alternative was none; a GitHub-hosted runner
-needs no threat model at all. Plan item A1 is unchanged by this being here.
+The self-hosted pool can remain in use independently of hosted Actions. Hosted
+executors are an optional later addition for generic matrices; no vendor switch
+is required to restore these checks.
+
+## Verified recovery on 2026-11-15
+
+The user service was not installed. Its existing definition is now linked,
+enabled and running with lingering already enabled. Two executors registered
+with distinct bounded names and accepted real queued jobs. The old runner
+version, 2.336.0, was rejected by GitHub; the image now pins 2.338.2, verified
+against the official runner release. Restart the service to apply later image
+updates, after checking that its executors are idle.
+
+CodeQL's JavaScript extractor requires Node on PATH; its workflow now provisions
+Node 22 explicitly. Its matrix is limited to one concurrent job so static checks
+retain an executor. Dependency downloads are saved after a successful uv sync,
+so a later test failure does not force another cold install.
+
+Before each new registration the supervisor checks the official runner release
+using a one-hour API cache, compares the image's version label, and rebuilds when
+needed. An image-update lock prevents duplicate work by the two executors. The
+version build argument follows the stable dependency layers, so an update reuses
+apt/uv layers. A listener rejected for age therefore refreshes on its next
+registration instead of remaining offline until someone edits a pin.
+
+The first real static run exposed a separate application-data dependency:
+`host_metadata` imports the ignored `billing/stripe_catalog.json` at collection
+time, and the authorization tests fail with `KeyError: service_tier_catalog` in
+a clean checkout. This remains a failing gate. Restoring a runner is not proof
+that those tests, or the full database suite, pass remotely.
+
+Base-image digests are pinned in the API, frontend and runner Dockerfiles.
+Refresh those pins deliberately when taking upstream updates. The API installs
+locked dependencies before copying application sources, preserving that layer
+on source-only edits. Cold/warm end-to-end deployment speed is not yet measured.

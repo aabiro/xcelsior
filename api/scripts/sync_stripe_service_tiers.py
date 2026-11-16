@@ -289,6 +289,11 @@ def main():
     args = parser.parse_args()
     if args.update_manifest_from:
         update_manifest(args.manifest, args.update_manifest_from)
+        from export_gpu_hardware_catalog import write_hardware_catalog
+
+        write_hardware_catalog(
+            json.loads(args.manifest.read_text()), ROOT / "hosts/gpu_catalog.json"
+        )
         print("Updated versioned Stripe deployment manifest")
         return
     if args.import_dsn_env:

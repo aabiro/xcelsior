@@ -7,5 +7,5 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 [[ "$(basename "$PROJECT_DIR")" == "api" ]] && PROJECT_DIR="$(dirname "$PROJECT_DIR")"
 
 cd "$PROJECT_DIR"
-uv export --no-dev --format requirements-txt -o requirements.txt
+uv export --frozen --no-dev --format requirements-txt -o requirements.txt
 echo "Wrote ${PROJECT_DIR}/requirements.txt from uv.lock"

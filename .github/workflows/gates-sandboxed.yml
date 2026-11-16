@@ -35,12 +35,40 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    name: Python lint
+    runs-on: [self-hosted, sandboxed]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore locked dependency downloads
+        id: uv-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ runner.arch }}-py312-${{ hashFiles('uv.lock') }}
+      - run: uv sync --frozen
+      - name: Save successful dependency installation
+        if: steps.uv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ steps.uv-cache.outputs.cache-primary-key }}
+      - run: .venv/bin/ruff check .
+
   static:
     name: static gates (no database, no credentials)
     runs-on: [self-hosted, sandboxed]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore locked dependency downloads
+        id: uv-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ runner.arch }}-py312-${{ hashFiles('uv.lock') }}
 
       - name: Environment is a sandbox, not the host
         # A job that finds credentials here means the runner was launched wrongly.
@@ -72,10 +100,12 @@ jobs:
         # `uv.lock` is the authoritative file and is correct.
         run: uv sync --frozen
 
-      - name: Ruff
-        # From the lockfile, so the version is pinned. Installing `ruff` unpinned
-        # meant a lint gate whose verdict could change with no code change.
-        run: .venv/bin/ruff check .
+      - name: Save successful dependency installation
+        if: steps.uv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ steps.uv-cache.outputs.cache-primary-key }}
 
       - name: Static gates
         # Discovered rather than listed, so this does not rot as files are added.
@@ -99,6 +129,7 @@ jobs:
                    tests/test_gt0_classification_ratchet.py \
                    tests/test_requirements_export_matches_lock.py \
                    tests/test_sandboxed_gates_are_db_free.py \
+                   tests/test_public_gpu_catalog.py \
                    tests/test_instance_connect_scope.py \
                    tests/test_customer_billing_reads_require_scope.py \
                    tests/test_log_scrubbing_stays_linear.py \
@@ -124,7 +155,7 @@ jobs:
           {
             echo "### Sandboxed gates"
             echo
-            echo "Ran: ruff and the pure-parse gates."
+            echo "This job ran the pure-parse gates. Python lint is an independent required job."
             echo
             echo "**Not run here:** the DB-backed suite (4600+ tests), the compose"
             echo "check, pyright, the frontend and MCP suites, and every live gate."

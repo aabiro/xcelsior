@@ -111,7 +111,9 @@ def test_the_runner_preflight_still_enforces_this() -> None:
 _STUB_GH = r"""#!/usr/bin/env bash
 for arg in "$@"; do
     case "$arg" in
+        repos/actions/runner/releases/latest) echo 2.338.2; exit 0 ;;
         */actions/runners/registration-token) echo stub-token; exit 0 ;;
+        */actions/runners) exit 0 ;;
         */contents/.github/workflows)
             [[ -d "$STUB_WORKFLOWS" ]] || exit 1
             for f in "$STUB_WORKFLOWS"/*; do echo ".github/workflows/${f##*/}"; done
@@ -124,6 +126,7 @@ exit 1
 
 _STUB_DOCKER = """#!/usr/bin/env bash
 echo "docker $*" >> "$STUB_LOG"
+if [[ "$1 $2" == "image inspect" ]]; then echo 2.338.2; fi
 """
 
 _SAFE = """\
@@ -172,6 +175,7 @@ def _run_runner_for_foreign_repo(
         **os.environ,
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "XCELSIOR_CI_REPO": "example/portfolio",
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
         "STUB_WORKFLOWS": str(wf_dir),
         "STUB_LOG": str(log),
     }
@@ -201,6 +205,9 @@ def test_a_foreign_repo_is_checked_rather_than_this_checkout(tmp_path: Path) -> 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "1 workflow(s) in example/portfolio" in result.stdout
     assert "RUNNER_REPO_URL=https://github.com/example/portfolio" in docker
+    name = re.search(r"RUNNER_NAME=([^\s]+)", docker)
+    assert name is not None, "the executor must supply a unique host-generated name"
+    assert len(name.group(1)) <= 64, "GitHub refuses runner names over 64 characters"
 
 
 def test_unreadable_foreign_workflows_stop_the_runner(tmp_path: Path) -> None:
