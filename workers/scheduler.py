@@ -1825,10 +1825,21 @@ def submit_job(
 
     tier = normalize_tier(tier)
     service_tier_quote = None
+    if hpc_cluster_id and (
+        service_tier_price_id or tier != "standard" or exclusive_gpu or queue_bid_units
+    ):
+        raise ValueError("a Slurm job buys no instance service tier, exclusive GPU or queue bid")
     # Serverless has its own admitted billing quote; its internal workers do
-    # not buy an instance queue class. New customer instances always do.
-    if serverless_config is None and (
-        owner or service_tier_price_id or tier != "standard" or exclusive_gpu or queue_bid_units
+    # not buy an instance queue class. Nor does a Slurm job: its cluster's
+    # rate card prices each run from accounting (workers/slurm_billing.py),
+    # so it takes no host quote and no wallet hold. New customer instances
+    # always do.
+    if (
+        serverless_config is None
+        and hpc_cluster_id is None
+        and (
+            owner or service_tier_price_id or tier != "standard" or exclusive_gpu or queue_bid_units
+        )
     ):
         if not gpu_model:
             raise ValueError("Select a GPU model before requesting a priced service tier")

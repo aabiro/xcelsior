@@ -269,6 +269,52 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
     stream: String(a.stream),
   })));
 
+  // Slurm writes. Both only change Xcelsior's own records: the control
+  // plane's submitter and reconciler are what talk to the cluster, on their
+  // own schedule. A research-only (Alliance) cluster is refused by the API
+  // with a 403 problem before anything is written.
+  server.registerTool("submit_hpc_job", {
+    inputSchema: z.object({
+      cluster_id: id,
+      command: z.string().min(1).max(8192),
+      idempotency_key: z.string().min(8).max(200),
+      name: z.string().min(1).max(128).optional(),
+      num_gpus: z.number().int().min(0).max(64).default(1),
+      gpu_model: z.string().min(1).max(64).optional(),
+      image: z.string().min(1).max(256).optional(),
+    }),
+    outputSchema: output,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, diagnosticHandler(user, "submit_hpc_job", a => client.post("/api/v1/hpc/jobs", {
+    cluster_id: String(a.cluster_id),
+    command: String(a.command),
+    idempotency_key: String(a.idempotency_key),
+    num_gpus: Number(a.num_gpus),
+    ...(a.name ? { name: String(a.name) } : {}),
+    ...(a.gpu_model ? { gpu_model: String(a.gpu_model) } : {}),
+    ...(a.image ? { image: String(a.image) } : {}),
+  }, { idempotencyKey: String(a.idempotency_key), retry: "idempotent" })));
+
+  server.registerTool("cancel_hpc_job", {
+    inputSchema: z.object({
+      xcelsior_job_id: id,
+      confirm: z.boolean().default(false),
+    }),
+    outputSchema: output,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  }, diagnosticHandler(user, "cancel_hpc_job", async a => {
+    const jobId = String(a.xcelsior_job_id);
+    if (a.confirm !== true) {
+      return {
+        preview: true,
+        xcelsior_job_id: jobId,
+        message: "Cancelling stops this Slurm job; work it has not written out is lost. " +
+          "Set confirm:true to cancel. Nothing has changed.",
+      };
+    }
+    return client.delete(`/api/v1/hpc/jobs/${encodeURIComponent(jobId)}`);
+  }));
+
   server.registerTool("get_mcp_action_status", {
     inputSchema: z.object({ plan_id: id }),
     outputSchema: output,

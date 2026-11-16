@@ -84,6 +84,11 @@ def slurm_charging_enabled() -> bool:
     return slurm_placement_mode() in SLURM_CHARGING_MODES
 
 
+def slurm_tenants() -> frozenset[str]:
+    """Tenant ids the ``allowlist`` mode admits (XCELSIOR_SLURM_TENANTS)."""
+    return _csv_env("XCELSIOR_SLURM_TENANTS")
+
+
 def _csv_env(name: str) -> frozenset[str]:
     raw = os.environ.get(name) or ""
     return frozenset(part.strip().lower() for part in raw.split(",") if part.strip())
@@ -189,5 +194,5 @@ class SchedulerConfig:
             lease_renewal_ttl_sec=_int_env("XCELSIOR_SCHEDULER_LEASE_RENEWAL_TTL_SEC", 300),
             slurm_placement=slurm_placement_mode() != "off",
             slurm_placement_mode=slurm_placement_mode(),
-            slurm_tenants=_csv_env("XCELSIOR_SLURM_TENANTS"),
+            slurm_tenants=slurm_tenants(),
         )

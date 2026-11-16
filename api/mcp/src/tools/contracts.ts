@@ -236,6 +236,11 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   list_hpc_jobs: { readOnly: true, destructive: false, audience: "operator" },
   get_hpc_job: { readOnly: true, destructive: false, audience: "operator" },
   get_hpc_job_output: { readOnly: true, destructive: false, audience: "operator" },
+  // `keyed` and genuinely so: the job id is derived from the caller and the
+  // required idempotency_key, and the API replays the same admission.
+  submit_hpc_job: { readOnly: false, destructive: false, audience: "operator", idempotency: "keyed" },
+  // Cancelling a finished or already-cancelled job answers already_finished.
+  cancel_hpc_job: { readOnly: false, destructive: true, audience: "operator", idempotency: "keyed" },
   // `customer`, not `operator`, and stated rather than derived. A derived
   // version classified this as operator because `hosts:read` appears in its
   // *alternatives* (an action plan may concern an instance, an endpoint or a

@@ -419,3 +419,201 @@ class TestAdminStatusReadsTheCache:
     def test_an_untracked_id_is_not_found(self, world):
         r = client.get("/api/slurm/status/987654321", headers=world["admin"])
         assert r.status_code == 404
+
+
+# ── Submitting and cancelling (blueprint 3.4) ────────────────────────
+
+
+@pytest.fixture
+def hpc(world, monkeypatch):
+    """A registered cluster to submit to, and cleanup for the jobs submitted."""
+    cid = f"hs-{uuid.uuid4().hex[:8]}"
+    with pg_transaction() as conn:
+        conn.execute(
+            "INSERT INTO slurm_clusters (cluster_id, profile_key, display_name, enabled, "
+            "marketplace, agent_access, poll_interval_seconds) "
+            "VALUES (%s, 'generic', 'submit test', true, true, true, 30)",
+            (cid,),
+        )
+    monkeypatch.setenv("XCELSIOR_SLURM_PLACEMENT", "shadow")
+    made: list[str] = []
+    ctx = {**world, "cid": cid, "made": made}
+    yield ctx
+    with pg_transaction() as conn:
+        for job_id in made:
+            conn.execute("DELETE FROM outbox_events WHERE aggregate_id = %s", (job_id,))
+            conn.execute("DELETE FROM slurm_job_mappings WHERE xcelsior_job_id = %s", (job_id,))
+            conn.execute("DELETE FROM job_attempts WHERE job_id = %s", (job_id,))
+            conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
+        conn.execute("DELETE FROM slurm_clusters WHERE cluster_id = %s", (cid,))
+
+
+def _submit(ctx, headers, **body):
+    payload = {"cluster_id": ctx["cid"], "command": "nvidia-smi -L", "num_gpus": 1, **body}
+    r = client.post("/api/v1/hpc/jobs", headers=headers, json=payload)
+    if r.status_code == 202:
+        ctx["made"].append(r.json()["job"]["xcelsior_job_id"])
+    return r
+
+
+def _problem(r, status, code):
+    assert r.status_code == status, r.text
+    assert r.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+    assert r.json()["code"] == code
+
+
+class TestSubmit:
+    def test_an_admin_queues_a_job_and_can_poll_it_before_slurm_has_it(self, hpc):
+        r = _submit(hpc, hpc["admin"])
+        assert r.status_code == 202, r.text
+        job = r.json()["job"]
+        assert job["in_slurm"] is False and job["cluster_id"] == hpc["cid"]
+        assert job["job_status"] == "queued" and job["submission_state"] == "not_placed"
+        assert r.headers["Location"] == f"/api/v1/hpc/jobs/{job['xcelsior_job_id']}"
+        polled = client.get(r.headers["Location"], headers=hpc["admin"])
+        assert polled.status_code == 200 and polled.json()["job"]["in_slurm"] is False
+        with pg_connection() as conn:
+            spec_cluster, tenant = conn.execute(
+                "SELECT spec->>'hpc_cluster_id', tenant_id FROM jobs WHERE job_id = %s",
+                (job["xcelsior_job_id"],),
+            ).fetchone()
+        assert spec_cluster == hpc["cid"] and tenant
+
+    def test_a_retry_with_the_same_key_returns_the_same_job(self, hpc):
+        key = f"key-{uuid.uuid4().hex}"
+        first = _submit(hpc, hpc["admin"], idempotency_key=key)
+        again = _submit(hpc, hpc["admin"], idempotency_key=key)
+        assert first.status_code == again.status_code == 202
+        assert first.json()["job"]["xcelsior_job_id"] == again.json()["job"]["xcelsior_job_id"]
+        other = client.post(
+            "/api/v1/hpc/jobs",
+            headers={**hpc["admin"], "Idempotency-Key": key},
+            json={"cluster_id": hpc["cid"], "command": "something else", "num_gpus": 1},
+        )
+        _problem(other, 409, "idempotency_conflict")
+
+    def test_shadow_mode_takes_new_work_from_admins_only(self, hpc):
+        _problem(_submit(hpc, hpc["a"]), 403, "hpc_submission_not_allowed")
+
+    def test_in_a_charging_mode_a_tenant_needs_a_balance(self, hpc, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_SLURM_PLACEMENT", "all")
+        _problem(_submit(hpc, hpc["a"]), 402, "insufficient_balance")
+        me = client.get("/api/auth/me", headers=hpc["a"]).json()
+        customer = (me.get("user") or me).get("customer_id")
+        with pg_transaction() as conn:  # registration made the wallet, empty
+            conn.execute(
+                "INSERT INTO wallets (customer_id, balance_micros, status, created_at, updated_at) "
+                "VALUES (%s, 5000000, 'active', 1794000000, 1794000000) "
+                "ON CONFLICT (customer_id) DO UPDATE SET balance_micros = 5000000",
+                (customer,),
+            )
+        assert _submit(hpc, hpc["a"]).status_code == 202
+
+    def test_placement_off_is_unavailable(self, hpc, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_SLURM_PLACEMENT", "off")
+        _problem(_submit(hpc, hpc["admin"]), 503, "hpc_submission_unavailable")
+
+    def test_a_disabled_cluster_is_a_conflict(self, hpc):
+        with pg_transaction() as conn:
+            conn.execute(
+                "UPDATE slurm_clusters SET enabled = false WHERE cluster_id = %s", (hpc["cid"],)
+            )
+        _problem(_submit(hpc, hpc["admin"]), 409, "hpc_cluster_disabled")
+
+    def test_an_unknown_cluster_is_not_found(self, hpc):
+        _problem(
+            _submit(hpc, hpc["admin"], cluster_id="no-such-cluster"), 404, "hpc_cluster_not_found"
+        )
+
+
+class TestRefusedClusters:
+    def test_an_alliance_cluster_is_refused_registered_or_not_and_whatever_the_mode(
+        self, hpc, monkeypatch
+    ):
+        monkeypatch.setenv("XCELSIOR_SLURM_PLACEMENT", "off")
+        # "nibi" is an Alliance profile; nobody registered it here.
+        _problem(_submit(hpc, hpc["admin"], cluster_id="nibi"), 403, "research_only_cluster")
+        with pg_transaction() as conn:
+            conn.execute(
+                "UPDATE slurm_clusters SET research_only = true, marketplace = false, "
+                "agent_access = false WHERE cluster_id = %s",
+                (hpc["cid"],),
+            )
+        _problem(_submit(hpc, hpc["admin"]), 403, "research_only_cluster")
+
+    def test_an_agent_is_refused_where_the_cluster_takes_no_agents(self, hpc, monkeypatch):
+        import routes._deps as deps
+
+        monkeypatch.setattr(deps, "_is_interactive_human", lambda user: False)
+        with pg_transaction() as conn:
+            conn.execute(
+                "UPDATE slurm_clusters SET agent_access = false WHERE cluster_id = %s",
+                (hpc["cid"],),
+            )
+        _problem(_submit(hpc, hpc["admin"]), 403, "agent_access_denied")
+        with pg_transaction() as conn:
+            conn.execute(
+                "UPDATE slurm_clusters SET agent_access = true WHERE cluster_id = %s",
+                (hpc["cid"],),
+            )
+        assert _submit(hpc, hpc["admin"]).status_code == 202
+
+    def test_a_tenant_is_refused_where_the_cluster_is_not_offered(self, hpc, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_SLURM_PLACEMENT", "all")
+        with pg_transaction() as conn:
+            conn.execute(
+                "UPDATE slurm_clusters SET marketplace = false WHERE cluster_id = %s",
+                (hpc["cid"],),
+            )
+        _problem(_submit(hpc, hpc["a"]), 403, "hpc_cluster_not_offered")
+
+
+class TestCancel:
+    def test_a_queued_job_ends_at_once_and_a_second_cancel_is_harmless(self, hpc):
+        job_id = _submit(hpc, hpc["admin"]).json()["job"]["xcelsior_job_id"]
+        r = client.delete(f"/api/v1/hpc/jobs/{job_id}", headers=hpc["admin"])
+        assert r.status_code == 202 and r.json()["cancel"] == "terminated", r.text
+        assert r.json()["job"]["job_status"] == "terminated" and r.json()["job"]["settled"]
+        again = client.delete(f"/api/v1/hpc/jobs/{job_id}", headers=hpc["admin"])
+        assert again.status_code == 202 and again.json()["cancel"] == "already_finished"
+
+    def test_a_job_in_slurm_is_cancelled_through_the_reconciler(self, hpc):
+        job_id = _submit(hpc, hpc["admin"]).json()["job"]["xcelsior_job_id"]
+        # What placement and the submitter leave behind for a job in Slurm.
+        with pg_transaction() as conn:
+            attempt_id = conn.execute(
+                "INSERT INTO job_attempts (job_id, attempt_number, status, fencing_token, "
+                "job_generation, created_by) VALUES (%s, 1, 'reserved', "
+                "nextval('placement_fencing_token_seq'), 1, 'test') RETURNING attempt_id",
+                (job_id,),
+            ).fetchone()[0]
+            conn.execute(
+                "UPDATE jobs SET active_attempt_id = %s, status = 'assigned', phase = 'scheduled' "
+                "WHERE job_id = %s",
+                (attempt_id, job_id),
+            )
+        sa.register_slurm_job(
+            job_id,
+            "8123",
+            cluster_id=hpc["cid"],
+            attempt_id=str(attempt_id),
+            submission_name=f"{job_id}-a1",
+        )
+        r = client.delete(f"/api/v1/hpc/jobs/{job_id}", headers=hpc["admin"])
+        assert r.status_code == 202 and r.json()["cancel"] == "requested", r.text
+        assert r.json()["job"]["in_slurm"] is True
+        with pg_connection() as conn:
+            desired, intent = conn.execute(
+                "SELECT desired_state, lifecycle_intent FROM jobs WHERE job_id = %s", (job_id,)
+            ).fetchone()
+            mapping_desired = conn.execute(
+                "SELECT desired_state FROM slurm_job_mappings WHERE xcelsior_job_id = %s",
+                (job_id,),
+            ).fetchone()[0]
+        assert (desired, intent, mapping_desired) == ("stopped", "cancel", "cancelled")
+
+    def test_someone_elses_job_is_not_found(self, hpc):
+        job_id = _submit(hpc, hpc["admin"]).json()["job"]["xcelsior_job_id"]
+        _problem(
+            client.delete(f"/api/v1/hpc/jobs/{job_id}", headers=hpc["b"]), 404, "hpc_job_not_found"
+        )

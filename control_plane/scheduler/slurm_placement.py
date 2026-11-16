@@ -76,21 +76,38 @@ def _gpu_count(spec: dict) -> int:
     return count
 
 
-def _admit_owner(conn, *, job_id: str, tenant_id, mode: str, tenants: frozenset[str]) -> None:
-    """Refuse an owner the rollout mode doesn't admit yet (plan P2.9)."""
-    if mode in ("shadow", "all"):
-        return
-    owner = str(tenant_id or "").strip()
-    if mode == "allowlist" and owner and owner in tenants:
-        return
-    admin = (
+def owner_is_admin(conn, owner) -> bool:
+    """Whether a billing customer belongs to a platform admin."""
+    owner = str(owner or "").strip()
+    return bool(
         owner
         and conn.execute(
             "SELECT 1 FROM users WHERE customer_id = %s AND (is_admin = 1 OR role = 'admin') LIMIT 1",
             (owner,),
         ).fetchone()
     )
-    if admin:
+
+
+def owner_admitted(conn, owner, *, mode: str, tenants: frozenset[str]) -> bool:
+    """Whether the rollout mode admits this owner's jobs (plan P2.9).
+
+    The one rule, shared by placement and by ``POST /api/v1/hpc/jobs``, so a
+    job the API accepted is never one the scheduler then refuses for good.
+    ``shadow`` places anything already queued; whether the API takes new
+    work in shadow mode is the API's own, stricter call.
+    """
+    if mode in ("shadow", "all"):
+        return True
+    if mode == "allowlist" and str(owner or "").strip() in tenants:
+        return True
+    if mode in ("admin", "allowlist"):
+        return owner_is_admin(conn, owner)
+    return False
+
+
+def _admit_owner(conn, *, job_id: str, tenant_id, mode: str, tenants: frozenset[str]) -> None:
+    """Refuse an owner the rollout mode doesn't admit yet (plan P2.9)."""
+    if owner_admitted(conn, tenant_id, mode=mode, tenants=tenants):
         return
     raise SlurmPlacementRefused(
         "slurm_placement_not_allowed",

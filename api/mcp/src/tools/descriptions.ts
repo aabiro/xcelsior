@@ -589,6 +589,24 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "final. Operator tool. Use when following a job's progress or finding why it failed. " +
     "Read-only and free; it never contacts a cluster, however often you call it.",
 
+  submit_hpc_job:
+    "Queue a batch job on a registered Slurm cluster (cluster_id from list_hpc_clusters) that " +
+    "is open to agents. The control plane submits it on its next pass; poll get_hpc_job with " +
+    "the returned job.xcelsior_job_id until in_slurm is true and the job settles, then read " +
+    "get_hpc_job_output. idempotency_key is required: the same key returns the same job, so " +
+    "retry with it, never with a new key. A research-only cluster (any Alliance system, such " +
+    "as nibi) is refused with research_only_cluster, and a cluster closed to agents with " +
+    "agent_access_denied. A charged run debits the wallet from Slurm's accounting after it " +
+    "finishes. Operator tool. Use when an operator asks for work to run on a Slurm cluster.",
+
+  cancel_hpc_job:
+    "Cancel a Slurm job by its Xcelsior job id. Without confirm:true it returns a preview and " +
+    "changes nothing. With it, a job not yet in Slurm is terminated at once and a running one " +
+    "is marked for cancel, which the reconciler sends to the cluster on its next pass; watch " +
+    "get_hpc_job for the settled state. A finished job answers already_finished. Work the job " +
+    "has not written out is lost. A charged job pays for the time it ran and nothing after. " +
+    "Operator tool. Use when the operator wants a Slurm job stopped.",
+
   // ── Operations ──────────────────────────────────────────────────────────
   retry_instance:
     "Retry a failed instance, creating a fresh fenced attempt while preserving the job's " +

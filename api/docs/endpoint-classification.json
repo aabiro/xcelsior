@@ -87,6 +87,10 @@
     "class": "internal",
     "notes": "team and member administration, an account-console surface; no P0-P7 journey creates a team or changes a membership"
   },
+  "DELETE /api/v1/hpc/jobs/{xcelsior_job_id}": {
+    "class": "covered",
+    "notes": "MCP server calls this path (cancel_hpc_job, confirm-gated); marks the job for cancel, which the reconciler sends to the cluster"
+  },
   "DELETE /api/v2/inference/endpoints/{endpoint_id}": {
     "class": "redundant",
     "notes": "a compatibility shim: the handler is `api_inference_compat_*`, tagged 'Serverless (compat)', and its whole body delegates to the corresponding api_serverless_* function. Folded into the serverless surface the MCP already calls, and the code declares it rather than leaving it to be inferred"
@@ -1982,6 +1986,10 @@
   "POST /api/v1/hpc/clusters/{cluster_id}/connection-check": {
     "class": "internal",
     "notes": "operator action on the HPC console: it names a host and a key the control plane will use, so the route refuses every machine principal and takes a human platform admin only"
+  },
+  "POST /api/v1/hpc/jobs": {
+    "class": "covered",
+    "notes": "MCP server calls this path (submit_hpc_job); queues the job for the control plane's submitter and refuses research-only (Alliance) clusters and agents on clusters without agent_access"
   },
   "POST /api/v1/image-sweep-plans/{plan_id}/execute": {
     "class": "covered",

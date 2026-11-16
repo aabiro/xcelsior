@@ -862,7 +862,29 @@ export interface paths {
          */
         get: operations["api_v1_hpc_jobs_api_v1_hpc_jobs_get"];
         put?: never;
-        post?: never;
+        /**
+         * Api V1 Submit Hpc Job
+         * @description Queue a job for a registered Slurm cluster (blueprint 3.4).
+         *
+         *     The scheduler places it and the submitter runs `sbatch` once; poll
+         *     `GET /api/v1/hpc/jobs/{id}` (it answers before Slurm has the job, with
+         *     `in_slurm: false`). Refused, each as a problem response:
+         *
+         *     - a research-only cluster (an Alliance allocation: academic research
+         *       under its PI, never tenant work and never agent traffic), 403;
+         *     - Slurm placement off (`XCELSIOR_SLURM_PLACEMENT`), 503;
+         *     - a disabled cluster, 409;
+         *     - an agent (a connector token, client credentials or an agent key) on a
+         *       cluster not open to agents (`agent_access`), 403;
+         *     - a tenant on a cluster not offered to tenants (`marketplace`), 403;
+         *     - an owner the rollout mode doesn't admit yet (shadow mode takes new
+         *       work from platform admins only, since it never charges), 403;
+         *     - in a charging mode, an owner with no positive wallet balance, 402.
+         *
+         *     With `idempotency_key` (or the Idempotency-Key header) a retry returns
+         *     the same job; the same key with a different request is a 409.
+         */
+        post: operations["api_v1_submit_hpc_job_api_v1_hpc_jobs_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -879,7 +901,8 @@ export interface paths {
         /**
          * Api V1 Hpc Job
          * @description One Slurm job as the reconciler last observed it: its current submission
-         *     (the open one, else the latest attempt).
+         *     (the open one, else the latest attempt). Before Slurm has it, `in_slurm`
+         *     is false and `submission_state` says where it stands.
          *
          *     Adds `reported_progress`, the job's own progress report if it writes one
          *     (cached like output: a stale copy queues one fetch). Someone else's job
@@ -889,7 +912,17 @@ export interface paths {
         get: operations["api_v1_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Api V1 Cancel Hpc Job
+         * @description Cancel a Slurm job. Calling it again is harmless.
+         *
+         *     Not yet placed: it ends at once (`terminated`). Placed but not yet
+         *     submitted: the submitter drops it without calling `sbatch`. In Slurm:
+         *     the reconciler sends `scancel` on its next pass, and the job reads
+         *     `cancelled` once Slurm confirms it. A job already finished is returned
+         *     as it is. Someone else's job is not-found.
+         */
+        delete: operations["api_v1_cancel_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1227,6 +1260,23 @@ export interface components {
              */
             postal_code: string;
         };
+        /** AddressResolveRequest */
+        AddressResolveRequest: {
+            /** Place Id */
+            place_id: string;
+            /** Session Token */
+            session_token: string;
+            /**
+             * Country
+             * @default
+             */
+            country: string;
+            /**
+             * Lang
+             * @default
+             */
+            lang: string;
+        };
         /** AddressSearchRequest */
         AddressSearchRequest: {
             /**
@@ -1241,6 +1291,11 @@ export interface components {
              * @default
              */
             lang: string;
+            /**
+             * Session Token
+             * @default
+             */
+            session_token: string;
         };
         /** AdminCreditRequest */
         AdminCreditRequest: {
@@ -3773,6 +3828,26 @@ export interface components {
             /** Credential Ref */
             credential_ref?: string | null;
         };
+        /** _HpcJobIn */
+        _HpcJobIn: {
+            /** Cluster Id */
+            cluster_id: string;
+            /** Command */
+            command: string;
+            /** Name */
+            name?: string | null;
+            /**
+             * Num Gpus
+             * @default 1
+             */
+            num_gpus: number;
+            /** Gpu Model */
+            gpu_model?: string | null;
+            /** Image */
+            image?: string | null;
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+        };
         /** _HttpPortsReport */
         _HttpPortsReport: {
             /** Host Id */
@@ -5137,6 +5212,39 @@ export interface operations {
             };
         };
     };
+    api_v1_submit_hpc_job_api_v1_hpc_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["_HpcJobIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     api_v1_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__get: {
         parameters: {
             query?: never;
@@ -5150,6 +5258,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_cancel_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                xcelsior_job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

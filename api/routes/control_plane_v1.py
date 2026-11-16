@@ -14,7 +14,7 @@ operator request is refused rather than racing.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from uuid import UUID
 import base64
@@ -1393,8 +1393,7 @@ def api_v1_hpc_clusters(request: Request):
             detail="platform admin or a scoped machine principal is required",
         )
     with _get_pg_pool().connection() as conn:
-        cur = conn.execute(
-            """
+        cur = conn.execute("""
             SELECT cluster_id, display_name, profile_key, enabled, research_only,
                    marketplace, agent_access, poll_interval_seconds, last_poll_at,
                    transport_ok_at, controller_ok_at, accounting_ok_at,
@@ -1403,8 +1402,7 @@ def api_v1_hpc_clusters(request: Request):
                    ssh_host, ssh_port, remote_user, known_hosts_line, credential_ref,
                    facts->'config', facts->>'config_captured_at'
               FROM slurm_clusters ORDER BY cluster_id
-            """
-        )
+            """)
         rows = cur.fetchall()
     clusters = []
     for r in rows:
@@ -1462,9 +1460,7 @@ def _require_hpc_admin(request: Request) -> dict:
     the control plane will use, so no machine principal may do it."""
     user = _require_auth(request)
     if str(user.get("grant_type", "")) == "client_credentials" or not _is_platform_admin(user):
-        raise ProblemException(
-            status=403, code="forbidden", detail="a platform admin is required"
-        )
+        raise ProblemException(status=403, code="forbidden", detail="a platform admin is required")
     return user
 
 
@@ -1519,9 +1515,7 @@ def api_v1_register_hpc_cluster(request: Request, body: _HpcClusterIn):
     except sa.SlurmAdapterError as e:
         raise ProblemException(status=422, code=e.code, detail=str(e))
     except psycopg.errors.CheckViolation as e:
-        raise ProblemException(
-            status=422, code="invalid_cluster", detail=str(e).splitlines()[0]
-        )
+        raise ProblemException(status=422, code="invalid_cluster", detail=str(e).splitlines()[0])
     append_user_audit_event(
         "hpc.cluster.registered",
         "slurm_cluster",
@@ -1623,10 +1617,73 @@ def api_v1_hpc_jobs(
     return {"ok": True, "jobs": jobs, "next_cursor": next_cursor}
 
 
+#: Job statuses after which nothing is left to cancel.
+_HPC_FINISHED_JOB = frozenset(
+    {"completed", "failed", "cancelled", "terminated", "preempted", "stopped"}
+)
+
+
+def _hpc_unsubmitted(conn, job_id: str, global_access: bool, owners: set[str]) -> dict | None:
+    """A cluster job Slurm doesn't have yet: queued, placed and waiting for
+    the submitter, or refused before ``sbatch``. Without this a client that
+    polls straight after submitting would read not-found."""
+    query = """
+        SELECT j.job_id, j.spec->>'hpc_cluster_id', j.status, j.phase, j.desired_state,
+               j.reason_code, s.state, s.error_code, s.submission_name, s.attempt_id::text
+          FROM jobs j
+          LEFT JOIN LATERAL (
+                SELECT state, error_code, submission_name, attempt_id
+                  FROM slurm_submissions WHERE xcelsior_job_id = j.job_id
+                 ORDER BY created_at DESC LIMIT 1) s ON TRUE
+         WHERE j.job_id = %s AND j.spec ? 'hpc_cluster_id'
+    """
+    params: list = [job_id]
+    if not global_access:
+        query += " AND j.tenant_id = ANY(%s)"
+        params.append(sorted(owners))
+    row = conn.execute(query, params).fetchone()
+    if row is None:
+        return None
+    jid, cluster, status, phase, desired, reason, sub_state, sub_error, name, attempt = row
+    return {
+        "xcelsior_job_id": jid,
+        "in_slurm": False,
+        "cluster_id": cluster,
+        "job_status": status,
+        "job_phase": phase,
+        "desired_state": desired,
+        # not_placed: still queued for the scheduler. Then the submitter's
+        # pending, submitting, unknown, or a refusal (rejected, lost).
+        "submission_state": sub_state or "not_placed",
+        "reason_code": sub_error or reason,
+        "submission_name": name,
+        "attempt_id": attempt,
+        "slurm_job_id": None,
+        "settled": status in _HPC_FINISHED_JOB,
+    }
+
+
+def _hpc_view(conn, job_id: str, global_access: bool, owners: set[str]) -> dict | None:
+    """The job's current submission as the reconciler saw it, or, before
+    Slurm has it, where it stands on the way there."""
+    query = _HPC_JOB_SELECT + " WHERE m.xcelsior_job_id = %s"
+    params: list = [job_id]
+    if not global_access:
+        query += " AND m.tenant_id = ANY(%s)"
+        params.append(sorted(owners))
+    # The job's current submission: its open one, else its latest attempt.
+    query += " ORDER BY m.terminal_at IS NULL DESC, m.submitted_at DESC NULLS LAST LIMIT 1"
+    row = conn.execute(query, params).fetchone()
+    if row is not None:
+        return {**_hpc_job(row), "in_slurm": True}
+    return _hpc_unsubmitted(conn, job_id, global_access, owners)
+
+
 @router.get("/api/v1/hpc/jobs/{xcelsior_job_id}")
 def api_v1_hpc_job(xcelsior_job_id: str, request: Request):
     """One Slurm job as the reconciler last observed it: its current submission
-    (the open one, else the latest attempt).
+    (the open one, else the latest attempt). Before Slurm has it, `in_slurm`
+    is false and `submission_state` says where it stands.
 
     Adds `reported_progress`, the job's own progress report if it writes one
     (cached like output: a stale copy queues one fetch). Someone else's job
@@ -1637,22 +1694,257 @@ def api_v1_hpc_job(xcelsior_job_id: str, request: Request):
     from slurm_adapter import read_reported_progress
 
     global_access, owners = _hpc_reader(request)
-    query = _HPC_JOB_SELECT + " WHERE m.xcelsior_job_id = %s"
+    with _get_pg_pool().connection() as conn:
+        job = _hpc_view(conn, xcelsior_job_id, global_access, owners)
+    if job is None:
+        raise ProblemException(
+            status=404, code="hpc_job_not_found", detail=f"HPC job {xcelsior_job_id} not found"
+        )
+    if job["in_slurm"]:
+        job["reported_progress"] = read_reported_progress(xcelsior_job_id)
+    return {"ok": True, "job": job}
+
+
+class _HpcJobIn(BaseModel):
+    cluster_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+    command: str = Field(min_length=1, max_length=8192)
+    name: str | None = Field(default=None, max_length=128)
+    num_gpus: int = Field(default=1, ge=0, le=64)
+    gpu_model: str | None = Field(default=None, max_length=64)
+    image: str | None = Field(default=None, max_length=256)
+    # The same key from the same owner returns the same job instead of a
+    # second one. Also accepted as the Idempotency-Key header.
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=200)
+
+
+def _research_profile(cluster_id: str) -> bool:
+    """A cluster named after a research-only profile (an Alliance allocation),
+    whether or not anyone registered it."""
+    import slurm_adapter as sa
+
+    try:
+        return bool(sa._get_profile(cluster_id).get("research_only"))
+    except sa.SlurmAdapterError:
+        return False
+
+
+@router.post("/api/v1/hpc/jobs", status_code=202)
+def api_v1_submit_hpc_job(request: Request, response: Response, body: _HpcJobIn):
+    """Queue a job for a registered Slurm cluster (blueprint 3.4).
+
+    The scheduler places it and the submitter runs `sbatch` once; poll
+    `GET /api/v1/hpc/jobs/{id}` (it answers before Slurm has the job, with
+    `in_slurm: false`). Refused, each as a problem response:
+
+    - a research-only cluster (an Alliance allocation: academic research
+      under its PI, never tenant work and never agent traffic), 403;
+    - Slurm placement off (`XCELSIOR_SLURM_PLACEMENT`), 503;
+    - a disabled cluster, 409;
+    - an agent (a connector token, client credentials or an agent key) on a
+      cluster not open to agents (`agent_access`), 403;
+    - a tenant on a cluster not offered to tenants (`marketplace`), 403;
+    - an owner the rollout mode doesn't admit yet (shadow mode takes new
+      work from platform admins only, since it never charges), 403;
+    - in a charging mode, an owner with no positive wallet balance, 402.
+
+    With `idempotency_key` (or the Idempotency-Key header) a retry returns
+    the same job; the same key with a different request is a 409.
+    """
+    import hashlib
+
+    import scheduler
+    from control_plane.scheduler.config import (
+        SLURM_CHARGING_MODES,
+        slurm_placement_mode,
+        slurm_tenants,
+    )
+    from control_plane.scheduler.slurm_placement import owner_admitted, owner_is_admin
+    from db import _get_pg_pool
+    from routes._deps import _effective_billing_customer_id, _is_interactive_human
+
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    owner = _effective_billing_customer_id(user)
+    human = _is_interactive_human(user)
+    cluster_id = body.cluster_id
+    mode = slurm_placement_mode()
+    with _get_pg_pool().connection() as conn:
+        cluster = conn.execute(
+            "SELECT enabled, research_only, marketplace, agent_access "
+            "FROM slurm_clusters WHERE cluster_id = %s",
+            (cluster_id,),
+        ).fetchone()
+        if (cluster is not None and cluster[1]) or (
+            cluster is None and _research_profile(cluster_id)
+        ):
+            raise ProblemException(
+                status=403,
+                code="research_only_cluster",
+                detail=f"{cluster_id} is a research-only allocation: no tenant or agent jobs",
+            )
+        if cluster is None:
+            raise ProblemException(
+                status=404, code="hpc_cluster_not_found", detail=f"cluster {cluster_id} not found"
+            )
+        if mode == "off":
+            raise ProblemException(
+                status=503,
+                code="hpc_submission_unavailable",
+                detail="Slurm placement is off on this deployment",
+            )
+        enabled, _research, marketplace, agent_access = cluster
+        if not enabled:
+            raise ProblemException(
+                status=409, code="hpc_cluster_disabled", detail=f"cluster {cluster_id} is disabled"
+            )
+        if not human and not agent_access:
+            raise ProblemException(
+                status=403,
+                code="agent_access_denied",
+                detail=f"cluster {cluster_id} does not take jobs from agents",
+            )
+        operator = owner_is_admin(conn, owner)
+        if not operator and not marketplace:
+            raise ProblemException(
+                status=403,
+                code="hpc_cluster_not_offered",
+                detail=f"cluster {cluster_id} is not offered to tenants",
+            )
+        admitted = (
+            operator
+            if mode == "shadow"
+            else owner_admitted(conn, owner, mode=mode, tenants=slurm_tenants())
+        )
+        if not admitted:
+            raise ProblemException(
+                status=403,
+                code="hpc_submission_not_allowed",
+                detail=f"Slurm submission is {mode}-only and this account is not admitted yet",
+            )
+        if mode in SLURM_CHARGING_MODES:
+            balance = conn.execute(
+                "SELECT balance_micros FROM wallets WHERE customer_id = %s", (owner,)
+            ).fetchone()
+            if balance is None or int(balance[0] or 0) <= 0:
+                raise ProblemException(
+                    status=402,
+                    code="insufficient_balance",
+                    detail="a Slurm job is billed from your wallet; top it up first",
+                )
+
+    key = body.idempotency_key or (request.headers.get("Idempotency-Key") or "").strip() or None
+    job_id = None
+    if key:
+        job_id = "hpc-" + hashlib.sha256(f"{owner}\0{key}".encode()).hexdigest()[:24]
+    try:
+        job = scheduler.submit_job(
+            name=body.name or f"hpc-{cluster_id}",
+            vram_needed_gb=0,
+            num_gpus=body.num_gpus,
+            gpu_model=body.gpu_model,
+            image=body.image,
+            command=body.command,
+            owner=owner,
+            job_id=job_id,
+            hpc_cluster_id=cluster_id,
+        )
+    except PermissionError as e:
+        raise ProblemException(status=403, code="hpc_job_refused", detail=str(e))
+    except ValueError as e:
+        # The same key with a different request: submit_job refuses to admit
+        # a second spec under the job id the key derives.
+        if job_id and "already admitted" in str(e):
+            raise ProblemException(
+                status=409,
+                code="idempotency_conflict",
+                detail="this idempotency key was already used for a different job",
+            )
+        raise ProblemException(status=422, code="invalid_hpc_job", detail=str(e))
+    job_id = str(job["job_id"])
+    append_user_audit_event(
+        "hpc.job.submitted",
+        "job",
+        job_id,
+        user,
+        data={"cluster_id": cluster_id, "mode": mode, "agent": not human},
+    )
+    with _get_pg_pool().connection() as conn:
+        view = _hpc_view(conn, job_id, True, set())
+    response.headers["Location"] = f"/api/v1/hpc/jobs/{job_id}"
+    return {"ok": True, "job": view}
+
+
+@router.delete("/api/v1/hpc/jobs/{xcelsior_job_id}", status_code=202)
+def api_v1_cancel_hpc_job(xcelsior_job_id: str, request: Request):
+    """Cancel a Slurm job. Calling it again is harmless.
+
+    Not yet placed: it ends at once (`terminated`). Placed but not yet
+    submitted: the submitter drops it without calling `sbatch`. In Slurm:
+    the reconciler sends `scancel` on its next pass, and the job reads
+    `cancelled` once Slurm confirms it. A job already finished is returned
+    as it is. Someone else's job is not-found.
+    """
+    from control_plane.lifecycle import request_unplaced_termination
+    from db import _get_pg_pool, pg_transaction
+
+    user = _require_auth(request)
+    _require_scope(user, "instances:write")
+    global_access, owners = _hpc_reader(request)
+    query = (
+        "SELECT status, active_attempt_id FROM jobs "
+        "WHERE job_id = %s AND spec ? 'hpc_cluster_id'"
+    )
     params: list = [xcelsior_job_id]
     if not global_access:
-        query += " AND m.tenant_id = ANY(%s)"
+        query += " AND tenant_id = ANY(%s)"
         params.append(sorted(owners))
-    # The job's current submission: its open one, else its latest attempt.
-    query += " ORDER BY m.terminal_at IS NULL DESC, m.submitted_at DESC NULLS LAST LIMIT 1"
+
+    def placed_cancel() -> str:
+        with pg_transaction() as conn:
+            conn.execute(
+                """
+                UPDATE jobs
+                   SET desired_state = 'stopped', lifecycle_intent = 'cancel',
+                       version = version + 1, updated_at = clock_timestamp()
+                 WHERE job_id = %s
+                """,
+                (xcelsior_job_id,),
+            )
+            conn.execute(
+                """
+                UPDATE slurm_job_mappings
+                   SET desired_state = 'cancelled', version = version + 1
+                 WHERE xcelsior_job_id = %s AND terminal_at IS NULL
+                """,
+                (xcelsior_job_id,),
+            )
+        return "requested"
+
     with _get_pg_pool().connection() as conn:
         row = conn.execute(query, params).fetchone()
     if row is None:
         raise ProblemException(
             status=404, code="hpc_job_not_found", detail=f"HPC job {xcelsior_job_id} not found"
         )
-    job = _hpc_job(row)
-    job["reported_progress"] = read_reported_progress(xcelsior_job_id)
-    return {"ok": True, "job": job}
+    status, active_attempt = row
+    if status in _HPC_FINISHED_JOB:
+        outcome = "already_finished"
+    elif active_attempt is None:
+        ended = request_unplaced_termination(
+            job_id=xcelsior_job_id, created_by=f"api:{user.get('user_id') or 'unknown'}"
+        )
+        # Placed in the moment between the read and the termination: cancel
+        # it the placed way instead.
+        outcome = "terminated" if ended.ok else placed_cancel()
+    else:
+        outcome = placed_cancel()
+    if outcome != "already_finished":
+        append_user_audit_event(
+            "hpc.job.cancel_requested", "job", xcelsior_job_id, user, data={"outcome": outcome}
+        )
+    with _get_pg_pool().connection() as conn:
+        view = _hpc_view(conn, xcelsior_job_id, global_access, owners)
+    return {"ok": True, "cancel": outcome, "job": view}
 
 
 @router.get("/api/v1/hpc/jobs/{xcelsior_job_id}/output")

@@ -1754,6 +1754,44 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Submit Hpc Job",
+        "description": "Queue a job for a registered Slurm cluster (blueprint 3.4).\n\nThe scheduler places it and the submitter runs `sbatch` once; poll\n`GET /api/v1/hpc/jobs/{id}` (it answers before Slurm has the job, with\n`in_slurm: false`). Refused, each as a problem response:\n\n- a research-only cluster (an Alliance allocation: academic research\n  under its PI, never tenant work and never agent traffic), 403;\n- Slurm placement off (`XCELSIOR_SLURM_PLACEMENT`), 503;\n- a disabled cluster, 409;\n- an agent (a connector token, client credentials or an agent key) on a\n  cluster not open to agents (`agent_access`), 403;\n- a tenant on a cluster not offered to tenants (`marketplace`), 403;\n- an owner the rollout mode doesn't admit yet (shadow mode takes new\n  work from platform admins only, since it never charges), 403;\n- in a charging mode, an owner with no positive wallet balance, 402.\n\nWith `idempotency_key` (or the Idempotency-Key header) a retry returns\nthe same job; the same key with a different request is a 409.",
+        "operationId": "api_v1_submit_hpc_job_api_v1_hpc_jobs_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_HpcJobIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/hpc/jobs/{xcelsior_job_id}": {
@@ -1762,7 +1800,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Hpc Job",
-        "description": "One Slurm job as the reconciler last observed it: its current submission\n(the open one, else the latest attempt).\n\nAdds `reported_progress`, the job's own progress report if it writes one\n(cached like output: a stale copy queues one fetch). Someone else's job\nis not-found, not forbidden: ids can't be probed. Read-only; never\ncontacts a cluster.",
+        "description": "One Slurm job as the reconciler last observed it: its current submission\n(the open one, else the latest attempt). Before Slurm has it, `in_slurm`\nis false and `submission_state` says where it stands.\n\nAdds `reported_progress`, the job's own progress report if it writes one\n(cached like output: a stale copy queues one fetch). Someone else's job\nis not-found, not forbidden: ids can't be probed. Read-only; never\ncontacts a cluster.",
         "operationId": "api_v1_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__get",
         "parameters": [
           {
@@ -1777,6 +1815,45 @@
         ],
         "responses": {
           "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Cancel Hpc Job",
+        "description": "Cancel a Slurm job. Calling it again is harmless.\n\nNot yet placed: it ends at once (`terminated`). Placed but not yet\nsubmitted: the submitter drops it without calling `sbatch`. In Slurm:\nthe reconciler sends `scancel` on its next pass, and the job reads\n`cancelled` once Slurm confirms it. A job already finished is returned\nas it is. Someone else's job is not-found.",
+        "operationId": "api_v1_cancel_hpc_job_api_v1_hpc_jobs__xcelsior_job_id__delete",
+        "parameters": [
+          {
+            "name": "xcelsior_job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Xcelsior Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -2321,6 +2398,38 @@
         "title": "AddressCheckRequest",
         "description": "The same fields and limits the profile save accepts."
       },
+      "AddressResolveRequest": {
+        "properties": {
+          "place_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,255}$",
+            "title": "Place Id"
+          },
+          "session_token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,36}$",
+            "title": "Session Token"
+          },
+          "country": {
+            "type": "string",
+            "maxLength": 2,
+            "title": "Country",
+            "default": ""
+          },
+          "lang": {
+            "type": "string",
+            "maxLength": 8,
+            "title": "Lang",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "place_id",
+          "session_token"
+        ],
+        "title": "AddressResolveRequest"
+      },
       "AddressSearchRequest": {
         "properties": {
           "country": {
@@ -2338,6 +2447,12 @@
             "type": "string",
             "maxLength": 8,
             "title": "Lang",
+            "default": ""
+          },
+          "session_token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{0,36}$",
+            "title": "Session Token",
             "default": ""
           }
         },
@@ -8232,6 +8347,83 @@
           "profile_key"
         ],
         "title": "_HpcClusterIn"
+      },
+      "_HpcJobIn": {
+        "properties": {
+          "cluster_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+            "title": "Cluster Id"
+          },
+          "command": {
+            "type": "string",
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Command"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "num_gpus": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 0.0,
+            "title": "Num Gpus",
+            "default": 1
+          },
+          "gpu_model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Model"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cluster_id",
+          "command"
+        ],
+        "title": "_HpcJobIn"
       },
       "_HttpPortsReport": {
         "properties": {

@@ -19,6 +19,7 @@ describe("trust-surface profiles", () => {
       "drain_host", "undrain_host", "evict_host_workloads", "retry_agent_command",
       "get_scheduler_health", "get_host_capacity", "list_reconciliation_findings",
       "list_hpc_clusters", "list_hpc_jobs", "get_hpc_job", "get_hpc_job_output",
+      "submit_hpc_job", "cancel_hpc_job",
     ]) {
       expect(customer, `${name} must not appear in a public directory listing`)
         .not.toContain(name);
@@ -150,8 +151,10 @@ describe("annotation accuracy", () => {
     // worth reproducing — can no longer be launched from it. Re-snapshotting
     // produces a *new* image from whatever the instance holds now, which is not
     // the same bytes.
+    // `cancel_hpc_job` joins them for the same reason as cancel_instance: a
+    // cancelled Slurm job is not resumed, only resubmitted as a new run.
     expect(destructive).toEqual([
-      "cancel_instance", "cancel_serverless_job",
+      "cancel_hpc_job", "cancel_instance", "cancel_serverless_job",
       // Funding, payouts and unattended spending carry irreversible money effects.
       "configure_auto_topup", "delete_serverless_endpoint",
       "delete_user_image", "delete_volume", "evict_host_workloads", "request_provider_payout",
