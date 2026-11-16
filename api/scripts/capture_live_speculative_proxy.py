@@ -20,9 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-SCRATCH = Path(
-    os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer")
-)
+SCRATCH = Path(os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer"))
 
 from scripts.live_vllm_common import (  # noqa: E402
     resolve_hf_model_name,
@@ -87,7 +85,11 @@ def main() -> int:
     created = client.post(
         "/api/v2/serverless/endpoints",
         headers=headers,
-        json={"name": f"live-spec-{uuid.uuid4().hex[:4]}", "mode": "preset", "model_name": hf_model},
+        json={
+            "name": f"live-spec-{uuid.uuid4().hex[:4]}",
+            "mode": "preset",
+            "model_name": hf_model,
+        },
     )
     if created.status_code != 200:
         print(created.text[:300], file=sys.stderr)

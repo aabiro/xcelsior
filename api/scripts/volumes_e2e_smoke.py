@@ -48,9 +48,9 @@ def _load_audit_cfg() -> dict[str, str]:
                 continue
             k, v = line.split("=", 1)
             cfg[k.strip()] = v.strip()
-    cfg["base"] = (os.environ.get("AUDIT_BASE") or cfg.get("AUDIT_BASE") or "https://xcelsior.ca").rstrip(
-        "/"
-    )
+    cfg["base"] = (
+        os.environ.get("AUDIT_BASE") or cfg.get("AUDIT_BASE") or "https://xcelsior.ca"
+    ).rstrip("/")
     cfg["email"] = os.environ.get("AUDIT_EMAIL") or cfg.get("AUDIT_EMAIL", "")
     cfg["password"] = os.environ.get("AUDIT_PASSWORD") or cfg.get("AUDIT_PASSWORD", "")
     return cfg
@@ -183,8 +183,10 @@ def _worker_mount_smoke(worker_host: str | None = None) -> bool:
         target = f"{ssh_user}@{worker_host}"
         label = f"worker-host {worker_host}"
     else:
-        target = os.environ.get("XCELSIOR_DEPLOY_USER", "root") + "@" + os.environ.get(
-            "XCELSIOR_DEPLOY_HOST", "100.64.0.1"
+        target = (
+            os.environ.get("XCELSIOR_DEPLOY_USER", "root")
+            + "@"
+            + os.environ.get("XCELSIOR_DEPLOY_HOST", "100.64.0.1")
         )
         label = "VPS"
     remote = _nfs_mount_remote_cmd("/tmp/nfs-worker-smoke")
@@ -206,10 +208,17 @@ def _worker_mount_smoke(worker_host: str | None = None) -> bool:
             return True
         if worker_host and proc.returncode != 0:
             err = (proc.stderr or proc.stdout or "")[:200]
-            if "Connection refused" in err or "No route to host" in err or "Could not resolve" in err:
+            if (
+                "Connection refused" in err
+                or "No route to host" in err
+                or "Could not resolve" in err
+            ):
                 print(f"worker-mount ({label}): SKIP — host unreachable (optional second worker)")
                 return True
-        print(f"worker-mount ({label}): FAIL rc={proc.returncode} err={proc.stderr[:200]}", file=sys.stderr)
+        print(
+            f"worker-mount ({label}): FAIL rc={proc.returncode} err={proc.stderr[:200]}",
+            file=sys.stderr,
+        )
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
         if worker_host:
             print(f"worker-mount ({label}): SKIP — {exc}")
@@ -227,7 +236,9 @@ def _test_snapshots_flow(client: httpx.Client, hdrs: dict[str, str], volume_id: 
         json={"label": label},
     )
     if created.status_code != 200:
-        print(f"snapshots create failed: {created.status_code} {created.text[:300]}", file=sys.stderr)
+        print(
+            f"snapshots create failed: {created.status_code} {created.text[:300]}", file=sys.stderr
+        )
         return False
     snap_id = (created.json().get("snapshot") or {}).get("snapshot_id")
     if not snap_id:
@@ -250,7 +261,9 @@ def _test_snapshots_flow(client: httpx.Client, hdrs: dict[str, str], volume_id: 
         headers=hdrs,
     )
     if deleted.status_code != 200:
-        print(f"snapshots delete failed: {deleted.status_code} {deleted.text[:200]}", file=sys.stderr)
+        print(
+            f"snapshots delete failed: {deleted.status_code} {deleted.text[:200]}", file=sys.stderr
+        )
         return False
     print("snapshots: delete ok")
     return True
@@ -264,7 +277,9 @@ def _test_encrypted_volume(client: httpx.Client, hdrs: dict[str, str]) -> str | 
         json={"name": name, "size_gb": 1, "encrypted": True},
     )
     if created.status_code != 200:
-        print(f"encrypted create failed: {created.status_code} {created.text[:300]}", file=sys.stderr)
+        print(
+            f"encrypted create failed: {created.status_code} {created.text[:300]}", file=sys.stderr
+        )
         return None
     vol = created.json().get("volume") or {}
     volume_id = vol.get("volume_id")
@@ -305,7 +320,9 @@ def _test_hot_attach_flow(client: httpx.Client, hdrs: dict[str, str], volume_id:
         print("hot-attach: skipped (insufficient wallet)")
         return True
     if launch.status_code != 200:
-        print(f"hot-attach launch failed: {launch.status_code} {launch.text[:300]}", file=sys.stderr)
+        print(
+            f"hot-attach launch failed: {launch.status_code} {launch.text[:300]}", file=sys.stderr
+        )
         return False
 
     inst = launch.json().get("instance") or {}
@@ -419,7 +436,10 @@ def _test_persist_flow(client: httpx.Client, hdrs: dict[str, str], volume_id: st
 
     marker2 = _nfs_read_marker(volume_id)
     if marker2 != PERSIST_MARKER:
-        print(f"persist: marker after restart expected '{PERSIST_MARKER}' got '{marker2}'", file=sys.stderr)
+        print(
+            f"persist: marker after restart expected '{PERSIST_MARKER}' got '{marker2}'",
+            file=sys.stderr,
+        )
         client.post(f"/instances/{job_id}/terminate", headers=hdrs)
         return False
     print("persist: marker survived stop/start")
@@ -432,16 +452,24 @@ def _test_persist_flow(client: httpx.Client, hdrs: dict[str, str], volume_id: st
 
     vol_resp = client.get(f"/api/v2/volumes/{volume_id}", headers=hdrs)
     if vol_resp.status_code != 200:
-        print(f"persist: volume get after terminate failed: {vol_resp.status_code}", file=sys.stderr)
+        print(
+            f"persist: volume get after terminate failed: {vol_resp.status_code}", file=sys.stderr
+        )
         return False
     vol_status = (vol_resp.json().get("volume") or {}).get("status")
     if vol_status != "available":
-        print(f"persist: volume status after terminate expected available got {vol_status}", file=sys.stderr)
+        print(
+            f"persist: volume status after terminate expected available got {vol_status}",
+            file=sys.stderr,
+        )
         return False
 
     marker3 = _nfs_read_marker(volume_id)
     if marker3 != PERSIST_MARKER:
-        print(f"persist: marker after terminate expected '{PERSIST_MARKER}' got '{marker3}'", file=sys.stderr)
+        print(
+            f"persist: marker after terminate expected '{PERSIST_MARKER}' got '{marker3}'",
+            file=sys.stderr,
+        )
         return False
     print("persist: volume available after terminate, NFS data intact")
     return True
@@ -554,7 +582,9 @@ def main() -> int:
             json={"name": f"smoke-{name}", "vram_needed_gb": 1, "volume_ids": [volume_id]},
         )
         if launched.status_code == 402:
-            print("launch skipped: insufficient wallet balance (use --infra-only for NFS CRUD smoke)")
+            print(
+                "launch skipped: insufficient wallet balance (use --infra-only for NFS CRUD smoke)"
+            )
         elif launched.status_code != 200:
             print(
                 f"Launch with volume_ids failed: {launched.status_code} {launched.text[:300]}",

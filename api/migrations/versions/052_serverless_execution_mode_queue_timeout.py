@@ -14,18 +14,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE serverless_endpoints
         ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAULT 'sync'
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         ALTER TABLE serverless_endpoints
         ADD COLUMN IF NOT EXISTS queue_timeout_sec INTEGER NOT NULL DEFAULT 120
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

@@ -77,7 +77,9 @@ def normalize_tagline(raw: str) -> str:
     return tagline
 
 
-_HOST_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$")
+_HOST_RE = re.compile(
+    r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$"
+)
 
 
 def normalize_website(raw: str) -> str:
@@ -193,7 +195,9 @@ def process_logo(data: bytes) -> ProcessedLogo:
             raise ValueError("That image is fully transparent")
         image = image.crop(box)
     if min(image.size) < _MIN_SIDE and max(image.size) < _MIN_SIDE * 2:
-        raise ValueError(f"The logo is too small; use at least {_MIN_SIDE * 2} px on its longer side")
+        raise ValueError(
+            f"The logo is too small; use at least {_MIN_SIDE * 2} px on its longer side"
+        )
 
     canvas_size = (LOGO_SIZE, LOGO_SIZE)
     if transparent:
@@ -201,7 +205,9 @@ def process_logo(data: bytes) -> ProcessedLogo:
         inner = int(LOGO_SIZE * _LOGO_INSET)
         image = ImageOps.contain(image, (inner, inner), Image.Resampling.LANCZOS)
         canvas = Image.new("RGBA", canvas_size, (0, 0, 0, 0))
-        canvas.alpha_composite(image, ((LOGO_SIZE - image.width) // 2, (LOGO_SIZE - image.height) // 2))
+        canvas.alpha_composite(
+            image, ((LOGO_SIZE - image.width) // 2, (LOGO_SIZE - image.height) // 2)
+        )
     else:
         tile = "none"
         rgb = image.convert("RGB")

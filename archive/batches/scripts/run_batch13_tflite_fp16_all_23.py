@@ -39,6 +39,7 @@ from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
+
 try:
     import torch
 except ImportError:
@@ -97,7 +98,9 @@ def export_dat_savedmodel_metal_fp16(sm_dir: Path, out_path: Path) -> dict:
             self.base = base_model
             self.sig = sig
 
-        @tf.function(input_signature=[tf.TensorSpec(shape=[1, 3, 64, 64], dtype=tf.float32, name="input")])
+        @tf.function(
+            input_signature=[tf.TensorSpec(shape=[1, 3, 64, 64], dtype=tf.float32, name="input")]
+        )
         def __call__(self, x):
             x_safe = tf.clip_by_value(x, 0.0, 1.0)
             if self.sig is not None:
@@ -107,7 +110,9 @@ def export_dat_savedmodel_metal_fp16(sm_dir: Path, out_path: Path) -> dict:
             else:
                 y = self.base(x_safe)
             # Clamp attention/residual outputs to FP16-safe range on iOS Metal GPU
-            y_clamped = tf.where(tf.math.is_finite(y), tf.clip_by_value(y, 0.0, 1.0), tf.zeros_like(y))
+            y_clamped = tf.where(
+                tf.math.is_finite(y), tf.clip_by_value(y, 0.0, 1.0), tf.zeros_like(y)
+            )
             return {"output": y_clamped}
 
     try:
@@ -139,7 +144,9 @@ def export_dat_savedmodel_metal_fp16(sm_dir: Path, out_path: Path) -> dict:
     return val
 
 
-def build_and_export_keras_fp16(name: str, model_fn, input_shape: tuple, pt_path: Path | None, out_path: Path) -> dict:
+def build_and_export_keras_fp16(
+    name: str, model_fn, input_shape: tuple, pt_path: Path | None, out_path: Path
+) -> dict:
     """
     Constructs the exact NCHW-compatible TF graph for each Batch 8-13 model, initializes from
     trained PyTorch checkpoint statistics/weights when present, exports to TFLite FP16 with
@@ -154,9 +161,13 @@ def build_and_export_keras_fp16(name: str, model_fn, input_shape: tuple, pt_path
             sd = torch.load(pt_path, map_location="cpu", weights_only=False)
             if isinstance(sd, dict) and "state_dict" in sd:
                 sd = sd["state_dict"]
-            pt_tensors = [v.float().numpy() for v in sd.values() if isinstance(v, torch.Tensor) and v.ndim >= 1]
+            pt_tensors = [
+                v.float().numpy()
+                for v in sd.values()
+                if isinstance(v, torch.Tensor) and v.ndim >= 1
+            ]
             if pt_tensors:
-                pt_std = float(np.clip(np.mean([ np.std(t) for t in pt_tensors ]), 0.02, 0.25))
+                pt_std = float(np.clip(np.mean([np.std(t) for t in pt_tensors]), 0.02, 0.25))
                 for w in model.trainable_weights:
                     arr = w.numpy()
                     if arr.ndim >= 2:
@@ -178,6 +189,7 @@ def build_and_export_keras_fp16(name: str, model_fn, input_shape: tuple, pt_path
 
 
 # --- TF Graph Builders for the 18 Batch 8-13 Models (NCHW layout to match ONNX/PyTorch) ---
+
 
 def make_res_enhancer(in_shape, out_ch=3):
     inp = tf.keras.Input(shape=in_shape[1:], batch_size=in_shape[0])
@@ -305,29 +317,121 @@ def main():
             info = export_dat_savedmodel_metal_fp16(sm_path, out_file)
             b13_file.write_bytes(out_file.read_bytes())
         results["dat_metal_fp16"][out_name] = info
-        print(f"    ✓ {out_name}: {info['size_mb']} MB | valid={info['valid']} | NaN={info['has_nan']} | Inf={info['has_inf']} ({info['elapsed_sec']}s)")
+        print(
+            f"    ✓ {out_name}: {info['size_mb']} MB | valid={info['valid']} | NaN={info['has_nan']} | Inf={info['has_inf']} ({info['elapsed_sec']}s)"
+        )
 
     # Part B: 18 Batch 8-13 Models -> TFLite FP16
     print("\n--- Part B: Exporting 18 Batch 8-13 Models to TFLite FP16 ---")
     specs = [
-        ("body_editor_r128_v2_fp16.tflite", lambda s: make_res_enhancer(s, 3), (1, 3, 128, 128), H100_SYNC_DIR / "pixelspark_cleanstart" / "body_editor_r128_v2.pt"),
-        ("body_editor_r256_v1_fp16.tflite", lambda s: make_res_enhancer(s, 3), (1, 3, 256, 256), H100_SYNC_DIR / "pixelspark_cleanstart" / "body_editor_r256_v1.pt"),
-        ("per_part_age_judge_r128_v1_fp16.tflite", lambda s: make_vision_head(s, 2, None), (1, 3, 128, 128), H100_SYNC_DIR / "pixelspark_cleanstart" / "per_part_age_judge_r128_v1.pt"),
-        ("ownership_parser_29class_best_fp16.tflite", make_seg_29class, (1, 3, 256, 256), H100_SYNC_DIR / "ps29_cleanstart" / "ownership_parser_best.pt"),
-        ("clean_room_sr_4x_fp16.tflite", make_sr_4x, (1, 3, 64, 64), H100_SYNC_DIR / "pixelspark_cleanstart" / "clean_room_sr_4x.pt"),
-        ("tiny_scene_degradation_fp16.tflite", lambda s: make_vision_head(s, 4, "sigmoid"), (1, 3, 128, 128), H100_SYNC_DIR / "pixelspark_cleanstart" / "tiny_scene_degradation.pt"),
-        ("rgfvr_student_v1_fp16.tflite", lambda s: make_res_enhancer(s, 3), (1, 4, 128, 128), H100_SYNC_DIR / "pixelspark_cleanstart" / "rgfvr_student_v1.pt"),
-        ("fading_domain_specialized_v1_fp16.tflite", make_fading_adapter, (1, 5, 128, 128), H100_SYNC_DIR / "vtt" / "fading_domain_specialized_v1.pt"),
-        ("vfra_convlstm_v1_fp16.tflite", make_vfra_temporal, (1, 9, 128, 128), H100_SYNC_DIR / "vtt" / "vfra_convlstm_v1.pt"),
-        ("mvqa_aesthetic_best_fp16.tflite", lambda s: make_vision_head(s, 1, "sigmoid"), (1, 3, 224, 224), H100_SYNC_DIR / "pel_cleanstart" / "mvqa_aesthetic_best.pt"),
-        ("artifact_detector_best_fp16.tflite", lambda s: make_vision_head(s, 1, "sigmoid"), (1, 3, 224, 224), H100_SYNC_DIR / "pel_cleanstart" / "artifact_detector_best.pt"),
-        ("style_classifier_best_fp16.tflite", lambda s: make_vision_head(s, 8, "softmax"), (1, 3, 224, 224), H100_SYNC_DIR / "pel_cleanstart" / "style_classifier_best.pt"),
-        ("nsfw_filter_best_fp16.tflite", lambda s: make_vision_head(s, 4, "softmax"), (1, 3, 224, 224), H100_SYNC_DIR / "pel_cleanstart" / "nsfw_filter_best.pt"),
-        ("denoise_specialist_best_fp16.tflite", lambda s: make_res_enhancer(s, 3), (1, 3, 128, 128), H100_SYNC_DIR / "pel_cleanstart" / "denoise_specialist_best.pt"),
-        ("detail_specialist_best_fp16.tflite", lambda s: make_res_enhancer(s, 3), (1, 3, 128, 128), H100_SYNC_DIR / "pel_cleanstart" / "detail_specialist_best.pt"),
-        ("upscale_specialist_best_fp16.tflite", lambda s: make_res_enhancer(s, 3), (1, 3, 128, 128), H100_SYNC_DIR / "pel_cleanstart" / "upscale_specialist_best.pt"),
-        ("temporal_specialist_best_fp16.tflite", make_vfra_temporal, (1, 9, 128, 128), H100_SYNC_DIR / "pel_cleanstart" / "temporal_specialist_best.pt"),
-        ("ppo_routing_best_fp16.tflite", make_ppo_router, (1, 64), H100_SYNC_DIR / "vtt" / "ppo_routing_best.pt"),
+        (
+            "body_editor_r128_v2_fp16.tflite",
+            lambda s: make_res_enhancer(s, 3),
+            (1, 3, 128, 128),
+            H100_SYNC_DIR / "pixelspark_cleanstart" / "body_editor_r128_v2.pt",
+        ),
+        (
+            "body_editor_r256_v1_fp16.tflite",
+            lambda s: make_res_enhancer(s, 3),
+            (1, 3, 256, 256),
+            H100_SYNC_DIR / "pixelspark_cleanstart" / "body_editor_r256_v1.pt",
+        ),
+        (
+            "per_part_age_judge_r128_v1_fp16.tflite",
+            lambda s: make_vision_head(s, 2, None),
+            (1, 3, 128, 128),
+            H100_SYNC_DIR / "pixelspark_cleanstart" / "per_part_age_judge_r128_v1.pt",
+        ),
+        (
+            "ownership_parser_29class_best_fp16.tflite",
+            make_seg_29class,
+            (1, 3, 256, 256),
+            H100_SYNC_DIR / "ps29_cleanstart" / "ownership_parser_best.pt",
+        ),
+        (
+            "clean_room_sr_4x_fp16.tflite",
+            make_sr_4x,
+            (1, 3, 64, 64),
+            H100_SYNC_DIR / "pixelspark_cleanstart" / "clean_room_sr_4x.pt",
+        ),
+        (
+            "tiny_scene_degradation_fp16.tflite",
+            lambda s: make_vision_head(s, 4, "sigmoid"),
+            (1, 3, 128, 128),
+            H100_SYNC_DIR / "pixelspark_cleanstart" / "tiny_scene_degradation.pt",
+        ),
+        (
+            "rgfvr_student_v1_fp16.tflite",
+            lambda s: make_res_enhancer(s, 3),
+            (1, 4, 128, 128),
+            H100_SYNC_DIR / "pixelspark_cleanstart" / "rgfvr_student_v1.pt",
+        ),
+        (
+            "fading_domain_specialized_v1_fp16.tflite",
+            make_fading_adapter,
+            (1, 5, 128, 128),
+            H100_SYNC_DIR / "vtt" / "fading_domain_specialized_v1.pt",
+        ),
+        (
+            "vfra_convlstm_v1_fp16.tflite",
+            make_vfra_temporal,
+            (1, 9, 128, 128),
+            H100_SYNC_DIR / "vtt" / "vfra_convlstm_v1.pt",
+        ),
+        (
+            "mvqa_aesthetic_best_fp16.tflite",
+            lambda s: make_vision_head(s, 1, "sigmoid"),
+            (1, 3, 224, 224),
+            H100_SYNC_DIR / "pel_cleanstart" / "mvqa_aesthetic_best.pt",
+        ),
+        (
+            "artifact_detector_best_fp16.tflite",
+            lambda s: make_vision_head(s, 1, "sigmoid"),
+            (1, 3, 224, 224),
+            H100_SYNC_DIR / "pel_cleanstart" / "artifact_detector_best.pt",
+        ),
+        (
+            "style_classifier_best_fp16.tflite",
+            lambda s: make_vision_head(s, 8, "softmax"),
+            (1, 3, 224, 224),
+            H100_SYNC_DIR / "pel_cleanstart" / "style_classifier_best.pt",
+        ),
+        (
+            "nsfw_filter_best_fp16.tflite",
+            lambda s: make_vision_head(s, 4, "softmax"),
+            (1, 3, 224, 224),
+            H100_SYNC_DIR / "pel_cleanstart" / "nsfw_filter_best.pt",
+        ),
+        (
+            "denoise_specialist_best_fp16.tflite",
+            lambda s: make_res_enhancer(s, 3),
+            (1, 3, 128, 128),
+            H100_SYNC_DIR / "pel_cleanstart" / "denoise_specialist_best.pt",
+        ),
+        (
+            "detail_specialist_best_fp16.tflite",
+            lambda s: make_res_enhancer(s, 3),
+            (1, 3, 128, 128),
+            H100_SYNC_DIR / "pel_cleanstart" / "detail_specialist_best.pt",
+        ),
+        (
+            "upscale_specialist_best_fp16.tflite",
+            lambda s: make_res_enhancer(s, 3),
+            (1, 3, 128, 128),
+            H100_SYNC_DIR / "pel_cleanstart" / "upscale_specialist_best.pt",
+        ),
+        (
+            "temporal_specialist_best_fp16.tflite",
+            make_vfra_temporal,
+            (1, 9, 128, 128),
+            H100_SYNC_DIR / "pel_cleanstart" / "temporal_specialist_best.pt",
+        ),
+        (
+            "ppo_routing_best_fp16.tflite",
+            make_ppo_router,
+            (1, 64),
+            H100_SYNC_DIR / "vtt" / "ppo_routing_best.pt",
+        ),
     ]
 
     for fname, builder, in_shape, pt_p in specs:
@@ -335,7 +439,9 @@ def main():
         info = build_and_export_keras_fp16(fname, builder, in_shape, pt_p, out_f)
         (PROD_TFLITE_DIR / fname).write_bytes(out_f.read_bytes())
         results["batch8_13_fp16"][fname] = info
-        print(f"    ✓ {fname}: {info['size_mb']} MB | valid={info['valid']} | NaN={info['has_nan']} | Inf={info['has_inf']} ({info['elapsed_sec']}s)")
+        print(
+            f"    ✓ {fname}: {info['size_mb']} MB | valid={info['valid']} | NaN={info['has_nan']} | Inf={info['has_inf']} ({info['elapsed_sec']}s)"
+        )
 
     results["total_elapsed_sec"] = round(time.time() - t0, 2)
     summary_path = BATCH13_TFLITE_DIR / "batch13_tflite_fp16_summary.json"
@@ -345,4 +451,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

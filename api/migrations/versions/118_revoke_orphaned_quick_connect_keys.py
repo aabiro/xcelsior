@@ -28,8 +28,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
-    op.execute(
-        """
+    op.execute("""
         UPDATE agent_api_keys AS k
            SET revoked_at = now()
          WHERE k.revoked_at IS NULL
@@ -37,8 +36,7 @@ def upgrade() -> None:
            AND NOT EXISTS (
                  SELECT 1 FROM oauth_clients AS c WHERE c.client_id = k.client_id
            )
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

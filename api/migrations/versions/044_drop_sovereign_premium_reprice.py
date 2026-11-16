@@ -20,17 +20,17 @@ depends_on = None
 
 # Cards repriced toward market: (gpu_model, vram_gb, form_factor, high_frequency, new_base_cad)
 _REPRICED: list[tuple[str, int, str, bool, float]] = [
-    ("A100",       80, "SXM",  False, 2.00),  # was 2.60
-    ("A100",       80, "PCIe", False, 1.70),  # was 2.20
-    ("A100",       40, "SXM",  False, 1.40),  # was 1.80
-    ("A100",       40, "PCIe", False, 1.20),  # was 1.50
-    ("RTX A6000",  48, "PCIe", False, 1.10),  # was 1.60
+    ("A100", 80, "SXM", False, 2.00),  # was 2.60
+    ("A100", 80, "PCIe", False, 1.70),  # was 2.20
+    ("A100", 40, "SXM", False, 1.40),  # was 1.80
+    ("A100", 40, "PCIe", False, 1.20),  # was 1.50
+    ("RTX A6000", 48, "PCIe", False, 1.10),  # was 1.60
 ]
 # Priced tiers (sovereign handled separately — it inherits the standard rate).
 _PRICED_TIERS = {"standard": 1.0, "premium": 1.30}
 _MODES = {
-    "on_demand":    1.0,
-    "spot":         0.40,
+    "on_demand": 1.0,
+    "spot": 0.40,
     "reserved_1mo": 0.80,
     "reserved_3mo": 0.70,
     "reserved_1yr": 0.55,
@@ -52,15 +52,13 @@ def _reprice(base_for: dict[tuple[str, int, str, bool], float]) -> None:
         for tier, tm in _PRICED_TIERS.items():
             for mode, mm in _MODES.items():
                 rate = round(base * tm * mm, 4)
-                op.execute(
-                    f"""
+                op.execute(f"""
                     UPDATE gpu_pricing
                        SET base_rate_cad = {rate}
                      WHERE gpu_model = '{model}' AND vram_gb = {vram}
                        AND form_factor = '{ff}' AND high_frequency = {'TRUE' if hf else 'FALSE'}
                        AND tier = '{tier}' AND pricing_mode = '{mode}'
-                    """
-                )
+                    """)
 
 
 # Sovereign rows inherit the standard rate (premium dropped); sovereignty_premium → 0.
@@ -89,8 +87,7 @@ def downgrade() -> None:
     # Restore the sovereign premium (1.43 = base × 1.43 × mode) from standard rows
     # (standard = base × 1.0 × mode, so sovereign = standard × 1.43), and the +0.10
     # sovereignty_premium flag.
-    op.execute(
-        """
+    op.execute("""
         UPDATE gpu_pricing s
            SET base_rate_cad = round((std.base_rate_cad * 1.43)::numeric, 4),
                sovereignty_premium = 0.10
@@ -99,5 +96,4 @@ def downgrade() -> None:
            AND s.gpu_model = std.gpu_model AND s.vram_gb = std.vram_gb
            AND s.form_factor = std.form_factor AND s.high_frequency = std.high_frequency
            AND s.pricing_mode = std.pricing_mode
-        """
-    )
+        """)

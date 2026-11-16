@@ -22,9 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-SCRATCH = Path(
-    os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer")
-)
+SCRATCH = Path(os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer"))
 MAC_HOST = os.environ.get("XCELSIOR_MAC_HOST", "aaryn@100.64.0.3")
 CLOSURE_POLICY = os.environ.get("XCELSIOR_CLOSURE_POLICY", "engineering_partial")
 ENGINEERING_PARTIAL_ROWS = (1, 2, 5, 30)
@@ -88,7 +86,10 @@ def _probe_row_1() -> dict[str, Any]:
     served = _read_json("kv-served-traffic-kpi.json")
     prod = _read_json("kv-production-kpi.json")
 
-    if prod.get("source") == "production_traffic" and float(prod.get("kv_cache_hit_rate") or 0) >= 0.30:
+    if (
+        prod.get("source") == "production_traffic"
+        and float(prod.get("kv_cache_hit_rate") or 0) >= 0.30
+    ):
         return _row(
             "verified",
             f"production KV hit rate {prod['kv_cache_hit_rate']}",
@@ -152,8 +153,10 @@ def _probe_row_2() -> dict[str, Any]:
         "speculative-proxy-evidence.json"
     )
     mesh_hosts = os.environ.get("XCELSIOR_LMCACHE_MESH_HOSTS", "")
-    host_count = len([h for h in mesh_hosts.split(",") if h.strip()]) if mesh_hosts else int(
-        live.get("mesh_host_count") or 0
+    host_count = (
+        len([h for h in mesh_hosts.split(",") if h.strip()])
+        if mesh_hosts
+        else int(live.get("mesh_host_count") or 0)
     )
     validation = spec.get("validation") or {}
     mean_accept = validation.get("mean_acceptance_rate") or spec.get("upstream_acceptance_rate")
@@ -168,25 +171,19 @@ def _probe_row_2() -> dict[str, Any]:
     live_model = str(live.get("model") or "")
     live_ok = bool(live.get("ok")) and live.get("upstream_mode") == "live_vllm"
     spec_metrics = live.get("spec_metrics") or {}
-    live_accept = float(
-        live.get("acceptance_rate") or spec_metrics.get("acceptance_rate") or 0
+    live_accept = float(live.get("acceptance_rate") or spec_metrics.get("acceptance_rate") or 0)
+    live_qwen3 = (
+        "qwen3" in live_model.lower() or "qwen3" in str(live.get("model_launch") or "").lower()
     )
-    live_qwen3 = "qwen3" in live_model.lower() or "qwen3" in str(
-        live.get("model_launch") or ""
-    ).lower()
     live_eagle = bool(live.get("eagle3_enabled")) or eagle_in_cmd
 
-    live_proxy_mode = spec.get("upstream_mode") == "live_vllm" and not spec.get("upstream_simulator")
+    live_proxy_mode = spec.get("upstream_mode") == "live_vllm" and not spec.get(
+        "upstream_simulator"
+    )
     live_proxy_samples = int(spec.get("proxy_requests") or 0)
     env_limit = _read_json("row-2-env-limit.json")
 
-    if (
-        live_ok
-        and mesh_ready
-        and live_qwen3
-        and live_eagle
-        and live_accept >= 0.75
-    ):
+    if live_ok and mesh_ready and live_qwen3 and live_eagle and live_accept >= 0.75:
         return _row(
             "verified",
             f"live mesh EAGLE mean_accept={live_accept} model={live_model}",
@@ -256,10 +253,16 @@ def _probe_row_2() -> dict[str, Any]:
         and eagle_in_cmd
         and qwen3_class
     )
-    if mesh_ready and eagle_validated and spec.get("upstream_mode") not in (
-        "upstream_simulator",
-        None,
-    ) and not spec.get("upstream_simulator"):
+    if (
+        mesh_ready
+        and eagle_validated
+        and spec.get("upstream_mode")
+        not in (
+            "upstream_simulator",
+            None,
+        )
+        and not spec.get("upstream_simulator")
+    ):
         return _row(
             "verified",
             f"proxy EAGLE gate mean_accept={mean_accept} model={model}",
@@ -270,7 +273,9 @@ def _probe_row_2() -> dict[str, Any]:
             model=model,
         )
 
-    upstream_sim = spec.get("upstream_mode") or ("upstream_simulator" if spec.get("upstream_simulator") else "")
+    upstream_sim = spec.get("upstream_mode") or (
+        "upstream_simulator" if spec.get("upstream_simulator") else ""
+    )
     return _row(
         "blocked",
         f"live EAGLE gate: live_accept={live_accept:.4f} need>=0.75 "
@@ -343,7 +348,9 @@ def _probe_row_5() -> dict[str, Any]:
 def _probe_row_30() -> dict[str, Any]:
     """Row 30: anchor workloads from real repos drive token SKU via proxy + ledger."""
     anchor_test_ok, anchor_reason = _pytest_passes(
-        ["tests/test_anchor_workloads.py::TestAnchorWorkloadsHTTP::test_pixelenhance_and_phantom_via_proxy"],
+        [
+            "tests/test_anchor_workloads.py::TestAnchorWorkloadsHTTP::test_pixelenhance_and_phantom_via_proxy"
+        ],
         "row30-anchor-http.log",
     )
     anchor = _read_json("anchor-workloads.json")
@@ -478,7 +485,9 @@ def _apply_engineering_partial_closure(
         row = dict(rows.get(key) or {})
         probe_status = row.get("status")
         tier = _infer_engineering_tier(rank, row)
-        tier_note = _format_engineering_tier_note(rank, row) or ENGINEERING_TIER_NOTES.get(rank, tier)
+        tier_note = _format_engineering_tier_note(rank, row) or ENGINEERING_TIER_NOTES.get(
+            rank, tier
+        )
 
         row["probe_status"] = probe_status
         row["status"] = "blocked"
@@ -527,8 +536,16 @@ def capture_all() -> dict[str, Any]:
             "prefix routing / semantic cache",
         ),
         7: (["tests/test_serverless_observability.py"], "row7-slo.log", "SLO observability"),
-        8: (["tests/test_ops_rows_closure.py::TestRow8ScipLoi"], "row8-scip-loi.log", "SCIP partner LOI"),
-        9: (["tests/test_ops_rows_closure.py::TestRow9Alignment"], "row9-scip-align.log", "SCIP alignment one-pager"),
+        8: (
+            ["tests/test_ops_rows_closure.py::TestRow8ScipLoi"],
+            "row8-scip-loi.log",
+            "SCIP partner LOI",
+        ),
+        9: (
+            ["tests/test_ops_rows_closure.py::TestRow9Alignment"],
+            "row9-scip-align.log",
+            "SCIP alignment one-pager",
+        ),
         10: (
             [
                 "tests/test_ops_rows_closure.py::TestRow10H100Partner",
@@ -537,25 +554,57 @@ def capture_all() -> dict[str, Any]:
             "row10-attestation.log",
             "attestation schema + H100 partner pipeline",
         ),
-        11: (["tests/test_platform_rows_8_12.py::TestCapacityPlanner"], "row11-capacity.log", "14d forecast"),
-        12: (["tests/test_platform_rows_8_12.py::TestPelGuardrail"], "row12-pel.log", "should-i-run-this"),
+        11: (
+            ["tests/test_platform_rows_8_12.py::TestCapacityPlanner"],
+            "row11-capacity.log",
+            "14d forecast",
+        ),
+        12: (
+            ["tests/test_platform_rows_8_12.py::TestPelGuardrail"],
+            "row12-pel.log",
+            "should-i-run-this",
+        ),
         13: (["tests/test_serverless_extended_features.py"], "row13-token-sku.log", "token SKU"),
         14: (["tests/test_serverless_openai_compat.py"], "row14-embed.log", "embeddings route"),
-        15: (["tests/test_serverless_billing.py::TestCachedTokenPricing"], "row15-cache-price.log", "cached pricing"),
+        15: (
+            ["tests/test_serverless_billing.py::TestCachedTokenPricing"],
+            "row15-cache-price.log",
+            "cached pricing",
+        ),
         16: (["tests/test_serverless_service.py::TestMultiLora"], "row16-lora.log", "multi-LoRA"),
         17: (["tests/test_speculative_gate.py"], "row17-eagle-gate.log", "EAGLE gate code"),
-        18: (["tests/test_serverless_service.py::TestAutoscalerMath"], "row18-scaling.log", "EWMA scaling"),
+        18: (
+            ["tests/test_serverless_service.py::TestAutoscalerMath"],
+            "row18-scaling.log",
+            "EWMA scaling",
+        ),
         19: (["tests/test_serverless_extended_features.py"], "row19-prewarm.log", "prewarm pool"),
         20: (["tests/test_serverless_extended_features.py"], "row20-batch.log", "batch API"),
-        21: (["tests/test_serverless_extended_features.py"], "row21-semantic.log", "semantic cache"),
+        21: (
+            ["tests/test_serverless_extended_features.py"],
+            "row21-semantic.log",
+            "semantic cache",
+        ),
         22: (["tests/test_serverless_chaos_billing.py"], "row22-chaos.log", "chaos billing"),
-        23: (["tests/test_serverless_billing.py::TestOpenAIProxyAccrual"], "row23-ledger.log", "idempotent ledger"),
+        23: (
+            ["tests/test_serverless_billing.py::TestOpenAIProxyAccrual"],
+            "row23-ledger.log",
+            "idempotent ledger",
+        ),
         24: (["tests/test_serverless_extended_features.py"], "row24-hedge.log", "hedged requests"),
         25: (["tests/test_mcp_assistant_safety_eval.py"], "row25-safety.log", "MCP safety eval"),
-        26: (["tests/test_mcp_assistant_safety_eval.py::TestModularizationHygiene"], "row26-mod.log", "modularization hygiene"),
+        26: (
+            ["tests/test_mcp_assistant_safety_eval.py::TestModularizationHygiene"],
+            "row26-mod.log",
+            "modularization hygiene",
+        ),
         27: (["tests/test_serverless_billing.py"], "row27-obs.log", "token observability"),
         28: (["tests/test_serverless_extended_features.py"], "row28-toto.log", "Toto fallback"),
-        29: (["tests/test_serverless_service.py::TestManagedEngines"], "row29-lmcache.log", "LMCache env"),
+        29: (
+            ["tests/test_serverless_service.py::TestManagedEngines"],
+            "row29-lmcache.log",
+            "LMCache env",
+        ),
         31: (["tests/test_criu_hosts.py"], "row31-rtx2060.log", "CRIU RTX 2060 driver gate"),
     }
     for rank, (tests, log, label) in pytest_rows.items():
@@ -565,9 +614,7 @@ def capture_all() -> dict[str, Any]:
     for rank in (8, 9, 10):
         row = rows.get(str(rank))
         if row and row.get("status") == "verified":
-            row["non_goal_waiver"] = (
-                "structural schema/tests only"
-            )
+            row["non_goal_waiver"] = "structural schema/tests only"
             row.setdefault("evidence_tier", "structural_non_goal_waived")
 
     engineering_shipped: list[int] = []

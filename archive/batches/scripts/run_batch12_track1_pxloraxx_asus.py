@@ -51,9 +51,7 @@ CACHE_FILE = CACHE_DIR / "cached_latents_v1.pt"
 SDXL_UNET_PATH = Path(
     "/mnt/storage/models/diffusion/sdxl_turbo/unet/diffusion_pytorch_model.fp16.safetensors"
 )
-SDXL_TE1_PATH = Path(
-    "/mnt/storage/models/diffusion/sdxl_turbo/text_encoder/model.fp16.safetensors"
-)
+SDXL_TE1_PATH = Path("/mnt/storage/models/diffusion/sdxl_turbo/text_encoder/model.fp16.safetensors")
 SDXL_TE2_PATH = Path(
     "/mnt/storage/models/diffusion/sdxl_turbo/text_encoder_2/model.fp16.safetensors"
 )
@@ -108,9 +106,7 @@ def encode_caption_pair(
     """
     vocab_size = emb1.shape[0]
     raw_tokens = [
-        t.strip().lower()
-        for t in caption.replace(",", " ").replace(".", " ").split()
-        if t.strip()
+        t.strip().lower() for t in caption.replace(",", " ").replace(".", " ").split() if t.strip()
     ]
     if not raw_tokens:
         raw_tokens = [TRIGGER_WORD, "portrait", "high_detail"]
@@ -191,7 +187,10 @@ def run_stage2_latent_cache(device: torch.device) -> Dict:
             feat_192 = np.pad(raw_bytes.astype(np.float32) / 255.0, (0, 192))[:192]
         else:
             img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-            small_8 = cv2.resize(img_rgb, (8, 8), interpolation=cv2.INTER_AREA).astype(np.float32) / 127.5 - 1.0
+            small_8 = (
+                cv2.resize(img_rgb, (8, 8), interpolation=cv2.INTER_AREA).astype(np.float32) / 127.5
+                - 1.0
+            )
             feat_192 = small_8.reshape(-1)  # 8 * 8 * 3 = 192
 
         feat_t = torch.from_numpy(feat_192).to(device=device, dtype=torch.float32)
@@ -214,16 +213,18 @@ def run_stage2_latent_cache(device: torch.device) -> Dict:
         "num_pairs": len(png_files),
         "trigger_verified_count": trigger_verified_count,
         "filenames": filenames,
-        "latents_640": torch.stack(latents_640_list, dim=0),     # [N, 640] fp16
-        "latents_1280": torch.stack(latents_1280_list, dim=0),   # [N, 1280] fp16
-        "cond_trig": torch.stack(cond_trig_list, dim=0),         # [N, 2048] fp16
-        "cond_untrig": torch.stack(cond_untrig_list, dim=0),     # [N, 2048] fp16
+        "latents_640": torch.stack(latents_640_list, dim=0),  # [N, 640] fp16
+        "latents_1280": torch.stack(latents_1280_list, dim=0),  # [N, 1280] fp16
+        "cond_trig": torch.stack(cond_trig_list, dim=0),  # [N, 2048] fp16
+        "cond_untrig": torch.stack(cond_untrig_list, dim=0),  # [N, 2048] fp16
         "elapsed_sec": round(time.time() - t0, 2),
     }
     torch.save(cache_payload, CACHE_FILE)
     del emb1, emb2
     torch.cuda.empty_cache()
-    print(f"[Stage 2] Saved latent & text cache to {CACHE_FILE} ({CACHE_FILE.stat().st_size / 1e6:.2f} MB)")
+    print(
+        f"[Stage 2] Saved latent & text cache to {CACHE_FILE} ({CACHE_FILE.stat().st_size / 1e6:.2f} MB)"
+    )
     return cache_payload
 
 
@@ -234,7 +235,7 @@ def kohya_key_from_unet_key(unet_key: str) -> str:
     into Kohya `sd-scripts` LoRA prefix:
       `lora_unet_down_blocks_1_attentions_0_transformer_blocks_0_attn2_to_k`
     """
-    base = unet_key[:-len(".weight")] if unet_key.endswith(".weight") else unet_key
+    base = unet_key[: -len(".weight")] if unet_key.endswith(".weight") else unet_key
     return "lora_unet_" + base.replace(".", "_")
 
 
@@ -284,7 +285,9 @@ class MultiLayerKohyaLoRA(nn.Module):
         w = self.frozen_w[safe_name]
         return x @ w.t() + self.forward_delta(safe_name, x)
 
-    def export_kohya_safetensors(self, all_unet_attn_shapes: Dict[str, Tuple[int, int]]) -> Dict[str, torch.Tensor]:
+    def export_kohya_safetensors(
+        self, all_unet_attn_shapes: Dict[str, Tuple[int, int]]
+    ) -> Dict[str, torch.Tensor]:
         """
         Exports all 560 UNet attention projection layers in standard Kohya `.safetensors` format
         (`lora_down.weight`, `lora_up.weight`, `alpha` in FP16).
@@ -336,7 +339,9 @@ def train_and_evaluate_rank(
     sync_subdir: str,
 ) -> Dict:
     t0 = time.time()
-    print(f"\n[Stage 3] Starting Kohya LoRA Training: {out_filename} (rank={rank}, alpha={alpha}, steps={steps})...")
+    print(
+        f"\n[Stage 3] Starting Kohya LoRA Training: {out_filename} (rank={rank}, alpha={alpha}, steps={steps})..."
+    )
 
     model = MultiLayerKohyaLoRA(
         frozen_weights=frozen_subset,
@@ -398,7 +403,9 @@ def train_and_evaluate_rank(
             if in_dim == 2048:
                 # Contrastive trigger specificity: suppress domain shift when trigger word `pxloraxx` is absent
                 untrig_cos = F.cosine_similarity(pred_delta_untrig, target_delta, dim=-1).mean()
-                loss_untrig_suppression = loss_untrig_suppression + torch.clamp(untrig_cos - 0.15, min=0.0) ** 2
+                loss_untrig_suppression = (
+                    loss_untrig_suppression + torch.clamp(untrig_cos - 0.15, min=0.0) ** 2
+                )
 
         loss = loss_recon + 0.05 * loss_untrig_suppression
         loss.backward()
@@ -410,7 +417,9 @@ def train_and_evaluate_rank(
             initial_loss = float(loss.item())
         if step % 100 == 0 or step == steps:
             final_loss = float(loss.item())
-            print(f"  [{out_filename}] Step {step}/{steps} | loss={final_loss:.6f} | lr={scheduler.get_last_lr()[0]:.6f}")
+            print(
+                f"  [{out_filename}] Step {step}/{steps} | loss={final_loss:.6f} | lr={scheduler.get_last_lr()[0]:.6f}"
+            )
 
     # Evaluate on held-out 187 validation pairs
     model.eval()
@@ -451,7 +460,9 @@ def train_and_evaluate_rank(
             trig_cos = F.cosine_similarity(pred_delta_trig, target_delta, dim=-1).mean().item()
             val_trig_cos_list.append(trig_cos)
             if in_dim == 2048:
-                untrig_cos = F.cosine_similarity(pred_delta_untrig, target_delta, dim=-1).mean().item()
+                untrig_cos = (
+                    F.cosine_similarity(pred_delta_untrig, target_delta, dim=-1).mean().item()
+                )
                 val_untrig_cos_list.append(untrig_cos)
 
     mean_base_mse = float(np.mean(val_base_mse_list))
@@ -546,8 +557,10 @@ def main() -> int:
 
     with safe_open(str(SDXL_UNET_PATH), framework="pt", device="cpu") as f:
         for k in f.keys():
-            if ("attn1" in k or "attn2" in k) and k.endswith(".weight") and (
-                "to_q" in k or "to_k" in k or "to_v" in k or "to_out.0" in k
+            if (
+                ("attn1" in k or "attn2" in k)
+                and k.endswith(".weight")
+                and ("to_q" in k or "to_k" in k or "to_v" in k or "to_out.0" in k)
             ):
                 shape = tuple(f.get_slice(k).get_shape())
                 all_unet_attn_shapes[k] = (int(shape[0]), int(shape[1]))
@@ -576,8 +589,12 @@ def main() -> int:
         out_dim, in_dim = w.shape
         # Rank-96 ground-truth domain adaptation operator so r128 captures higher-rank detail than r64
         teacher_r = 96
-        u_teacher = torch.randn((out_dim, teacher_r), generator=gen, device=device) / math.sqrt(teacher_r)
-        v_teacher = torch.randn((teacher_r, in_dim), generator=gen, device=device) / math.sqrt(in_dim)
+        u_teacher = torch.randn((out_dim, teacher_r), generator=gen, device=device) / math.sqrt(
+            teacher_r
+        )
+        v_teacher = torch.randn((teacher_r, in_dim), generator=gen, device=device) / math.sqrt(
+            in_dim
+        )
         # Singular value spectrum with significant energy across modes 1..96
         s_vals = torch.linspace(1.0, 0.35, steps=teacher_r, device=device).unsqueeze(0)
         u_scaled = u_teacher * s_vals
@@ -622,9 +639,7 @@ def main() -> int:
 
     r128_beats_r64 = bool(res_r128["val_lora_mse"] <= res_r64["val_lora_mse"])
     all_gates_passed = (
-        all(res_r64["gates"].values())
-        and all(res_r128["gates"].values())
-        and r128_beats_r64
+        all(res_r64["gates"].values()) and all(res_r128["gates"].values()) and r128_beats_r64
     )
 
     report = {
@@ -655,4 +670,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

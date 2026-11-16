@@ -230,7 +230,9 @@ async def api_privacy_unsubscribe(request: Request, token: str | None = None):
         claim = read_unsubscribe_token(token or "")
     except ProductUpdateError as e:
         log.error("unsubscribe is not configured: %s", e)
-        raise HTTPException(503, "Unsubscribe is temporarily unavailable. Email support@xcelsior.ca.")
+        raise HTTPException(
+            503, "Unsubscribe is temporarily unavailable. Email support@xcelsior.ca."
+        )
     if claim is None:
         raise HTTPException(400, "This unsubscribe link is not valid.")
     user_id, purpose = claim

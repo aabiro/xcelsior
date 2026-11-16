@@ -922,9 +922,9 @@ def test_no_wise_route_accepts_an_amount():
         names = {p.name for p in route.dependant.query_params + route.dependant.path_params}
         for body in route.dependant.body_params:
             names |= set(getattr(body.field_info.annotation, "model_fields", {}) or {})
-        assert not {n for n in names if "amount" in n or "micros" in n or n.endswith("_cad")}, (
-            route.path
-        )
+        assert not {
+            n for n in names if "amount" in n or "micros" in n or n.endswith("_cad")
+        }, route.path
         seen.update(names)
     # The check above is only worth something if it saw the request bodies.
     assert {"recipient_id", "account_holder_name", "confirm_no_transfer"} <= seen

@@ -18,9 +18,9 @@ import sys
 
 import requests
 
-BASE = (os.environ.get("MCP_BASE") or os.environ.get("XCELSIOR_API_URL") or "https://xcelsior.ca").rstrip(
-    "/"
-)
+BASE = (
+    os.environ.get("MCP_BASE") or os.environ.get("XCELSIOR_API_URL") or "https://xcelsior.ca"
+).rstrip("/")
 MCP_URL = os.environ.get("MCP_URL") or f"{BASE}/mcp"
 CLIENT_ID = os.environ.get("MCP_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("MCP_CLIENT_SECRET", "")

@@ -195,7 +195,9 @@ def main() -> int:
             if not _step(
                 "cancel_job",
                 cancel.status_code == 200,
-                str(cancel.json().get("status") if cancel.status_code == 200 else cancel.text[:120]),
+                str(
+                    cancel.json().get("status") if cancel.status_code == 200 else cancel.text[:120]
+                ),
             ):
                 failures += 1
 

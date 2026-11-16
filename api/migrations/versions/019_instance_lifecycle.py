@@ -14,6 +14,7 @@ Revision ID: 019
 Revises: 018
 Create Date: 2025-05-01
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -41,6 +42,7 @@ def upgrade() -> None:
     # SSD:  ~$0.00014/GB/hr  ≈ $0.10/GB/month
     # HDD:  ~$0.00007/GB/hr  ≈ $0.05/GB/month
     import time
+
     now = time.time()
     op.execute(
         sa.text(

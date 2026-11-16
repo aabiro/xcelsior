@@ -44,8 +44,10 @@ def api_gpu_available(request: Request, region: str | None = None):
                 ).fetchall()
 
         prices = {
-            (str(offer["host_id"]), normalize_gpu_model(offer["gpu_model"])):
-            float(offer["price_cents"] or 0) / 100
+            (str(offer["host_id"]), normalize_gpu_model(offer["gpu_model"])): float(
+                offer["price_cents"] or 0
+            )
+            / 100
             for offer in offers
         }
         ctx = FilterContext(stale_host_ids=fleet.stale_host_ids)
@@ -53,16 +55,22 @@ def api_gpu_available(request: Request, region: str | None = None):
         gpu_map = {}
         inventory_map = {}
         capacity = {
-            "hosts_online": 0, "hosts_ready": 0,
-            "gpus_total": 0, "gpus_available": 0, "gpus_allocated": 0,
-            "gpus_held": 0, "gpus_unavailable": 0,
+            "hosts_online": 0,
+            "hosts_ready": 0,
+            "gpus_total": 0,
+            "gpus_available": 0,
+            "gpus_allocated": 0,
+            "gpus_held": 0,
+            "gpus_unavailable": 0,
         }
         for host in fleet.hosts:
             if host_admitted({}, host, ctx):
                 continue
             try:
                 location = require_location(
-                    host.get("country", ""), host.get("province", ""), host.get("region", ""),
+                    host.get("country", ""),
+                    host.get("province", ""),
+                    host.get("region", ""),
                 )
             except ValueError:
                 continue
@@ -70,10 +78,9 @@ def api_gpu_available(request: Request, region: str | None = None):
             if requested_region is not None and host_region != requested_region:
                 continue
             ready = host_ready({}, host, ctx) is None
-            online = (
-                str(host["host_id"]) not in fleet.stale_host_ids
-                and str(host.get("status") or "").lower() in ("active", "ready")
-            )
+            online = str(host["host_id"]) not in fleet.stale_host_ids and str(
+                host.get("status") or ""
+            ).lower() in ("active", "ready")
             capacity["hosts_online"] += int(online)
             capacity["hosts_ready"] += int(ready)
             province = str(host.get("province") or "").upper()
@@ -83,12 +90,20 @@ def api_gpu_available(request: Request, region: str | None = None):
                 if not model or vram_gb <= 0:
                     continue
                 key = (model, vram_gb, host_region, province)
-                inventory = inventory_map.setdefault(key, {
-                    "gpu_model": model, "vram_gb": vram_gb,
-                    "region": host_region, "province": province,
-                    "count_total": 0, "count_available": 0, "count_allocated": 0,
-                    "count_held": 0, "count_unavailable": 0,
-                })
+                inventory = inventory_map.setdefault(
+                    key,
+                    {
+                        "gpu_model": model,
+                        "vram_gb": vram_gb,
+                        "region": host_region,
+                        "province": province,
+                        "count_total": 0,
+                        "count_available": 0,
+                        "count_allocated": 0,
+                        "count_held": 0,
+                        "count_unavailable": 0,
+                    },
+                )
                 # These states partition physical devices. A preemption hold on
                 # an allocated GPU must not count that same GPU twice.
                 if device["allocated"]:
@@ -108,16 +123,23 @@ def api_gpu_available(request: Request, region: str | None = None):
                 observed_price = prices.get(
                     (str(host["host_id"]), model), float(host.get("cost_per_hour") or 0)
                 )
-                gpu = gpu_map.setdefault(key, {
-                    "gpu_model": model, "vram_gb": vram_gb,
-                    "region": host_region, "province": province,
-                    "count_available": 0, "price_per_hour_cad": 0,
-                })
+                gpu = gpu_map.setdefault(
+                    key,
+                    {
+                        "gpu_model": model,
+                        "vram_gb": vram_gb,
+                        "region": host_region,
+                        "province": province,
+                        "count_available": 0,
+                        "price_per_hour_cad": 0,
+                    },
+                )
                 gpu["count_available"] += 1
                 current_price = gpu["price_per_hour_cad"]
                 if observed_price > 0:
                     gpu["price_per_hour_cad"] = round(
-                        min(current_price, observed_price) if current_price > 0 else observed_price, 2
+                        min(current_price, observed_price) if current_price > 0 else observed_price,
+                        2,
                     )
         gpus = sorted(
             gpu_map.values(),
@@ -143,8 +165,11 @@ def api_gpu_available(request: Request, region: str | None = None):
             key=lambda g: (g["gpu_model"], g["region"], g["vram_gb"], g["province"]),
         )
         return {
-            "ok": True, "gpus": gpus, "source": source,
-            "capacity": capacity, "inventory": inventory,
+            "ok": True,
+            "gpus": gpus,
+            "source": source,
+            "capacity": capacity,
+            "inventory": inventory,
             "observed_at": fleet.taken_at.isoformat(),
         }
     except Exception as e:

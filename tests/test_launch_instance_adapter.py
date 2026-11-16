@@ -157,7 +157,11 @@ def test_launch_plan_preview_stores_the_canonical_spec():
     # Preview binds the Standard tier's exact Stripe Price into the spec.
     bound = quote_tier("RTX 4090", "on_demand", min_vram_gb=12)
     expected = canonicalize(
-        {**jobin.model_dump(), "tier": "standard", "service_tier_price_id": bound["stripe_price_id"]}
+        {
+            **jobin.model_dump(),
+            "tier": "standard",
+            "service_tier_price_id": bound["stripe_price_id"],
+        }
     )
 
     principal = Principal(principal_id="u-equiv", tenant_id="t-equiv")

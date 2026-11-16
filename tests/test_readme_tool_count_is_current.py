@@ -15,7 +15,9 @@ def test_default_and_example_tool_count_match_the_published_surface() -> None:
     assert published > 0
     config = (FRONTEND / "src/lib/mcp-tool-count.ts").read_text()
     default = re.search(r"DEFAULT_MCP_TOOL_COUNT = (\d+)", config)
-    example = re.search(r"^NEXT_PUBLIC_MCP_TOOL_COUNT=(\d+)$", (ROOT / ".env.example").read_text(), re.M)
+    example = re.search(
+        r"^NEXT_PUBLIC_MCP_TOOL_COUNT=(\d+)$", (ROOT / ".env.example").read_text(), re.M
+    )
     assert default and example
     assert int(default[1]) == int(example[1]) == published
 
@@ -30,7 +32,9 @@ def test_translations_share_the_configured_tool_count() -> None:
 def test_static_docs_do_not_duplicate_the_current_mcp_total() -> None:
     for relative in ("README.md", "api/fern/pages/mcp.mdx", "api/fern/pages/llm-integration.mdx"):
         text = (ROOT / relative).read_text()
-        assert not re.search(r"\b\d+[ -](?:MCP tools|customer tools|tool reference)\b", text), relative
+        assert not re.search(
+            r"\b\d+[ -](?:MCP tools|customer tools|tool reference)\b", text
+        ), relative
     assert "NEXT_PUBLIC_MCP_TOOL_COUNT" in (ROOT / "README.md").read_text()
 
 

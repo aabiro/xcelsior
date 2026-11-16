@@ -22,15 +22,13 @@ depends_on = None
 def upgrade() -> None:
     op.execute("SET lock_timeout = '5s'")
     op.execute("SET statement_timeout = '5min'")
-    op.execute(
-        """
+    op.execute("""
         UPDATE jobs
            SET payload = jsonb_set(payload, '{ssh_status}', (payload -> 'ssh_status') - 'root_password')
          WHERE status IN ('completed', 'failed', 'cancelled', 'terminated', 'stopped')
            AND jsonb_typeof(payload -> 'ssh_status') = 'object'
            AND (payload -> 'ssh_status') ? 'root_password'
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

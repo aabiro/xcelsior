@@ -105,9 +105,9 @@ def test_demo_credentials_are_ip_gated() -> None:
     """
     r = client.get("/api/auth/demo-credentials")
     assert r.status_code == 200, r.text[:200]
-    assert r.json() == {"available": False}, (
-        f"an unwhitelisted caller was given more than a refusal: {r.text[:200]}"
-    )
+    assert r.json() == {
+        "available": False
+    }, f"an unwhitelisted caller was given more than a refusal: {r.text[:200]}"
 
 
 def test_avatar_upload_fetch_and_delete_round_trip(user_headers) -> None:

@@ -21,8 +21,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS wallet_holds (
             hold_id UUID PRIMARY KEY,
             customer_id TEXT NOT NULL,
@@ -37,32 +36,24 @@ def upgrade() -> None:
             released_at DOUBLE PRECISION NULL,
             updated_at DOUBLE PRECISION NOT NULL
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_wallet_holds_idempotency
             ON wallet_holds (customer_id, idempotency_key)
          WHERE idempotency_key IS NOT NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_wallet_holds_customer_active
             ON wallet_holds (customer_id)
          WHERE status = 'held'
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_wallet_holds_expires
             ON wallet_holds (expires_at)
          WHERE status = 'held'
-        """
-    )
+        """)
     # jobs.wallet_hold_id was added in 054 as UUID without FK.
-    op.execute(
-        """
+    op.execute("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -77,11 +68,9 @@ def upgrade() -> None:
                   NOT VALID;
             END IF;
         END $$
-        """
-    )
+        """)
     # Validate only when no orphan job pointers exist.
-    op.execute(
-        """
+    op.execute("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -97,16 +86,13 @@ def upgrade() -> None:
         EXCEPTION WHEN undefined_object THEN
             NULL;
         END $$
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE jobs DROP CONSTRAINT IF EXISTS fk_jobs_wallet_hold
-        """
-    )
+        """)
     op.execute("DROP INDEX IF EXISTS idx_wallet_holds_expires")
     op.execute("DROP INDEX IF EXISTS idx_wallet_holds_customer_active")
     op.execute("DROP INDEX IF EXISTS uq_wallet_holds_idempotency")

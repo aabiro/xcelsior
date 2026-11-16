@@ -30,40 +30,28 @@ def upgrade() -> None:
     op.execute("SET lock_timeout = '5s'")
     op.execute("SET statement_timeout = '5min'")
 
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE hosts
           ADD COLUMN IF NOT EXISTS admission_state TEXT NOT NULL DEFAULT 'pending',
           ADD COLUMN IF NOT EXISTS admission_version BIGINT NOT NULL DEFAULT 0,
           ADD COLUMN IF NOT EXISTS admitted_at TIMESTAMPTZ,
           ADD COLUMN IF NOT EXISTS admission_decision_id UUID
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         ALTER TABLE hosts
           ADD CONSTRAINT ck_hosts_admission_state
           CHECK (admission_state IN
                  ('pending', 'admitted', 'rejected', 'revoked')) NOT VALID
-        """
-    )
-    op.execute(
-        "ALTER TABLE hosts VALIDATE CONSTRAINT ck_hosts_admission_state"
-    )
-    op.execute(
-        """
+        """)
+    op.execute("ALTER TABLE hosts VALIDATE CONSTRAINT ck_hosts_admission_state")
+    op.execute("""
         ALTER TABLE hosts
           ADD CONSTRAINT ck_hosts_admission_version_non_negative
           CHECK (admission_version >= 0) NOT VALID
-        """
-    )
-    op.execute(
-        "ALTER TABLE hosts "
-        "VALIDATE CONSTRAINT ck_hosts_admission_version_non_negative"
-    )
+        """)
+    op.execute("ALTER TABLE hosts " "VALIDATE CONSTRAINT ck_hosts_admission_version_non_negative")
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE host_compatibility_sessions (
             session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id TEXT NOT NULL,
@@ -86,24 +74,18 @@ def upgrade() -> None:
             CHECK (length(challenge_hash) = 64),
             CHECK (report_digest IS NULL OR length(report_digest) = 64)
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX host_compatibility_sessions_tenant_host
             ON host_compatibility_sessions (tenant_id, host_id, created_at DESC)
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX host_compatibility_sessions_expiry
             ON host_compatibility_sessions (expires_at)
          WHERE state = 'created'
-        """
-    )
+        """)
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE host_admission_evidence (
             evidence_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id TEXT NOT NULL,
@@ -139,27 +121,21 @@ def upgrade() -> None:
             CHECK (length(evidence_digest) = 64),
             CHECK (jsonb_typeof(summary) = 'object')
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX host_admission_evidence_tenant_latest
             ON host_admission_evidence
                (tenant_id, host_id, evidence_type, observed_at DESC)
          WHERE superseded_at IS NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX host_admission_evidence_authoritative_latest
             ON host_admission_evidence
                (host_id, evidence_type, observed_at DESC, created_at DESC)
          WHERE trust_level = 'authoritative' AND superseded_at IS NULL
-        """
-    )
+        """)
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE host_admission_decisions (
             decision_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id TEXT NOT NULL,
@@ -180,21 +156,17 @@ def upgrade() -> None:
             UNIQUE (host_id, idempotency_key),
             CHECK (jsonb_typeof(evidence_ids) = 'array')
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX host_admission_decisions_tenant_host
             ON host_admission_decisions
                (tenant_id, host_id, decision_version DESC)
-        """
-    )
+        """)
 
     # Preserve every host that the pre-082 control plane explicitly treated as
     # admitted.  Rows without an affirmative payload flag remain pending even
     # if an old status writer happened to call them active.
-    op.execute(
-        """
+    op.execute("""
         UPDATE hosts
            SET admission_state = CASE
                    WHEN lower(COALESCE(payload->>'admitted', 'false'))
@@ -215,11 +187,9 @@ def upgrade() -> None:
                                      clock_timestamp())
                    ELSE NULL
                END
-        """
-    )
+        """)
 
-    op.execute(
-        """
+    op.execute("""
         INSERT INTO host_admission_evidence (
             tenant_id, host_id, evidence_type, source_type, trust_level,
             verdict, schema_version, evidence_digest, idempotency_key,
@@ -251,11 +221,9 @@ def upgrade() -> None:
           FROM hosts
          WHERE admission_state = 'admitted'
         ON CONFLICT (host_id, source_type, idempotency_key) DO NOTHING
-        """
-    )
+        """)
 
-    op.execute(
-        """
+    op.execute("""
         INSERT INTO host_admission_decisions (
             tenant_id, host_id, decision_version, action, previous_state,
             resulting_state, actor_principal, reason, evidence_ids,
@@ -278,24 +246,20 @@ def upgrade() -> None:
            AND e.idempotency_key = 'migration-082'
          WHERE h.admission_state = 'admitted'
         ON CONFLICT (host_id, idempotency_key) DO NOTHING
-        """
-    )
+        """)
 
-    op.execute(
-        """
+    op.execute("""
         UPDATE hosts h
            SET admission_decision_id = d.decision_id
           FROM host_admission_decisions d
          WHERE d.host_id = h.host_id
            AND d.idempotency_key = 'migration-082'
-        """
-    )
+        """)
 
     # Normalized admission state is now the authority.  A legacy JSONB writer
     # may update inventory/heartbeat fields, but payload.admitted is rewritten
     # from the normalized column and can no longer self-promote the host.
-    op.execute(
-        """
+    op.execute("""
         CREATE OR REPLACE FUNCTION control_plane_project_host()
         RETURNS trigger AS $$
         DECLARE
@@ -349,19 +313,16 @@ def upgrade() -> None:
             RETURN NEW;
         END
         $$ LANGUAGE plpgsql
-        """
-    )
+        """)
 
     # Re-run the projection once so the JSONB compatibility view and indexed
     # administrative state exactly match the new authority.
     op.execute("UPDATE hosts SET payload = payload")
 
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_hosts_authoritative_admission
             ON hosts (admission_state, availability_state, last_observed_at)
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
@@ -375,8 +336,7 @@ def downgrade() -> None:
 
     # Restore the migration-059 projection while the normalized columns still
     # exist, then remove the expand-only authority columns.
-    op.execute(
-        """
+    op.execute("""
         CREATE OR REPLACE FUNCTION control_plane_project_host()
         RETURNS trigger AS $$
         BEGIN
@@ -397,21 +357,15 @@ def downgrade() -> None:
             RETURN NEW;
         END
         $$ LANGUAGE plpgsql
-        """
-    )
+        """)
     op.execute(
-        "ALTER TABLE hosts DROP CONSTRAINT IF EXISTS "
-        "ck_hosts_admission_version_non_negative"
+        "ALTER TABLE hosts DROP CONSTRAINT IF EXISTS " "ck_hosts_admission_version_non_negative"
     )
-    op.execute(
-        "ALTER TABLE hosts DROP CONSTRAINT IF EXISTS ck_hosts_admission_state"
-    )
-    op.execute(
-        """
+    op.execute("ALTER TABLE hosts DROP CONSTRAINT IF EXISTS ck_hosts_admission_state")
+    op.execute("""
         ALTER TABLE hosts
           DROP COLUMN IF EXISTS admission_decision_id,
           DROP COLUMN IF EXISTS admitted_at,
           DROP COLUMN IF EXISTS admission_version,
           DROP COLUMN IF EXISTS admission_state
-        """
-    )
+        """)

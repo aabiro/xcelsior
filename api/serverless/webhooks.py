@@ -48,9 +48,7 @@ def _webhook_secret() -> bytes:
 def validate_webhook_url(url: str) -> str | None:
     """Return normalized URL or None if unsafe/invalid."""
     try:
-        return resolve_destination(
-            url or "", deadline=time.monotonic() + WEBHOOK_TIMEOUT_SEC
-        ).url
+        return resolve_destination(url or "", deadline=time.monotonic() + WEBHOOK_TIMEOUT_SEC).url
     except PublicHTTPError:
         return None
 
@@ -125,14 +123,17 @@ def _post_webhook(url: str, payload: dict[str, Any]) -> tuple[bool, str]:
         ts = int(time.time())
         sig = sign_payload(body, ts)
         resp = public_request(
-            url, method="POST", body=body,
+            url,
+            method="POST",
+            body=body,
             headers={
                 "Content-Type": "application/json",
                 "User-Agent": "xcelsior-serverless-webhook/1.0",
                 "X-Xcelsior-Timestamp": str(ts),
                 "X-Xcelsior-Signature": f"sha256={sig}",
             },
-            timeout=WEBHOOK_TIMEOUT_SEC, max_response_bytes=0,
+            timeout=WEBHOOK_TIMEOUT_SEC,
+            max_response_bytes=0,
         )
         return (True, "") if 200 <= resp.status < 300 else (False, f"HTTP {resp.status}")
     except PublicHTTPError as e:

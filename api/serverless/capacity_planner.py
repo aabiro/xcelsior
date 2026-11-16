@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 WEEKDAY_WEIGHTS = {
-    0: 1.0,   # Monday
+    0: 1.0,  # Monday
     1: 1.05,
     2: 1.08,
     3: 1.06,

@@ -26,9 +26,7 @@ depends_on = None
 
 
 def _requests(conn):
-    conn.execute(
-        text(
-            """
+    conn.execute(text("""
             CREATE TABLE IF NOT EXISTS mcp_permission_requests (
                 request_id TEXT PRIMARY KEY,
                 code TEXT NOT NULL UNIQUE,
@@ -48,17 +46,11 @@ def _requests(conn):
                 CONSTRAINT mcp_permission_requests_surface_check
                     CHECK (surface IN ('mcp', 'cli'))
             )
-            """
-        )
-    )
-    conn.execute(
-        text(
-            """
+            """))
+    conn.execute(text("""
             CREATE INDEX IF NOT EXISTS idx_mcp_permission_requests_tenant_key
                 ON mcp_permission_requests (tenant_id, key_id, status)
-            """
-        )
-    )
+            """))
 
 
 def _drop_requests(conn):

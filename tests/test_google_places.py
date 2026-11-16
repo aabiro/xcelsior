@@ -5,7 +5,6 @@ import pytest
 
 from tests.test_hosts_endpoints_coverage import client, user_headers, _fresh_photon  # noqa: F401
 
-
 PREDICTION = {
     "placePrediction": {
         "placeId": "ChIJ-test",

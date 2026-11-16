@@ -165,7 +165,12 @@ PY
             "payload": payload,
             "executed": True,
         }
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, json.JSONDecodeError):
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+        json.JSONDecodeError,
+    ):
         return None
 
 
@@ -181,7 +186,10 @@ def post_openai_from_mac(
     mac_host = (host or os.environ.get("XCELSIOR_MAC_HOST", "aaryn@100.64.0.3")).strip()
     if not mac_host or not _mac_projects_reachable():
         return {"ok": False, "reason": "mac_unreachable", "workload": workload}
-    merged_headers = {"Content-Type": "application/json", **{str(k): str(v) for k, v in headers.items()}}
+    merged_headers = {
+        "Content-Type": "application/json",
+        **{str(k): str(v) for k, v in headers.items()},
+    }
     hdr_json = json.dumps(merged_headers)
     body_json = json.dumps(payload)
     remote = f"""set -euo pipefail
@@ -225,7 +233,12 @@ PY
         result["workload"] = workload
         result["url"] = url
         return result
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as exc:
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+        json.JSONDecodeError,
+    ) as exc:
         return {
             "ok": False,
             "reason": str(exc),

@@ -40,16 +40,14 @@ def upgrade() -> None:
     # A hash without its manifest is a mismatch nobody can diagnose; a manifest
     # without its hash is a comparison nobody can make. Neither half is useful
     # alone, so the row may hold both or neither.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE image_sweep_members
           ADD CONSTRAINT ck_sweep_member_fingerprint_is_whole
           CHECK (
             (fingerprint_hash IS NULL AND fingerprint_manifest IS NULL)
             OR (fingerprint_hash IS NOT NULL AND fingerprint_manifest IS NOT NULL)
           )
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

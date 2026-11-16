@@ -5,6 +5,7 @@ Rule (preserves current load-time behavior — python-dotenv keeps the last valu
 - identical values  -> keep the FIRST occurrence (cleaner; stays in its section)
 - differing values  -> keep the LAST occurrence (the value the loader currently uses)
 """
+
 import collections
 import re
 import sys
@@ -25,7 +26,7 @@ def dedup(path: str) -> int:
         if len(lst) < 2:
             continue
         if len({v for _, v in lst}) == 1:
-            remove.update(idx for idx, _ in lst[1:])   # keep first
+            remove.update(idx for idx, _ in lst[1:])  # keep first
         else:
             remove.update(idx for idx, _ in lst[:-1])  # keep last
     if not remove:

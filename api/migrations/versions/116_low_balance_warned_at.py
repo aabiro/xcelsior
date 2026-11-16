@@ -71,36 +71,28 @@ def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
     # Nullable, no default: on PostgreSQL 11+ this is a catalog-only change and
     # does not rewrite the table.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE wallets
           ADD COLUMN IF NOT EXISTS low_balance_warned_at DOUBLE PRECISION
-        """
-    )
+        """)
 
     # A watermark is a moment, not a duration or a sentinel. `0` was meaningful
     # on `grace_until` because that column also carried "no grace"; here NULL
     # says "never warned" and any stored value is a real instant.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE wallets
           DROP CONSTRAINT IF EXISTS ck_wallets_low_balance_warned_at_positive
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         ALTER TABLE wallets
           ADD CONSTRAINT ck_wallets_low_balance_warned_at_positive
           CHECK (low_balance_warned_at IS NULL OR low_balance_warned_at > 0)
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE wallets
           DROP CONSTRAINT IF EXISTS ck_wallets_low_balance_warned_at_positive
-        """
-    )
+        """)
     op.execute("ALTER TABLE wallets DROP COLUMN IF EXISTS low_balance_warned_at")

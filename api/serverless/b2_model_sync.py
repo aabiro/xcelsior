@@ -34,9 +34,7 @@ def b2_model_sync_config() -> B2ModelSyncConfig:
             or None
         ),
         app_key=(
-            os.environ.get("B2_MODEL_SYNC_KEY")
-            or os.environ.get("B2_APPLICATION_KEY")
-            or None
+            os.environ.get("B2_MODEL_SYNC_KEY") or os.environ.get("B2_APPLICATION_KEY") or None
         ),
     )
 

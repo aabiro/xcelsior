@@ -32,8 +32,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS pipeline_stages (
             plan_id         TEXT NOT NULL,
             stage_index     INTEGER NOT NULL,
@@ -76,8 +75,7 @@ def upgrade() -> None:
                 state NOT IN ('succeeded', 'failed') OR finished_at IS NOT NULL
             )
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_pipeline_stages_tenant "
         "ON pipeline_stages (tenant_id, plan_id, stage_index)"

@@ -39,8 +39,7 @@ def upgrade() -> None:
     op.execute("SET lock_timeout = '5s'")
     op.execute("SET statement_timeout = '5min'")
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS host_agent_tokens (
             token_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             host_id         TEXT NOT NULL,
@@ -67,47 +66,36 @@ def upgrade() -> None:
                 status <> 'superseded' OR superseded_at IS NOT NULL
             )
         )
-        """
-    )
+        """)
 
     # A host has at most one issuable credential at a time.
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_host_one_active_agent_token
             ON host_agent_tokens (host_id)
          WHERE status = 'active'
-        """
-    )
+        """)
     # Hash is the lookup key; a collision would be an authentication bug.
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_host_agent_token_hash
             ON host_agent_tokens (token_hash)
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_host_agent_tokens_host
             ON host_agent_tokens (host_id, issued_at DESC)
-        """
-    )
+        """)
     # Drives the expiry sweep without scanning revoked history.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_host_agent_tokens_expiry
             ON host_agent_tokens (expires_at)
          WHERE status IN ('active', 'superseded')
-        """
-    )
+        """)
 
     # Durable periodic sweep: expire past-deadline tokens (056 scheduled_tasks).
-    op.execute(
-        """
+    op.execute("""
         INSERT INTO scheduled_tasks (task_name, interval_seconds, next_run_at, enabled)
         VALUES ('host_agent_token_expiry', 300, clock_timestamp(), TRUE)
         ON CONFLICT (task_name) DO NOTHING
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

@@ -118,10 +118,7 @@ def scan_files(
             }
         )
     scan_res = scan_documents(docs, api_key=api_key, api_url=api_url)
-    return {
-        doc["filename"]: list(res.get("policy_breaks", []))
-        for doc, res in zip(docs, scan_res)
-    }
+    return {doc["filename"]: list(res.get("policy_breaks", [])) for doc, res in zip(docs, scan_res)}
 
 
 def _load_dotenv_if_present() -> None:

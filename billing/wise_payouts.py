@@ -1060,14 +1060,12 @@ def approve_payout(*, payout_id: int, approver: str) -> dict:
 
         # Serialise approvals so two cannot both fit under the daily cap.
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('wise_payout_daily_cap'))")
-        spent = conn.execute(
-            """
+        spent = conn.execute("""
             SELECT COALESCE(SUM(amount_micros), 0)::bigint AS micros
               FROM wise_payouts
              WHERE approved_at > clock_timestamp() - interval '24 hours'
                AND status NOT IN ('rejected', 'released')
-            """
-        ).fetchone()
+            """).fetchone()
         if int(spent["micros"]) + int(row["amount_micros"]) > daily_cap_micros():
             raise WiseError("daily_cap", "Approving this would exceed the 24-hour payout cap")
 

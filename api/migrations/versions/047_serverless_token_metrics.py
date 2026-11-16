@@ -17,11 +17,9 @@ def upgrade() -> None:
         "ADD COLUMN IF NOT EXISTS cached_tokens INTEGER NOT NULL DEFAULT 0"
     )
     op.execute(
-        "ALTER TABLE serverless_jobs "
-        "ADD COLUMN IF NOT EXISTS ttft_ms INTEGER NOT NULL DEFAULT 0"
+        "ALTER TABLE serverless_jobs " "ADD COLUMN IF NOT EXISTS ttft_ms INTEGER NOT NULL DEFAULT 0"
     )
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS serverless_token_ledger (
             ledger_id TEXT PRIMARY KEY,
             endpoint_id TEXT NOT NULL,
@@ -32,14 +30,11 @@ def upgrade() -> None:
             cost_cad DOUBLE PRECISION NOT NULL DEFAULT 0,
             created_at DOUBLE PRECISION NOT NULL
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_serverless_token_ledger_idem
         ON serverless_token_ledger (endpoint_id, idempotency_key)
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

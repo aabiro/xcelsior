@@ -9,7 +9,6 @@ from typing import Sequence, Union
 
 from alembic import op
 
-
 revision: str = "029"
 down_revision: Union[str, None] = "028"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -17,8 +16,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS agent_rollouts (
             id             BIGSERIAL PRIMARY KEY,
             host_id        TEXT NOT NULL,
@@ -30,8 +28,7 @@ def upgrade() -> None:
             last_check_at  DOUBLE PRECISION NULL,
             error          TEXT NULL
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_agent_rollouts_pending "
         "ON agent_rollouts (enqueued_at) WHERE status = 'pending'"

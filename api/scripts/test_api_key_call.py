@@ -5,13 +5,16 @@ from pathlib import Path
 from dotenv import load_dotenv
 from google import genai
 
+
 def main():
     # Load .env file
-    dotenv_path = Path(__file__).resolve().parent.parent / '.env'
+    dotenv_path = Path(__file__).resolve().parent.parent / ".env"
     load_dotenv(dotenv_path=dotenv_path)
 
     # Check for dry run
-    DRY_RUN = os.environ.get("DRY_RUN", "0").lower() in ("1", "true", "yes") or "--dry-run" in sys.argv
+    DRY_RUN = (
+        os.environ.get("DRY_RUN", "0").lower() in ("1", "true", "yes") or "--dry-run" in sys.argv
+    )
 
     try:
         api_key = os.environ.get("GEMINI_API_KEY")
@@ -30,7 +33,7 @@ def main():
 
         print("Making exactly 1 API Test Call using the provided API Key with gemini-3.8-flash...")
         response = client.models.generate_content(
-            model='gemini-3.8-flash',
+            model="gemini-3.8-flash",
             contents='Hello! This is a test call verifying connection with the provided API key. Respond with "API Key Connection verified successfully!".',
         )
         print("\n=== [API Call Response] ===")
@@ -39,6 +42,7 @@ def main():
 
     except Exception as e:
         print(f"API Key test call failed: {e}", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()

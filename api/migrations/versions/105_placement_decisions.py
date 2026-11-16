@@ -38,8 +38,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS placement_decisions (
             decision_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             -- Ledger rule 9 / companion §4.4.10: a tenant-owned table carries
@@ -83,8 +82,7 @@ def upgrade() -> None:
             AND (chosen_price_micros  IS NULL OR chosen_price_micros  > 0)
             )
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_placement_decisions_tenant "
         "ON placement_decisions (tenant_id, decided_at DESC)"
@@ -93,29 +91,23 @@ def upgrade() -> None:
         "CREATE INDEX IF NOT EXISTS idx_placement_decisions_job "
         "ON placement_decisions (job_id) WHERE job_id IS NOT NULL"
     )
-    op.execute(
-        """
+    op.execute("""
         CREATE OR REPLACE FUNCTION placement_decisions_immutable() RETURNS trigger AS $$
         BEGIN
             RAISE EXCEPTION 'placement_decisions is append-only (WORM); % is not permitted', TG_OP
                 USING ERRCODE = 'restrict_violation';
         END;
         $$ LANGUAGE plpgsql
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE TRIGGER trg_placement_decisions_immutable
             BEFORE UPDATE OR DELETE ON placement_decisions
             FOR EACH ROW EXECUTE FUNCTION placement_decisions_immutable()
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
-    op.execute(
-        "DROP TRIGGER IF EXISTS trg_placement_decisions_immutable ON placement_decisions"
-    )
+    op.execute("DROP TRIGGER IF EXISTS trg_placement_decisions_immutable ON placement_decisions")
     op.execute("DROP FUNCTION IF EXISTS placement_decisions_immutable()")
     op.execute("DROP INDEX IF EXISTS idx_placement_decisions_job")
     op.execute("DROP INDEX IF EXISTS idx_placement_decisions_tenant")

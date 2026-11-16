@@ -9,11 +9,11 @@ Revision ID: 013
 Revises: 012
 Create Date: 2026-04-06
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-
 
 revision: str = "013"
 down_revision: Union[str, None] = "012"
@@ -53,6 +53,7 @@ def upgrade() -> None:
         ["job_id", "recorded_at"],
         postgresql_ops={"recorded_at": "DESC"},
     )
+
 
 def downgrade() -> None:
     op.drop_index("idx_telemetry_job_recorded", table_name="telemetry_snapshots")

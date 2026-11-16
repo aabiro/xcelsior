@@ -9,11 +9,11 @@ Revision ID: 015
 Revises: 014
 Create Date: 2026-04-06
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-
 
 revision: str = "015"
 down_revision: Union[str, None] = "014"
@@ -32,8 +32,7 @@ def upgrade() -> None:
     )
 
     # Back-fill error_message from existing payload JSONB where available
-    op.execute(
-        """
+    op.execute("""
         UPDATE jobs
         SET error_message = COALESCE(
             payload->>'error_message',
@@ -47,17 +46,14 @@ def upgrade() -> None:
             OR payload ? 'error'
             OR payload ? 'failure_reason'
           )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE jobs
         SET exit_code = (payload->>'exit_code')::integer
         WHERE payload IS NOT NULL
           AND payload ? 'exit_code'
           AND (payload->>'exit_code') ~ '^-?[0-9]+$'
-        """
-    )
+        """)
 
     # Index to quickly find all failed jobs with actual error text
     op.create_index(

@@ -43,7 +43,5 @@ def lmcache_mesh_env() -> dict[str, str]:
     }
     if remote:
         out["LMCACHE_REMOTE_URL"] = remote
-        out["LMCACHE_REMOTE_SERDE"] = os.environ.get(
-            "XCELSIOR_LMCACHE_REMOTE_SERDE", "naive"
-        )
+        out["LMCACHE_REMOTE_SERDE"] = os.environ.get("XCELSIOR_LMCACHE_REMOTE_SERDE", "naive")
     return out

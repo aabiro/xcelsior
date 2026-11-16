@@ -20,7 +20,6 @@ from typing import Sequence, Union
 
 from alembic import op
 
-
 revision: str = "027"
 down_revision: Union[str, None] = "026"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -28,10 +27,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE user_images "
-        "ADD COLUMN IF NOT EXISTS error TEXT DEFAULT ''"
-    )
+    op.execute("ALTER TABLE user_images " "ADD COLUMN IF NOT EXISTS error TEXT DEFAULT ''")
 
 
 def downgrade() -> None:

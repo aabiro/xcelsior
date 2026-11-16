@@ -39,8 +39,7 @@ def upgrade() -> None:
     # repair — but it must run before the source column disappears.
     # ROUND before casting: a plain cast truncates, so 10.999999 would land a
     # micro short.
-    op.execute(
-        """
+    op.execute("""
         UPDATE wallets
            SET auto_topup_amount_micros =
                    ROUND(COALESCE(auto_topup_amount_cad, 0)::numeric * 1000000)::bigint,
@@ -50,8 +49,7 @@ def upgrade() -> None:
                    ROUND(COALESCE(auto_topup_amount_cad, 0)::numeric * 1000000)::bigint
             OR auto_topup_threshold_micros IS DISTINCT FROM
                    ROUND(COALESCE(auto_topup_threshold_cad, 0)::numeric * 1000000)::bigint
-        """
-    )
+        """)
 
     # The projection trigger mirrors every _cad <-> _micros pair, including the
     # auto-top-up pair. PL/pgSQL resolves NEW.<field> at execution time, so
@@ -59,8 +57,7 @@ def upgrade() -> None:
     # INSERT and UPDATE fail with "record \"new\" has no field
     # auto_topup_amount_cad" — that is, it takes billing down. Replace the
     # function first, in the same transaction as the drop.
-    op.execute(
-        """
+    op.execute("""
         CREATE OR REPLACE FUNCTION wallets_project_money() RETURNS trigger AS $BODY$
 
         BEGIN
@@ -124,8 +121,7 @@ def upgrade() -> None:
             RETURN NEW;
         END
         $BODY$ LANGUAGE plpgsql
-        """
-    )
+        """)
 
     op.execute("ALTER TABLE wallets DROP COLUMN IF EXISTS auto_topup_amount_cad")
     op.execute("ALTER TABLE wallets DROP COLUMN IF EXISTS auto_topup_threshold_cad")
@@ -144,16 +140,13 @@ def downgrade() -> None:
         "DOUBLE PRECISION DEFAULT 0"
     )
     # Reconstructed from micros, which is authoritative after this migration.
-    op.execute(
-        """
+    op.execute("""
         UPDATE wallets
            SET auto_topup_amount_cad = COALESCE(auto_topup_amount_micros, 0) / 1000000.0,
                auto_topup_threshold_cad = COALESCE(auto_topup_threshold_micros, 0) / 1000000.0
-        """
-    )
+        """)
     # Restore the projection for the reinstated columns.
-    op.execute(
-        """
+    op.execute("""
         CREATE OR REPLACE FUNCTION wallets_project_money() RETURNS trigger AS $BODY$
 
         BEGIN
@@ -237,5 +230,4 @@ def downgrade() -> None:
             RETURN NEW;
         END
         $BODY$ LANGUAGE plpgsql
-        """
-    )
+        """)

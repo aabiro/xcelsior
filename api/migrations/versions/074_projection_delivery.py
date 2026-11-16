@@ -37,8 +37,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE outbox_events
             ADD COLUMN IF NOT EXISTS event_version      INTEGER NOT NULL DEFAULT 1,
             ADD COLUMN IF NOT EXISTS tenant_id          TEXT,
@@ -50,15 +49,13 @@ def upgrade() -> None:
             ADD COLUMN IF NOT EXISTS trace_id           TEXT,
             ADD COLUMN IF NOT EXISTS fanout_prepared_at TIMESTAMPTZ,
             ADD COLUMN IF NOT EXISTS fanout_attempts    INTEGER NOT NULL DEFAULT 0
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_outbox_events_unprepared "
         "ON outbox_events (created_at) WHERE fanout_prepared_at IS NULL"
     )
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS projection_deliveries (
             event_id      UUID NOT NULL,
             sink          TEXT NOT NULL,
@@ -75,8 +72,7 @@ def upgrade() -> None:
             claim_expires_at TIMESTAMPTZ,
             PRIMARY KEY (event_id, sink)
         )
-        """
-    )
+        """)
     # Success is recorded by the sink's stable external id — a replayed delivery
     # with the same external id collapses, so at-least-once I/O becomes
     # exactly-once logical delivery.
@@ -89,8 +85,7 @@ def upgrade() -> None:
         "ON projection_deliveries (sink, available_at) WHERE status = 'pending'"
     )
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS projection_checkpoints (
             sink             TEXT PRIMARY KEY,
             active           BOOLEAN NOT NULL DEFAULT TRUE,
@@ -99,16 +94,14 @@ def upgrade() -> None:
             created_at       TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
             updated_at       TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
         )
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS projection_checkpoints")
     op.execute("DROP TABLE IF EXISTS projection_deliveries")
     op.execute("DROP INDEX IF EXISTS idx_outbox_events_unprepared")
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE outbox_events
             DROP COLUMN IF EXISTS event_version,
             DROP COLUMN IF EXISTS tenant_id,
@@ -120,5 +113,4 @@ def downgrade() -> None:
             DROP COLUMN IF EXISTS trace_id,
             DROP COLUMN IF EXISTS fanout_prepared_at,
             DROP COLUMN IF EXISTS fanout_attempts
-        """
-    )
+        """)

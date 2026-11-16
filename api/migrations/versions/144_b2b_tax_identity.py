@@ -24,7 +24,9 @@ def upgrade() -> None:
     op.execute(
         "ALTER TABLE provider_accounts ADD COLUMN IF NOT EXISTS address_line2 TEXT NOT NULL DEFAULT ''"
     )
-    op.execute("ALTER TABLE provider_accounts ADD COLUMN IF NOT EXISTS city TEXT NOT NULL DEFAULT ''")
+    op.execute(
+        "ALTER TABLE provider_accounts ADD COLUMN IF NOT EXISTS city TEXT NOT NULL DEFAULT ''"
+    )
     op.execute(
         "ALTER TABLE provider_accounts ADD COLUMN IF NOT EXISTS postal_code TEXT NOT NULL DEFAULT ''"
     )

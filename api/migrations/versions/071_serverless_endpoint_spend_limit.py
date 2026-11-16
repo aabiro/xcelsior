@@ -30,14 +30,12 @@ def upgrade() -> None:
     )
     # A non-negative ceiling when set; NULL = uncapped. NOT VALID → VALIDATE is
     # trivial (every existing row is NULL) and keeps the add lock-light.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE serverless_endpoints
             ADD CONSTRAINT ck_serverless_endpoints_spend_limit
             CHECK (spend_limit_cad IS NULL OR spend_limit_cad >= 0)
             NOT VALID
-        """
-    )
+        """)
     op.execute(
         "ALTER TABLE serverless_endpoints VALIDATE CONSTRAINT ck_serverless_endpoints_spend_limit"
     )

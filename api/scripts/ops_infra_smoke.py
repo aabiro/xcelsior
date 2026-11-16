@@ -33,9 +33,9 @@ def _load_cfg() -> dict[str, str]:
                 continue
             k, v = line.split("=", 1)
             cfg[k.strip()] = v.strip()
-    cfg["base"] = (os.environ.get("AUDIT_BASE") or cfg.get("AUDIT_BASE") or "https://xcelsior.ca").rstrip(
-        "/"
-    )
+    cfg["base"] = (
+        os.environ.get("AUDIT_BASE") or cfg.get("AUDIT_BASE") or "https://xcelsior.ca"
+    ).rstrip("/")
     cfg["email"] = os.environ.get("AUDIT_EMAIL") or cfg.get("AUDIT_EMAIL", "")
     cfg["password"] = os.environ.get("AUDIT_PASSWORD") or cfg.get("AUDIT_PASSWORD", "")
     return cfg
@@ -69,7 +69,9 @@ def main() -> int:
     else:
         results["readyz_error"] = readyz.text[:300]
 
-    nfs_ok = not nfs.get("configured") or (nfs.get("reachable") is True and nfs.get("mode") == "full")
+    nfs_ok = not nfs.get("configured") or (
+        nfs.get("reachable") is True and nfs.get("mode") == "full"
+    )
 
     volumes_ok = True
     provider_paypal_ok = True
@@ -110,7 +112,7 @@ def main() -> int:
                 )
                 results["volume_create"] = created.status_code
                 if created.ok:
-                    vol = (created.json().get("volume") or {})
+                    vol = created.json().get("volume") or {}
                     volume_id = vol.get("volume_id")
                     results["volume_id"] = volume_id
                     if not volume_id or not vol.get("owner_id"):

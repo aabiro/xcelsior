@@ -92,9 +92,7 @@ def _table_columns() -> str:
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
 
-    existed = op.get_bind().execute(
-        sa.text("SELECT to_regclass('placement_decisions')")
-    ).scalar()
+    existed = op.get_bind().execute(sa.text("SELECT to_regclass('placement_decisions')")).scalar()
 
     # Build the partitioned table beside the old one. The **children are given
     # their final names now** — a child's name is independent of its parent's,
@@ -117,16 +115,14 @@ def upgrade() -> None:
     # window. A write beyond the pre-created range lands here instead of
     # failing: an audit write must never be the thing that fails a placement.
     op.execute(
-        "CREATE TABLE placement_decisions_default "
-        "PARTITION OF placement_decisions_new DEFAULT"
+        "CREATE TABLE placement_decisions_default " "PARTITION OF placement_decisions_new DEFAULT"
     )
 
     if existed:
         # WORM blocks UPDATE and DELETE on rows. INSERT … SELECT and DROP TABLE
         # are untouched, which is exactly why the trail can be moved without
         # ever being mutable.
-        op.execute(
-            """
+        op.execute("""
             INSERT INTO placement_decisions_new
                 (decision_id, tenant_id, job_id, host_id, outcome, refusal_code,
                  refusal_detail, asked, evidence, candidate_count, candidates,
@@ -135,8 +131,7 @@ def upgrade() -> None:
                    refusal_detail, asked, evidence, candidate_count, candidates,
                    baseline_price_micros, chosen_price_micros, decided_at
               FROM placement_decisions
-            """
-        )
+            """)
         op.execute(
             "DROP TRIGGER IF EXISTS trg_placement_decisions_immutable ON placement_decisions"
         )
@@ -153,42 +148,34 @@ def upgrade() -> None:
         "ON placement_decisions (job_id, decided_at DESC)"
     )
 
-    op.execute(
-        """
+    op.execute("""
         CREATE OR REPLACE FUNCTION placement_decisions_immutable() RETURNS trigger AS $$
         BEGIN
             RAISE EXCEPTION 'placement_decisions is append-only (WORM); % is not permitted', TG_OP
                 USING ERRCODE = 'restrict_violation';
         END;
         $$ LANGUAGE plpgsql
-        """
-    )
+        """)
     # On a partitioned parent this propagates to every partition, existing and
     # future. Partition drops are DDL and remain unaffected — which is the
     # entire point of the rebuild.
-    op.execute(
-        """
+    op.execute("""
         CREATE TRIGGER trg_placement_decisions_immutable
             BEFORE UPDATE OR DELETE ON placement_decisions
             FOR EACH ROW EXECUTE FUNCTION placement_decisions_immutable()
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
     op.execute("DROP TRIGGER IF EXISTS trg_placement_decisions_immutable ON placement_decisions")
     op.execute("DROP TABLE IF EXISTS placement_decisions CASCADE")
-    op.execute(
-        f"CREATE TABLE IF NOT EXISTS placement_decisions ({_table_columns()})"
-    )
+    op.execute(f"CREATE TABLE IF NOT EXISTS placement_decisions ({_table_columns()})")
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_placement_decisions_tenant "
         "ON placement_decisions (tenant_id, decided_at DESC)"
     )
-    op.execute(
-        """
+    op.execute("""
         CREATE TRIGGER trg_placement_decisions_immutable
             BEFORE UPDATE OR DELETE ON placement_decisions
             FOR EACH ROW EXECUTE FUNCTION placement_decisions_immutable()
-        """
-    )
+        """)

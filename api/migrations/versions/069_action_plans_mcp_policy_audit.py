@@ -67,8 +67,7 @@ def upgrade() -> None:
     states = ", ".join(f"'{s}'" for s in PLAN_STATES)
     modes = ", ".join(f"'{m}'" for m in APPROVAL_MODES)
 
-    op.execute(
-        f"""
+    op.execute(f"""
         CREATE TABLE IF NOT EXISTS action_plans (
             plan_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             action_type TEXT NOT NULL,
@@ -154,8 +153,7 @@ def upgrade() -> None:
                 AND (status <> 'revoked' OR revoked_at IS NOT NULL)
             )
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_action_plans_principal "
         "ON action_plans (principal_id, created_at DESC)"
@@ -171,8 +169,7 @@ def upgrade() -> None:
         "WHERE status IN ('quoted', 'awaiting_approval', 'approved')"
     )
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS mcp_client_policies (
             policy_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             client_id TEXT NOT NULL,
@@ -198,11 +195,9 @@ def upgrade() -> None:
             CHECK (hourly_spend_max_micros IS NULL OR hourly_spend_max_micros >= 0),
             CHECK (daily_spend_max_micros IS NULL OR daily_spend_max_micros >= 0)
         )
-        """
-    )
+        """)
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS mcp_tool_audit (
             audit_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             occurred_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -229,8 +224,7 @@ def upgrade() -> None:
             approval_method TEXT,
             outcome TEXT
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_mcp_tool_audit_principal "
         "ON mcp_tool_audit (principal_id, occurred_at DESC)"
@@ -250,8 +244,7 @@ def upgrade() -> None:
     # VALIDATE only when no existing machine client violates it — an older
     # workspace-less machine client is left for a data backfill rather than
     # failing the migration.
-    op.execute(
-        """
+    op.execute("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -269,10 +262,8 @@ def upgrade() -> None:
                   ) NOT VALID;
             END IF;
         END $$
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -287,15 +278,13 @@ def upgrade() -> None:
                   VALIDATE CONSTRAINT ck_oauth_client_workspace_context;
             END IF;
         END $$
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
     op.execute("SET lock_timeout = '5s'")
     op.execute(
-        "ALTER TABLE oauth_clients "
-        "DROP CONSTRAINT IF EXISTS ck_oauth_client_workspace_context"
+        "ALTER TABLE oauth_clients " "DROP CONSTRAINT IF EXISTS ck_oauth_client_workspace_context"
     )
     op.execute("DROP TABLE IF EXISTS mcp_tool_audit")
     op.execute("DROP TABLE IF EXISTS mcp_client_policies")

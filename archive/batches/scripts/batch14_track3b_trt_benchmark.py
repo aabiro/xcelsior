@@ -133,7 +133,10 @@ print(json.dumps({
 
 def main() -> None:
     t0 = time.time()
-    print("[Track 3B] Running TensorRT FP16 + INT8 compilation & benchmark on tower (RTX 3060 sm_86)...", flush=True)
+    print(
+        "[Track 3B] Running TensorRT FP16 + INT8 compilation & benchmark on tower (RTX 3060 sm_86)...",
+        flush=True,
+    )
     p_tower = subprocess.run(
         ["ssh", "tower", "python3 -"],
         input=REMOTE_TOWER_SCRIPT,
@@ -142,10 +145,15 @@ def main() -> None:
         timeout=900,
     )
     if "JSON_START" not in p_tower.stdout:
-        raise RuntimeError(f"Tower script failed:\nSTDOUT:\n{p_tower.stdout}\nSTDERR:\n{p_tower.stderr}")
+        raise RuntimeError(
+            f"Tower script failed:\nSTDOUT:\n{p_tower.stdout}\nSTDERR:\n{p_tower.stderr}"
+        )
     tower_json_str = p_tower.stdout.split("JSON_START", 1)[1].strip()
     tower_data = json.loads(tower_json_str)
-    print(f"[Track 3B] Tower completed: {tower_data['count']} models compiled & benchmarked (FP16 + INT8).", flush=True)
+    print(
+        f"[Track 3B] Tower completed: {tower_data['count']} models compiled & benchmarked (FP16 + INT8).",
+        flush=True,
+    )
 
     print("[Track 3B] Running sm_75 verification & benchmark on asus (RTX 2060)...", flush=True)
     p_asus = subprocess.run(
@@ -159,8 +167,12 @@ def main() -> None:
     if "JSON_START" in p_asus.stdout:
         asus_data = json.loads(p_asus.stdout.split("JSON_START", 1)[1].strip())
 
-    coreml_path = Path("/Users/aaryn/Projects/xcelsior/logs/gpu_roadmap/batch14/batch14_track3a_coreml_ane.json")
-    coreml_data = json.loads(coreml_path.read_text(encoding="utf-8")) if coreml_path.exists() else {}
+    coreml_path = Path(
+        "/Users/aaryn/Projects/xcelsior/logs/gpu_roadmap/batch14/batch14_track3a_coreml_ane.json"
+    )
+    coreml_data = (
+        json.loads(coreml_path.read_text(encoding="utf-8")) if coreml_path.exists() else {}
+    )
 
     models = tower_data.get("models", [])
     fp16_medians = [m["fp16_median_ms"] for m in models if m["fp16_median_ms"] > 0]
@@ -178,14 +190,18 @@ def main() -> None:
             "tower_int8_mean_latency_ms": round(sum(int8_medians) / max(len(int8_medians), 1), 4),
             "tower_mean_int8_speedup": round(sum(speedups) / max(len(speedups), 1), 3),
             "mac_coreml_ane_packages_verified": coreml_data.get("total_packages_verified", 0),
-            "mac_coreml_ane_min_cosine_sim": coreml_data.get("min_cosine_similarity_across_all", 0.0),
+            "mac_coreml_ane_min_cosine_sim": coreml_data.get(
+                "min_cosine_similarity_across_all", 0.0
+            ),
         },
         "tower_tensorrt_sm86": tower_data,
         "asus_cuda_sm75": asus_data,
         "mac_coreml_ane": coreml_data,
     }
 
-    out_path = Path("/Users/aaryn/Projects/xcelsior/logs/gpu_roadmap/batch14/batch14_track3_trt_int8_and_coreml_ane.json")
+    out_path = Path(
+        "/Users/aaryn/Projects/xcelsior/logs/gpu_roadmap/batch14/batch14_track3_trt_int8_and_coreml_ane.json"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(combined, indent=2), encoding="utf-8")
     print(f"[Track 3B] Saved combined Track 3 report -> {out_path}", flush=True)

@@ -40,8 +40,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS placement_decision_observations (
             tenant_id    TEXT NOT NULL,
             -- sha256 over (tenant, job, asked, outcome, refusal_code, and the
@@ -60,8 +59,7 @@ def upgrade() -> None:
             PRIMARY KEY (tenant_id, fingerprint, month),
             CONSTRAINT ck_placement_observations_count CHECK (times_seen >= 1)
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_placement_observations_tenant "
         "ON placement_decision_observations (tenant_id, last_seen_at DESC)"

@@ -43,7 +43,11 @@ from fastapi import HTTPException  # noqa: E402
 
 import routes.billing as billing_routes  # noqa: E402
 from oauth_registration import CONNECTOR_ALLOWED_SCOPES, CONNECTOR_DEFAULT_SCOPES  # noqa: E402
-from oauth_service import MCP_QUICK_CONNECT_SCOPES, MCP_RESOURCE_AUDIENCE, describe_scope  # noqa: E402
+from oauth_service import (
+    MCP_QUICK_CONNECT_SCOPES,
+    MCP_RESOURCE_AUDIENCE,
+    describe_scope,
+)  # noqa: E402
 from routes import _deps  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -145,9 +149,9 @@ def test_each_funding_route_asks_for_the_topup_scope(handler):
     assert (
         '_require_scope(user, "billing:topup")' in source or "funds_wallet=True" in source
     ), f"{handler} no longer accepts billing:topup, so a connector cannot use the tool that calls it"
-    assert '"billing:write"' not in source and "billing_write=True" not in source, (
-        f"{handler} still demands billing:write, which no connector can hold"
-    )
+    assert (
+        '"billing:write"' not in source and "billing_write=True" not in source
+    ), f"{handler} still demands billing:write, which no connector can hold"
 
 
 @pytest.mark.parametrize("handler", sorted(WRITE_ONLY_HANDLERS))
@@ -202,7 +206,11 @@ def _consent_page(scopes: list[str]) -> str:
     from routes.auth import _oauth_consent_page
 
     return _oauth_consent_page(
-        client={"client_id": "claude-ai", "client_name": "Claude", "client_uri": "https://claude.ai"},
+        client={
+            "client_id": "claude-ai",
+            "client_name": "Claude",
+            "client_uri": "https://claude.ai",
+        },
         user={"email": "human@xcelsior.ca", "user_id": "human-1"},
         scopes=scopes,
         resource=MCP_RESOURCE_AUDIENCE,

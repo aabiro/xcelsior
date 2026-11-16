@@ -76,4 +76,3 @@ def test_neither_block_proxies_to_the_api(conf) -> None:
             f"`{location}` proxies to the API as well as returning 404; "
             f"whichever nginx applies, this is no longer a refusal:\n{body}"
         )
-

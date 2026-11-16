@@ -48,8 +48,7 @@ def made_requests(monkeypatch):
     deferred = []
     if _pool is not None:
         with _pool.connection() as conn:
-            deferred = conn.execute(
-                """
+            deferred = conn.execute("""
                 UPDATE privacy_deletion_requests r
                    SET next_attempt_at = r.next_attempt_at + interval '1 day'
                   FROM (SELECT request_id, next_attempt_at FROM privacy_deletion_requests
@@ -58,8 +57,7 @@ def made_requests(monkeypatch):
                            FOR UPDATE) old
                  WHERE r.request_id = old.request_id
                 RETURNING r.request_id, old.next_attempt_at
-                """
-            ).fetchall()
+                """).fetchall()
             conn.commit()
     yield request_ids
     if _pool is None:

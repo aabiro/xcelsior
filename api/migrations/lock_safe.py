@@ -79,9 +79,7 @@ _TIMEOUT_RE = re.compile(r"^\d+(ms|s|min)?$")
 
 def checked_timeout(value: str) -> str:
     if not _TIMEOUT_RE.match(value.strip()):
-        raise ValueError(
-            f"lock_timeout must look like '5s', '500ms' or '2min', got {value!r}"
-        )
+        raise ValueError(f"lock_timeout must look like '5s', '500ms' or '2min', got {value!r}")
     return value.strip()
 
 
@@ -108,16 +106,14 @@ def _refuse_if_alembic_holds_locks(bind: Connection, tables: Sequence[str]) -> N
         return
     held = (
         bind.execute(
-            text(
-                """
+            text("""
                 SELECT DISTINCT c.relname
                 FROM pg_locks l
                 JOIN pg_class c ON c.oid = l.relation
                 WHERE l.pid = pg_backend_pid()
                   AND l.locktype = 'relation'
                   AND c.relname = ANY(:names)
-                """
-            ),
+                """),
             {"names": list(tables)},
         )
         .scalars()

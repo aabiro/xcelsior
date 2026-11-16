@@ -99,9 +99,7 @@ def _mirror(table: str, column: str):
         # Keep the pair consistent while callers are still on the float. The
         # trigger derives micros from the float on write, so an unconverted
         # writer cannot leave micros stale; 097 drops both trigger and float.
-        conn.execute(
-            text(
-                f"""
+        conn.execute(text(f"""
             CREATE OR REPLACE FUNCTION mirror_{table}_{micros}() RETURNS trigger AS $$
             BEGIN
               IF NEW.{column} IS DISTINCT FROM OLD.{column} OR TG_OP = 'INSERT' THEN
@@ -112,9 +110,7 @@ def _mirror(table: str, column: str):
               RETURN NEW;
             END;
             $$ LANGUAGE plpgsql
-            """
-            )
-        )
+            """))
         conn.execute(text(f"DROP TRIGGER IF EXISTS trg_mirror_{micros} ON {table}"))
         conn.execute(
             text(

@@ -30,8 +30,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS audit_checkpoints (
             checkpoint_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             interval_start      TIMESTAMPTZ NOT NULL,
@@ -49,30 +48,25 @@ def upgrade() -> None:
             created_at          TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
             CHECK (interval_end >= interval_start)
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_audit_checkpoints_interval "
         "ON audit_checkpoints (interval_end DESC)"
     )
     # WORM: a signed checkpoint can never be altered or deleted.
-    op.execute(
-        """
+    op.execute("""
         CREATE OR REPLACE FUNCTION audit_checkpoints_immutable() RETURNS trigger AS $$
         BEGIN
             RAISE EXCEPTION 'audit_checkpoints is append-only (WORM); % is not permitted', TG_OP
                 USING ERRCODE = 'restrict_violation';
         END;
         $$ LANGUAGE plpgsql
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE TRIGGER trg_audit_checkpoints_immutable
             BEFORE UPDATE OR DELETE ON audit_checkpoints
             FOR EACH ROW EXECUTE FUNCTION audit_checkpoints_immutable()
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

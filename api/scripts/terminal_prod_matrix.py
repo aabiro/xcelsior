@@ -127,11 +127,7 @@ def main() -> int:
             return 1
 
         instances = listed.json().get("instances") or []
-        running = [
-            inst
-            for inst in instances
-            if str(inst.get("status") or "").lower() in RUNNING
-        ]
+        running = [inst for inst in instances if str(inst.get("status") or "").lower() in RUNNING]
         if not running:
             _step("prod_ws_matrix", True, "SKIP — no running instances for audit user")
             return 1 if failures else 0

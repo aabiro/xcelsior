@@ -72,8 +72,7 @@ def upgrade() -> None:
                         USING to_timestamp({column}),
                     ALTER COLUMN {column} SET DEFAULT now();
             """
-        op.execute(
-            f"""
+        op.execute(f"""
             DO $$
             BEGIN
                 IF EXISTS (
@@ -85,8 +84,7 @@ def upgrade() -> None:
                     {convert}
                 END IF;
             END $$;
-            """
-        )
+            """)
 
     # ── 4.4.10: tenant ownership, on every governed table ─────────────
     for table in (
@@ -98,49 +96,40 @@ def upgrade() -> None:
         op.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS tenant_id TEXT")
 
     for table in ("casl_consent", "user_encryption_keys"):
-        op.execute(
-            f"""
+        op.execute(f"""
             UPDATE {table} t
                SET tenant_id = COALESCE(
                        NULLIF(u.team_id, ''), NULLIF(u.customer_id, ''), t.user_id)
               FROM users u
              WHERE u.user_id = t.user_id AND t.tenant_id IS NULL
-            """
-        )
+            """)
         op.execute(f"UPDATE {table} SET tenant_id = user_id WHERE tenant_id IS NULL")
 
     # The deletion request's tenant is the workspace it was raised in. Prefer a
     # live user row; fall back to the retained pseudonymous reference so a
     # request whose subject is already erased still has a tenant.
-    op.execute(
-        """
+    op.execute("""
         UPDATE privacy_deletion_requests r
            SET tenant_id = COALESCE(
                    NULLIF(u.team_id, ''), NULLIF(u.customer_id, ''),
                    NULLIF(r.subject_user_id, ''), r.subject_reference_hash)
           FROM users u
          WHERE u.user_id = r.subject_user_id AND r.tenant_id IS NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE privacy_deletion_requests
            SET tenant_id = COALESCE(NULLIF(subject_user_id, ''), subject_reference_hash)
          WHERE tenant_id IS NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE privacy_deletion_sink_status s
            SET tenant_id = r.tenant_id
           FROM privacy_deletion_requests r
          WHERE r.request_id = s.request_id AND s.tenant_id IS NULL
-        """
-    )
+        """)
     # Orphaned sink rows cannot happen (FK), but a NOT NULL add must not fail.
     op.execute(
-        "UPDATE privacy_deletion_sink_status SET tenant_id = request_id "
-        "WHERE tenant_id IS NULL"
+        "UPDATE privacy_deletion_sink_status SET tenant_id = request_id " "WHERE tenant_id IS NULL"
     )
 
     for table in (
@@ -152,8 +141,7 @@ def upgrade() -> None:
         op.execute(f"ALTER TABLE {table} ALTER COLUMN tenant_id SET NOT NULL")
 
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_casl_consent_tenant "
-        "ON casl_consent (tenant_id, user_id)"
+        "CREATE INDEX IF NOT EXISTS idx_casl_consent_tenant " "ON casl_consent (tenant_id, user_id)"
     )
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_user_encryption_keys_tenant "
@@ -197,8 +185,7 @@ def downgrade() -> None:
         ("user_encryption_keys", "destroyed_at", True),
     ):
         default = "0" if nullable else "extract(epoch FROM now())"
-        op.execute(
-            f"""
+        op.execute(f"""
             DO $$
             BEGIN
                 IF EXISTS (
@@ -214,5 +201,4 @@ def downgrade() -> None:
                         ALTER COLUMN {column} SET DEFAULT {default};
                 END IF;
             END $$;
-            """
-        )
+            """)

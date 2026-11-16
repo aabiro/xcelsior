@@ -31,22 +31,16 @@ depends_on = None
 # into DDL (tests/test_sql_injection_guard.py). A constant default makes each
 # ADD COLUMN a catalogue-only change, so `users` is not rewritten.
 def _user_columns(conn):
-    conn.execute(
-        text(
-            """
+    conn.execute(text("""
             ALTER TABLE users
               ADD COLUMN IF NOT EXISTS business_display_name TEXT NOT NULL DEFAULT '',
               ADD COLUMN IF NOT EXISTS business_website TEXT NOT NULL DEFAULT '',
               ADD COLUMN IF NOT EXISTS business_tagline TEXT NOT NULL DEFAULT ''
-            """
-        )
-    )
+            """))
 
 
 def _logos(conn):
-    conn.execute(
-        text(
-            """
+    conn.execute(text("""
             CREATE TABLE IF NOT EXISTS business_logos (
                 user_id TEXT PRIMARY KEY,
                 content_type TEXT NOT NULL,
@@ -55,9 +49,7 @@ def _logos(conn):
                 updated_at DOUBLE PRECISION NOT NULL DEFAULT 0,
                 CONSTRAINT business_logos_tile_check CHECK (tile IN ('none', 'light', 'dark'))
             )
-            """
-        )
-    )
+            """))
 
 
 def _drop_logos(conn):
@@ -65,16 +57,12 @@ def _drop_logos(conn):
 
 
 def _drop_user_columns(conn):
-    conn.execute(
-        text(
-            """
+    conn.execute(text("""
             ALTER TABLE users
               DROP COLUMN IF EXISTS business_tagline,
               DROP COLUMN IF EXISTS business_website,
               DROP COLUMN IF EXISTS business_display_name
-            """
-        )
-    )
+            """))
 
 
 def upgrade():

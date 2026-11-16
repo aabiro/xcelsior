@@ -93,20 +93,15 @@ def upgrade() -> None:
     op.execute("SET statement_timeout = '5min'")
 
     # ── CHECK expansion: hosts may now be pending admission ──────────
-    op.execute(
-        "ALTER TABLE hosts DROP CONSTRAINT IF EXISTS ck_hosts_administrative_state"
-    )
-    op.execute(
-        """
+    op.execute("ALTER TABLE hosts DROP CONSTRAINT IF EXISTS ck_hosts_administrative_state")
+    op.execute("""
         ALTER TABLE hosts ADD CONSTRAINT ck_hosts_administrative_state
         CHECK (administrative_state IN
                ('pending', 'admitted', 'draining', 'disabled'))
-        """
-    )
+        """)
 
     # ── jobs projection trigger ──────────────────────────────────────
-    op.execute(
-        f"""
+    op.execute(f"""
         CREATE OR REPLACE FUNCTION control_plane_project_job()
         RETURNS trigger AS $$
         BEGIN
@@ -123,20 +118,16 @@ def upgrade() -> None:
             RETURN NEW;
         END
         $$ LANGUAGE plpgsql
-        """
-    )
+        """)
     op.execute("DROP TRIGGER IF EXISTS trg_jobs_control_plane_projection ON jobs")
-    op.execute(
-        """
+    op.execute("""
         CREATE TRIGGER trg_jobs_control_plane_projection
         BEFORE INSERT OR UPDATE ON jobs
         FOR EACH ROW EXECUTE FUNCTION control_plane_project_job()
-        """
-    )
+        """)
 
     # ── hosts projection trigger ─────────────────────────────────────
-    op.execute(
-        f"""
+    op.execute(f"""
         CREATE OR REPLACE FUNCTION control_plane_project_host()
         RETURNS trigger AS $$
         BEGIN
@@ -147,20 +138,16 @@ def upgrade() -> None:
             RETURN NEW;
         END
         $$ LANGUAGE plpgsql
-        """
-    )
+        """)
     op.execute("DROP TRIGGER IF EXISTS trg_hosts_control_plane_projection ON hosts")
-    op.execute(
-        """
+    op.execute("""
         CREATE TRIGGER trg_hosts_control_plane_projection
         BEFORE INSERT OR UPDATE ON hosts
         FOR EACH ROW EXECUTE FUNCTION control_plane_project_host()
-        """
-    )
+        """)
 
     # ── drift backfill: rows written since 054's one-time backfill ───
-    op.execute(
-        f"""
+    op.execute(f"""
         UPDATE jobs SET
             phase = {_PHASE_CASE.format(src="status")},
             desired_state = {_DESIRED_CASE.format(src="status")},
@@ -174,18 +161,15 @@ def upgrade() -> None:
            OR desired_state IS NULL
            OR effective_priority IS DISTINCT FROM COALESCE(priority, 0)
            OR (status = 'queued' AND queued_at IS NULL)
-        """
-    )
+        """)
     # Hosts: re-derive ALL rows — 054's status-only rule wrongly admitted
     # hosts whose payload admitted flag is false; the fleet is small.
-    op.execute(
-        f"""
+    op.execute(f"""
         UPDATE hosts SET
             administrative_state =
                 {_HOST_ADMIN_CASE.format(status="status", payload="payload")},
             availability_state = {_HOST_AVAIL_CASE.format(status="status")}
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
@@ -196,22 +180,16 @@ def downgrade() -> None:
     op.execute("DROP TRIGGER IF EXISTS trg_hosts_control_plane_projection ON hosts")
     op.execute("DROP FUNCTION IF EXISTS control_plane_project_host()")
     # Restore 054's loose admitted rule so its CHECK can be reinstated.
-    op.execute(
-        """
+    op.execute("""
         UPDATE hosts SET administrative_state = CASE status
             WHEN 'disabled' THEN 'disabled'
             WHEN 'draining' THEN 'draining'
             ELSE 'admitted'
         END
         WHERE administrative_state = 'pending'
-        """
-    )
-    op.execute(
-        "ALTER TABLE hosts DROP CONSTRAINT IF EXISTS ck_hosts_administrative_state"
-    )
-    op.execute(
-        """
+        """)
+    op.execute("ALTER TABLE hosts DROP CONSTRAINT IF EXISTS ck_hosts_administrative_state")
+    op.execute("""
         ALTER TABLE hosts ADD CONSTRAINT ck_hosts_administrative_state
         CHECK (administrative_state IN ('admitted', 'draining', 'disabled'))
-        """
-    )
+        """)

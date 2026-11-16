@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Load .env file
-dotenv_path = Path(__file__).resolve().parent.parent / '.env'
+dotenv_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=dotenv_path)
 
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "xcelsior-gpu")
@@ -18,6 +18,7 @@ AGENT_KEY = os.environ.get("AGENT_PLATFORM_API_KEY") or os.environ.get("AGENT_AP
 
 # Check for dry run
 DRY_RUN = os.environ.get("DRY_RUN", "0").lower() in ("1", "true", "yes") or "--dry-run" in sys.argv
+
 
 def list_vertex_models_with_key(api_key, project_id, region):
     print(f"\n=== [Listing Enterprise Vertex AI Models for Project: {project_id}] ===")
@@ -54,6 +55,7 @@ def list_vertex_models_with_key(api_key, project_id, region):
     except Exception as e:
         print(f"Request failed: {e}")
     return None
+
 
 if __name__ == "__main__":
     list_vertex_models_with_key(AGENT_KEY, PROJECT_ID, REGION)

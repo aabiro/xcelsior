@@ -48,13 +48,11 @@ def upgrade() -> None:
     # CONCURRENTLY is not available inside a migration transaction, and this
     # table is small (one row per deposit intent, not per event), so an ordinary
     # index under the lock timeout above is the right trade.
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_crypto_deposits_idempotency
             ON crypto_deposits (customer_id, idempotency_key)
          WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

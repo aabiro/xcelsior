@@ -43,8 +43,12 @@ EVENT_SEVERITY_SQL = """COALESCE(
     END)"""
 
 VERBOSE_EVENT_TYPES = (
-    'job_log', 'spot_prices', 'host_update', 'job.lease.renewed',
-    'host.updated', 'security.version_check',
+    "job_log",
+    "spot_prices",
+    "host_update",
+    "job.lease.renewed",
+    "host.updated",
+    "security.version_check",
 )
 
 
@@ -521,7 +525,9 @@ class EventStore:
             clauses.append("event_type = %s")
             params.append(event_type)
         if query:
-            clauses.append("concat_ws(' ', event_type, entity_type, entity_id, actor, data::text) ILIKE %s")
+            clauses.append(
+                "concat_ws(' ', event_type, entity_type, entity_id, actor, data::text) ILIKE %s"
+            )
             params.append(f"%{query}%")
         severity_sql = EVENT_SEVERITY_SQL
         if severity:

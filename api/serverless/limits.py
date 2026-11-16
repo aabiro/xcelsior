@@ -135,9 +135,7 @@ def _local_deque_check(key_id: str, rpm: int) -> RateLimitInfo:
         bucket.popleft()
     reset_at = (bucket[0] + _RATE_WINDOW_SEC) if bucket else (now + _RATE_WINDOW_SEC)
     if len(bucket) >= limit:
-        raise RateLimitExceeded(
-            RateLimitInfo(limit=limit, remaining=0, reset_at=reset_at)
-        )
+        raise RateLimitExceeded(RateLimitInfo(limit=limit, remaining=0, reset_at=reset_at))
     bucket.append(now)
     return RateLimitInfo(
         limit=limit,
@@ -170,14 +168,13 @@ def check_key_rate_limit(key_id: str, rpm: int) -> RateLimitInfo:
     if policy is RateLimitPolicy.UPSTREAM_ENFORCED:
         # A tested gateway owns the global limit; do not enforce (and do
         # not fabricate per-process quotas). Report permissive info.
-        return RateLimitInfo(
-            limit=limit, remaining=limit, reset_at=time.time() + _RATE_WINDOW_SEC
-        )
+        return RateLimitInfo(limit=limit, remaining=limit, reset_at=time.time() + _RATE_WINDOW_SEC)
 
     # strict-deny: fail closed rather than admit unbounded per-process load.
     log.error(
         "serverless rate limiter unavailable (policy=strict-deny) — denying "
-        "key=%s; the global Redis limiter is not in effect", key_id,
+        "key=%s; the global Redis limiter is not in effect",
+        key_id,
     )
     raise RateLimiterUnavailable(
         RateLimitInfo(limit=limit, remaining=0, reset_at=time.time() + _RATE_WINDOW_SEC)

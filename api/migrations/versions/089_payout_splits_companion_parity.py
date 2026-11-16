@@ -30,24 +30,20 @@ def upgrade() -> None:
     op.execute("SET statement_timeout = '5min'")
 
     # §4.4.5 — the last float time column on this table.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE payout_splits
             ALTER COLUMN created_at TYPE TIMESTAMPTZ
                 USING to_timestamp(created_at),
             ALTER COLUMN created_at SET DEFAULT now()
-        """
-    )
+        """)
 
     # §4.4.10 — explicit tenant ownership.
     op.execute("ALTER TABLE payout_splits ADD COLUMN IF NOT EXISTS tenant_id TEXT")
-    op.execute(
-        """
+    op.execute("""
         UPDATE payout_splits
            SET tenant_id = COALESCE(NULLIF(customer_id, ''), provider_id, job_id)
          WHERE tenant_id IS NULL
-        """
-    )
+        """)
     op.execute("ALTER TABLE payout_splits ALTER COLUMN tenant_id SET NOT NULL")
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_payout_splits_tenant "
@@ -61,11 +57,9 @@ def downgrade() -> None:
 
     op.execute("DROP INDEX IF EXISTS idx_payout_splits_tenant")
     op.execute("ALTER TABLE payout_splits DROP COLUMN IF EXISTS tenant_id")
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE payout_splits
             ALTER COLUMN created_at DROP DEFAULT,
             ALTER COLUMN created_at TYPE DOUBLE PRECISION
                 USING extract(epoch FROM created_at)
-        """
-    )
+        """)

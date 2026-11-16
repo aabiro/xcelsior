@@ -54,13 +54,44 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 DTYPE = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
 POLLUTE_TAGS = {
-    "watermark", "third-party edit", "letterboxed", "pillarboxed", "recording",
-    "screencap", "photoshop (medium)", "text", "english text", "signature",
-    "logo", "username", "artist name", "patreon", "patreon username",
-    "patreon logo", "web address", "url", "subtitles", "dated", "timestamp",
-    "border", "white border", "black border", "frame", "comic", "speech bubble",
-    "censored", "mosaic censoring", "bar censor", "bad anatomy", "bad hands",
-    "lowres", "jpeg artifacts", "blurry", "duplicate", "error", "cropped"
+    "watermark",
+    "third-party edit",
+    "letterboxed",
+    "pillarboxed",
+    "recording",
+    "screencap",
+    "photoshop (medium)",
+    "text",
+    "english text",
+    "signature",
+    "logo",
+    "username",
+    "artist name",
+    "patreon",
+    "patreon username",
+    "patreon logo",
+    "web address",
+    "url",
+    "subtitles",
+    "dated",
+    "timestamp",
+    "border",
+    "white border",
+    "black border",
+    "frame",
+    "comic",
+    "speech bubble",
+    "censored",
+    "mosaic censoring",
+    "bar censor",
+    "bad anatomy",
+    "bad hands",
+    "lowres",
+    "jpeg artifacts",
+    "blurry",
+    "duplicate",
+    "error",
+    "cropped",
 }
 
 
@@ -98,7 +129,9 @@ def compute_image_scene_descriptor_and_mask(img_np: np.ndarray) -> tuple[str, np
     yy, xx = np.mgrid[0:h, 0:w]
     cy, cx = h * 0.5, w * 0.5
     spatial_prior = np.exp(-(((yy - cy) / (h * 0.42)) ** 2 + ((xx - cx) / (w * 0.42)) ** 2))
-    fg_prob = np.clip(0.55 * spatial_prior + 0.45 * (skin_score > 0.08).astype(np.float32), 0.0, 1.0)
+    fg_prob = np.clip(
+        0.55 * spatial_prior + 0.45 * (skin_score > 0.08).astype(np.float32), 0.0, 1.0
+    )
 
     # Background pixels weighted at 0.1, foreground subject/anatomy at 1.0
     weights = np.where(fg_prob >= 0.32, 1.0, 0.1).astype(np.float32)
@@ -110,9 +143,9 @@ def compute_image_scene_descriptor_and_mask(img_np: np.ndarray) -> tuple[str, np
     corner_mask = np.zeros((h, w), dtype=bool)
     ch, cw = int(h * 0.14), int(w * 0.28)
     corner_mask[:ch, :cw] = True
-    corner_mask[:ch, w - cw:] = True
-    corner_mask[h - ch:, :cw] = True
-    corner_mask[h - ch:, w - cw:] = True
+    corner_mask[:ch, w - cw :] = True
+    corner_mask[h - ch :, :cw] = True
+    corner_mask[h - ch :, w - cw :] = True
     text_like = corner_mask & (grad > 0.28) & ((lum > 0.82) | (lum < 0.18))
     weights = weights * mask_full
     weights[text_like] = 0.0
@@ -154,7 +187,9 @@ def run_phase1_captions_and_masks():
     mask_cache_path = WORKSPACE / "datasets" / "pxloraxx_masks_64x64.pt"
     png_files = sorted(DATASET_DIR.glob("*.png"))
     if mask_cache_path.exists():
-        print(f"  [Phase 1] Reusing existing {mask_cache_path} ({len(png_files)} images already cleaned)!")
+        print(
+            f"  [Phase 1] Reusing existing {mask_cache_path} ({len(png_files)} images already cleaned)!"
+        )
         sample_captions = []
         for p in png_files[:3]:
             cap = p.with_suffix(".txt").read_text(encoding="utf-8", errors="ignore").strip()
@@ -175,7 +210,11 @@ def run_phase1_captions_and_masks():
 
     for idx, png_path in enumerate(png_files):
         txt_path = png_path.with_suffix(".txt")
-        raw_text = txt_path.read_text(encoding="utf-8", errors="ignore").strip() if txt_path.exists() else ""
+        raw_text = (
+            txt_path.read_text(encoding="utf-8", errors="ignore").strip()
+            if txt_path.exists()
+            else ""
+        )
 
         # Parse original tags (strip old buggy heuristic template prefix)
         parts = [p.strip() for p in raw_text.split(",") if p.strip()]
@@ -185,11 +224,24 @@ def run_phase1_captions_and_masks():
             p_low = p.lower()
             if p_low == "pxloraxx":
                 continue
-            if p_low.startswith("a realistic photograph of ") or p_low.startswith("realistic skin texture"):
+            if p_low.startswith("a realistic photograph of ") or p_low.startswith(
+                "realistic skin texture"
+            ):
                 continue
             if p_low.startswith("natural indoor lighting and sharp focus"):
                 continue
-            if p_low in POLLUTE_TAGS or any(w in p_low for w in ["watermark", "logo", "patreon", "letterbox", "screencap", "subtitles", "censored"]):
+            if p_low in POLLUTE_TAGS or any(
+                w in p_low
+                for w in [
+                    "watermark",
+                    "logo",
+                    "patreon",
+                    "letterbox",
+                    "screencap",
+                    "subtitles",
+                    "censored",
+                ]
+            ):
                 pollute_removed_total += 1
                 continue
             if p_low not in seen:
@@ -198,8 +250,13 @@ def run_phase1_captions_and_masks():
 
         # Determine accurate subject semantics from actual tags (no false 'woman and a man' on solo shots!)
         tag_set = {t.lower() for t in clean_tags}
-        has_girl = any(k in tag_set for k in ["1girl", "2girls", "female focus", "woman", "breasts", "pussy"])
-        has_boy = any(k in tag_set for k in ["1boy", "2boys", "male focus", "penis", " erection", "erection", "testicles"])
+        has_girl = any(
+            k in tag_set for k in ["1girl", "2girls", "female focus", "woman", "breasts", "pussy"]
+        )
+        has_boy = any(
+            k in tag_set
+            for k in ["1boy", "2boys", "male focus", "penis", " erection", "erection", "testicles"]
+        )
         is_solo = "solo" in tag_set
 
         if is_solo and has_boy and not has_girl:
@@ -207,7 +264,9 @@ def run_phase1_captions_and_masks():
         elif is_solo and has_girl and not has_boy:
             subject_phrase = "a high-resolution candid studio photograph of a solo adult woman"
         elif has_girl and has_boy:
-            subject_phrase = "a high-resolution intimate photograph of an adult woman and an adult man together"
+            subject_phrase = (
+                "a high-resolution intimate photograph of an adult woman and an adult man together"
+            )
         elif has_girl:
             subject_phrase = "a high-resolution photograph focused on an adult woman"
         elif has_boy:
@@ -216,8 +275,15 @@ def run_phase1_captions_and_masks():
             subject_phrase = "a high-resolution close-up anatomical photograph of an adult subject"
 
         # Extract pose/framing/anatomical context from top tags for natural sentence
-        pose_bits = [t for t in clean_tags[:14] if t.lower() not in {"1girl", "1boy", "2girls", "2boys", "solo", "male focus", "female focus"}]
-        pose_clause = ", ".join(pose_bits[:6]) if pose_bits else "natural posture and authentic skin detail"
+        pose_bits = [
+            t
+            for t in clean_tags[:14]
+            if t.lower()
+            not in {"1girl", "1boy", "2girls", "2boys", "solo", "male focus", "female focus"}
+        ]
+        pose_clause = (
+            ", ".join(pose_bits[:6]) if pose_bits else "natural posture and authentic skin detail"
+        )
 
         img = Image.open(png_path).convert("RGB").resize((512, 512), Image.Resampling.BICUBIC)
         img_np = np.asarray(img)
@@ -228,14 +294,18 @@ def run_phase1_captions_and_masks():
         # pxloraxx, <Rich Natural Language Scene Description>, <Cleaned Danbooru/JoyTag Tags>
         nl_sentence = f"{subject_phrase} with {pose_clause}, {scene_desc}, sharp anatomical fidelity, unretouched epidermis, zero watermarks or text overlays"
         tag_tail = ", ".join(clean_tags[:32])
-        final_caption = f"pxloraxx, {nl_sentence}, {tag_tail}" if tag_tail else f"pxloraxx, {nl_sentence}"
+        final_caption = (
+            f"pxloraxx, {nl_sentence}, {tag_tail}" if tag_tail else f"pxloraxx, {nl_sentence}"
+        )
         txt_path.write_text(final_caption + "\n", encoding="utf-8")
         cleaned_count += 1
 
         if idx < 3:
             sample_captions.append({"file": png_path.name, "caption": final_caption[:260]})
         if (idx + 1) % 500 == 0 or (idx + 1) == len(png_files):
-            print(f"  [Phase 1] Processed {idx + 1}/{len(png_files)} images + masks ({time.time() - t0:.1f}s)")
+            print(
+                f"  [Phase 1] Processed {idx + 1}/{len(png_files)} images + masks ({time.time() - t0:.1f}s)"
+            )
 
     mask_cache_path = WORKSPACE / "datasets" / "pxloraxx_masks_64x64.pt"
     torch.save(masks_dict, mask_cache_path)
@@ -250,6 +320,7 @@ def run_phase1_captions_and_masks():
 
 class LoRALinear(nn.Module):
     """Low-Rank Adaptation wrapper for UNet Linear projections with Kohya-compatible export."""
+
     def __init__(self, orig: nn.Linear, rank: int, alpha: float):
         super().__init__()
         self.orig = orig
@@ -258,8 +329,12 @@ class LoRALinear(nn.Module):
         self.rank = rank
         self.alpha = alpha
         self.scale = alpha / float(rank)
-        self.lora_down = nn.Linear(orig.in_features, rank, bias=False, device=orig.weight.device, dtype=torch.float32)
-        self.lora_up = nn.Linear(rank, orig.out_features, bias=False, device=orig.weight.device, dtype=torch.float32)
+        self.lora_down = nn.Linear(
+            orig.in_features, rank, bias=False, device=orig.weight.device, dtype=torch.float32
+        )
+        self.lora_up = nn.Linear(
+            rank, orig.out_features, bias=False, device=orig.weight.device, dtype=torch.float32
+        )
         nn.init.kaiming_uniform_(self.lora_down.weight, a=math.sqrt(5))
         nn.init.zeros_(self.lora_up.weight)
 
@@ -271,7 +346,16 @@ class LoRALinear(nn.Module):
 
 def inject_unet_lora(unet: nn.Module, rank: int, alpha: float) -> dict[str, LoRALinear]:
     lora_modules = {}
-    target_suffixes = ("to_q", "to_k", "to_v", "to_out.0", "add_k_proj", "add_v_proj", "proj_in", "proj_out")
+    target_suffixes = (
+        "to_q",
+        "to_k",
+        "to_v",
+        "to_out.0",
+        "add_k_proj",
+        "add_v_proj",
+        "proj_in",
+        "proj_out",
+    )
     for name, module in list(unet.named_modules()):
         if isinstance(module, nn.Linear) and any(name.endswith(s) for s in target_suffixes):
             parent_name, child_name = name.rsplit(".", 1)
@@ -291,29 +375,43 @@ def strip_unet_lora(unet: nn.Module):
             setattr(parent, child_name, module.orig)
 
 
-def export_kohya_safetensors(lora_modules: dict[str, LoRALinear], out_path: Path, metadata: dict[str, str]):
+def export_kohya_safetensors(
+    lora_modules: dict[str, LoRALinear], out_path: Path, metadata: dict[str, str]
+):
     state = {}
     for kohya_key, mod in lora_modules.items():
-        state[f"{kohya_key}.lora_down.weight"] = mod.lora_down.weight.detach().to(torch.float16).cpu().contiguous()
-        state[f"{kohya_key}.lora_up.weight"] = mod.lora_up.weight.detach().to(torch.float16).cpu().contiguous()
+        state[f"{kohya_key}.lora_down.weight"] = (
+            mod.lora_down.weight.detach().to(torch.float16).cpu().contiguous()
+        )
+        state[f"{kohya_key}.lora_up.weight"] = (
+            mod.lora_up.weight.detach().to(torch.float16).cpu().contiguous()
+        )
         state[f"{kohya_key}.alpha"] = torch.tensor(mod.alpha, dtype=torch.float16)
     save_file(state, str(out_path), metadata=metadata)
 
 
 def run_phase2_h100_pxloraxx_training():
     t0 = time.time()
-    print("\n=== PHASE 2: H100 80GB bf16 From-0 Diffusion LoRA Training (r64 & r128, 10 Epochs + GPO) ===")
+    print(
+        "\n=== PHASE 2: H100 80GB bf16 From-0 Diffusion LoRA Training (r64 & r128, 10 Epochs + GPO) ==="
+    )
     from diffusers import AutoencoderKL, UNet2DConditionModel, DDPMScheduler
     from transformers import AutoTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 
     model_id = "stabilityai/sdxl-turbo"
     print(f"Loading {model_id} onto {DEVICE} ({DTYPE})...")
-    vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float32).to(DEVICE)
+    vae = AutoencoderKL.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float32).to(
+        DEVICE
+    )
     vae.eval()
     tokenizer_1 = AutoTokenizer.from_pretrained(model_id, subfolder="tokenizer", use_fast=False)
     tokenizer_2 = AutoTokenizer.from_pretrained(model_id, subfolder="tokenizer_2", use_fast=False)
-    text_encoder_1 = CLIPTextModel.from_pretrained(model_id, subfolder="text_encoder", torch_dtype=DTYPE).to(DEVICE)
-    text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(model_id, subfolder="text_encoder_2", torch_dtype=DTYPE).to(DEVICE)
+    text_encoder_1 = CLIPTextModel.from_pretrained(
+        model_id, subfolder="text_encoder", torch_dtype=DTYPE
+    ).to(DEVICE)
+    text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
+        model_id, subfolder="text_encoder_2", torch_dtype=DTYPE
+    ).to(DEVICE)
     text_encoder_1.eval()
     text_encoder_2.eval()
 
@@ -349,8 +447,20 @@ def run_phase2_h100_pxloraxx_training():
             pe_chunks = []
             pooled_out = None
             for chunk_caps in (caps_chunk1, caps_chunk2):
-                t1 = tokenizer_1(chunk_caps, padding="max_length", max_length=77, truncation=True, return_tensors="pt").input_ids.to(DEVICE)
-                t2 = tokenizer_2(chunk_caps, padding="max_length", max_length=77, truncation=True, return_tensors="pt").input_ids.to(DEVICE)
+                t1 = tokenizer_1(
+                    chunk_caps,
+                    padding="max_length",
+                    max_length=77,
+                    truncation=True,
+                    return_tensors="pt",
+                ).input_ids.to(DEVICE)
+                t2 = tokenizer_2(
+                    chunk_caps,
+                    padding="max_length",
+                    max_length=77,
+                    truncation=True,
+                    return_tensors="pt",
+                ).input_ids.to(DEVICE)
                 out1 = text_encoder_1(t1, output_hidden_states=True)
                 out2 = text_encoder_2(t2, output_hidden_states=True)
                 pe = torch.cat([out1.hidden_states[-2], out2.hidden_states[-2]], dim=-1).to(DTYPE)
@@ -364,16 +474,20 @@ def run_phase2_h100_pxloraxx_training():
             prompt_embeds_list.append(full_pe)
             pooled_embeds_list.append(pooled_out)
 
-    all_latents = torch.cat(latents_list, dim=0)       # [1869, 4, 64, 64]
+    all_latents = torch.cat(latents_list, dim=0)  # [1869, 4, 64, 64]
     all_masks = torch.stack(masks_list, dim=0).to(DEVICE, dtype=DTYPE)  # [1869, 1, 64, 64]
-    all_pe = torch.cat(prompt_embeds_list, dim=0)      # [1869, 154, 2048]
+    all_pe = torch.cat(prompt_embeds_list, dim=0)  # [1869, 154, 2048]
     all_pooled = torch.cat(pooled_embeds_list, dim=0)  # [1869, 1280]
 
     del vae, text_encoder_1, text_encoder_2
     torch.cuda.empty_cache()
-    print(f"Cached {all_latents.shape[0]} latents & 154-token long-context embeddings in {time.time() - t0:.1f}s")
+    print(
+        f"Cached {all_latents.shape[0]} latents & 154-token long-context embeddings in {time.time() - t0:.1f}s"
+    )
 
-    unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", torch_dtype=DTYPE).to(DEVICE)
+    unet = UNet2DConditionModel.from_pretrained(model_id, subfolder="unet", torch_dtype=DTYPE).to(
+        DEVICE
+    )
     unet.requires_grad_(False)
     scheduler = DDPMScheduler.from_pretrained(model_id, subfolder="scheduler")
     alphas_cumprod = scheduler.alphas_cumprod.to(DEVICE, dtype=torch.float32)
@@ -384,18 +498,31 @@ def run_phase2_h100_pxloraxx_training():
     results = {}
 
     for rank, alpha, tag in [(64, 32.0, "domain_lora_r64"), (128, 64.0, "domain_lora_r128")]:
-        print(f"\n--- Training {tag} (rank={rank}, alpha={alpha}) from 0 for {num_epochs} Epochs + GPO ---")
+        print(
+            f"\n--- Training {tag} (rank={rank}, alpha={alpha}) from 0 for {num_epochs} Epochs + GPO ---"
+        )
         strip_unet_lora(unet)
         lora_modules = inject_unet_lora(unet, rank=rank, alpha=alpha)
-        trainable_params = [p for m in lora_modules.values() for p in (m.lora_down.parameters(), m.lora_up.parameters()) for p in p]
+        trainable_params = [
+            p
+            for m in lora_modules.values()
+            for p in (m.lora_down.parameters(), m.lora_up.parameters())
+            for p in p
+        ]
         num_trainable = sum(p.numel() for p in trainable_params)
-        print(f"[{tag}] Injected {len(lora_modules)} LoRA modules ({num_trainable:,} trainable params)")
+        print(
+            f"[{tag}] Injected {len(lora_modules)} LoRA modules ({num_trainable:,} trainable params)"
+        )
 
         optimizer = torch.optim.AdamW(trainable_params, lr=1.2e-4, weight_decay=1e-2)
         total_steps = num_epochs * ((num_samples + batch_size - 1) // batch_size)
-        lr_sched = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=2e-5)
+        lr_sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=total_steps, eta_min=2e-5
+        )
 
-        add_time_ids_base = torch.tensor([[512.0, 512.0, 0.0, 0.0, 512.0, 512.0]], device=DEVICE, dtype=DTYPE)
+        add_time_ids_base = torch.tensor(
+            [[512.0, 512.0, 0.0, 0.0, 512.0, 512.0]], device=DEVICE, dtype=DTYPE
+        )
         epoch_logs = []
         best_epoch = 1
         best_gpo_score = -1e9
@@ -447,7 +574,9 @@ def run_phase2_h100_pxloraxx_training():
                 cos_fid = F.cosine_similarity(fg_x0.flatten(1), fg_gt.flatten(1), dim=1)
 
                 # Reward 2: Anti-deep-fry penalty (penalize latent std exceeding GT std by >15%)
-                std_ratio = x0_hat.std(dim=(1, 2, 3)) / lat.float().std(dim=(1, 2, 3)).clamp(min=0.1)
+                std_ratio = x0_hat.std(dim=(1, 2, 3)) / lat.float().std(dim=(1, 2, 3)).clamp(
+                    min=0.1
+                )
                 overcook_pen = F.relu(std_ratio - 1.12) * 1.5 + F.relu(0.85 - std_ratio) * 0.5
 
                 rewards = cos_fid - 0.5 * per_sample_mse.detach() - overcook_pen
@@ -479,12 +608,21 @@ def run_phase2_h100_pxloraxx_training():
                 for g_seed in range(8):
                     g_gen = torch.Generator(device=DEVICE).manual_seed(1000 + g_seed)
                     v_noise = torch.randn(v_lat.shape, generator=g_gen, device=DEVICE, dtype=DTYPE)
-                    v_t = torch.full((v_lat.shape[0],), 250 + g_seed * 75, device=DEVICE, dtype=torch.long)
+                    v_t = torch.full(
+                        (v_lat.shape[0],), 250 + g_seed * 75, device=DEVICE, dtype=torch.long
+                    )
                     v_noisy = scheduler.add_noise(v_lat, v_noise, v_t).to(DTYPE)
-                    v_pred = unet(v_noisy, v_t, encoder_hidden_states=v_pe, added_cond_kwargs={"text_embeds": v_pool, "time_ids": v_tids}).sample
+                    v_pred = unet(
+                        v_noisy,
+                        v_t,
+                        encoder_hidden_states=v_pe,
+                        added_cond_kwargs={"text_embeds": v_pool, "time_ids": v_tids},
+                    ).sample
                     v_mse = ((v_pred.float() - v_noise.float()) ** 2 * v_mask.float()).mean().item()
                     # Check high-epoch saturation / overcook drift on LoRA norm
-                    lora_norm = sum(m.lora_up.weight.norm().item() for m in lora_modules.values()) / len(lora_modules)
+                    lora_norm = sum(
+                        m.lora_up.weight.norm().item() for m in lora_modules.values()
+                    ) / len(lora_modules)
                     overcook_drift = max(0.0, (epoch - 6.5) * 0.012) if epoch >= 7 else 0.0
                     g_overcook.append(overcook_drift + 0.002 * lora_norm)
                     g_rewards.append(1.0 - v_mse - overcook_drift)
@@ -516,7 +654,9 @@ def run_phase2_h100_pxloraxx_training():
                 "elapsed_sec": round(time.time() - ep_t0, 2),
             }
             epoch_logs.append(ep_info)
-            print(f"  [{tag}] Epoch {epoch:02d}/10 | loss={ep_info['masked_mse_loss']:.5f} | GPO_val={mean_val_gpo:.5f} | overcook={mean_overcook:.4f} -> {ep_ckpt_name} ({ep_info['elapsed_sec']}s)")
+            print(
+                f"  [{tag}] Epoch {epoch:02d}/10 | loss={ep_info['masked_mse_loss']:.5f} | GPO_val={mean_val_gpo:.5f} | overcook={mean_overcook:.4f} -> {ep_ckpt_name} ({ep_info['elapsed_sec']}s)"
+            )
 
             # Sweet-spot promotion (TRAINING_LORA.md recommends Epochs 4-7 before overcooking)
             if 4 <= epoch <= 7 and mean_val_gpo > best_gpo_score:
@@ -527,7 +667,9 @@ def run_phase2_h100_pxloraxx_training():
         # Promote best sweet-spot epoch to canonical filename
         canonical_path = OUT_LORA / f"{tag}.safetensors"
         shutil.copy2(best_epoch_path, canonical_path)
-        print(f"==> Promoted sweet-spot Epoch {best_epoch:02d} ({best_epoch_path.name}) -> {canonical_path.name} (GPO={best_gpo_score:.5f})")
+        print(
+            f"==> Promoted sweet-spot Epoch {best_epoch:02d} ({best_epoch_path.name}) -> {canonical_path.name} (GPO={best_gpo_score:.5f})"
+        )
         results[tag] = {
             "rank": rank,
             "alpha": alpha,
@@ -548,11 +690,15 @@ def run_phase2_h100_pxloraxx_training():
 # PHASE 3: VTT Multi-Frame (T=8) + GPO & 64-D Scene-Context GPO Router (From 0)
 # ==============================================================================
 
+
 class ContinuousAgeModulationAdapter(nn.Module):
     """FADING continuous age-modulated cross-attention & residual adapter (ONNX-exportable)."""
+
     def __init__(self, channels: int = 320, fourier_dim: int = 64):
         super().__init__()
-        self.register_buffer("freqs", torch.exp(torch.linspace(0.0, math.log(100.0), fourier_dim // 2)))
+        self.register_buffer(
+            "freqs", torch.exp(torch.linspace(0.0, math.log(100.0), fourier_dim // 2))
+        )
         self.age_mlp = nn.Sequential(
             nn.Linear(fourier_dim + 29, 256),
             nn.SiLU(),
@@ -564,7 +710,9 @@ class ContinuousAgeModulationAdapter(nn.Module):
             nn.Conv2d(channels, channels, kernel_size=1),
         )
 
-    def forward(self, feat: torch.Tensor, age_norm: torch.Tensor, class_weights_29: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, feat: torch.Tensor, age_norm: torch.Tensor, class_weights_29: torch.Tensor
+    ) -> torch.Tensor:
         # feat: [B, 320, H, W], age_norm: [B, 1], class_weights_29: [B, 29]
         ang = age_norm * self.freqs.unsqueeze(0) * (2.0 * math.pi)
         fourier = torch.cat([torch.sin(ang), torch.cos(ang)], dim=-1)
@@ -579,6 +727,7 @@ class ContinuousAgeModulationAdapter(nn.Module):
 
 class VFRAConvLSTM(nn.Module):
     """Video Face Re-Aging (VFRA) ConvLSTM + Flow-Guided Temporal Fusion Network (T=8 window)."""
+
     def __init__(self, in_ch: int = 5, hidden_ch: int = 192):
         super().__init__()
         # in_ch = 3 (RGB frame) + 2 (optical flow dx, dy)
@@ -627,6 +776,7 @@ class VFRAConvLSTM(nn.Module):
 
 class GPOSceneContextRouter(nn.Module):
     """Upgraded 64-D SigLIP-2 + DINOv2 Scene-Context GPO Adaptive Router for pixelenhance-labs."""
+
     def __init__(self, state_dim: int = 64, hidden_dim: int = 256, num_actions: int = 8):
         super().__init__()
         self.backbone = nn.Sequential(
@@ -660,7 +810,9 @@ def run_phase3_vtt_and_gpo_router():
         ages = torch.rand(bs, 1, device=DEVICE)  # normalized 0..1 (18..85 yrs)
         cw29 = F.softmax(torch.randn(bs, 29, device=DEVICE), dim=-1)
         # Synthesize ground-truth age progression target with zero change when #29 watermark is active
-        target_shift = 0.15 * (ages - 0.35).view(bs, 1, 1, 1) * (1.0 - cw29[:, 28:29]).view(bs, 1, 1, 1)
+        target_shift = (
+            0.15 * (ages - 0.35).view(bs, 1, 1, 1) * (1.0 - cw29[:, 28:29]).view(bs, 1, 1, 1)
+        )
         target = feat * (1.0 + target_shift)
         out = fading_model(feat, ages, cw29)
         per_sample_loss = ((out - target) ** 2).mean(dim=(1, 2, 3))
@@ -680,7 +832,9 @@ def run_phase3_vtt_and_gpo_router():
         str(OUT_VTT / "fading_domain_lora_v1.safetensors"),
         metadata={"pipeline": "FADING_continuous_age_29class_GPO_H100", "temporal_context": "T=8"},
     )
-    print(f"  [3A] Trained fading_domain_specialized_v1.pt ({fading_pt_path.stat().st_size / 1024:.1f} KB)")
+    print(
+        f"  [3A] Trained fading_domain_specialized_v1.pt ({fading_pt_path.stat().st_size / 1024:.1f} KB)"
+    )
 
     # 3B: Train VFRAConvLSTM (vfra_convlstm_v1.pt) from 0 with T=8 sliding temporal window in bf16 on H100!
     vfra_model = VFRAConvLSTM(in_ch=5, hidden_ch=192).to(DEVICE, dtype=DTYPE)
@@ -699,8 +853,12 @@ def run_phase3_vtt_and_gpo_router():
         pred_seq = vfra_model(noisy_seq, flow_seq)
         recon_l1 = (pred_seq.float() - clean_seq.float()).abs().mean(dim=(1, 2, 3, 4))
         # Temporal TRWC smoothness across all T=8 frames
-        temp_diff_pred = (pred_seq[:, 1:].float() - pred_seq[:, :-1].float()).abs().mean(dim=(1, 2, 3, 4))
-        temp_diff_gt = (clean_seq[:, 1:].float() - clean_seq[:, :-1].float()).abs().mean(dim=(1, 2, 3, 4))
+        temp_diff_pred = (
+            (pred_seq[:, 1:].float() - pred_seq[:, :-1].float()).abs().mean(dim=(1, 2, 3, 4))
+        )
+        temp_diff_gt = (
+            (clean_seq[:, 1:].float() - clean_seq[:, :-1].float()).abs().mean(dim=(1, 2, 3, 4))
+        )
         trwc_err = (temp_diff_pred - temp_diff_gt).abs()
 
         rewards = -(recon_l1.detach() + 1.5 * trwc_err.detach())
@@ -714,7 +872,9 @@ def run_phase3_vtt_and_gpo_router():
 
     vfra_pt_path = OUT_VTT / "vfra_convlstm_v1.pt"
     torch.save(vfra_model.float().cpu().state_dict(), vfra_pt_path)
-    print(f"  [3B] Trained vfra_convlstm_v1.pt (T={t_window} window, {vfra_pt_path.stat().st_size / (1024*1024):.2f} MB, final TRWC={ float(trwc_err.mean().item()):.5f})")
+    print(
+        f"  [3B] Trained vfra_convlstm_v1.pt (T={t_window} window, {vfra_pt_path.stat().st_size / (1024*1024):.2f} MB, final TRWC={ float(trwc_err.mean().item()):.5f})"
+    )
 
     # 3C: Train 64-D Scene-Context GPO Router (ppo_routing_best.pt) from 0 with G=8 rollouts per state
     router = GPOSceneContextRouter(state_dim=64, hidden_dim=256, num_actions=8).to(DEVICE)
@@ -733,7 +893,9 @@ def run_phase3_vtt_and_gpo_router():
         sampled_actions = torch.multinomial(probs, num_samples=8, replacement=True)  # [bs, 8]
         # Reward: +1.0 for matching oracle specialist, +0.4 for top-2, -0.2 latency penalty
         top2 = state_64d[:, :8].topk(2, dim=-1).indices[:, 1:2]
-        r_group = (sampled_actions == oracle_action.unsqueeze(1)).float() * 1.0 + (sampled_actions == top2).float() * 0.4
+        r_group = (sampled_actions == oracle_action.unsqueeze(1)).float() * 1.0 + (
+            sampled_actions == top2
+        ).float() * 0.4
         r_mean = r_group.mean(dim=1, keepdim=True)
         r_std = r_group.std(dim=1, keepdim=True) + 1e-5
         adv_group = (r_group - r_mean) / r_std  # [bs, 8]
@@ -751,7 +913,9 @@ def run_phase3_vtt_and_gpo_router():
 
     router_pt_path = OUT_VTT / "ppo_routing_best.pt"
     torch.save(router.cpu().state_dict(), router_pt_path)
-    print(f"  [3C] Trained 64-D GPO Router ppo_routing_best.pt (top-1 oracle match={gpo_acc*100:.2f}%)")
+    print(
+        f"  [3C] Trained 64-D GPO Router ppo_routing_best.pt (top-1 oracle match={gpo_acc*100:.2f}%)"
+    )
 
     return {
         "fading_domain_specialized_v1": {
@@ -778,8 +942,10 @@ def run_phase3_vtt_and_gpo_router():
 # PHASE 4: Export All Missing .onnx Models on H100
 # ==============================================================================
 
+
 class PerPartAgeJudgeExport(nn.Module):
     """ONNX-exportable wrapper matching PerPartAgeJudge (r128_v1, 541,897 params)."""
+
     def __init__(self):
         super().__init__()
         self.stem = nn.Sequential(
@@ -812,6 +978,7 @@ class PerPartAgeJudgeExport(nn.Module):
 
 class GMFlowLiteOpticalFlow(nn.Module):
     """ONNX-exportable GMFlow Sintel optical flow matching network."""
+
     def __init__(self):
         super().__init__()
         self.backbone = nn.Sequential(
@@ -840,7 +1007,13 @@ def run_phase4_export_missing_onnx():
 
     exported = {}
 
-    def _export_and_verify(model: nn.Module, dummy_inputs: tuple, out_name: str, input_names: list[str], output_names: list[str]):
+    def _export_and_verify(
+        model: nn.Module,
+        dummy_inputs: tuple,
+        out_name: str,
+        input_names: list[str],
+        output_names: list[str],
+    ):
         model.eval().cpu()
         out_path = OUT_ONNX / out_name
         torch.onnx.export(
@@ -860,14 +1033,24 @@ def run_phase4_export_missing_onnx():
         outs = sess.run(None, feed)
         sz_mb = round(out_path.stat().st_size / (1024 * 1024), 3)
         print(f"  [ONNX OK] {out_name} ({sz_mb} MB) -> output shape {outs[0].shape}")
-        exported[out_name] = {"path": str(out_path), "size_mb": sz_mb, "output_shape": list(outs[0].shape)}
+        exported[out_name] = {
+            "path": str(out_path),
+            "size_mb": sz_mb,
+            "output_shape": list(outs[0].shape),
+        }
 
     # 1. fading_domain_specialized_v1.onnx
     fading_m = ContinuousAgeModulationAdapter(channels=320, fourier_dim=64)
-    fading_m.load_state_dict(torch.load(OUT_VTT / "fading_domain_specialized_v1.pt", map_location="cpu"))
+    fading_m.load_state_dict(
+        torch.load(OUT_VTT / "fading_domain_specialized_v1.pt", map_location="cpu")
+    )
     _export_and_verify(
         fading_m,
-        (torch.randn(1, 320, 32, 32), torch.tensor([[0.65]]), F.softmax(torch.randn(1, 29), dim=-1)),
+        (
+            torch.randn(1, 320, 32, 32),
+            torch.tensor([[0.65]]),
+            F.softmax(torch.randn(1, 29), dim=-1),
+        ),
         "fading_domain_specialized_v1.onnx",
         ["feat", "age_norm", "class_weights_29"],
         ["modulated_feat"],
@@ -915,24 +1098,44 @@ def run_phase4_export_missing_onnx():
         ["optical_flow"],
     )
 
-    return {"models_exported": len(exported), "exports": exported, "elapsed_sec": round(time.time() - t0, 2)}
+    return {
+        "models_exported": len(exported),
+        "exports": exported,
+        "elapsed_sec": round(time.time() - t0, 2),
+    }
 
 
 def main():
     overall_t0 = time.time()
-    print(f"Starting Batch 13 Cloud H100 Master Pipeline on {torch.cuda.get_device_name(0)} (VRAM={torch.cuda.get_device_properties(0).total_memory / (1024**3):.1f} GB)")
+    print(
+        f"Starting Batch 13 Cloud H100 Master Pipeline on {torch.cuda.get_device_name(0)} (VRAM={torch.cuda.get_device_properties(0).total_memory / (1024**3):.1f} GB)"
+    )
     p1 = run_phase1_captions_and_masks()
-    if (OUT_LORA / "domain_lora_r64.safetensors").exists() and (OUT_LORA / "domain_lora_r128.safetensors").exists():
-        print("\n=== PHASE 2: Reusing completed H100 10-epoch + GPO checkpoints for domain_lora_r64 & domain_lora_r128 ===")
+    if (OUT_LORA / "domain_lora_r64.safetensors").exists() and (
+        OUT_LORA / "domain_lora_r128.safetensors"
+    ).exists():
+        print(
+            "\n=== PHASE 2: Reusing completed H100 10-epoch + GPO checkpoints for domain_lora_r64 & domain_lora_r128 ==="
+        )
         p2 = {
-            "domain_lora_r64": {"promoted_epoch": 6, "best_gpo_score": 0.93389, "best_checkpoint": str(OUT_LORA / "domain_lora_r64.safetensors")},
-            "domain_lora_r128": {"promoted_epoch": 6, "best_gpo_score": 0.93398, "best_checkpoint": str(OUT_LORA / "domain_lora_r128.safetensors")},
+            "domain_lora_r64": {
+                "promoted_epoch": 6,
+                "best_gpo_score": 0.93389,
+                "best_checkpoint": str(OUT_LORA / "domain_lora_r64.safetensors"),
+            },
+            "domain_lora_r128": {
+                "promoted_epoch": 6,
+                "best_gpo_score": 0.93398,
+                "best_checkpoint": str(OUT_LORA / "domain_lora_r128.safetensors"),
+            },
         }
     else:
         p2 = run_phase2_h100_pxloraxx_training()
 
     if (OUT_VTT / "ppo_routing_best.pt").exists() and (OUT_VTT / "vfra_convlstm_v1.pt").exists():
-        print("\n=== PHASE 3: Reusing completed H100 VTT (FADING + VFRA T=8) & 64-D GPO Router checkpoints ===")
+        print(
+            "\n=== PHASE 3: Reusing completed H100 VTT (FADING + VFRA T=8) & 64-D GPO Router checkpoints ==="
+        )
         p3 = {
             "fading_domain_specialized_v1_pt": str(OUT_VTT / "fading_domain_specialized_v1.pt"),
             "vfra_convlstm_v1_pt": str(OUT_VTT / "vfra_convlstm_v1.pt"),
@@ -956,7 +1159,9 @@ def main():
     }
     report_path = WORKSPACE / "outputs" / "batch13_h100_summary.json"
     report_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(f"\n=== ALL 4 H100 PHASES COMPLETE in {summary['total_elapsed_sec']}s -> {report_path} ===")
+    print(
+        f"\n=== ALL 4 H100 PHASES COMPLETE in {summary['total_elapsed_sec']}s -> {report_path} ==="
+    )
 
 
 if __name__ == "__main__":

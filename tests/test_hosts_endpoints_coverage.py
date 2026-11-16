@@ -290,7 +290,12 @@ def test_worker_oauth_status_patch_is_an_authenticated_tombstone(user_headers):
 
     resp = client.post(
         "/instance",
-        json={"name": "oauth-patch", "vram_needed_gb": 0, "interactive": True, "gpu_model": "RTX 4090"},
+        json={
+            "name": "oauth-patch",
+            "vram_needed_gb": 0,
+            "interactive": True,
+            "gpu_model": "RTX 4090",
+        },
         headers=user_headers["headers"],
     )
     assert resp.status_code == 200, resp.text
@@ -310,27 +315,36 @@ def test_worker_oauth_status_patch_is_an_authenticated_tombstone(user_headers):
     assert job["status"] == "queued" and not job.get("host_id")
 
 
-
-@pytest.mark.parametrize("location",[
-    {"country":"CA","province":""},
-    {"country":"CA","province":"ON","region":"ca-east"},
-    {"country":"XX","province":"ON"},
-    {"country":"US","province":"ON"},
-])
-def test_host_registration_refuses_missing_or_conflicting_location(user_headers,location):
-    response=client.post("/api/hosts/register",headers=user_headers["headers"],json={
-        "hostname":"location-validation", "gpu_model":"RTX 4090", "vram_gb":24, **location,
-    })
+@pytest.mark.parametrize(
+    "location",
+    [
+        {"country": "CA", "province": ""},
+        {"country": "CA", "province": "ON", "region": "ca-east"},
+        {"country": "XX", "province": "ON"},
+        {"country": "US", "province": "ON"},
+    ],
+)
+def test_host_registration_refuses_missing_or_conflicting_location(user_headers, location):
+    response = client.post(
+        "/api/hosts/register",
+        headers=user_headers["headers"],
+        json={
+            "hostname": "location-validation",
+            "gpu_model": "RTX 4090",
+            "vram_gb": 24,
+            **location,
+        },
+    )
     assert response.status_code == 422, response.text
 
 
 def test_location_catalog_uses_country_names_and_valid_subdivisions():
-    response=client.get("/api/locations?country=CA")
+    response = client.get("/api/locations?country=CA")
     assert response.status_code == 200
-    data=response.json()
+    data = response.json()
     assert len(data["countries"]) >= 249
-    assert {item["code"]:item["name"] for item in data["countries"]}["CA"] == "Canada"
-    assert {item["code"]:item["name"] for item in data["subdivisions"]}["ON"] == "Ontario"
+    assert {item["code"]: item["name"] for item in data["countries"]}["CA"] == "Canada"
+    assert {item["code"]: item["name"] for item in data["subdivisions"]}["ON"] == "Ontario"
     assert client.get("/api/locations?country=XX").status_code == 422
 
 
@@ -370,7 +384,11 @@ def _photon(monkeypatch, features, calls=None, status=200, by_country=None):
             calls.append((url, kwargs))
         limit = dict(kwargs["params"]).get("countrycode")
         chosen = (by_country or {}).get(limit, features) if limit else features
-        return httpx.Response(status, json={"type": "FeatureCollection", "features": chosen}, request=httpx.Request("GET", url))
+        return httpx.Response(
+            status,
+            json={"type": "FeatureCollection", "features": chosen},
+            request=httpx.Request("GET", url),
+        )
 
     monkeypatch.setattr(httpx, "get", provider)
 
@@ -380,25 +398,50 @@ def _feature(**properties):
 
 
 def _search(user_headers, body, **headers):
-    return client.post("/api/locations/search", headers={**user_headers["headers"], **headers}, json=body)
+    return client.post(
+        "/api/locations/search", headers={**user_headers["headers"], **headers}, json=body
+    )
 
 
-def test_address_search_needs_no_key_and_fills_every_field_from_one_request(user_headers, monkeypatch):
+def test_address_search_needs_no_key_and_fills_every_field_from_one_request(
+    user_headers, monkeypatch
+):
     calls = []
     monkeypatch.delenv("XCELSIOR_PHOTON_URL", raising=False)
-    _photon(monkeypatch, [_feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="n6b1z2", countrycode="CA")], calls)
+    _photon(
+        monkeypatch,
+        [
+            _feature(
+                housenumber="300",
+                street="Dufferin Avenue",
+                city="London",
+                state="Ontario",
+                postcode="n6b1z2",
+                countrycode="CA",
+            )
+        ],
+        calls,
+    )
     response = _search(user_headers, {"country": "CA", "text": "300 Dufferin", "lang": "fr"})
     assert response.status_code == 200, response.text
     (suggestion,) = response.json()["suggestions"]
     assert suggestion["address"] == {
-        "address_line1": "300 Dufferin Avenue", "address_line2": "", "city": "London",
-        "postal_code": "N6B 1Z2", "country": "CA", "province": "ON",
+        "address_line1": "300 Dufferin Avenue",
+        "address_line2": "",
+        "city": "London",
+        "postal_code": "N6B 1Z2",
+        "country": "CA",
+        "province": "ON",
     }
     assert suggestion["description"] == "London, ON, N6B 1Z2, Canada"
-    (url, kwargs), = calls  # a chosen country is one request
+    ((url, kwargs),) = calls  # a chosen country is one request
     assert url == "https://photon.komoot.io/api/"
     params = kwargs["params"]
-    assert ("q", "300 Dufferin") in params and ("countrycode", "CA") in params and ("lang", "fr") in params
+    assert (
+        ("q", "300 Dufferin") in params
+        and ("countrycode", "CA") in params
+        and ("lang", "fr") in params
+    )
     assert {value for key, value in params if key == "layer"} == {"house", "street"}
     # Only the query goes out: no cookies, IP or account.
     assert set(kwargs["headers"]) == {"User-Agent"}
@@ -423,22 +466,57 @@ def test_address_search_uses_a_self_hosted_photon_when_one_is_set(user_headers, 
 
 def test_a_visitor_sees_their_own_country_first_without_losing_the_world(user_headers, monkeypatch):
     calls = []
-    near = [_feature(housenumber="1", street="Grafton Street", city="Dublin", postcode="D02 K198", countrycode="IE")]
+    near = [
+        _feature(
+            housenumber="1",
+            street="Grafton Street",
+            city="Dublin",
+            postcode="D02 K198",
+            countrycode="IE",
+        )
+    ]
     world = [
-        _feature(housenumber="1", street="Grafton Street", city="Grafton", state="MA", postcode="01519", countrycode="US"),
-        _feature(housenumber="1", street="Grafton Street", city="Dublin", postcode="D02 K198", countrycode="IE"),
+        _feature(
+            housenumber="1",
+            street="Grafton Street",
+            city="Grafton",
+            state="MA",
+            postcode="01519",
+            countrycode="US",
+        ),
+        _feature(
+            housenumber="1",
+            street="Grafton Street",
+            city="Dublin",
+            postcode="D02 K198",
+            countrycode="IE",
+        ),
     ]
     _photon(monkeypatch, world, calls, by_country={"IE": near})
     response = _search(user_headers, {"text": "1 Grafton Street"}, **{"CF-IPCountry": "IE"})
-    lines = [(s["address"]["city"], s["address"]["country"]) for s in response.json()["suggestions"]]
+    lines = [
+        (s["address"]["city"], s["address"]["country"]) for s in response.json()["suggestions"]
+    ]
     assert lines == [("Dublin", "IE"), ("Grafton", "US")]  # nearby first, the same door once
     assert [dict(kwargs["params"]).get("countrycode") for _, kwargs in calls] == ["IE", None]
-    assert response.json()["suggestions"][0]["address"]["province"] == "D"  # Dublin's county, from the city
+    assert (
+        response.json()["suggestions"][0]["address"]["province"] == "D"
+    )  # Dublin's county, from the city
 
 
 def test_a_strong_local_answer_costs_one_request(user_headers, monkeypatch):
     calls = []
-    near = [_feature(housenumber=str(n), street="King Street West", city="Toronto", state="ON", postcode="M5V 1J2", countrycode="CA") for n in range(1, 6)]
+    near = [
+        _feature(
+            housenumber=str(n),
+            street="King Street West",
+            city="Toronto",
+            state="ON",
+            postcode="M5V 1J2",
+            countrycode="CA",
+        )
+        for n in range(1, 6)
+    ]
     _photon(monkeypatch, [], calls, by_country={"CA": near})
     response = _search(user_headers, {"text": "King Street West"}, **{"CF-IPCountry": "CA"})
     assert len(response.json()["suggestions"]) == 5
@@ -446,18 +524,30 @@ def test_a_strong_local_answer_costs_one_request(user_headers, monkeypatch):
 
 
 @pytest.mark.parametrize("header", ["T1", "XX", "CA; x", ""])
-def test_a_visitor_country_that_is_not_one_searches_the_world_only(user_headers, monkeypatch, header):
+def test_a_visitor_country_that_is_not_one_searches_the_world_only(
+    user_headers, monkeypatch, header
+):
     calls = []
     _photon(monkeypatch, [], calls)
     _search(user_headers, {"text": "King Street"}, **({"CF-IPCountry": header} if header else {}))
     assert [dict(kwargs["params"]).get("countrycode") for _, kwargs in calls] == [None]
 
 
-def test_answers_are_cached_and_a_failing_service_is_left_alone_for_a_minute(user_headers, monkeypatch):
+def test_answers_are_cached_and_a_failing_service_is_left_alone_for_a_minute(
+    user_headers, monkeypatch
+):
     import httpx
 
     calls = []
-    _photon(monkeypatch, [_feature(housenumber="1", street="Main Street", city="Ottawa", state="ON", countrycode="CA")], calls)
+    _photon(
+        monkeypatch,
+        [
+            _feature(
+                housenumber="1", street="Main Street", city="Ottawa", state="ON", countrycode="CA"
+            )
+        ],
+        calls,
+    )
     first = _search(user_headers, {"country": "CA", "text": "1 Main Street"}).json()
     again = _search(user_headers, {"country": "CA", "text": "1 Main Street"}).json()
     assert first == again and len(calls) == 1
@@ -472,43 +562,123 @@ def test_answers_are_cached_and_a_failing_service_is_left_alone_for_a_minute(use
     assert len(calls) == 2  # the second failure never left this server
 
 
-@pytest.mark.parametrize("state,postcode,province", [
-    ("QC", "H3B 5L1", "QC"), ("Québec", "H3B 5L1", "QC"), ("Quebec", None, "QC"),
-    (None, "H3B 5L1", "QC"),       # no state named: Quebec's postal prefix H decides
-    ("Atlantis", None, ""),        # nothing to go on: the person picks
-])
-def test_address_search_fills_the_region_only_from_real_evidence(user_headers, monkeypatch, state, postcode, province):
-    _photon(monkeypatch, [_feature(housenumber="1000", street="Rue Sainte-Catherine Ouest", city="Montréal", state=state, postcode=postcode, countrycode="CA")])
+@pytest.mark.parametrize(
+    "state,postcode,province",
+    [
+        ("QC", "H3B 5L1", "QC"),
+        ("Québec", "H3B 5L1", "QC"),
+        ("Quebec", None, "QC"),
+        (None, "H3B 5L1", "QC"),  # no state named: Quebec's postal prefix H decides
+        ("Atlantis", None, ""),  # nothing to go on: the person picks
+    ],
+)
+def test_address_search_fills_the_region_only_from_real_evidence(
+    user_headers, monkeypatch, state, postcode, province
+):
+    _photon(
+        monkeypatch,
+        [
+            _feature(
+                housenumber="1000",
+                street="Rue Sainte-Catherine Ouest",
+                city="Montréal",
+                state=state,
+                postcode=postcode,
+                countrycode="CA",
+            )
+        ],
+    )
     response = _search(user_headers, {"text": "1000 Sainte-Catherine"})
     assert response.json()["suggestions"][0]["address"]["province"] == province
 
 
 def test_regions_come_from_the_name_the_country_uses(user_headers, monkeypatch):
-    _photon(monkeypatch, [
-        _feature(housenumber="77", street="Unter den Linden", city="Berlin", postcode="10117", countrycode="DE"),
-        _feature(housenumber="1", street="9", locality="Marunouchi 1", district="Chiyoda", city="Tokyo", state="東京都", postcode="1000005", countrycode="JP"),
-        _feature(housenumber="110", street="Sejong-daero", city="Seoul", postcode="04524", countrycode="KR"),
-        _feature(housenumber="42", street="Calle de Alcalá", city="Madrid", state="Comunidad de Madrid", postcode="28014", countrycode="ES"),
-        _feature(housenumber="10", street="Downing Street", city="London", state="England", postcode="SW1A 2AA", countrycode="GB"),
-    ])
-    found = {s["address"]["country"]: s for s in _search(user_headers, {"text": "anything at all"}).json()["suggestions"]}
-    assert found["DE"]["address"]["province"] == "BE"          # Berlin is its own Land
+    _photon(
+        monkeypatch,
+        [
+            _feature(
+                housenumber="77",
+                street="Unter den Linden",
+                city="Berlin",
+                postcode="10117",
+                countrycode="DE",
+            ),
+            _feature(
+                housenumber="1",
+                street="9",
+                locality="Marunouchi 1",
+                district="Chiyoda",
+                city="Tokyo",
+                state="東京都",
+                postcode="1000005",
+                countrycode="JP",
+            ),
+            _feature(
+                housenumber="110",
+                street="Sejong-daero",
+                city="Seoul",
+                postcode="04524",
+                countrycode="KR",
+            ),
+            _feature(
+                housenumber="42",
+                street="Calle de Alcalá",
+                city="Madrid",
+                state="Comunidad de Madrid",
+                postcode="28014",
+                countrycode="ES",
+            ),
+            _feature(
+                housenumber="10",
+                street="Downing Street",
+                city="London",
+                state="England",
+                postcode="SW1A 2AA",
+                countrycode="GB",
+            ),
+        ],
+    )
+    found = {
+        s["address"]["country"]: s
+        for s in _search(user_headers, {"text": "anything at all"}).json()["suggestions"]
+    }
+    assert found["DE"]["address"]["province"] == "BE"  # Berlin is its own Land
     assert found["JP"]["address"] == {
-        "address_line1": "Marunouchi 1-9-1", "address_line2": "", "city": "Chiyoda",
-        "postal_code": "100-0005", "country": "JP", "province": "13",
+        "address_line1": "Marunouchi 1-9-1",
+        "address_line2": "",
+        "city": "Chiyoda",
+        "postal_code": "100-0005",
+        "country": "JP",
+        "province": "13",
     }
     assert found["KR"]["address"]["province"] == "11"
-    assert found["ES"]["address"]["province"] == "M"           # the province Spanish post uses
+    assert found["ES"]["address"]["province"] == "M"  # the province Spanish post uses
     assert found["GB"]["address"]["province"] == "ENG"
-    assert found["GB"]["description"] == "London, SW1A 2AA, United Kingdom"  # the UK post names no region
+    assert (
+        found["GB"]["description"] == "London, SW1A 2AA, United Kingdom"
+    )  # the UK post names no region
 
 
 def test_a_street_segment_zip_names_the_region_but_is_not_the_houses(user_headers, monkeypatch):
     """The H in H3B says Quebec. It does not say this building's postal code."""
-    _photon(monkeypatch, [
-        {"type": "Feature", "properties": {"type": "street", "name": "Rue Sainte-Catherine Ouest", "city": "Montréal", "postcode": "H3B 5L1", "countrycode": "CA"}},
-    ])
-    suggestion = _search(user_headers, {"text": "1000 Rue Sainte-Catherine"}).json()["suggestions"][0]
+    _photon(
+        monkeypatch,
+        [
+            {
+                "type": "Feature",
+                "properties": {
+                    "type": "street",
+                    "name": "Rue Sainte-Catherine Ouest",
+                    "city": "Montréal",
+                    "postcode": "H3B 5L1",
+                    "countrycode": "CA",
+                },
+            },
+        ],
+    )
+    suggestion = _search(user_headers, {"text": "1000 Rue Sainte-Catherine"}).json()["suggestions"][
+        0
+    ]
     assert suggestion["address"]["address_line1"] == "1000 Rue Sainte-Catherine Ouest"
     assert suggestion["address"]["province"] == "QC"
     assert suggestion["address"]["postal_code"] == ""
@@ -516,11 +686,33 @@ def test_a_street_segment_zip_names_the_region_but_is_not_the_houses(user_header
 
 
 def test_the_houses_zip_is_kept_when_the_street_segment_disagrees(user_headers, monkeypatch):
-    _photon(monkeypatch, [
-        {"type": "Feature", "properties": {"type": "street", "name": "Dufferin Avenue", "city": "London", "state": "Ontario", "postcode": "N6A 0A1", "countrycode": "CA"}},
-        _feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="N6B 1Z2", countrycode="CA"),
-    ])
-    suggestions = _search(user_headers, {"country": "CA", "text": "300 Dufferin"}).json()["suggestions"]
+    _photon(
+        monkeypatch,
+        [
+            {
+                "type": "Feature",
+                "properties": {
+                    "type": "street",
+                    "name": "Dufferin Avenue",
+                    "city": "London",
+                    "state": "Ontario",
+                    "postcode": "N6A 0A1",
+                    "countrycode": "CA",
+                },
+            },
+            _feature(
+                housenumber="300",
+                street="Dufferin Avenue",
+                city="London",
+                state="Ontario",
+                postcode="N6B 1Z2",
+                countrycode="CA",
+            ),
+        ],
+    )
+    suggestions = _search(user_headers, {"country": "CA", "text": "300 Dufferin"}).json()[
+        "suggestions"
+    ]
     assert [(s["address"]["address_line1"], s["address"]["postal_code"]) for s in suggestions] == [
         ("300 Dufferin Avenue", "N6B 1Z2"),
     ]
@@ -528,11 +720,30 @@ def test_the_houses_zip_is_kept_when_the_street_segment_disagrees(user_headers, 
 
 def test_two_zips_for_one_door_are_not_guessed(user_headers, monkeypatch):
     """A shop inside a building often carries a neighbour's ZIP. Clicking either used to fill it."""
-    _photon(monkeypatch, [
-        _feature(housenumber="1600", street="Pennsylvania Avenue Northwest", city="Washington", state="DC", postcode="20500", countrycode="US"),
-        _feature(housenumber="1600", street="Pennsylvania Avenue Northwest", city="Washington", state="DC", postcode="20006", countrycode="US"),
-    ])
-    suggestions = _search(user_headers, {"country": "US", "text": "1600 Pennsylvania"}).json()["suggestions"]
+    _photon(
+        monkeypatch,
+        [
+            _feature(
+                housenumber="1600",
+                street="Pennsylvania Avenue Northwest",
+                city="Washington",
+                state="DC",
+                postcode="20500",
+                countrycode="US",
+            ),
+            _feature(
+                housenumber="1600",
+                street="Pennsylvania Avenue Northwest",
+                city="Washington",
+                state="DC",
+                postcode="20006",
+                countrycode="US",
+            ),
+        ],
+    )
+    suggestions = _search(user_headers, {"country": "US", "text": "1600 Pennsylvania"}).json()[
+        "suggestions"
+    ]
     assert len(suggestions) == 1
     address = suggestions[0]["address"]
     assert address["address_line1"] == "1600 Pennsylvania Avenue Northwest"
@@ -556,10 +767,19 @@ def test_here_autocomplete_fills_the_postal_code_from_one_request(user_headers, 
         calls.append((url, kwargs))
         return httpx.Response(
             200,
-            json={"items": [_here_item(
-                countryCode="CAN", state="Ontario", stateCode="ON", city="London",
-                street="Dufferin Avenue", houseNumber="300", postalCode="N6B 2P8",
-            )]},
+            json={
+                "items": [
+                    _here_item(
+                        countryCode="CAN",
+                        state="Ontario",
+                        stateCode="ON",
+                        city="London",
+                        street="Dufferin Avenue",
+                        houseNumber="300",
+                        postalCode="N6B 2P8",
+                    )
+                ]
+            },
             request=httpx.Request("GET", url),
         )
 
@@ -570,11 +790,15 @@ def test_here_autocomplete_fills_the_postal_code_from_one_request(user_headers, 
     (suggestion,) = response.json()["suggestions"]
     assert suggestion["id"].startswith("here-")
     assert suggestion["address"] == {
-        "address_line1": "300 Dufferin Avenue", "address_line2": "", "city": "London",
-        "postal_code": "N6B 2P8", "country": "CA", "province": "ON",
+        "address_line1": "300 Dufferin Avenue",
+        "address_line2": "",
+        "city": "London",
+        "postal_code": "N6B 2P8",
+        "country": "CA",
+        "province": "ON",
     }
     assert suggestion["description"] == "London, ON, N6B 2P8, Canada"
-    (url, kwargs), = calls
+    ((url, kwargs),) = calls
     assert url == "https://autocomplete.search.hereapi.com/v1/autocomplete"
     params = kwargs["params"]
     assert ("q", "300 Dufferin") in params
@@ -593,12 +817,24 @@ def test_a_rejected_here_key_uses_photon_until_the_pause_ends(user_headers, monk
     def provider(url, **kwargs):
         calls.append(url)
         if "hereapi.com" in url:
-            return httpx.Response(401, json={"error": "Unauthorized"}, request=httpx.Request("GET", url))
+            return httpx.Response(
+                401, json={"error": "Unauthorized"}, request=httpx.Request("GET", url)
+            )
         return httpx.Response(
             200,
-            json={"type": "FeatureCollection", "features": [
-                _feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="N6B 1Z2", countrycode="CA"),
-            ]},
+            json={
+                "type": "FeatureCollection",
+                "features": [
+                    _feature(
+                        housenumber="300",
+                        street="Dufferin Avenue",
+                        city="London",
+                        state="Ontario",
+                        postcode="N6B 1Z2",
+                        countrycode="CA",
+                    ),
+                ],
+            },
             request=httpx.Request("GET", url),
         )
 
@@ -608,7 +844,9 @@ def test_a_rejected_here_key_uses_photon_until_the_pause_ends(user_headers, monk
     second = _search(user_headers, {"country": "CA", "text": "301 Dufferin"})
     assert first.status_code == 200 and first.json()["suggestions"][0]["id"].startswith("photon-")
     assert second.status_code == 200
-    assert [url for url in calls if "hereapi.com" in url] == ["https://autocomplete.search.hereapi.com/v1/autocomplete"]
+    assert [url for url in calls if "hereapi.com" in url] == [
+        "https://autocomplete.search.hereapi.com/v1/autocomplete"
+    ]
 
 
 @pytest.mark.parametrize("failure", [429, 503, "timeout"])
@@ -620,12 +858,24 @@ def test_a_spent_quota_or_here_outage_falls_back_to_photon(user_headers, monkeyp
         if "hereapi.com" in url:
             if failure == "timeout":
                 raise httpx.ReadTimeout("slow", request=httpx.Request("GET", url))
-            return httpx.Response(failure, json={"error": "nope"}, request=httpx.Request("GET", url))
+            return httpx.Response(
+                failure, json={"error": "nope"}, request=httpx.Request("GET", url)
+            )
         return httpx.Response(
             200,
-            json={"type": "FeatureCollection", "features": [
-                _feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="N6B 1Z2", countrycode="CA"),
-            ]},
+            json={
+                "type": "FeatureCollection",
+                "features": [
+                    _feature(
+                        housenumber="300",
+                        street="Dufferin Avenue",
+                        city="London",
+                        state="Ontario",
+                        postcode="N6B 1Z2",
+                        countrycode="CA",
+                    ),
+                ],
+            },
             request=httpx.Request("GET", url),
         )
 
@@ -647,81 +897,220 @@ def test_photon_is_asked_when_here_finds_nothing(user_headers, monkeypatch):
             return httpx.Response(200, json={"items": []}, request=httpx.Request("GET", url))
         return httpx.Response(
             200,
-            json={"type": "FeatureCollection", "features": [
-                _feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="N6B 1Z2", countrycode="CA"),
-            ]},
+            json={
+                "type": "FeatureCollection",
+                "features": [
+                    _feature(
+                        housenumber="300",
+                        street="Dufferin Avenue",
+                        city="London",
+                        state="Ontario",
+                        postcode="N6B 1Z2",
+                        countrycode="CA",
+                    ),
+                ],
+            },
             request=httpx.Request("GET", url),
         )
 
     monkeypatch.setenv("XCELSIOR_HERE_API_KEY", "test-here-key")
     monkeypatch.setattr(httpx, "get", provider)
-    suggestions = _search(user_headers, {"country": "CA", "text": "300 Dufferin"}).json()["suggestions"]
+    suggestions = _search(user_headers, {"country": "CA", "text": "300 Dufferin"}).json()[
+        "suggestions"
+    ]
     assert [s["id"] for s in suggestions] == ["photon-0"]
     assert ["hereapi.com" in url for url in calls] == [True, False]
 
 
 def test_a_postcode_that_is_not_one_is_left_blank(user_headers, monkeypatch):
-    _photon(monkeypatch, [
-        _feature(housenumber="300", street="Dufferin Avenue", city="London", state="Ontario", postcode="12345", countrycode="CA"),
-    ])
-    suggestion = _search(user_headers, {"country": "CA", "text": "300 Dufferin"}).json()["suggestions"][0]
+    _photon(
+        monkeypatch,
+        [
+            _feature(
+                housenumber="300",
+                street="Dufferin Avenue",
+                city="London",
+                state="Ontario",
+                postcode="12345",
+                countrycode="CA",
+            ),
+        ],
+    )
+    suggestion = _search(user_headers, {"country": "CA", "text": "300 Dufferin"}).json()[
+        "suggestions"
+    ][0]
     assert suggestion["address"]["postal_code"] == ""
     assert suggestion["address"]["province"] == "ON"
     assert "12345" not in suggestion["description"]
 
 
 def test_a_typed_house_number_is_kept_on_a_street_osm_knows_without_it(user_headers, monkeypatch):
-    _photon(monkeypatch, [
-        {"type": "Feature", "properties": {"type": "street", "name": "Via del Corso", "city": "Roma", "state": "Lazio", "postcode": "00187", "countrycode": "IT"}},
-        {"type": "Feature", "properties": {"type": "street", "name": "Corso Vittorio Emanuele II", "city": "Roma", "countrycode": "IT"}},
-        {"type": "Feature", "properties": {"type": "street", "name": "Route 300", "city": "Nowhere", "countrycode": "US", "state": "OH"}},
-        {"type": "Feature", "properties": {"type": "street", "name": "Elm Street", "city": "Springfield", "countrycode": "US", "state": "IL"}},
-    ])
-    lines = [s["address"]["address_line1"] for s in _search(user_headers, {"text": "Via del Corso 300"}).json()["suggestions"]]
+    _photon(
+        monkeypatch,
+        [
+            {
+                "type": "Feature",
+                "properties": {
+                    "type": "street",
+                    "name": "Via del Corso",
+                    "city": "Roma",
+                    "state": "Lazio",
+                    "postcode": "00187",
+                    "countrycode": "IT",
+                },
+            },
+            {
+                "type": "Feature",
+                "properties": {
+                    "type": "street",
+                    "name": "Corso Vittorio Emanuele II",
+                    "city": "Roma",
+                    "countrycode": "IT",
+                },
+            },
+            {
+                "type": "Feature",
+                "properties": {
+                    "type": "street",
+                    "name": "Route 300",
+                    "city": "Nowhere",
+                    "countrycode": "US",
+                    "state": "OH",
+                },
+            },
+            {
+                "type": "Feature",
+                "properties": {
+                    "type": "street",
+                    "name": "Elm Street",
+                    "city": "Springfield",
+                    "countrycode": "US",
+                    "state": "IL",
+                },
+            },
+        ],
+    )
+    lines = [
+        s["address"]["address_line1"]
+        for s in _search(user_headers, {"text": "Via del Corso 300"}).json()["suggestions"]
+    ]
     # Numbered as typed, in Italian order; a street that already carries the number,
     # or one that wasn't typed at all, is left as it is.
-    assert lines == ["Via del Corso 300", "Corso Vittorio Emanuele II 300", "Route 300", "Elm Street"]
+    assert lines == [
+        "Via del Corso 300",
+        "Corso Vittorio Emanuele II 300",
+        "Route 300",
+        "Elm Street",
+    ]
 
 
 def test_address_search_writes_numbers_the_local_way_and_merges_one_door(user_headers, monkeypatch):
-    _photon(monkeypatch, [
-        _feature(name="Hotel Adlon", housenumber="77", street="Unter den Linden", city="Berlin", postcode="10117", countrycode="DE"),
-        _feature(name="Restaurant", housenumber="77", street="Unter den Linden", city="Berlin", postcode="10117", countrycode="DE"),
-        _feature(housenumber="110", street="세종대로", city="서울특별시", postcode="04524", countrycode="KR"),
-        _feature(housenumber="15", locality="Lhota", countrycode="CZ"),  # a village numbers houses, not streets
-        _feature(housenumber="5", city="Toronto", countrycode="CA"),     # no street or village: not an address
-        "not a feature",
-    ])
-    lines = [s["address"]["address_line1"] for s in _search(user_headers, {"text": "Unter den Linden 77"}).json()["suggestions"]]
+    _photon(
+        monkeypatch,
+        [
+            _feature(
+                name="Hotel Adlon",
+                housenumber="77",
+                street="Unter den Linden",
+                city="Berlin",
+                postcode="10117",
+                countrycode="DE",
+            ),
+            _feature(
+                name="Restaurant",
+                housenumber="77",
+                street="Unter den Linden",
+                city="Berlin",
+                postcode="10117",
+                countrycode="DE",
+            ),
+            _feature(
+                housenumber="110",
+                street="세종대로",
+                city="서울특별시",
+                postcode="04524",
+                countrycode="KR",
+            ),
+            _feature(
+                housenumber="15", locality="Lhota", countrycode="CZ"
+            ),  # a village numbers houses, not streets
+            _feature(
+                housenumber="5", city="Toronto", countrycode="CA"
+            ),  # no street or village: not an address
+            "not a feature",
+        ],
+    )
+    lines = [
+        s["address"]["address_line1"]
+        for s in _search(user_headers, {"text": "Unter den Linden 77"}).json()["suggestions"]
+    ]
     assert lines == ["Unter den Linden 77", "세종대로 110", "Lhota 15"]
 
 
 def test_address_search_with_a_country_drops_results_from_elsewhere(user_headers, monkeypatch):
-    _photon(monkeypatch, [
-        _feature(housenumber="300", street="London Avenue", city="Lafayette", state="CO", postcode="80026", countrycode="US"),
-        _feature(housenumber="300", street="Dufferin Avenue", city="London", state="ON", postcode="N6B 1Z2", countrycode="CA"),
-    ])
+    _photon(
+        monkeypatch,
+        [
+            _feature(
+                housenumber="300",
+                street="London Avenue",
+                city="Lafayette",
+                state="CO",
+                postcode="80026",
+                countrycode="US",
+            ),
+            _feature(
+                housenumber="300",
+                street="Dufferin Avenue",
+                city="London",
+                state="ON",
+                postcode="N6B 1Z2",
+                countrycode="CA",
+            ),
+        ],
+    )
     response = _search(user_headers, {"country": "CA", "text": "300 London"})
     assert [s["address"]["country"] for s in response.json()["suggestions"]] == ["CA"]
 
 
 @pytest.mark.parametrize("status,payload", [(503, None), (200, "not json")])
-def test_address_search_outage_sends_people_to_manual_entry(user_headers, monkeypatch, status, payload):
+def test_address_search_outage_sends_people_to_manual_entry(
+    user_headers, monkeypatch, status, payload
+):
     import httpx
 
-    monkeypatch.setattr(httpx, "get", lambda url, **kwargs: httpx.Response(
-        status, content=b"<html>down</html>" if payload else b"{}", request=httpx.Request("GET", url)))
+    monkeypatch.setattr(
+        httpx,
+        "get",
+        lambda url, **kwargs: httpx.Response(
+            status,
+            content=b"<html>down</html>" if payload else b"{}",
+            request=httpx.Request("GET", url),
+        ),
+    )
     response = _search(user_headers, {"text": "Test Street"})
     assert response.status_code == 502
     assert "below" in response.json()["error"]["message"]
 
 
-def test_address_check_is_free_and_returns_postal_format_errors_and_warnings(user_headers, monkeypatch):
+def test_address_check_is_free_and_returns_postal_format_errors_and_warnings(
+    user_headers, monkeypatch
+):
     import httpx
 
-    monkeypatch.setattr(httpx, "get", lambda *a, **k: pytest.fail("the check must not call a provider"))
-    monkeypatch.setattr(httpx, "post", lambda *a, **k: pytest.fail("the check must not call a provider"))
-    body = {"country": "CA", "province": "AB", "address_line1": "4915 50 St,", "city": "Lloydminster", "postal_code": "s9v0a1"}
+    monkeypatch.setattr(
+        httpx, "get", lambda *a, **k: pytest.fail("the check must not call a provider")
+    )
+    monkeypatch.setattr(
+        httpx, "post", lambda *a, **k: pytest.fail("the check must not call a provider")
+    )
+    body = {
+        "country": "CA",
+        "province": "AB",
+        "address_line1": "4915 50 St,",
+        "city": "Lloydminster",
+        "postal_code": "s9v0a1",
+    }
     response = client.post("/api/locations/check", headers=user_headers["headers"], json=body)
     assert response.status_code == 200, response.text
     result = response.json()
@@ -732,31 +1121,50 @@ def test_address_check_is_free_and_returns_postal_format_errors_and_warnings(use
     assert "Saskatchewan, not Alberta" in result["warnings"][0]["message"]
     assert result["lines"] == ["4915 50 St", "Lloydminster AB S9V 0A1", "Canada"]
 
-    bad = client.post("/api/locations/check", headers=user_headers["headers"], json={**body, "postal_code": "12345"}).json()
+    bad = client.post(
+        "/api/locations/check",
+        headers=user_headers["headers"],
+        json={**body, "postal_code": "12345"},
+    ).json()
     assert [e["field"] for e in bad["errors"]] == ["postal_code"]
     assert bad["errors"][0]["message"] == "12345 isn't a valid postal code in Canada."
 
 
 def test_address_check_rejects_an_unknown_country(user_headers):
-    response = client.post("/api/locations/check", headers=user_headers["headers"], json={"country": "ZZ"})
+    response = client.post(
+        "/api/locations/check", headers=user_headers["headers"], json={"country": "ZZ"}
+    )
     assert response.status_code == 422
 
 
 # Physical relocation keeps the host identity and operator admission intact.
 def _location_host(user_headers):
-    response = client.post("/api/hosts/register", json={
-        "hostname": f"location-{uuid.uuid4().hex[:8]}", "gpu_model": "RTX 4090",
-        "vram_gb": 24, "country": "CA", "province": "ON",
-    }, headers=user_headers["headers"])
+    response = client.post(
+        "/api/hosts/register",
+        json={
+            "hostname": f"location-{uuid.uuid4().hex[:8]}",
+            "gpu_model": "RTX 4090",
+            "vram_gb": 24,
+            "country": "CA",
+            "province": "ON",
+        },
+        headers=user_headers["headers"],
+    )
     assert response.status_code == 200, response.text
     host = response.json()["host"]
     return client.get(f"/host/{host['host_id']}", headers=user_headers["headers"]).json()["host"]
 
 
 def _save_location(host, user_headers, country="US", province="NY"):
-    return client.patch(f"/api/hosts/{host['host_id']}/location", json={
-        "country": country, "province": province, "expected_version": host["version"],
-    }, headers=user_headers["headers"])
+    return client.patch(
+        f"/api/hosts/{host['host_id']}/location",
+        json={
+            "country": country,
+            "province": province,
+            "expected_version": host["version"],
+        },
+        headers=user_headers["headers"],
+    )
 
 
 def test_host_owner_can_change_physical_location_repeatedly(user_headers):
@@ -773,8 +1181,12 @@ def test_host_owner_can_change_physical_location_repeatedly(user_headers):
     assert second.json()["host"]["region"] == "ca-bc"
     assert second.json()["host"]["version"] == moved["version"] + 1
     from db import pg_connection
+
     with pg_connection() as conn:
-        events = conn.execute("SELECT count(*) FROM outbox_events WHERE aggregate_id=%s AND event_type='host.v1.location_changed'", (host["host_id"],)).fetchone()[0]
+        events = conn.execute(
+            "SELECT count(*) FROM outbox_events WHERE aggregate_id=%s AND event_type='host.v1.location_changed'",
+            (host["host_id"],),
+        ).fetchone()[0]
     assert events == 2
 
 
@@ -788,18 +1200,38 @@ def test_host_location_rejects_missing_subdivision_and_stale_version(user_header
 
 def test_location_edit_and_move_readiness_are_owner_only(user_headers):
     host = _location_host(user_headers)
-    other = client.post("/api/auth/register", json={
-        "email": f"move-other-{uuid.uuid4().hex[:8]}@example.test", "password": "StrongPass123!", "name": "Other Account",
-    })
+    other = client.post(
+        "/api/auth/register",
+        json={
+            "email": f"move-other-{uuid.uuid4().hex[:8]}@example.test",
+            "password": "StrongPass123!",
+            "name": "Other Account",
+        },
+    )
     assert other.status_code == 200
     headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
-    assert client.patch(f"/api/hosts/{host['host_id']}/location", json={"country":"US", "province":"NY", "expected_version":host["version"]}, headers=headers).status_code == 404
+    assert (
+        client.patch(
+            f"/api/hosts/{host['host_id']}/location",
+            json={"country": "US", "province": "NY", "expected_version": host["version"]},
+            headers=headers,
+        ).status_code
+        == 404
+    )
     token = _machine_token_for_user(user_headers)
-    assert client.patch(f"/api/hosts/{host['host_id']}/location", json={"country":"US", "province":"NY", "expected_version":host["version"]}, headers={"Authorization":f"Bearer {token}"}).status_code == 403
+    assert (
+        client.patch(
+            f"/api/hosts/{host['host_id']}/location",
+            json={"country": "US", "province": "NY", "expected_version": host["version"]},
+            headers={"Authorization": f"Bearer {token}"},
+        ).status_code
+        == 403
+    )
 
 
 def test_stale_heartbeat_cannot_undo_confirmed_location(user_headers):
     from db import DatabaseOps, pg_connection
+
     host = _location_host(user_headers)
     # This snapshot was read before the owner committed the move.
     stale = dict(host)
@@ -808,83 +1240,124 @@ def test_stale_heartbeat_cannot_undo_confirmed_location(user_headers):
     with pg_connection() as conn:
         DatabaseOps.upsert_host(conn, stale, backend="postgres")
         conn.commit()
-        row = conn.execute("SELECT country,province,region,payload->>'country',payload->>'location_confirmed_at' FROM hosts WHERE host_id=%s", (host["host_id"],)).fetchone()
+        row = conn.execute(
+            "SELECT country,province,region,payload->>'country',payload->>'location_confirmed_at' FROM hosts WHERE host_id=%s",
+            (host["host_id"],),
+        ).fetchone()
     assert row[:4] == ("US", "NY", "us-ny", "US")
     assert row[4]
     machine = _machine_token_for_user(user_headers)
-    heartbeat = client.put("/host", json={
-        "host_id":host["host_id"], "ip":"10.0.0.9", "gpu_model":"RTX 4090",
-        "total_vram_gb":24, "free_vram_gb":24, "country":"CA", "province":"ON", "region":"ca-on",
-    }, headers={"Authorization":f"Bearer {machine}"})
+    heartbeat = client.put(
+        "/host",
+        json={
+            "host_id": host["host_id"],
+            "ip": "10.0.0.9",
+            "gpu_model": "RTX 4090",
+            "total_vram_gb": 24,
+            "free_vram_gb": 24,
+            "country": "CA",
+            "province": "ON",
+            "region": "ca-on",
+        },
+        headers={"Authorization": f"Bearer {machine}"},
+    )
     assert heartbeat.status_code == 200, heartbeat.text
     assert heartbeat.json()["host"]["region"] == "us-ny"
 
 
 def test_agent_cannot_forge_location_confirmation(user_headers):
     from db import DatabaseOps, pg_connection
+
     host = _location_host(user_headers)
-    forged = {**host, "location_confirmed_at":123, "location_confirmed_by":"forged"}
+    forged = {**host, "location_confirmed_at": 123, "location_confirmed_by": "forged"}
     with pg_connection() as conn:
         DatabaseOps.upsert_host(conn, forged, backend="postgres")
         conn.commit()
-        payload = conn.execute("SELECT payload FROM hosts WHERE host_id=%s", (host["host_id"],)).fetchone()[0]
+        payload = conn.execute(
+            "SELECT payload FROM hosts WHERE host_id=%s", (host["host_id"],)
+        ).fetchone()[0]
     assert "location_confirmed_at" not in payload
 
 
 def test_admitted_idle_host_location_is_editable_without_a_move_workflow(user_headers):
     from db import pg_connection
+
     host = _location_host(user_headers)
     with pg_connection() as conn:
-        conn.execute("UPDATE hosts SET status='active',admission_state='admitted',administrative_state='admitted',availability_state='ready',last_observed_at=clock_timestamp(),admission_version=7 WHERE host_id=%s", (host["host_id"],))
-        before=conn.execute("SELECT last_observed_at,admission_version,administrative_state,availability_state FROM hosts WHERE host_id=%s", (host["host_id"],)).fetchone()
+        conn.execute(
+            "UPDATE hosts SET status='active',admission_state='admitted',administrative_state='admitted',availability_state='ready',last_observed_at=clock_timestamp(),admission_version=7 WHERE host_id=%s",
+            (host["host_id"],),
+        )
+        before = conn.execute(
+            "SELECT last_observed_at,admission_version,administrative_state,availability_state FROM hosts WHERE host_id=%s",
+            (host["host_id"],),
+        ).fetchone()
         conn.commit()
-    result=_save_location(host, user_headers)
-    assert result.status_code == 200,result.text
-    moved=result.json()["host"]
+    result = _save_location(host, user_headers)
+    assert result.status_code == 200, result.text
+    moved = result.json()["host"]
     assert moved["status"] == "active"
     assert moved["admission_version"] == 7
     assert moved["region"] == "us-ny"
     with pg_connection() as conn:
-        after=conn.execute("SELECT last_observed_at,admission_version,administrative_state,availability_state FROM hosts WHERE host_id=%s", (host["host_id"],)).fetchone()
+        after = conn.execute(
+            "SELECT last_observed_at,admission_version,administrative_state,availability_state FROM hosts WHERE host_id=%s",
+            (host["host_id"],),
+        ).fetchone()
     assert after == before
 
 
 def test_move_does_not_interrupt_existing_workloads(user_headers):
     from tests.fixtures.native_runtime import running_instance
+
     with running_instance(owner=user_headers["user_id"]) as instance:
-        host_id=instance["host_id"]
+        host_id = instance["host_id"]
         from db import pg_connection
+
         with pg_connection() as conn:
             # A located host: recording a first location is not a move.
-            conn.execute("UPDATE hosts SET owner_id=%s,tenant_id=%s,country='CA',province='ON',region='ca-on' WHERE host_id=%s", (user_headers["user_id"],user_headers["user_id"],host_id))
+            conn.execute(
+                "UPDATE hosts SET owner_id=%s,tenant_id=%s,country='CA',province='ON',region='ca-on' WHERE host_id=%s",
+                (user_headers["user_id"], user_headers["user_id"], host_id),
+            )
             conn.commit()
-        host=client.get(f"/host/{host_id}", headers=user_headers["headers"]).json()["host"]
+        host = client.get(f"/host/{host_id}", headers=user_headers["headers"]).json()["host"]
         assert _save_location(host, user_headers).status_code == 409
         from db import pg_connection
+
         with pg_connection() as conn:
-            row=conn.execute("SELECT status,phase FROM jobs WHERE job_id=%s", (instance["job_id"],)).fetchone()
+            row = conn.execute(
+                "SELECT status,phase FROM jobs WHERE job_id=%s", (instance["job_id"],)
+            ).fetchone()
         assert row == ("running", "running")
 
 
 def test_unlocated_host_records_its_location_while_work_runs(user_headers):
     """A host with no location yet is not moving, so running work cannot block it."""
     from tests.fixtures.native_runtime import running_instance
+
     with running_instance(owner=user_headers["user_id"]) as instance:
-        host_id=instance["host_id"]
+        host_id = instance["host_id"]
         from db import pg_connection
+
         with pg_connection() as conn:
-            conn.execute("UPDATE hosts SET owner_id=%s,tenant_id=%s,country='CA',province='',region='ca-central' WHERE host_id=%s", (user_headers["user_id"],user_headers["user_id"],host_id))
+            conn.execute(
+                "UPDATE hosts SET owner_id=%s,tenant_id=%s,country='CA',province='',region='ca-central' WHERE host_id=%s",
+                (user_headers["user_id"], user_headers["user_id"], host_id),
+            )
             conn.commit()
-        host=client.get(f"/host/{host_id}", headers=user_headers["headers"]).json()["host"]
+        host = client.get(f"/host/{host_id}", headers=user_headers["headers"]).json()["host"]
         assert host["location_complete"] is False
-        saved=_save_location(host, user_headers, "CA", "ON")
+        saved = _save_location(host, user_headers, "CA", "ON")
         assert saved.status_code == 200, saved.text
-        located=saved.json()["host"]
+        located = saved.json()["host"]
         assert (located["country"], located["province"], located["region"]) == ("CA", "ON", "ca-on")
         # Once located, a different site is a move, and the running work blocks it.
         assert _save_location(located, user_headers, "CA", "BC").status_code == 409
         with pg_connection() as conn:
-            row=conn.execute("SELECT status,phase FROM jobs WHERE job_id=%s", (instance["job_id"],)).fetchone()
+            row = conn.execute(
+                "SELECT status,phase FROM jobs WHERE job_id=%s", (instance["job_id"],)
+            ).fetchone()
         assert row == ("running", "running")
 
 
@@ -893,19 +1366,42 @@ def test_a_number_osm_has_never_heard_of_still_finds_the_typed_street(user_heade
     import httpx
 
     calls = []
-    corso = {"type": "Feature", "properties": {"type": "street", "name": "Via del Corso", "city": "Roma", "state": "Lazio", "postcode": "00187", "countrycode": "IT"}}
-    elsewhere = _feature(housenumber="300", street="Vía Corso Oriente", city="San Pedro Garza García", state="NLE", postcode="66266", countrycode="MX")
+    corso = {
+        "type": "Feature",
+        "properties": {
+            "type": "street",
+            "name": "Via del Corso",
+            "city": "Roma",
+            "state": "Lazio",
+            "postcode": "00187",
+            "countrycode": "IT",
+        },
+    }
+    elsewhere = _feature(
+        housenumber="300",
+        street="Vía Corso Oriente",
+        city="San Pedro Garza García",
+        state="NLE",
+        postcode="66266",
+        countrycode="MX",
+    )
 
     def provider(url, **kwargs):
         query = dict(kwargs["params"])["q"]
         calls.append(query)
         features = [elsewhere] if "300" in query else [corso]
-        return httpx.Response(200, json={"type": "FeatureCollection", "features": features}, request=httpx.Request("GET", url))
+        return httpx.Response(
+            200,
+            json={"type": "FeatureCollection", "features": features},
+            request=httpx.Request("GET", url),
+        )
 
     monkeypatch.setattr(httpx, "get", provider)
     found = _search(user_headers, {"text": "Via del Corso 300"}).json()["suggestions"]
     assert [(s["address"]["address_line1"], s["address"]["city"]) for s in found] == [
-        ("Via del Corso 300", "Roma"), ("Vía Corso Oriente 300", "San Pedro Garza García")]
+        ("Via del Corso 300", "Roma"),
+        ("Vía Corso Oriente 300", "San Pedro Garza García"),
+    ]
     assert found[0]["address"]["province"] == "RM"  # Rome's province, from the city
     # 00187 is the street segment's code, not house 300's. Don't fill it in.
     assert found[0]["address"]["postal_code"] == ""
@@ -913,8 +1409,24 @@ def test_a_number_osm_has_never_heard_of_still_finds_the_typed_street(user_heade
     assert calls == ["Via del Corso 300", "Via del Corso"]
     # A full match needs no second request.
     calls.clear()
-    monkeypatch.setattr(httpx, "get", lambda url, **kwargs: (calls.append(1), httpx.Response(
-        200, json={"type": "FeatureCollection", "features": [_feature(housenumber="300", street="Via del Corso", city="Roma", countrycode="IT")]},
-        request=httpx.Request("GET", url)))[1])
+    monkeypatch.setattr(
+        httpx,
+        "get",
+        lambda url, **kwargs: (
+            calls.append(1),
+            httpx.Response(
+                200,
+                json={
+                    "type": "FeatureCollection",
+                    "features": [
+                        _feature(
+                            housenumber="300", street="Via del Corso", city="Roma", countrycode="IT"
+                        )
+                    ],
+                },
+                request=httpx.Request("GET", url),
+            ),
+        )[1],
+    )
     _search(user_headers, {"text": "Via del Corso 300, Roma"})
     assert calls == [1]

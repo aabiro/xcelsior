@@ -31,10 +31,14 @@ def _load_cfg() -> dict[str, str]:
                 continue
             k, v = line.split("=", 1)
             cfg[k.strip()] = v.strip()
-    cfg["base"] = (os.environ.get("AUDIT_BASE") or cfg.get("AUDIT_BASE") or "https://xcelsior.ca").rstrip("/")
+    cfg["base"] = (
+        os.environ.get("AUDIT_BASE") or cfg.get("AUDIT_BASE") or "https://xcelsior.ca"
+    ).rstrip("/")
     cfg["email"] = os.environ.get("AUDIT_EMAIL") or cfg.get("AUDIT_EMAIL", "")
     cfg["password"] = os.environ.get("AUDIT_PASSWORD") or cfg.get("AUDIT_PASSWORD", "")
-    cfg["customer_id"] = os.environ.get("AUDIT_CUSTOMER_ID") or cfg.get("AUDIT_CUSTOMER_ID") or cfg["email"]
+    cfg["customer_id"] = (
+        os.environ.get("AUDIT_CUSTOMER_ID") or cfg.get("AUDIT_CUSTOMER_ID") or cfg["email"]
+    )
     return cfg
 
 
@@ -50,7 +54,11 @@ def main() -> int:
 
     results: dict[str, object] = {}
 
-    login = s.post(f"{base}/api/auth/login", json={"email": cfg["email"], "password": cfg["password"]}, timeout=30)
+    login = s.post(
+        f"{base}/api/auth/login",
+        json={"email": cfg["email"], "password": cfg["password"]},
+        timeout=30,
+    )
     results["login"] = login.status_code
     if login.status_code != 200:
         print(json.dumps(results, indent=2))
@@ -68,7 +76,11 @@ def main() -> int:
     )
     results["direct_deposit"] = deposit.status_code
 
-    pi = s.post(f"{base}/api/billing/payment-intent", json={"customer_id": cid, "amount_cad": 5.0}, timeout=30)
+    pi = s.post(
+        f"{base}/api/billing/payment-intent",
+        json={"customer_id": cid, "amount_cad": 5.0},
+        timeout=30,
+    )
     results["payment_intent"] = pi.status_code
 
     idor = s.post(
@@ -121,7 +133,9 @@ def main() -> int:
     if pi.status_code == 200:
         pi_body = pi.json()
         intent = pi_body.get("intent") if isinstance(pi_body.get("intent"), dict) else pi_body
-        results["stripe_payment_intent_id"] = intent.get("stripe_intent_id") or intent.get("intent_id")
+        results["stripe_payment_intent_id"] = intent.get("stripe_intent_id") or intent.get(
+            "intent_id"
+        )
         results["stripe_client_secret"] = bool(intent.get("client_secret"))
 
     # Capture without buyer approval must fail safely (no wallet credit).

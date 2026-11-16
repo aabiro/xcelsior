@@ -69,7 +69,7 @@ def upgrade():
             )""",
                         "CREATE INDEX IF NOT EXISTS queue_bid_events_tenant_time ON queue_bid_events(tenant_id,recorded_at)",
                         "CREATE INDEX IF NOT EXISTS queue_bid_events_policy_time ON queue_bid_events(policy_version,recorded_at)",
-                    """DO $price_roles$ BEGIN
+                        """DO $price_roles$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='xcelsior_api') THEN GRANT SELECT, INSERT ON queue_bid_events TO xcelsior_api; END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='xcelsior_scheduler') THEN GRANT SELECT, INSERT ON queue_bid_events TO xcelsior_scheduler; END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='xcelsior_reconciler') THEN GRANT SELECT, INSERT ON queue_bid_events TO xcelsior_reconciler; END IF;

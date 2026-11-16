@@ -139,7 +139,9 @@ async def api_upload_session_content(session_id: str, request: Request):
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "artifacts:write")
     data = await request.body()
-    content_type = (request.headers.get("content-type") or "application/octet-stream").split(";", 1)[0].strip()
+    content_type = (
+        (request.headers.get("content-type") or "application/octet-stream").split(";", 1)[0].strip()
+    )
     mgr = get_artifact_manager()
     try:
         result = mgr.write_session_bytes(

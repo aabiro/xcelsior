@@ -68,8 +68,7 @@ def upgrade() -> None:
 
     # ── job_attempts ─────────────────────────────────────────────────
     attempt_status_list = ", ".join(f"'{s}'" for s in _ATTEMPT_STATUSES)
-    op.execute(
-        f"""
+    op.execute(f"""
         CREATE TABLE IF NOT EXISTS job_attempts (
             attempt_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
@@ -95,26 +94,22 @@ def upgrade() -> None:
             CONSTRAINT uq_job_attempt_number UNIQUE (job_id, attempt_number),
             CONSTRAINT uq_job_attempt_fence UNIQUE (fencing_token)
         )
-        """
-    )
+        """)
     active_list = ", ".join(f"'{s}'" for s in ACTIVE_ATTEMPT_STATUSES)
     # §10.6 last line of defense: two schedulers can never both commit an
     # active attempt for the same job, whatever bug reaches this point.
-    op.execute(
-        f"""
+    op.execute(f"""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_job_one_active_attempt
         ON job_attempts (job_id)
         WHERE status IN ({active_list})
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_job_attempts_host "
         "ON job_attempts (host_id) WHERE host_id IS NOT NULL"
     )
 
     # ── host_gpu_devices ─────────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS host_gpu_devices (
             gpu_device_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             host_id TEXT NOT NULL REFERENCES hosts(host_id) ON DELETE CASCADE,
@@ -143,8 +138,7 @@ def upgrade() -> None:
             retired_at TIMESTAMPTZ,
             CONSTRAINT uq_host_gpu_uuid UNIQUE (host_id, gpu_uuid)
         )
-        """
-    )
+        """)
     # Reservation transactions lock devices in stable (host_id, gpu_uuid)
     # order (§2.4) — the unique constraint above provides that index.
     op.execute(
@@ -154,8 +148,7 @@ def upgrade() -> None:
     )
 
     # ── gpu_device_allocations ───────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS gpu_device_allocations (
             allocation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             attempt_id UUID NOT NULL
@@ -181,41 +174,33 @@ def upgrade() -> None:
                 OR (status <> 'active' AND released_at IS NOT NULL)
             )
         )
-        """
-    )
+        """)
     # §10.6: one exclusive owner per physical device, enforced by the
     # database even if every application-level check fails.
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_gpu_one_exclusive_allocation
         ON gpu_device_allocations (gpu_device_id)
         WHERE status = 'active' AND allocation_mode = 'exclusive'
-        """
-    )
+        """)
     # One attempt cannot hold two active allocations on the same device.
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_attempt_device_active_allocation
         ON gpu_device_allocations (attempt_id, gpu_device_id)
         WHERE status = 'active'
-        """
-    )
+        """)
     # Fractional-capacity sum recalculation under the device row lock.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_gpu_device_allocations_device_active
         ON gpu_device_allocations (gpu_device_id)
         WHERE status = 'active'
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_gpu_device_allocations_job "
         "ON gpu_device_allocations (job_id)"
     )
 
     # ── placement_leases ─────────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS placement_leases (
             lease_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
@@ -240,38 +225,30 @@ def upgrade() -> None:
                 OR (claimed_at IS NOT NULL AND expires_at IS NOT NULL)
             )
         )
-        """
-    )
+        """)
     # §10.6: at most one live (offered or active) lease per attempt.
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_attempt_one_active_lease
         ON placement_leases (attempt_id)
         WHERE status IN ('offered', 'active')
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_placement_leases_host_live
         ON placement_leases (host_id)
         WHERE status IN ('offered', 'active')
-        """
-    )
+        """)
     # Lease-expiry sweeps scan by deadline.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_placement_leases_expiry
         ON placement_leases (expires_at)
         WHERE status = 'active'
-        """
-    )
+        """)
 
     # ── jobs.active_attempt_id FK (deferred from 054) ────────────────
     # NOT VALID first so the ACCESS EXCLUSIVE window is a catalog-only
     # update; VALIDATE then scans without blocking writes. The column is
     # all-NULL at this point, so validation is trivially clean.
-    op.execute(
-        """
+    op.execute("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -287,8 +264,7 @@ def upgrade() -> None:
                     NOT VALID;
             END IF;
         END$$;
-        """
-    )
+        """)
     op.execute("ALTER TABLE jobs VALIDATE CONSTRAINT fk_jobs_active_attempt")
 
     _backfill_active_legacy_leases()
@@ -309,9 +285,7 @@ def _backfill_active_legacy_leases() -> None:
     second attempt — the partial unique index would refuse it anyway.
     """
     bind = op.get_bind()
-    bind.execute(
-        sa.text(
-            """
+    bind.execute(sa.text("""
             WITH live AS (
                 SELECT l.lease_id,
                        l.job_id,
@@ -385,9 +359,7 @@ def _backfill_active_legacy_leases() -> None:
                    updated_at = clock_timestamp()
               FROM new_attempts a
              WHERE j.job_id = a.job_id
-            """
-        )
-    )
+            """))
 
 
 def downgrade() -> None:

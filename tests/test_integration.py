@@ -90,7 +90,8 @@ def test_job_lifecycle_and_billing_via_api():
     _admit_host("h-int-1")
 
     create = client.post(
-        "/instance", json={"name": "job-int", "vram_needed_gb": 8, "tier": "premium", "gpu_model": "A100"}
+        "/instance",
+        json={"name": "job-int", "vram_needed_gb": 8, "tier": "premium", "gpu_model": "A100"},
     )
     inst = create.json()["instance"]
     job_id = inst["job_id"]

@@ -20,22 +20,40 @@ def defs(theme):
     """Theme-aware <defs>. Brand/emerald/gold gradients read on both themes;
     panel fills, detail strokes and depth (glow vs soft shadow) flip per theme."""
     if theme == "dark":
-        panel = ('<linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">'
-                 '<stop offset="0%" stop-color="#16233c"/><stop offset="100%" stop-color="#0b1322"/></linearGradient>')
-        glass_op, detail, depth = "0.14", "#7cf2ff", (
-            '<filter id="depth" x="-60%" y="-60%" width="220%" height="220%">'
-            '<feGaussianBlur stdDeviation="3" result="b"/>'
-            '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>')
-        bloom = ('<filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">'
-                 '<feGaussianBlur stdDeviation="20"/></filter>')
+        panel = (
+            '<linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">'
+            '<stop offset="0%" stop-color="#16233c"/><stop offset="100%" stop-color="#0b1322"/></linearGradient>'
+        )
+        glass_op, detail, depth = (
+            "0.14",
+            "#7cf2ff",
+            (
+                '<filter id="depth" x="-60%" y="-60%" width="220%" height="220%">'
+                '<feGaussianBlur stdDeviation="3" result="b"/>'
+                '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
+            ),
+        )
+        bloom = (
+            '<filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">'
+            '<feGaussianBlur stdDeviation="20"/></filter>'
+        )
     else:
-        panel = ('<linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">'
-                 '<stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#eef4fb"/></linearGradient>')
-        glass_op, detail, depth = "0.5", "#3b6fb0", (
-            '<filter id="depth" x="-40%" y="-40%" width="180%" height="180%">'
-            '<feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#1e3a5f" flood-opacity="0.18"/></filter>')
-        bloom = ('<filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">'
-                 '<feGaussianBlur stdDeviation="20"/></filter>')
+        panel = (
+            '<linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">'
+            '<stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#eef4fb"/></linearGradient>'
+        )
+        glass_op, detail, depth = (
+            "0.5",
+            "#3b6fb0",
+            (
+                '<filter id="depth" x="-40%" y="-40%" width="180%" height="180%">'
+                '<feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#1e3a5f" flood-opacity="0.18"/></filter>'
+            ),
+        )
+        bloom = (
+            '<filter id="bloom" x="-120%" y="-120%" width="340%" height="340%">'
+            '<feGaussianBlur stdDeviation="20"/></filter>'
+        )
     return f"""
     <linearGradient id="brand" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#22e0ff"/><stop offset="48%" stop-color="#7c3aed"/><stop offset="100%" stop-color="#f43f5e"/>
@@ -53,7 +71,7 @@ def defs(theme):
 
 
 def rocket(theme):
-    glow = '#22e0ff' if theme == 'dark' else '#7c3aed'
+    glow = "#22e0ff" if theme == "dark" else "#7c3aed"
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320" fill="none">
   <defs>{defs(theme)}</defs>
   <circle cx="150" cy="84" r="70" fill="{glow}" filter="url(#bloom)" opacity="0.16"/>
@@ -111,31 +129,59 @@ def gpu(theme):
 def hosts_palette(theme):
     if theme == "dark":
         return dict(
-            cyan="#38dbff", violet="#9b6dff", emerald="#34d399",
-            major_grid="#2A3548", minor_grid="#1A2235",
-            major_grid_op="0.42", minor_grid_op="0.28",
-            glow_c_op="0.14", glow_v_op="0.11", glow_e_op="0.09",
-            rack_hi="#152033", rack_mid="#0b1220", rack_lo="#06111c",
-            bay_hi="#111b2e", bay_lo="#08111d",
-            iso_top_hi="#11223A", iso_top_lo="#0A1526",
-            iso_face_hi="#0F1D32", iso_face_lo="#2A123B",
-            iso_side_hi="#0E2438", iso_side_lo="#1B1033",
-            glass_op="0.14", rail_hi_op="0.05",
-            detail_stroke="#38dbff", detail_muted="#9b6dff",
+            cyan="#38dbff",
+            violet="#9b6dff",
+            emerald="#34d399",
+            major_grid="#2A3548",
+            minor_grid="#1A2235",
+            major_grid_op="0.42",
+            minor_grid_op="0.28",
+            glow_c_op="0.14",
+            glow_v_op="0.11",
+            glow_e_op="0.09",
+            rack_hi="#152033",
+            rack_mid="#0b1220",
+            rack_lo="#06111c",
+            bay_hi="#111b2e",
+            bay_lo="#08111d",
+            iso_top_hi="#11223A",
+            iso_top_lo="#0A1526",
+            iso_face_hi="#0F1D32",
+            iso_face_lo="#2A123B",
+            iso_side_hi="#0E2438",
+            iso_side_lo="#1B1033",
+            glass_op="0.14",
+            rail_hi_op="0.05",
+            detail_stroke="#38dbff",
+            detail_muted="#9b6dff",
             node_stroke="#06111c",
         )
     return dict(
-        cyan="#0891b2", violet="#7c3aed", emerald="#059669",
-        major_grid="#94A3B8", minor_grid="#CBD5E1",
-        major_grid_op="0.18", minor_grid_op="0.16",
-        glow_c_op="0.14", glow_v_op="0.11", glow_e_op="0.08",
-        rack_hi="#f8fafc", rack_mid="#e2e8f0", rack_lo="#cbd5e1",
-        bay_hi="#f1f5f9", bay_lo="#e8eef5",
-        iso_top_hi="#FFFFFF", iso_top_lo="#E0F2FE",
-        iso_face_hi="#FFFFFF", iso_face_lo="#E9D5FF",
-        iso_side_hi="#E0F2FE", iso_side_lo="#DDD6FE",
-        glass_op="0.55", rail_hi_op="0.08",
-        detail_stroke="#0891b2", detail_muted="#7c3aed",
+        cyan="#0891b2",
+        violet="#7c3aed",
+        emerald="#059669",
+        major_grid="#94A3B8",
+        minor_grid="#CBD5E1",
+        major_grid_op="0.18",
+        minor_grid_op="0.16",
+        glow_c_op="0.14",
+        glow_v_op="0.11",
+        glow_e_op="0.08",
+        rack_hi="#f8fafc",
+        rack_mid="#e2e8f0",
+        rack_lo="#cbd5e1",
+        bay_hi="#f1f5f9",
+        bay_lo="#e8eef5",
+        iso_top_hi="#FFFFFF",
+        iso_top_lo="#E0F2FE",
+        iso_face_hi="#FFFFFF",
+        iso_face_lo="#E9D5FF",
+        iso_side_hi="#E0F2FE",
+        iso_side_lo="#DDD6FE",
+        glass_op="0.55",
+        rail_hi_op="0.08",
+        detail_stroke="#0891b2",
+        detail_muted="#7c3aed",
         node_stroke="#0f172a",
     )
 

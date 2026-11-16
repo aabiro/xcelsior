@@ -91,9 +91,13 @@ def test_a_gst_hst_number_is_a_tax_identifier():
     )
     assert cleaned["tax_id"] == "123456789RT0001"
     assert cleaned["gst_hst_number"] == "123456789RT0001"
-    assert seller_profile_complete({**cleaned, "tax_id_last4": "0001", "seller_terms_accepted_at": 1700000000.0})
+    assert seller_profile_complete(
+        {**cleaned, "tax_id_last4": "0001", "seller_terms_accepted_at": 1700000000.0}
+    )
     with pytest.raises(ValueError, match="123456789RT0001"):
-        normalize_seller_profile(_profile(tax_id_kind="gst", tax_id="123456789"), require_tax_id=True)
+        normalize_seller_profile(
+            _profile(tax_id_kind="gst", tax_id="123456789"), require_tax_id=True
+        )
 
 
 def test_the_supplier_confirmation_and_the_address_are_required():
@@ -127,31 +131,60 @@ def test_a_provider_response_drops_the_encrypted_tax_identifier():
     assert seller_profile_complete({"legal_name": "Test Supplier"}) is False
 
 
-
-@pytest.mark.parametrize("field,value",[("country",""),("country","XX"),("province",""),("legal_name",""),("address_line1",""),("city",""),("postal_code","")])
-def test_required_seller_fields_cannot_be_blank_or_invented(field,value):
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("country", ""),
+        ("country", "XX"),
+        ("province", ""),
+        ("legal_name", ""),
+        ("address_line1", ""),
+        ("city", ""),
+        ("postal_code", ""),
+    ],
+)
+def test_required_seller_fields_cannot_be_blank_or_invented(field, value):
     with pytest.raises(ValueError):
-        normalize_seller_profile(_profile(**{field:value}), require_tax_id=True)
+        normalize_seller_profile(_profile(**{field: value}), require_tax_id=True)
 
 
 def test_seller_address_uses_country_requirements_and_rejects_invalid_postal_codes():
-    cleaned = normalize_seller_profile(_profile(country="HK", province="", postal_code="", city="Hong Kong", tax_id_kind="other", tax_id="TEST1234"), require_tax_id=True)
+    cleaned = normalize_seller_profile(
+        _profile(
+            country="HK",
+            province="",
+            postal_code="",
+            city="Hong Kong",
+            tax_id_kind="other",
+            tax_id="TEST1234",
+        ),
+        require_tax_id=True,
+    )
     assert cleaned["country"] == "HK"
     assert cleaned["province"] == cleaned["postal_code"] == ""
-    assert seller_profile_complete({**cleaned, "tax_id_last4":"1234", "seller_terms_accepted_at":1700000000.0})
+    assert seller_profile_complete(
+        {**cleaned, "tax_id_last4": "1234", "seller_terms_accepted_at": 1700000000.0}
+    )
     with pytest.raises(ValueError, match="postal code"):
         normalize_seller_profile(_profile(postal_code="12345"), require_tax_id=True)
-    assert not seller_profile_complete({**_profile(postal_code="12345"), "tax_id_last4":"1234"})
+    assert not seller_profile_complete({**_profile(postal_code="12345"), "tax_id_last4": "1234"})
     # A code from the neighbouring province is a warning on the form, never a block here.
-    border = normalize_seller_profile(_profile(province="AB", city="Lloydminster", postal_code="s9v0a1"), require_tax_id=True)
-    assert (border["province"], border["postal_code"]) == ("AB", "S9V0A1")  # seller rows store CA codes compact
+    border = normalize_seller_profile(
+        _profile(province="AB", city="Lloydminster", postal_code="s9v0a1"), require_tax_id=True
+    )
+    assert (border["province"], border["postal_code"]) == (
+        "AB",
+        "S9V0A1",
+    )  # seller rows store CA codes compact
 
 
 @pytest.mark.parametrize("accepted_at", [None, 0, -1, True, "accepted", float("nan"), float("inf")])
 def test_seller_completion_requires_a_recorded_terms_acceptance(accepted_at):
-    row={**_profile(), "tax_id_last4":"1234", "seller_terms_accepted_at":accepted_at}
+    row = {**_profile(), "tax_id_last4": "1234", "seller_terms_accepted_at": accepted_at}
     assert not seller_profile_complete(row)
 
 
 def test_seller_completion_rejects_non_numeric_sin_suffix():
-    assert not seller_profile_complete({**_profile(), "tax_id_last4":"ABCD", "seller_terms_accepted_at":1700000000.0})
+    assert not seller_profile_complete(
+        {**_profile(), "tax_id_last4": "ABCD", "seller_terms_accepted_at": 1700000000.0}
+    )

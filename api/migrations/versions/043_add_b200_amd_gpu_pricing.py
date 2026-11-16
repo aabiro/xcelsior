@@ -36,22 +36,22 @@ depends_on = None
 
 _NEW_BASE: list[tuple[str, int, str, bool, float]] = [
     # NVIDIA Blackwell
-    ("B200",      192, "OAM",  False, 12.00),
+    ("B200", 192, "OAM", False, 12.00),
     # AMD Data Center (already in _GPU_PRICING_BASE but may be missing from DB
     # if the table was seeded before those rows were added)
-    ("MI300X",    192, "OAM",  False,  4.50),
-    ("MI250X",    128, "OAM",  False,  2.80),
-    ("MI210",      64, "PCIe", False,  1.40),
+    ("MI300X", 192, "OAM", False, 4.50),
+    ("MI250X", 128, "OAM", False, 2.80),
+    ("MI210", 64, "PCIe", False, 1.40),
     # AMD Consumer
     ("RX 7900 XTX", 24, "PCIe", False, 0.28),
-    ("RX 7900 XT",  20, "PCIe", False, 0.24),
+    ("RX 7900 XT", 20, "PCIe", False, 0.24),
 ]
 # Total rows inserted: len(_NEW_BASE) × 3 tiers × 5 pricing_modes = 6 × 15 = 90
 
 _TIERS = {"standard": 1.0, "premium": 1.30, "sovereign": 1.43}
 _MODES = {
-    "on_demand":    1.0,
-    "spot":         0.40,
+    "on_demand": 1.0,
+    "spot": 0.40,
     "reserved_1mo": 0.80,
     "reserved_3mo": 0.70,
     "reserved_1yr": 0.55,
@@ -65,15 +65,22 @@ def _rows() -> list[tuple]:
         for tier, tm in _TIERS.items():
             for mode, mm in _MODES.items():
                 rate = round(base * tm * mm, 4)
-                out.append((
-                    model, vram, ff, hf,
-                    tier, mode, rate,
-                    1.0,                    # priority_multiplier
-                    _SOVEREIGNTY[tier],     # sovereignty_premium
-                    0.60 if mode == "spot" else 0.0,  # spot_discount
-                    0.05,                   # multi_gpu_discount_4
-                    0.10,                   # multi_gpu_discount_8
-                ))
+                out.append(
+                    (
+                        model,
+                        vram,
+                        ff,
+                        hf,
+                        tier,
+                        mode,
+                        rate,
+                        1.0,  # priority_multiplier
+                        _SOVEREIGNTY[tier],  # sovereignty_premium
+                        0.60 if mode == "spot" else 0.0,  # spot_discount
+                        0.05,  # multi_gpu_discount_4
+                        0.10,  # multi_gpu_discount_8
+                    )
+                )
     return out
 
 

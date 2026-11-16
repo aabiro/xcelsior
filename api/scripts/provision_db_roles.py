@@ -61,14 +61,12 @@ def _fetch_inventory(conn) -> tuple[list[str], list[str]]:
             (STORAGE_SCHEMA,),
         )
         rows = cur.fetchall()
-        cur.execute(
-            """
+        cur.execute("""
             SELECT schemaname, viewname
               FROM pg_views
              WHERE schemaname = 'public'
                AND viewname = 'ssh_account_suspensions'
-            """
-        )
+            """)
         views = cur.fetchall()
     qualified = [f"{s}.{t}" for s, t in rows]
     qualified.extend(f"{s}.{t}" for s, t in views)
@@ -103,8 +101,9 @@ def sequence_grants(conn, role) -> list[str]:
     if unknown:
         raise OverPrivilegedRole("unclassified database sequences: " + ", ".join(unknown))
     return [
-        f'GRANT USAGE, SELECT ON SEQUENCE {_quote(schema)}.{_quote(seq)} TO {_quote(role.name)}'
-        for schema, seq, domain in rows if domain in role.write
+        f"GRANT USAGE, SELECT ON SEQUENCE {_quote(schema)}.{_quote(seq)} TO {_quote(role.name)}"
+        for schema, seq, domain in rows
+        if domain in role.write
     ]
 
 
@@ -159,7 +158,13 @@ def build_plan(
             # some builds, so rely on the defaults and verify afterwards.
             plan.append((f'CREATE ROLE "{role.name}" NOLOGIN', ()))
         elif any(attrs):
-            names = [n for n, on in zip(("SUPERUSER", "CREATEDB", "CREATEROLE", "REPLICATION", "BYPASSRLS"), attrs) if on]
+            names = [
+                n
+                for n, on in zip(
+                    ("SUPERUSER", "CREATEDB", "CREATEROLE", "REPLICATION", "BYPASSRLS"), attrs
+                )
+                if on
+            ]
             raise OverPrivilegedRole(
                 f"role {role.name} already has {', '.join(names)}; "
                 "revoke with a superuser before provisioning"
@@ -169,8 +174,11 @@ def build_plan(
 
             # Explicit grants can be converged. Ownership and memberships
             # require an operator-reviewed transfer/revocation, not GRANTs.
-            unsafe = [issue for issue in role_violations(conn, key, check_session=False)
-                      if " owns " in issue or " is a member " in issue]
+            unsafe = [
+                issue
+                for issue in role_violations(conn, key, check_session=False)
+                if " owns " in issue or " is a member " in issue
+            ]
             if unsafe:
                 raise OverPrivilegedRole("; ".join(unsafe))
         password = passwords.get(key)
@@ -208,9 +216,11 @@ def build_plan(
                         "ALTER DEFAULT PRIVILEGES FOR ROLE {}{} REVOKE ALL ON {} FROM {}"
                     ).format(
                         sql.Identifier(owner),
-                        sql.SQL(" IN SCHEMA {}").format(sql.Identifier(schema))
-                        if schema
-                        else sql.SQL(""),
+                        (
+                            sql.SQL(" IN SCHEMA {}").format(sql.Identifier(schema))
+                            if schema
+                            else sql.SQL("")
+                        ),
                         sql.SQL(kind),
                         sql.SQL("PUBLIC") if grantee_name is None else sql.Identifier(grantee_name),
                     )

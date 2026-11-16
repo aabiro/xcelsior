@@ -33,8 +33,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # ── job_logs ─────────────────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS job_logs (
             id BIGSERIAL PRIMARY KEY,
             job_id TEXT NOT NULL,
@@ -44,12 +43,8 @@ def upgrade() -> None:
             created_at DOUBLE PRECISION NOT NULL
                 DEFAULT EXTRACT(EPOCH FROM NOW())
         )
-        """
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_job_logs_job_ts "
-        "ON job_logs (job_id, ts)"
-    )
+        """)
+    op.execute("CREATE INDEX IF NOT EXISTS idx_job_logs_job_ts " "ON job_logs (job_id, ts)")
 
     # ── billing_cycles residual columns (ensure-only historically) ───
     op.execute(
@@ -58,29 +53,19 @@ def upgrade() -> None:
         "DOUBLE PRECISION NOT NULL DEFAULT 0"
     )
     op.execute(
-        "ALTER TABLE billing_cycles "
-        "ADD COLUMN IF NOT EXISTS model_ref TEXT NOT NULL DEFAULT ''"
+        "ALTER TABLE billing_cycles " "ADD COLUMN IF NOT EXISTS model_ref TEXT NOT NULL DEFAULT ''"
     )
 
     # ── users residual columns ───────────────────────────────────────
+    op.execute("ALTER TABLE users " "ADD COLUMN IF NOT EXISTS max_concurrent_instances INTEGER")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email TEXT")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_change_token TEXT")
     op.execute(
-        "ALTER TABLE users "
-        "ADD COLUMN IF NOT EXISTS max_concurrent_instances INTEGER"
-    )
-    op.execute(
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_email TEXT"
-    )
-    op.execute(
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_change_token TEXT"
-    )
-    op.execute(
-        "ALTER TABLE users "
-        "ADD COLUMN IF NOT EXISTS email_change_expires DOUBLE PRECISION"
+        "ALTER TABLE users " "ADD COLUMN IF NOT EXISTS email_change_expires DOUBLE PRECISION"
     )
 
     # ── oauth_clients ────────────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS oauth_clients (
             client_id TEXT PRIMARY KEY,
             client_name TEXT NOT NULL,
@@ -101,18 +86,14 @@ def upgrade() -> None:
             team_id TEXT,
             is_system_managed INTEGER NOT NULL DEFAULT 0
         )
-        """
-    )
+        """)
     # Expand columns for DBs that got an older ensure-created shape.
     for stmt in (
         "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS status "
         "TEXT NOT NULL DEFAULT 'active'",
-        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS last_used "
-        "DOUBLE PRECISION",
-        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS "
-        "client_secret_preview TEXT",
-        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS "
-        "workspace_customer_id TEXT",
+        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS last_used " "DOUBLE PRECISION",
+        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS " "client_secret_preview TEXT",
+        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS " "workspace_customer_id TEXT",
         "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS team_id TEXT",
         "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS "
         "is_system_managed INTEGER NOT NULL DEFAULT 0",
@@ -123,13 +104,11 @@ def upgrade() -> None:
         "ON oauth_clients (workspace_customer_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_oauth_clients_owner "
-        "ON oauth_clients (created_by_email)"
+        "CREATE INDEX IF NOT EXISTS idx_oauth_clients_owner " "ON oauth_clients (created_by_email)"
     )
 
     # ── oauth_refresh_tokens ─────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
             token_id TEXT PRIMARY KEY,
             token_hash TEXT NOT NULL UNIQUE,
@@ -148,8 +127,7 @@ def upgrade() -> None:
             replaced_by_token_id TEXT,
             reuse_detected_at DOUBLE PRECISION
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family "
         "ON oauth_refresh_tokens (family_id)"
@@ -174,9 +152,7 @@ def upgrade() -> None:
         "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS session_type "
         "TEXT NOT NULL DEFAULT 'legacy'"
     )
-    op.execute(
-        "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS client_id TEXT"
-    )
+    op.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS client_id TEXT")
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_sessions_email_type "
         "ON sessions (email, session_type, last_active DESC)"
@@ -190,8 +166,7 @@ def upgrade() -> None:
     )
 
     # ── team_invites ─────────────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS team_invites (
             token TEXT PRIMARY KEY,
             team_id TEXT NOT NULL,
@@ -201,16 +176,9 @@ def upgrade() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             expires_at DOUBLE PRECISION NOT NULL
         )
-        """
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_team_invites_email "
-        "ON team_invites (email)"
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_team_invites_team "
-        "ON team_invites (team_id)"
-    )
+        """)
+    op.execute("CREATE INDEX IF NOT EXISTS idx_team_invites_email " "ON team_invites (email)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_team_invites_team " "ON team_invites (team_id)")
 
 
 def downgrade() -> None:
@@ -218,22 +186,10 @@ def downgrade() -> None:
     # Do not drop oauth/job_logs tables in reverse of production data —
     # leave structures; only drop columns that 061 exclusively added when
     # they are unused. Prefer no-op contract for safety.
-    op.execute(
-        "ALTER TABLE billing_cycles DROP COLUMN IF EXISTS model_ref"
-    )
-    op.execute(
-        "ALTER TABLE billing_cycles DROP COLUMN IF EXISTS token_cost_cad"
-    )
-    op.execute(
-        "ALTER TABLE users DROP COLUMN IF EXISTS email_change_expires"
-    )
-    op.execute(
-        "ALTER TABLE users DROP COLUMN IF EXISTS email_change_token"
-    )
-    op.execute(
-        "ALTER TABLE users DROP COLUMN IF EXISTS pending_email"
-    )
-    op.execute(
-        "ALTER TABLE users DROP COLUMN IF EXISTS max_concurrent_instances"
-    )
+    op.execute("ALTER TABLE billing_cycles DROP COLUMN IF EXISTS model_ref")
+    op.execute("ALTER TABLE billing_cycles DROP COLUMN IF EXISTS token_cost_cad")
+    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS email_change_expires")
+    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS email_change_token")
+    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS pending_email")
+    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS max_concurrent_instances")
     # Tables intentionally retained on downgrade (data-preserving).

@@ -13,6 +13,7 @@ Usage:
 Credentials: B2_MODEL_SYNC_BUCKET, B2_MODEL_SYNC_KEY_ID, B2_MODEL_SYNC_KEY
 (same as pxl-registry / ai-data-factory — source .env.model-sync before running).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -137,7 +138,12 @@ def fetch_one(hf_ref: str, *, prefer_b2: bool = False) -> dict:
     try:
         target = _download_target_dir(hf_ref)
     except RuntimeError as e:
-        return {"hf_ref": hf_ref, "status": "failed", "target": str(canonical_model_dir(hf_ref)), "error": str(e)}
+        return {
+            "hf_ref": hf_ref,
+            "status": "failed",
+            "target": str(canonical_model_dir(hf_ref)),
+            "error": str(e),
+        }
     result = {"hf_ref": hf_ref, "status": "missing", "target": str(target)}
 
     # B2 first when model-sync creds are available (Qwen shards live on B2).
@@ -165,7 +171,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Fetch preset models to disk")
     parser.add_argument("models", nargs="*", help="HF ids (default: all required presets)")
     parser.add_argument("--check", action="store_true", help="Only report status, do not download")
-    parser.add_argument("--from-b2", action="store_true", help="Try B2 registry shards before HuggingFace")
+    parser.add_argument(
+        "--from-b2", action="store_true", help="Try B2 registry shards before HuggingFace"
+    )
     parser.add_argument("--json", action="store_true", help="Emit JSON report")
     args = parser.parse_args()
 

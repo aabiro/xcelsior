@@ -78,20 +78,14 @@ def upgrade() -> None:
     op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS desired_state TEXT")
     op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS phase TEXT")
     op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS reason_code TEXT")
-    op.execute(
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS reason_details JSONB"
-    )
+    op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS reason_details JSONB")
 
     # ── jobs: optimistic concurrency / reconciliation generations ────
-    op.execute(
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 1"
-    )
+    op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 1")
     op.execute(
         "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS observed_generation BIGINT NOT NULL DEFAULT 0"
     )
-    op.execute(
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1"
-    )
+    op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1")
 
     # ── jobs: attempt linkage + canonical spec ───────────────────────
     # FK to job_attempts is added in migration 055 after that table exists.
@@ -114,16 +108,12 @@ def upgrade() -> None:
     # ── jobs: short scheduling claim (Stage B of placement protocol) ─
     op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS schedule_claim_owner TEXT")
     op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS schedule_claim_token UUID")
-    op.execute(
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS schedule_claim_expires_at TIMESTAMPTZ"
-    )
+    op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS schedule_claim_expires_at TIMESTAMPTZ")
     op.execute(
         "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS schedule_attempt_count INTEGER "
         "NOT NULL DEFAULT 0"
     )
-    op.execute(
-        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_schedule_conflict_at TIMESTAMPTZ"
-    )
+    op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_schedule_conflict_at TIMESTAMPTZ")
 
     # ── jobs: billing linkage (FK added with wallet_holds in 058) ────
     op.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS wallet_hold_id UUID")
@@ -145,16 +135,12 @@ def upgrade() -> None:
         "ALTER TABLE hosts ADD COLUMN IF NOT EXISTS availability_state TEXT "
         "NOT NULL DEFAULT 'unknown'"
     )
-    op.execute(
-        "ALTER TABLE hosts ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 1"
-    )
+    op.execute("ALTER TABLE hosts ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 1")
     op.execute(
         "ALTER TABLE hosts ADD COLUMN IF NOT EXISTS observed_generation BIGINT "
         "NOT NULL DEFAULT 0"
     )
-    op.execute(
-        "ALTER TABLE hosts ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1"
-    )
+    op.execute("ALTER TABLE hosts ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1")
     op.execute(
         "ALTER TABLE hosts ADD COLUMN IF NOT EXISTS inventory_generation BIGINT "
         "NOT NULL DEFAULT 0"
@@ -200,8 +186,7 @@ def upgrade() -> None:
             "availability_state IN ('ready', 'not_ready', 'unknown')",
         ),
     ):
-        op.execute(
-            f"""
+        op.execute(f"""
             DO $$
             BEGIN
                 IF NOT EXISTS (
@@ -213,8 +198,7 @@ def upgrade() -> None:
                         ADD CONSTRAINT {name} CHECK ({expr}) NOT VALID;
                 END IF;
             END$$;
-            """
-        )
+            """)
         op.execute(f"ALTER TABLE {table} VALIDATE CONSTRAINT {name}")
 
     # ── Backfill: bounded batches, resumable, verified ───────────────
@@ -225,33 +209,23 @@ def upgrade() -> None:
     # ── Indexes ──────────────────────────────────────────────────────
     # Stage-B queue claim scan: pending work ordered exactly as the
     # claim query orders it, so the scan is index-only until the lock.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_jobs_schedule_queue
         ON jobs (effective_priority DESC, fair_share_finish ASC, queued_at ASC)
         WHERE phase = 'pending' AND desired_state = 'running'
-        """
-    )
+        """)
     # Expired-claim sweep by the maintenance/reconcile loop.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_jobs_schedule_claim_expiry
         ON jobs (schedule_claim_expires_at)
         WHERE schedule_claim_expires_at IS NOT NULL
-        """
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_jobs_tenant_phase ON jobs (tenant_id, phase)"
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_jobs_owner_phase ON jobs (owner_id, phase)"
-    )
-    op.execute(
-        """
+        """)
+    op.execute("CREATE INDEX IF NOT EXISTS idx_jobs_tenant_phase ON jobs (tenant_id, phase)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_jobs_owner_phase ON jobs (owner_id, phase)")
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_hosts_admission
         ON hosts (administrative_state, availability_state, last_observed_at)
-        """
-    )
+        """)
 
 
 def _backfill_jobs() -> None:
@@ -282,8 +256,7 @@ def _backfill_jobs() -> None:
     max_passes = 1_000_000
     for _ in range(max_passes):
         result = bind.execute(
-            sa.text(
-                f"""
+            sa.text(f"""
                 WITH batch AS (
                     SELECT job_id
                       FROM jobs
@@ -311,8 +284,7 @@ def _backfill_jobs() -> None:
                        updated_at = clock_timestamp()
                   FROM batch
                  WHERE j.job_id = batch.job_id
-                """
-            ),
+                """),
             {"batch_size": BACKFILL_BATCH_SIZE},
         )
         if result.rowcount == 0:
@@ -329,8 +301,7 @@ def _backfill_hosts() -> None:
     bind = op.get_bind()
     while True:
         result = bind.execute(
-            sa.text(
-                """
+            sa.text("""
                 WITH batch AS (
                     SELECT host_id
                       FROM hosts
@@ -364,8 +335,7 @@ def _backfill_hosts() -> None:
                        last_observed_at = to_timestamp(h.registered_at)
                   FROM batch
                  WHERE h.host_id = batch.host_id
-                """
-            ),
+                """),
             {"batch_size": BACKFILL_BATCH_SIZE},
         )
         if result.rowcount == 0:
@@ -381,17 +351,19 @@ def _verify_backfill() -> None:
     """
     bind = op.get_bind()
     unmapped_jobs = bind.execute(
-        sa.text(
-            "SELECT count(*) FROM jobs WHERE phase IS NULL OR desired_state IS NULL"
-        )
+        sa.text("SELECT count(*) FROM jobs WHERE phase IS NULL OR desired_state IS NULL")
     ).scalar_one()
     if unmapped_jobs:
-        statuses = bind.execute(
-            sa.text(
-                "SELECT DISTINCT status FROM jobs "
-                "WHERE phase IS NULL OR desired_state IS NULL LIMIT 20"
+        statuses = (
+            bind.execute(
+                sa.text(
+                    "SELECT DISTINCT status FROM jobs "
+                    "WHERE phase IS NULL OR desired_state IS NULL LIMIT 20"
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         raise RuntimeError(
             f"migration 054 backfill left {unmapped_jobs} jobs rows without a "
             f"phase/desired_state projection; unmapped legacy statuses: {statuses}. "
@@ -401,9 +373,7 @@ def _verify_backfill() -> None:
         sa.text("SELECT count(*) FROM hosts WHERE last_observed_at IS NULL")
     ).scalar_one()
     if unmapped_hosts:
-        raise RuntimeError(
-            f"migration 054 backfill left {unmapped_hosts} hosts rows unprojected"
-        )
+        raise RuntimeError(f"migration 054 backfill left {unmapped_hosts} hosts rows unprojected")
 
 
 def downgrade() -> None:
@@ -416,9 +386,7 @@ def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS idx_jobs_schedule_queue")
 
     op.execute("ALTER TABLE hosts DROP CONSTRAINT IF EXISTS ck_hosts_availability_state")
-    op.execute(
-        "ALTER TABLE hosts DROP CONSTRAINT IF EXISTS ck_hosts_administrative_state"
-    )
+    op.execute("ALTER TABLE hosts DROP CONSTRAINT IF EXISTS ck_hosts_administrative_state")
     op.execute("ALTER TABLE jobs DROP CONSTRAINT IF EXISTS ck_jobs_phase")
     op.execute("ALTER TABLE jobs DROP CONSTRAINT IF EXISTS ck_jobs_desired_state")
 

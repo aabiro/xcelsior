@@ -4,15 +4,15 @@ Revision ID: a0985327493e
 Revises: 059
 Create Date: 2026-07-19 07:44:28.675427
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
 
-
 # revision identifiers
-revision: str = 'a0985327493e'
-down_revision: Union[str, None] = '059'
+revision: str = "a0985327493e"
+down_revision: Union[str, None] = "059"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

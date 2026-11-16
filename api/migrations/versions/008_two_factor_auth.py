@@ -8,6 +8,7 @@ Revision ID: 008
 Revises: 007
 Create Date: 2025-06-08
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -37,18 +38,20 @@ def upgrade() -> None:
             "mfa_methods",
             sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
             sa.Column("email", sa.Text(), nullable=False),
-            sa.Column("method_type", sa.Text(), nullable=False),       # totp | sms | passkey
-            sa.Column("secret", sa.Text()),                              # TOTP base32 secret (encrypted)
-            sa.Column("phone_number", sa.Text()),                        # SMS phone (E.164)
-            sa.Column("credential_id", sa.Text()),                       # passkey credential ID (base64url)
-            sa.Column("public_key", sa.Text()),                          # passkey public key (base64url)
-            sa.Column("sign_count", sa.Integer(), server_default="0"),   # passkey sign counter
-            sa.Column("device_name", sa.Text()),                         # passkey friendly name
+            sa.Column("method_type", sa.Text(), nullable=False),  # totp | sms | passkey
+            sa.Column("secret", sa.Text()),  # TOTP base32 secret (encrypted)
+            sa.Column("phone_number", sa.Text()),  # SMS phone (E.164)
+            sa.Column("credential_id", sa.Text()),  # passkey credential ID (base64url)
+            sa.Column("public_key", sa.Text()),  # passkey public key (base64url)
+            sa.Column("sign_count", sa.Integer(), server_default="0"),  # passkey sign counter
+            sa.Column("device_name", sa.Text()),  # passkey friendly name
             sa.Column("enabled", sa.Integer(), nullable=False, server_default="1"),
             sa.Column("created_at", sa.Float(), nullable=False),
         )
     op.execute("CREATE INDEX IF NOT EXISTS idx_mfa_methods_email ON mfa_methods (email)")
-    op.execute("CREATE INDEX IF NOT EXISTS idx_mfa_methods_credential ON mfa_methods (credential_id)")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mfa_methods_credential ON mfa_methods (credential_id)"
+    )
 
     # Backup recovery codes
     if not inspector.has_table("mfa_backup_codes"):
@@ -68,8 +71,8 @@ def upgrade() -> None:
             "mfa_challenges",
             sa.Column("challenge_id", sa.Text(), primary_key=True),
             sa.Column("email", sa.Text(), nullable=False),
-            sa.Column("session_token", sa.Text()),                       # partial session token
-            sa.Column("challenge_data", sa.Text()),                      # JSON for passkey challenge
+            sa.Column("session_token", sa.Text()),  # partial session token
+            sa.Column("challenge_data", sa.Text()),  # JSON for passkey challenge
             sa.Column("created_at", sa.Float(), nullable=False),
             sa.Column("expires_at", sa.Float(), nullable=False),
         )

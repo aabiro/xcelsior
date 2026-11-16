@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Load .env file
-dotenv_path = Path(__file__).resolve().parent.parent / '.env'
+dotenv_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=dotenv_path)
 
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
@@ -18,6 +18,7 @@ MODEL_NAME = "gemini-3.1-pro-preview-customtools"
 
 # Check for dry run
 DRY_RUN = os.environ.get("DRY_RUN", "0").lower() in ("1", "true", "yes") or "--dry-run" in sys.argv
+
 
 def list_models(api_key, key_label):
     print(f"\n=== [Listing Models for {key_label}] ===")
@@ -48,6 +49,7 @@ def list_models(api_key, key_label):
     except Exception as e:
         print(f"Error listing models: {e}")
     return None
+
 
 def test_streaming_and_tools(api_key, key_label):
     print(f"\n=== [Testing Streaming & Tool Calls for {key_label}] ===")
@@ -80,27 +82,24 @@ def test_streaming_and_tools(api_key, key_label):
                         "name": "get_current_weather",
                         "description": "Get the current weather for a location",
                         "parameters": {
-                          "type": "OBJECT",
-                          "properties": {
-                            "location": {
-                              "type": "STRING",
-                              "description": "The city and state, e.g. San Francisco, CA"
-                            }
-                          },
-                          "required": ["location"]
-                        }
+                            "type": "OBJECT",
+                            "properties": {
+                                "location": {
+                                    "type": "STRING",
+                                    "description": "The city and state, e.g. San Francisco, CA",
+                                }
+                            },
+                            "required": ["location"],
+                        },
                     }
                 ]
             }
-        ]
+        ],
     }
 
     req_data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        url,
-        data=req_data,
-        headers={"Content-Type": "application/json"},
-        method="POST"
+        url, data=req_data, headers={"Content-Type": "application/json"}, method="POST"
     )
 
     try:
@@ -122,7 +121,9 @@ def test_streaming_and_tools(api_key, key_label):
                             if "text" in part:
                                 print(part["text"], end="", flush=True)
                             if "functionCall" in part:
-                                print(f"\n[TOOL CALL DETECTED! Chunk {i}]: {json.dumps(part['functionCall'])}")
+                                print(
+                                    f"\n[TOOL CALL DETECTED! Chunk {i}]: {json.dumps(part['functionCall'])}"
+                                )
             except Exception as parse_err:
                 # Fallback to direct text search if it's SSE-streamed or chunked JSON
                 print("\n[Raw Response Received]:")
@@ -133,6 +134,7 @@ def test_streaming_and_tools(api_key, key_label):
         print(f"Response: {error_body}")
     except Exception as e:
         print(f"Streaming failed: {e}")
+
 
 if __name__ == "__main__":
     # 1. List models

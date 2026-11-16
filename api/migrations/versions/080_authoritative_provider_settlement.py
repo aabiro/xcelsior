@@ -31,22 +31,17 @@ def upgrade() -> None:
     # The terminal meter is supporting evidence for a provider earning.  The
     # wallet charge ledger remains the paid-amount authority, but both sides
     # must reconcile before a new payout can be prepared.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE usage_meters
           ADD COLUMN IF NOT EXISTS total_cost_micros BIGINT
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE usage_meters
            SET total_cost_micros =
                round(COALESCE(total_cost_cad, 0)::numeric * 1000000)::bigint
          WHERE total_cost_micros IS NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE OR REPLACE FUNCTION usage_meters_project_total_cost_money()
         RETURNS trigger AS $$
         BEGIN
@@ -68,32 +63,26 @@ def upgrade() -> None:
             RETURN NEW;
         END
         $$ LANGUAGE plpgsql
-        """
-    )
+        """)
     op.execute("DROP TRIGGER IF EXISTS trg_usage_meters_project_total_cost_money ON usage_meters")
-    op.execute(
-        """
+    op.execute("""
         CREATE TRIGGER trg_usage_meters_project_total_cost_money
         BEFORE INSERT OR UPDATE ON usage_meters
         FOR EACH ROW EXECUTE FUNCTION usage_meters_project_total_cost_money()
-        """
-    )
+        """)
     op.execute("ALTER TABLE usage_meters ALTER COLUMN total_cost_micros SET DEFAULT 0")
     op.execute("ALTER TABLE usage_meters ALTER COLUMN total_cost_micros SET NOT NULL")
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE usage_meters
           ADD CONSTRAINT ck_usage_meters_total_cost_micros_non_negative
           CHECK (total_cost_micros >= 0) NOT VALID
-        """
-    )
+        """)
     op.execute(
         "ALTER TABLE usage_meters "
         "VALIDATE CONSTRAINT ck_usage_meters_total_cost_micros_non_negative"
     )
 
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE payout_splits
           ADD COLUMN IF NOT EXISTS customer_id TEXT,
           ADD COLUMN IF NOT EXISTS currency TEXT,
@@ -116,14 +105,12 @@ def upgrade() -> None:
           ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ,
           ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ,
           ADD COLUMN IF NOT EXISTS legacy_imported BOOLEAN
-        """
-    )
+        """)
 
     # Preserve every old row and external identifier.  Exact projections are
     # derived from the stored values; provider gets the residual so that the
     # canonical split has no unallocated micro-CAD.
-    op.execute(
-        """
+    op.execute("""
         UPDATE payout_splits ps
            SET customer_id = COALESCE(
                    NULLIF(ps.customer_id, ''),
@@ -222,10 +209,8 @@ def upgrade() -> None:
                        THEN COALESCE(NULLIF(ps.settlement_status, ''), 'pending')
                    ELSE 'manual_review'
                END
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE payout_splits
            SET provider_share_micros =
                    total_micros - platform_share_micros,
@@ -233,23 +218,19 @@ def upgrade() -> None:
                    total_micros - source_total_micros
          WHERE provider_share_micros IS NULL
             OR provider_share_micros + platform_share_micros <> total_micros
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE payout_splits
            SET settlement_status = COALESCE(NULLIF(settlement_status, ''), 'pending'),
                settlement_error = COALESCE(settlement_error, ''),
                payment_rail = COALESCE(NULLIF(payment_rail, ''), 'stripe')
-        """
-    )
+        """)
 
     # Legacy databases may contain more than one payout_splits row per job.
     # Keep all of them and all rail IDs, but grant the canonical cross-rail key
     # to exactly one deterministic row.  Conflicts remain available for audit
     # instead of being deleted or rewritten.
-    op.execute(
-        """
+    op.execute("""
         WITH ranked AS (
             SELECT id,
                    row_number() OVER (
@@ -273,10 +254,8 @@ def upgrade() -> None:
          WHERE ranked.id = ps.id
            AND ranked.position = 1
            AND ps.settlement_key IS NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE payout_splits
            SET settlement_status = CASE
                    WHEN COALESCE(stripe_transfer_id, '') <> ''
@@ -290,8 +269,7 @@ def upgrade() -> None:
                    'duplicate legacy job settlement retained by migration 080'
                )
          WHERE settlement_key IS NULL
-        """
-    )
+        """)
 
     for column, default in (
         ("currency", "'CAD'"),
@@ -319,8 +297,7 @@ def upgrade() -> None:
         op.execute(f"ALTER TABLE payout_splits ALTER COLUMN {column} SET DEFAULT {default}")
         op.execute(f"ALTER TABLE payout_splits ALTER COLUMN {column} SET NOT NULL")
 
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE payout_splits
           ADD CONSTRAINT ck_payout_splits_exact_money
           CHECK (
@@ -332,10 +309,8 @@ def upgrade() -> None:
               AND source_total_micros + rounding_adjustment_micros = total_micros
               AND provider_share_micros + platform_share_micros = total_micros
           ) NOT VALID
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         ALTER TABLE payout_splits
           ADD CONSTRAINT ck_payout_splits_settlement_terms
           CHECK (
@@ -357,10 +332,8 @@ def upgrade() -> None:
                   )
               )
           ) NOT VALID
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         ALTER TABLE payout_splits
           ADD CONSTRAINT ck_payout_splits_claim
           CHECK (
@@ -368,60 +341,47 @@ def upgrade() -> None:
               OR
               (claim_owner IS NOT NULL AND claim_token IS NOT NULL AND claim_expires_at IS NOT NULL)
           ) NOT VALID
-        """
-    )
+        """)
     op.execute("ALTER TABLE payout_splits VALIDATE CONSTRAINT ck_payout_splits_exact_money")
     op.execute("ALTER TABLE payout_splits VALIDATE CONSTRAINT ck_payout_splits_settlement_terms")
     op.execute("ALTER TABLE payout_splits VALIDATE CONSTRAINT ck_payout_splits_claim")
 
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_payout_splits_settlement_key
             ON payout_splits (settlement_key)
          WHERE settlement_key IS NOT NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_payout_splits_rail_idempotency
             ON payout_splits (rail_idempotency_key)
          WHERE settlement_key IS NOT NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_payout_splits_stripe_transfer
             ON payout_splits (stripe_transfer_id)
          WHERE COALESCE(stripe_transfer_id, '') <> ''
            AND settlement_key IS NOT NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_payout_splits_paypal_order
             ON payout_splits (paypal_order_id)
          WHERE paypal_order_id <> ''
            AND settlement_key IS NOT NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_payout_splits_paypal_capture
             ON payout_splits (paypal_capture_id)
          WHERE COALESCE(paypal_capture_id, '') <> ''
            AND settlement_key IS NOT NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_payout_splits_claimable
             ON payout_splits (payment_rail, next_attempt_at, created_at)
          WHERE settlement_key IS NOT NULL
            AND settlement_status IN (
                'pending', 'queued', 'failed', 'awaiting_capture', 'processing'
            )
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

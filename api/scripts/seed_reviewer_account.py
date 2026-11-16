@@ -149,11 +149,7 @@ def _reviewer_instances(customer_id: str) -> list:
     try:
         import scheduler
 
-        return [
-            job
-            for job in scheduler.list_jobs()
-            if str(job.get("owner") or "") == customer_id
-        ]
+        return [job for job in scheduler.list_jobs() if str(job.get("owner") or "") == customer_id]
     except Exception as exc:  # pragma: no cover - reporting path
         print(f"[reviewer-seed] (non-fatal) could not list instances: {exc}")
         return []
@@ -174,20 +170,22 @@ def seed() -> int:
         UserStore.update_user(REVIEWER_EMAIL, updates)
         action = "updated"
     else:
-        UserStore.create_user({
-            "user_id": f"user-reviewer-{uuid.uuid4().hex[:8]}",
-            "email": REVIEWER_EMAIL,
-            "name": REVIEWER_NAME,
-            "password_hash": password_hash,
-            "salt": salt,
-            "role": "submitter",
-            "is_admin": 0,
-            "customer_id": f"cust-{uuid.uuid4().hex[:8]}",
-            "provider_id": None,
-            "country": "CA",
-            "province": "ON",
-            "created_at": time.time(),
-        })
+        UserStore.create_user(
+            {
+                "user_id": f"user-reviewer-{uuid.uuid4().hex[:8]}",
+                "email": REVIEWER_EMAIL,
+                "name": REVIEWER_NAME,
+                "password_hash": password_hash,
+                "salt": salt,
+                "role": "submitter",
+                "is_admin": 0,
+                "customer_id": f"cust-{uuid.uuid4().hex[:8]}",
+                "provider_id": None,
+                "country": "CA",
+                "province": "ON",
+                "created_at": time.time(),
+            }
+        )
         UserStore.update_user(REVIEWER_EMAIL, DESIRED)
         action = "created"
 
@@ -209,7 +207,9 @@ def seed() -> int:
     _seed_instances(customer_id)
 
     print("\n[reviewer-seed] hand the reviewer:")
-    print(f"[reviewer-seed]   connector URL : {os.environ.get('XCELSIOR_MCP_RESOURCE_AUDIENCE', 'https://mcp.xcelsior.ca/mcp')}")
+    print(
+        f"[reviewer-seed]   connector URL : {os.environ.get('XCELSIOR_MCP_RESOURCE_AUDIENCE', 'https://mcp.xcelsior.ca/mcp')}"
+    )
     print(f"[reviewer-seed]   email         : {REVIEWER_EMAIL}")
     print("[reviewer-seed]   password      : (the one you supplied; never email it)")
     print("[reviewer-seed] the account has no MFA, no email confirmation step, and no IP gate.")
@@ -255,7 +255,9 @@ def _seed_instances(customer_id: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--check", action="store_true", help="report state, write nothing")
     args = parser.parse_args()
     sys.exit(check() if args.check else seed())

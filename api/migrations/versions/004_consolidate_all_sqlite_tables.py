@@ -17,6 +17,7 @@ Revision ID: 004
 Revises: 003
 Create Date: 2026-03-29
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -120,13 +121,15 @@ def upgrade() -> None:
         sa.Column("created_at", sa.Float(), nullable=False),
     )
     op.create_index(
-        "idx_notif_user", "notifications",
+        "idx_notif_user",
+        "notifications",
         [sa.text("user_email"), sa.text("read"), sa.text("created_at DESC")],
     )
     op.create_index("idx_notif_created", "notifications", ["created_at"])
     # PG optimisation: partial index for unread-only (hot path)
     op.create_index(
-        "idx_notif_unread", "notifications",
+        "idx_notif_unread",
+        "notifications",
         [sa.text("user_email"), sa.text("created_at DESC")],
         postgresql_where=sa.text("read = 0"),
     )
@@ -217,7 +220,9 @@ def upgrade() -> None:
     op.create_index("idx_payouts_provider", "payout_ledger", ["provider_id"])
     # PG optimisation: partial index for pending payouts
     op.create_index(
-        "idx_payouts_pending", "payout_ledger", ["provider_id"],
+        "idx_payouts_pending",
+        "payout_ledger",
+        ["provider_id"],
         postgresql_where=sa.text("status = 'pending'"),
     )
 
@@ -454,7 +459,9 @@ def upgrade() -> None:
     op.create_index("idx_leases_status", "leases", ["status"])
     # PG optimisation: partial index for active leases (hot path)
     op.create_index(
-        "idx_leases_active", "leases", ["job_id", "host_id"],
+        "idx_leases_active",
+        "leases",
+        ["job_id", "host_id"],
         postgresql_where=sa.text("status = 'active'"),
     )
 
@@ -522,7 +529,9 @@ def upgrade() -> None:
     op.create_index("idx_inf_jobs_submitted", "inference_jobs", ["submitted_at"])
     # PG optimisation: partial index for queued jobs (scheduler hot path)
     op.create_index(
-        "idx_inf_jobs_queued", "inference_jobs", [sa.text("submitted_at ASC")],
+        "idx_inf_jobs_queued",
+        "inference_jobs",
+        [sa.text("submitted_at ASC")],
         postgresql_where=sa.text("status = 'queued'"),
     )
 
@@ -551,7 +560,12 @@ def upgrade() -> None:
     op.create_table(
         "chat_messages",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("conversation_id", sa.Text(), sa.ForeignKey("chat_conversations.conversation_id"), nullable=False),
+        sa.Column(
+            "conversation_id",
+            sa.Text(),
+            sa.ForeignKey("chat_conversations.conversation_id"),
+            nullable=False,
+        ),
         sa.Column("role", sa.Text(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("created_at", sa.Float(), nullable=False),
@@ -600,17 +614,40 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Drop in reverse order
     for table in [
-        "data_disclosures", "legal_requests",
-        "chat_feedback", "chat_messages", "chat_conversations",
-        "inference_results", "inference_jobs",
-        "job_failure_log", "verification_history", "host_verifications",
-        "leases", "events",
-        "payout_splits", "payment_intents", "provider_accounts",
-        "sla_violations", "sla_monthly", "sla_downtime",
-        "privacy_configs", "consent_records", "retention_records",
-        "reputation_events", "reputation_scores",
-        "wallet_transactions", "wallets", "payout_ledger", "invoices", "usage_meters",
-        "user_ssh_keys", "notifications", "team_members", "teams",
-        "api_keys", "sessions", "users",
+        "data_disclosures",
+        "legal_requests",
+        "chat_feedback",
+        "chat_messages",
+        "chat_conversations",
+        "inference_results",
+        "inference_jobs",
+        "job_failure_log",
+        "verification_history",
+        "host_verifications",
+        "leases",
+        "events",
+        "payout_splits",
+        "payment_intents",
+        "provider_accounts",
+        "sla_violations",
+        "sla_monthly",
+        "sla_downtime",
+        "privacy_configs",
+        "consent_records",
+        "retention_records",
+        "reputation_events",
+        "reputation_scores",
+        "wallet_transactions",
+        "wallets",
+        "payout_ledger",
+        "invoices",
+        "usage_meters",
+        "user_ssh_keys",
+        "notifications",
+        "team_members",
+        "teams",
+        "api_keys",
+        "sessions",
+        "users",
     ]:
         op.drop_table(table)

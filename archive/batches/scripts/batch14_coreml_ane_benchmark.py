@@ -116,28 +116,50 @@ def main() -> None:
         "ios_special_count": len(results_ios),
         "ios_verified_count": sum(1 for r in results_ios if r["status"] == "verified"),
         "median_latency_ms_across_models": round(
-            float(np.median([r["median_latency_ms"] for r in results_batch13 if "median_latency_ms" in r])), 3
+            float(
+                np.median(
+                    [r["median_latency_ms"] for r in results_batch13 if "median_latency_ms" in r]
+                )
+            ),
+            3,
         ),
         "min_cosine_similarity": round(
-            float(min([r["ane_vs_cpu_cosine_similarity"] for r in results_batch13 if "ane_vs_cpu_cosine_similarity" in r])),
+            float(
+                min(
+                    [
+                        r["ane_vs_cpu_cosine_similarity"]
+                        for r in results_batch13
+                        if "ane_vs_cpu_cosine_similarity" in r
+                    ]
+                )
+            ),
             6,
         ),
         "batch13_models": results_batch13,
         "pixelspark_ios_models": results_ios,
     }
-    out_path = Path("/Users/aaryn/Projects/xcelsior/logs/gpu_roadmap/batch14/batch14_track3a_coreml_ane.json")
+    out_path = Path(
+        "/Users/aaryn/Projects/xcelsior/logs/gpu_roadmap/batch14/batch14_track3a_coreml_ane.json"
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     # Also copy into pixelspark-ios/Models/CoreML/
-    (ios_dir / "batch14_coreml_ane_benchmark.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    print(json.dumps({
-        "batch13_verified": f"{report['batch13_verified_count']}/{report['batch13_coreml_count']}",
-        "ios_verified": f"{report['ios_verified_count']}/{report['ios_special_count']}",
-        "median_latency_ms": report["median_latency_ms_across_models"],
-        "min_cosine_similarity": report["min_cosine_similarity"],
-    }, indent=2), flush=True)
+    (ios_dir / "batch14_coreml_ane_benchmark.json").write_text(
+        json.dumps(report, indent=2), encoding="utf-8"
+    )
+    print(
+        json.dumps(
+            {
+                "batch13_verified": f"{report['batch13_verified_count']}/{report['batch13_coreml_count']}",
+                "ios_verified": f"{report['ios_verified_count']}/{report['ios_special_count']}",
+                "median_latency_ms": report["median_latency_ms_across_models"],
+                "min_cosine_similarity": report["min_cosine_similarity"],
+            },
+            indent=2,
+        ),
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
     main()
-

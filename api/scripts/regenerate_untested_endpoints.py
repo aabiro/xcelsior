@@ -10,7 +10,9 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 PROJECT = _HERE.parent.parent if _HERE.parent.name == "api" else _HERE.parent
-ROUTES_DIR = (PROJECT / "api" / "routes") if (PROJECT / "api" / "routes").is_dir() else (PROJECT / "routes")
+ROUTES_DIR = (
+    (PROJECT / "api" / "routes") if (PROJECT / "api" / "routes").is_dir() else (PROJECT / "routes")
+)
 TESTS_DIR = PROJECT / "tests"
 OUT = PROJECT / "archive" / "UNTESTED_ENDPOINTS.md"
 
@@ -43,7 +45,9 @@ def _coverage_file_for(path: str, handler: str, corpus_by_file: dict[str, str]) 
     return None
 
 
-def _is_tested(path: str, handler: str, corpus: str, corpus_by_file: dict[str, str]) -> tuple[bool, str]:
+def _is_tested(
+    path: str, handler: str, corpus: str, corpus_by_file: dict[str, str]
+) -> tuple[bool, str]:
     generic = re.sub(r"\{[^}/]+\}", "{*}", path)
     path_base = path.split("{", 1)[0] if "{" in path else path
     if (
@@ -104,7 +108,11 @@ def _load_cli_test_corpus() -> str:
 
 
 def _parse_cli_commands(_corpus: str) -> list[tuple[str, str, bool]]:
-    cli = (PROJECT / "core" / "cli.py") if (PROJECT / "core" / "cli.py").exists() else (PROJECT / "cli.py")
+    cli = (
+        (PROJECT / "core" / "cli.py")
+        if (PROJECT / "core" / "cli.py").exists()
+        else (PROJECT / "cli.py")
+    )
     if not cli.exists():
         return []
     text = cli.read_text(encoding="utf-8", errors="replace")
@@ -205,7 +213,9 @@ def main() -> None:
     OUT.write_text(_render(by_file, cli_commands), encoding="utf-8")
     total = sum(len(v) for v in by_file.values())
     untested = sum(1 for entries in by_file.values() for e in entries if not e[3])
-    print(f"Wrote {OUT} — {untested}/{total} routes untested, {sum(1 for c in cli_commands if not c[2])}/{len(cli_commands)} CLI")
+    print(
+        f"Wrote {OUT} — {untested}/{total} routes untested, {sum(1 for c in cli_commands if not c[2])}/{len(cli_commands)} CLI"
+    )
 
 
 if __name__ == "__main__":

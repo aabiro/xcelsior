@@ -159,9 +159,9 @@ def test_the_validator_is_imported_at_module_scope():
         if isinstance(node, ast.ImportFrom)
         for alias in node.names
     ]
-    assert "validate_startup" in module_level, (
-        "validate_startup must be imported at module scope in api/api.py"
-    )
+    assert (
+        "validate_startup" in module_level
+    ), "validate_startup must be imported at module scope in api/api.py"
 
 
 def test_the_validator_call_is_not_wrapped_in_a_try():

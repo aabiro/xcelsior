@@ -24,14 +24,10 @@ depends_on = None
 
 
 def _permission_preset(conn):
-    conn.execute(
-        text(
-            """
+    conn.execute(text("""
             ALTER TABLE oauth_clients
               ADD COLUMN IF NOT EXISTS permission_preset TEXT NOT NULL DEFAULT ''
-            """
-        )
-    )
+            """))
 
 
 def _drop_permission_preset(conn):

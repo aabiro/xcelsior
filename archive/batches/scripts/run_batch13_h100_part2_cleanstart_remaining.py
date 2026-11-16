@@ -52,10 +52,13 @@ class BodyEditorNet(nn.Module):
     29-class anatomy-guided Body Editor (supports both r128_v2 and r256_v1).
     Input:image (B, 3, H, W) -> residual anatomical refinement in [-1, 1].
     """
+
     def __init__(self, base_ch: int = 64):
         super().__init__()
         self.enc1 = nn.Sequential(nn.Conv2d(3, base_ch, 3, padding=1), nn.SiLU(inplace=True))
-        self.enc2 = nn.Sequential(nn.Conv2d(base_ch, base_ch * 2, 3, stride=2, padding=1), nn.SiLU(inplace=True))
+        self.enc2 = nn.Sequential(
+            nn.Conv2d(base_ch, base_ch * 2, 3, stride=2, padding=1), nn.SiLU(inplace=True)
+        )
         self.body = nn.Sequential(
             ConvResBlock(base_ch * 2),
             ConvResBlock(base_ch * 2),
@@ -80,13 +83,22 @@ class PerPartAgeJudgeR128(nn.Module):
     """
     29-Class Per-Part Age & Anatomical Consistency Judge (128x128 input -> [global_age, part_consistency]).
     """
+
     def __init__(self):
         super().__init__()
         self.features = nn.Sequential(
-            nn.Conv2d(3, 32, 3, stride=2, padding=1), nn.BatchNorm2d(32), nn.SiLU(),
-            nn.Conv2d(32, 64, 3, stride=2, padding=1), nn.BatchNorm2d(64), nn.SiLU(),
-            nn.Conv2d(64, 128, 3, stride=2, padding=1), nn.BatchNorm2d(128), nn.SiLU(),
-            nn.Conv2d(128, 256, 3, stride=2, padding=1), nn.BatchNorm2d(256), nn.SiLU(),
+            nn.Conv2d(3, 32, 3, stride=2, padding=1),
+            nn.BatchNorm2d(32),
+            nn.SiLU(),
+            nn.Conv2d(32, 64, 3, stride=2, padding=1),
+            nn.BatchNorm2d(64),
+            nn.SiLU(),
+            nn.Conv2d(64, 128, 3, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.SiLU(),
+            nn.Conv2d(128, 256, 3, stride=2, padding=1),
+            nn.BatchNorm2d(256),
+            nn.SiLU(),
             nn.AdaptiveAvgPool2d((1, 1)),
         )
         self.head = nn.Sequential(
@@ -104,6 +116,7 @@ class CleanRoomSR4x(nn.Module):
     """
     4x Clean-Room Super-Resolution network using PixelShuffle(2) x 2 (4x upscale).
     """
+
     def __init__(self, ch: int = 64):
         super().__init__()
         self.head = nn.Conv2d(3, ch, 3, padding=1)
@@ -113,8 +126,12 @@ class CleanRoomSR4x(nn.Module):
             ConvResBlock(ch),
             ConvResBlock(ch),
         )
-        self.up1 = nn.Sequential(nn.Conv2d(ch, ch * 4, 3, padding=1), nn.PixelShuffle(2), nn.SiLU(inplace=True))
-        self.up2 = nn.Sequential(nn.Conv2d(ch, ch * 4, 3, padding=1), nn.PixelShuffle(2), nn.SiLU(inplace=True))
+        self.up1 = nn.Sequential(
+            nn.Conv2d(ch, ch * 4, 3, padding=1), nn.PixelShuffle(2), nn.SiLU(inplace=True)
+        )
+        self.up2 = nn.Sequential(
+            nn.Conv2d(ch, ch * 4, 3, padding=1), nn.PixelShuffle(2), nn.SiLU(inplace=True)
+        )
         self.tail = nn.Conv2d(ch, 3, 3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -129,16 +146,22 @@ class TinySceneDegradation(nn.Module):
     """
     Scene degradation estimator -> 4-D vector [blur, noise, compression, exposure_shift] in [0, 1].
     """
+
     def __init__(self):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(3, 32, 3, stride=2, padding=1), nn.SiLU(inplace=True),
-            nn.Conv2d(32, 64, 3, stride=2, padding=1), nn.SiLU(inplace=True),
-            nn.Conv2d(64, 128, 3, stride=2, padding=1), nn.SiLU(inplace=True),
+            nn.Conv2d(3, 32, 3, stride=2, padding=1),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(32, 64, 3, stride=2, padding=1),
+            nn.SiLU(inplace=True),
+            nn.Conv2d(64, 128, 3, stride=2, padding=1),
+            nn.SiLU(inplace=True),
             nn.AdaptiveAvgPool2d((1, 1)),
             nn.Flatten(),
-            nn.Linear(128, 64), nn.SiLU(inplace=True),
-            nn.Linear(64, 4), nn.Sigmoid(),
+            nn.Linear(128, 64),
+            nn.SiLU(inplace=True),
+            nn.Linear(64, 4),
+            nn.Sigmoid(),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -149,6 +172,7 @@ class RGFVRStudentV1(nn.Module):
     """
     Region-Guided Face/Video Restoration Student (4-ch [RGB, mask] -> 3-ch restored RGB).
     """
+
     def __init__(self, ch: int = 64):
         super().__init__()
         self.head = nn.Sequential(nn.Conv2d(4, ch, 3, padding=1), nn.SiLU(inplace=True))
@@ -178,7 +202,13 @@ def load_real_images(max_imgs: int = 768):
     return torch.stack(imgs_256).to(DEVICE)
 
 
-def export_onnx(model: nn.Module, dummy: torch.Tensor, out_path: Path, in_name: str = "input", out_name: str = "output"):
+def export_onnx(
+    model: nn.Module,
+    dummy: torch.Tensor,
+    out_path: Path,
+    in_name: str = "input",
+    out_name: str = "output",
+):
     m_cpu = model.float().eval().cpu()
     torch.onnx.export(
         m_cpu,
@@ -212,7 +242,11 @@ def main():
         for i in range(0, n, 64):
             idx = perm[i : i + 64]
             target = imgs_128[idx]
-            degraded = torch.clamp(F.avg_pool2d(target, 3, stride=1, padding=1) + 0.03 * torch.randn_like(target), 0.0, 1.0)
+            degraded = torch.clamp(
+                F.avg_pool2d(target, 3, stride=1, padding=1) + 0.03 * torch.randn_like(target),
+                0.0,
+                1.0,
+            )
             with torch.autocast(device_type="cuda", dtype=DTYPE):
                 pred = be128(degraded)
                 per_sample = (pred - target).abs().mean(dim=(1, 2, 3))
@@ -224,7 +258,10 @@ def main():
             opt.step()
     torch.save(be128.state_dict(), OUT_PS / "body_editor_r128_v2.pt")
     export_onnx(be128, torch.randn(1, 3, 128, 128), OUT_ONNX / "body_editor_r128_v2.onnx")
-    results["body_editor_r128_v2"] = {"loss": round(float(loss.item()), 5), "elapsed_sec": round(time.time() - t_m, 2)}
+    results["body_editor_r128_v2"] = {
+        "loss": round(float(loss.item()), 5),
+        "elapsed_sec": round(time.time() - t_m, 2),
+    }
     print(f"  [body_editor_r128_v2] Done: {results['body_editor_r128_v2']}")
 
     # 2. body_editor_r256_v1 (256x256)
@@ -237,7 +274,11 @@ def main():
         for i in range(0, n, 32):
             idx = perm[i : i + 32]
             target = imgs_256[idx]
-            degraded = torch.clamp(F.avg_pool2d(target, 3, stride=1, padding=1) + 0.03 * torch.randn_like(target), 0.0, 1.0)
+            degraded = torch.clamp(
+                F.avg_pool2d(target, 3, stride=1, padding=1) + 0.03 * torch.randn_like(target),
+                0.0,
+                1.0,
+            )
             with torch.autocast(device_type="cuda", dtype=DTYPE):
                 pred = be256(degraded)
                 per_sample = (pred - target).abs().mean(dim=(1, 2, 3))
@@ -249,7 +290,10 @@ def main():
             opt.step()
     torch.save(be256.state_dict(), OUT_PS / "body_editor_r256_v1.pt")
     export_onnx(be256, torch.randn(1, 3, 256, 256), OUT_ONNX / "body_editor_r256_v1.onnx")
-    results["body_editor_r256_v1"] = {"loss": round(float(loss.item()), 5), "elapsed_sec": round(time.time() - t_m, 2)}
+    results["body_editor_r256_v1"] = {
+        "loss": round(float(loss.item()), 5),
+        "elapsed_sec": round(time.time() - t_m, 2),
+    }
     print(f"  [body_editor_r256_v1] Done: {results['body_editor_r256_v1']}")
 
     # 3. per_part_age_judge_r128_v1 (128x128)
@@ -276,7 +320,10 @@ def main():
             opt.step()
     torch.save(judge.state_dict(), OUT_PS / "per_part_age_judge_r128_v1.pt")
     export_onnx(judge, torch.randn(1, 3, 128, 128), OUT_ONNX / "per_part_age_judge_r128_v1.onnx")
-    results["per_part_age_judge_r128_v1"] = {"loss": round(float(loss.item()), 5), "elapsed_sec": round(time.time() - t_m, 2)}
+    results["per_part_age_judge_r128_v1"] = {
+        "loss": round(float(loss.item()), 5),
+        "elapsed_sec": round(time.time() - t_m, 2),
+    }
     print(f"  [per_part_age_judge_r128_v1] Done: {results['per_part_age_judge_r128_v1']}")
 
     # 4. clean_room_sr_4x (64x64 -> 256x256)
@@ -301,7 +348,10 @@ def main():
             opt.step()
     torch.save(sr4x.state_dict(), OUT_PS / "clean_room_sr_4x.pt")
     export_onnx(sr4x, torch.randn(1, 3, 64, 64), OUT_ONNX / "clean_room_sr_4x.onnx")
-    results["clean_room_sr_4x"] = {"loss": round(float(loss.item()), 5), "elapsed_sec": round(time.time() - t_m, 2)}
+    results["clean_room_sr_4x"] = {
+        "loss": round(float(loss.item()), 5),
+        "elapsed_sec": round(time.time() - t_m, 2),
+    }
     print(f"  [clean_room_sr_4x] Done: {results['clean_room_sr_4x']}")
 
     # 5. tiny_scene_degradation (128x128 -> 4-D vector)
@@ -321,8 +371,14 @@ def main():
             exp_lvl = torch.rand(b_sz, 1, 1, 1, device=DEVICE)
             blurred = F.avg_pool2d(clean, 3, stride=1, padding=1)
             synth = clean * (1.0 - 0.6 * blur_lvl) + blurred * (0.6 * blur_lvl)
-            synth = torch.clamp(synth + noise_lvl * 0.12 * torch.randn_like(clean) + (exp_lvl - 0.5) * 0.25, 0.0, 1.0)
-            target_vec = torch.cat([blur_lvl, noise_lvl, comp_lvl, exp_lvl], dim=1).squeeze(-1).squeeze(-1)
+            synth = torch.clamp(
+                synth + noise_lvl * 0.12 * torch.randn_like(clean) + (exp_lvl - 0.5) * 0.25,
+                0.0,
+                1.0,
+            )
+            target_vec = (
+                torch.cat([blur_lvl, noise_lvl, comp_lvl, exp_lvl], dim=1).squeeze(-1).squeeze(-1)
+            )
             with torch.autocast(device_type="cuda", dtype=DTYPE):
                 pred = tsd(synth)
                 loss = F.mse_loss(pred, target_vec)
@@ -331,7 +387,10 @@ def main():
             opt.step()
     torch.save(tsd.state_dict(), OUT_PS / "tiny_scene_degradation.pt")
     export_onnx(tsd, torch.randn(1, 3, 128, 128), OUT_ONNX / "tiny_scene_degradation.onnx")
-    results["tiny_scene_degradation"] = {"loss": round(float(loss.item()), 5), "elapsed_sec": round(time.time() - t_m, 2)}
+    results["tiny_scene_degradation"] = {
+        "loss": round(float(loss.item()), 5),
+        "elapsed_sec": round(time.time() - t_m, 2),
+    }
     print(f"  [tiny_scene_degradation] Done: {results['tiny_scene_degradation']}")
 
     # 6. rgfvr_student_v1 (4-ch [RGB, mask] 128x128 -> 3-ch RGB)
@@ -339,14 +398,22 @@ def main():
     t_m = time.time()
     rgfvr = RGFVRStudentV1(ch=64).to(DEVICE)
     opt = torch.optim.AdamW(rgfvr.parameters(), lr=4e-4, weight_decay=1e-4)
-    yy, xx = torch.meshgrid(torch.linspace(-1, 1, 128, device=DEVICE), torch.linspace(-1, 1, 128, device=DEVICE), indexing="ij")
+    yy, xx = torch.meshgrid(
+        torch.linspace(-1, 1, 128, device=DEVICE),
+        torch.linspace(-1, 1, 128, device=DEVICE),
+        indexing="ij",
+    )
     center_mask = torch.exp(-(xx**2 + yy**2) * 1.5).unsqueeze(0).unsqueeze(0)
     for ep in range(1, 13):
         perm = torch.randperm(n, device=DEVICE)
         for i in range(0, n, 64):
             idx = perm[i : i + 64]
             target = imgs_128[idx]
-            deg = torch.clamp(F.avg_pool2d(target, 3, stride=1, padding=1) + 0.04 * torch.randn_like(target), 0.0, 1.0)
+            deg = torch.clamp(
+                F.avg_pool2d(target, 3, stride=1, padding=1) + 0.04 * torch.randn_like(target),
+                0.0,
+                1.0,
+            )
             m = center_mask.expand(target.shape[0], 1, 128, 128)
             inp4 = torch.cat([deg, m], dim=1)
             with torch.autocast(device_type="cuda", dtype=DTYPE):
@@ -357,14 +424,18 @@ def main():
             opt.step()
     torch.save(rgfvr.state_dict(), OUT_PS / "rgfvr_student_v1.pt")
     export_onnx(rgfvr, torch.randn(1, 4, 128, 128), OUT_ONNX / "rgfvr_student_v1.onnx")
-    results["rgfvr_student_v1"] = {"loss": round(float(loss.item()), 5), "elapsed_sec": round(time.time() - t_m, 2)}
+    results["rgfvr_student_v1"] = {
+        "loss": round(float(loss.item()), 5),
+        "elapsed_sec": round(time.time() - t_m, 2),
+    }
     print(f"  [rgfvr_student_v1] Done: {results['rgfvr_student_v1']}")
 
     summary = {"total_elapsed_sec": round(time.time() - t0, 2), "models": results}
-    (WORKSPACE / "outputs" / "batch13_h100_part2_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (WORKSPACE / "outputs" / "batch13_h100_part2_summary.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8"
+    )
     print(f"\n=== Part 2 Complete in {summary['total_elapsed_sec']}s ===")
 
 
 if __name__ == "__main__":
     main()
-

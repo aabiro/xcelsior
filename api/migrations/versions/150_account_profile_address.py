@@ -19,7 +19,9 @@ def upgrade() -> None:
     op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS city TEXT NOT NULL DEFAULT ''")
     op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS postal_code TEXT NOT NULL DEFAULT ''")
     op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT ''")
-    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_intent TEXT NOT NULL DEFAULT ''")
+    op.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_intent TEXT NOT NULL DEFAULT ''"
+    )
 
 
 def downgrade() -> None:

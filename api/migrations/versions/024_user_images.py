@@ -16,7 +16,6 @@ from typing import Sequence, Union
 
 from alembic import op
 
-
 revision: str = "024"
 down_revision: Union[str, None] = "023"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -24,8 +23,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS user_images (
             image_id TEXT PRIMARY KEY,
             owner_id TEXT NOT NULL,
@@ -41,11 +39,9 @@ def upgrade() -> None:
             deleted_at DOUBLE PRECISION DEFAULT 0,
             UNIQUE (owner_id, name, tag)
         )
-        """
-    )
+        """)
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_user_images_owner "
-        "ON user_images (owner_id, deleted_at)"
+        "CREATE INDEX IF NOT EXISTS idx_user_images_owner " "ON user_images (owner_id, deleted_at)"
     )
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_user_images_source_job "

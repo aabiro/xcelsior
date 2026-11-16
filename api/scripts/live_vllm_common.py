@@ -12,9 +12,7 @@ DEFAULT_MODEL_ROOT = Path("/mnt/storage/models/staging/2026H2/hf")
 DEFAULT_BASE_URL = os.environ.get("XCELSIOR_LIVE_VLLM_URL", "http://127.0.0.1:8199/v1").rstrip("/")
 DEFAULT_HF_MODEL = os.environ.get(
     "XCELSIOR_LIVE_VLLM_MODEL",
-    "Qwen/Qwen3-4B-AWQ"
-    if (DEFAULT_MODEL_ROOT / "Qwen_Qwen3-4B-AWQ").is_dir()
-    else "Qwen/Qwen3-8B",
+    "Qwen/Qwen3-4B-AWQ" if (DEFAULT_MODEL_ROOT / "Qwen_Qwen3-4B-AWQ").is_dir() else "Qwen/Qwen3-8B",
 )
 
 

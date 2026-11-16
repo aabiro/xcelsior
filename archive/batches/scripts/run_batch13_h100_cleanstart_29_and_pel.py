@@ -52,7 +52,13 @@ def gpo_sample_weights(per_sample_reward: torch.Tensor, scale: float = 0.30) -> 
     return (1.0 + scale * torch.tanh(adv)).clamp(0.70, 1.30)
 
 
-def export_onnx_verified(model: nn.Module, dummy_inputs: tuple, onnx_name: str, input_names: list[str], output_names: list[str]) -> dict:
+def export_onnx_verified(
+    model: nn.Module,
+    dummy_inputs: tuple,
+    onnx_name: str,
+    input_names: list[str],
+    output_names: list[str],
+) -> dict:
     model.eval().cpu().float()
     out_path = OUT_ONNX / onnx_name
     torch.onnx.export(
@@ -72,15 +78,21 @@ def export_onnx_verified(model: nn.Module, dummy_inputs: tuple, onnx_name: str, 
     outs = sess.run(None, feed)
     sz_mb = round(out_path.stat().st_size / (1024 * 1024), 3)
     print(f"  [ONNX VERIFIED] {onnx_name} ({sz_mb} MB) -> {[list(o.shape) for o in outs]}")
-    return {"onnx_path": str(out_path), "size_mb": sz_mb, "output_shapes": [list(o.shape) for o in outs]}
+    return {
+        "onnx_path": str(out_path),
+        "size_mb": sz_mb,
+        "output_shapes": [list(o.shape) for o in outs],
+    }
 
 
 # ==============================================================================
 # 1. PIXELSPARK 29-CLASS OWNERSHIP PARSER (CLEAN START FROM 0 ON H100)
 # ==============================================================================
 
+
 class OwnershipParser29CleanStart(nn.Module):
     """29-Class BiSeNetV2-style Dual-Branch Semantic + Anatomy (#27/#28) + Text/Wordmark (#29) Parser."""
+
     def __init__(self, num_classes: int = 29):
         super().__init__()
         self.detail_branch = nn.Sequential(
@@ -120,12 +132,16 @@ class OwnershipParser29CleanStart(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h, w = x.shape[-2:]
         det = self.detail_branch(x)
-        ctx = F.interpolate(self.context_branch(x), size=det.shape[-2:], mode="bilinear", align_corners=False)
+        ctx = F.interpolate(
+            self.context_branch(x), size=det.shape[-2:], mode="bilinear", align_corners=False
+        )
         logits_low = self.fusion(torch.cat([det, ctx], dim=1))
         return F.interpolate(logits_low, size=(h, w), mode="bilinear", align_corners=False)
 
 
-def make_29class_synthetic_batch(bs: int, h: int, w: int, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
+def make_29class_synthetic_batch(
+    bs: int, h: int, w: int, device: torch.device
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Generates structured 29-class training images + pixel-exact ground truth masks (classes 0..28)."""
     imgs = torch.zeros(bs, 3, h, w, device=device, dtype=torch.float32)
     labels = torch.zeros(bs, h, w, device=device, dtype=torch.long)
@@ -140,30 +156,30 @@ def make_29class_synthetic_batch(bs: int, h: int, w: int, device: torch.device) 
 
         # Populate classes 1..25 in deterministic spatial patches with distinct RGB signatures
         for c in range(1, 26):
-            r0 = ((c * 11 + b * 3) % (h - 24))
-            c0 = ((c * 17 + b * 5) % (w - 24))
-            labels[b, r0:r0+16, c0:c0+16] = c
-            imgs[b, 0, r0:r0+16, c0:c0+16] = ((c * 37) % 255) / 255.0
-            imgs[b, 1, r0:r0+16, c0:c0+16] = ((c * 73) % 255) / 255.0
-            imgs[b, 2, r0:r0+16, c0:c0+16] = ((c * 109) % 255) / 255.0
+            r0 = (c * 11 + b * 3) % (h - 24)
+            c0 = (c * 17 + b * 5) % (w - 24)
+            labels[b, r0 : r0 + 16, c0 : c0 + 16] = c
+            imgs[b, 0, r0 : r0 + 16, c0 : c0 + 16] = ((c * 37) % 255) / 255.0
+            imgs[b, 1, r0 : r0 + 16, c0 : c0 + 16] = ((c * 73) % 255) / 255.0
+            imgs[b, 2, r0 : r0 + 16, c0 : c0 + 16] = ((c * 109) % 255) / 255.0
 
         # Class 26 (#27 intimate_female_anatomy): warm rose-peach epidermal signature in lower-center left
-        labels[b, h//2:h//2+24, w//2-28:w//2-4] = 26
-        imgs[b, 0, h//2:h//2+24, w//2-28:w//2-4] = 0.88
-        imgs[b, 1, h//2:h//2+24, w//2-28:w//2-4] = 0.56
-        imgs[b, 2, h//2:h//2+24, w//2-28:w//2-4] = 0.52
+        labels[b, h // 2 : h // 2 + 24, w // 2 - 28 : w // 2 - 4] = 26
+        imgs[b, 0, h // 2 : h // 2 + 24, w // 2 - 28 : w // 2 - 4] = 0.88
+        imgs[b, 1, h // 2 : h // 2 + 24, w // 2 - 28 : w // 2 - 4] = 0.56
+        imgs[b, 2, h // 2 : h // 2 + 24, w // 2 - 28 : w // 2 - 4] = 0.52
 
         # Class 27 (#28 intimate_male_anatomy): warm bronze-tan epidermal signature in lower-center right
-        labels[b, h//2:h//2+24, w//2+4:w//2+28] = 27
-        imgs[b, 0, h//2:h//2+24, w//2+4:w//2+28] = 0.82
-        imgs[b, 1, h//2:h//2+24, w//2+4:w//2+28] = 0.62
-        imgs[b, 2, h//2:h//2+24, w//2+4:w//2+28] = 0.44
+        labels[b, h // 2 : h // 2 + 24, w // 2 + 4 : w // 2 + 28] = 27
+        imgs[b, 0, h // 2 : h // 2 + 24, w // 2 + 4 : w // 2 + 28] = 0.82
+        imgs[b, 1, h // 2 : h // 2 + 24, w // 2 + 4 : w // 2 + 28] = 0.62
+        imgs[b, 2, h // 2 : h // 2 + 24, w // 2 + 4 : w // 2 + 28] = 0.44
 
         # Class 28 (#29 text_wordmark): high-contrast white/cyan watermark/caption strip at bottom-right
-        labels[b, h-20:h-4, w-48:w-6] = 28
-        imgs[b, 0, h-20:h-4, w-48:w-6] = 0.98
-        imgs[b, 1, h-20:h-4, w-48:w-6] = 0.99
-        imgs[b, 2, h-20:h-4, w-48:w-6] = 0.05
+        labels[b, h - 20 : h - 4, w - 48 : w - 6] = 28
+        imgs[b, 0, h - 20 : h - 4, w - 48 : w - 6] = 0.98
+        imgs[b, 1, h - 20 : h - 4, w - 48 : w - 6] = 0.99
+        imgs[b, 2, h - 20 : h - 4, w - 48 : w - 6] = 0.05
 
     imgs = (imgs + torch.randn_like(imgs) * 0.015).clamp(0.0, 1.0)
     return imgs, labels
@@ -171,7 +187,9 @@ def make_29class_synthetic_batch(bs: int, h: int, w: int, device: torch.device) 
 
 def train_pixelspark_29_cleanstart() -> dict:
     t0 = time.time()
-    print("\n=== 1. Clean-Start Training: pixelspark 29-Class OwnershipParser on H100 (bf16 + GPO) ===")
+    print(
+        "\n=== 1. Clean-Start Training: pixelspark 29-Class OwnershipParser on H100 (bf16 + GPO) ==="
+    )
     model = OwnershipParser29CleanStart(num_classes=29).to(DEVICE, dtype=DTYPE)
     # Upweight #27 (26), #28 (27), and #29 (28) in cross-entropy
     cls_weights = torch.ones(29, device=DEVICE, dtype=torch.float32)
@@ -190,7 +208,9 @@ def train_pixelspark_29_cleanstart() -> dict:
         with torch.no_grad():
             preds = logits.argmax(dim=1)
             acc_all = (preds == labels).float().mean(dim=(1, 2))
-            acc_special = ((preds >= 26) & (preds == labels)).float().sum(dim=(1, 2)) / ((labels >= 26).float().sum(dim=(1, 2)).clamp(min=1.0))
+            acc_special = ((preds >= 26) & (preds == labels)).float().sum(dim=(1, 2)) / (
+                (labels >= 26).float().sum(dim=(1, 2)).clamp(min=1.0)
+            )
             rewards = acc_all + 1.5 * acc_special
 
         gpo_w = gpo_sample_weights(rewards)
@@ -207,9 +227,18 @@ def train_pixelspark_29_cleanstart() -> dict:
         v_logits = model(v_imgs.to(DTYPE)).float()
         v_preds = v_logits.argmax(dim=1)
         pixel_acc = float((v_preds == v_labels).float().mean().item())
-        c27_acc = float(((v_preds == 26) & (v_labels == 26)).float().sum().item() / max(1, (v_labels == 26).sum().item()))
-        c28_acc = float(((v_preds == 27) & (v_labels == 27)).float().sum().item() / max(1, (v_labels == 27).sum().item()))
-        c29_acc = float(((v_preds == 28) & (v_labels == 28)).float().sum().item() / max(1, (v_labels == 28).sum().item()))
+        c27_acc = float(
+            ((v_preds == 26) & (v_labels == 26)).float().sum().item()
+            / max(1, (v_labels == 26).sum().item())
+        )
+        c28_acc = float(
+            ((v_preds == 27) & (v_labels == 27)).float().sum().item()
+            / max(1, (v_labels == 27).sum().item())
+        )
+        c29_acc = float(
+            ((v_preds == 28) & (v_labels == 28)).float().sum().item()
+            / max(1, (v_labels == 28).sum().item())
+        )
 
     pt_path = OUT_PS29 / "ownership_parser_best.pt"
     torch.save(model.float().cpu().state_dict(), pt_path)
@@ -220,7 +249,9 @@ def train_pixelspark_29_cleanstart() -> dict:
         ["image"],
         ["logits_29"],
     )
-    print(f"  [pixelspark 29-class Clean-Start] pixel_acc={pixel_acc*100:.2f}% | #27={c27_acc*100:.2f}% | #28={c28_acc*100:.2f}% | #29_wordmark={c29_acc*100:.2f}% ({time.time()-t0:.1f}s)")
+    print(
+        f"  [pixelspark 29-class Clean-Start] pixel_acc={pixel_acc*100:.2f}% | #27={c27_acc*100:.2f}% | #28={c28_acc*100:.2f}% | #29_wordmark={c29_acc*100:.2f}% ({time.time()-t0:.1f}s)"
+    )
     return {
         "pt_path": str(pt_path),
         "pixel_acc": round(pixel_acc, 5),
@@ -236,12 +267,16 @@ def train_pixelspark_29_cleanstart() -> dict:
 # 2. PIXELENHANCE-LABS FULL SUITE — CLEAN START FROM 0 ON H100 (bf16 + GPO)
 # ==============================================================================
 
+
 class ViTAestheticPredictorClean(nn.Module):
     """MVQA Aesthetic Predictor (clean start from 0 on H100)."""
+
     def __init__(self):
         super().__init__()
         self.patch_embed = nn.Conv2d(3, 192, kernel_size=16, stride=16)
-        encoder_layer = nn.TransformerEncoderLayer(d_model=192, nhead=6, dim_feedforward=768, batch_first=True, activation="gelu")
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=192, nhead=6, dim_feedforward=768, batch_first=True, activation="gelu"
+        )
         self.blocks = nn.TransformerEncoder(encoder_layer, num_layers=4)
         self.norm = nn.LayerNorm(192)
         self.head = nn.Sequential(
@@ -259,6 +294,7 @@ class ViTAestheticPredictorClean(nn.Module):
 
 class ArtifactDetectorClean(nn.Module):
     """Compression / Ringing / Overcook Artifact Detector (clean start from 0 on H100)."""
+
     def __init__(self):
         super().__init__()
         self.features = nn.Sequential(
@@ -286,6 +322,7 @@ class ArtifactDetectorClean(nn.Module):
 
 class StyleClassifierClean(nn.Module):
     """Content/Style Domain Classifier (8 classes: portrait, studio, outdoor, lowlight, webphoto, anime, vintage, document)."""
+
     def __init__(self, num_styles: int = 8):
         super().__init__()
         self.features = nn.Sequential(
@@ -308,6 +345,7 @@ class StyleClassifierClean(nn.Module):
 
 class MultiTaskNSFWFilterClean(nn.Module):
     """6-Tier Rating (G, PG, PG-13, R, NC-17, XXX) + Binary NSFW + Calibrated Confidence Head."""
+
     def __init__(self):
         super().__init__()
         self.backbone = nn.Sequential(
@@ -332,6 +370,7 @@ class MultiTaskNSFWFilterClean(nn.Module):
 
 class SpecialistEnhancerClean(nn.Module):
     """Residual Specialist Enhancer (Denoise / Detail / Upscale / Temporal) with #29 Wordmark Guard."""
+
     def __init__(self, in_ch: int = 3, hidden_ch: int = 96):
         super().__init__()
         self.body = nn.Sequential(
@@ -355,7 +394,9 @@ class SpecialistEnhancerClean(nn.Module):
 
 def train_pixelenhance_labs_cleanstart() -> dict:
     t0 = time.time()
-    print("\n=== 2. Clean-Start Training: pixelenhance-labs Full Suite (8 Models) from 0 on H100 (bf16 + GPO) ===")
+    print(
+        "\n=== 2. Clean-Start Training: pixelenhance-labs Full Suite (8 Models) from 0 on H100 (bf16 + GPO) ==="
+    )
     results = {}
 
     # 2A: MVQA Aesthetic Predictor (from 0)
@@ -365,7 +406,15 @@ def train_pixelenhance_labs_cleanstart() -> dict:
         bs = 64
         x = torch.rand(bs, 3, 128, 128, device=DEVICE, dtype=DTYPE)
         # Aesthetic score correlated with contrast + color harmony - noise
-        target = (5.0 + 3.0 * x.float().std(dim=(1, 2, 3)) + 1.5 * (x[:, 0].float().mean(dim=(1, 2)) - x[:, 2].float().mean(dim=(1, 2)))).clamp(1.0, 9.8).unsqueeze(1)
+        target = (
+            (
+                5.0
+                + 3.0 * x.float().std(dim=(1, 2, 3))
+                + 1.5 * (x[:, 0].float().mean(dim=(1, 2)) - x[:, 2].float().mean(dim=(1, 2)))
+            )
+            .clamp(1.0, 9.8)
+            .unsqueeze(1)
+        )
         pred = mvqa(x).float()
         mse = ((pred - target) ** 2).squeeze(1)
         loss = (mse * gpo_sample_weights(-mse)).mean()
@@ -377,7 +426,13 @@ def train_pixelenhance_labs_cleanstart() -> dict:
     results["mvqa_aesthetic_best"] = {
         "pt_path": str(mvqa_pt),
         "final_mse": round(float(mse.mean().item()), 6),
-        "onnx": export_onnx_verified(mvqa, (torch.rand(1, 3, 128, 128),), "mvqa_aesthetic_best.onnx", ["image"], ["aesthetic_score"]),
+        "onnx": export_onnx_verified(
+            mvqa,
+            (torch.rand(1, 3, 128, 128),),
+            "mvqa_aesthetic_best.onnx",
+            ["image"],
+            ["aesthetic_score"],
+        ),
     }
 
     # 2B: Artifact Detector (from 0)
@@ -388,7 +443,15 @@ def train_pixelenhance_labs_cleanstart() -> dict:
         x = torch.rand(bs, 3, 128, 128, device=DEVICE, dtype=DTYPE)
         hf = (x[:, :, :, 1:].float() - x[:, :, :, :-1].float()).abs().mean(dim=(1, 2, 3))
         sat = x.float().std(dim=(1, 2, 3))
-        target = torch.stack([hf.clamp(0, 1), (hf * 0.8).clamp(0, 1), (sat * 1.1).clamp(0, 1), F.relu(sat - 0.35).clamp(0, 1)], dim=1)
+        target = torch.stack(
+            [
+                hf.clamp(0, 1),
+                (hf * 0.8).clamp(0, 1),
+                (sat * 1.1).clamp(0, 1),
+                F.relu(sat - 0.35).clamp(0, 1),
+            ],
+            dim=1,
+        )
         pred = art(x).float()
         mse = ((pred - target) ** 2).mean(dim=1)
         loss = (mse * gpo_sample_weights(-mse)).mean()
@@ -400,7 +463,13 @@ def train_pixelenhance_labs_cleanstart() -> dict:
     results["artifact_detector_best"] = {
         "pt_path": str(art_pt),
         "final_mse": round(float(mse.mean().item()), 6),
-        "onnx": export_onnx_verified(art, (torch.rand(1, 3, 128, 128),), "artifact_detector_best.onnx", ["image"], ["artifact_scores"]),
+        "onnx": export_onnx_verified(
+            art,
+            (torch.rand(1, 3, 128, 128),),
+            "artifact_detector_best.onnx",
+            ["image"],
+            ["artifact_scores"],
+        ),
     }
 
     # 2C: Style Classifier (from 0)
@@ -429,7 +498,13 @@ def train_pixelenhance_labs_cleanstart() -> dict:
     results["style_classifier_best"] = {
         "pt_path": str(style_pt),
         "val_acc": round(style_acc, 5),
-        "onnx": export_onnx_verified(style_m, (torch.rand(1, 3, 128, 128),), "style_classifier_best.onnx", ["image"], ["style_logits"]),
+        "onnx": export_onnx_verified(
+            style_m,
+            (torch.rand(1, 3, 128, 128),),
+            "style_classifier_best.onnx",
+            ["image"],
+            ["style_logits"],
+        ),
     }
 
     # 2D: MultiTaskNSFWFilter (from 0)
@@ -461,7 +536,13 @@ def train_pixelenhance_labs_cleanstart() -> dict:
     results["nsfw_filter_best"] = {
         "pt_path": str(nsfw_pt),
         "val_acc": round(nsfw_acc, 5),
-        "onnx": export_onnx_verified(nsfw_m, (torch.rand(1, 3, 128, 128),), "nsfw_filter_best.onnx", ["image"], ["tier_logits", "nsfw_prob"]),
+        "onnx": export_onnx_verified(
+            nsfw_m,
+            (torch.rand(1, 3, 128, 128),),
+            "nsfw_filter_best.onnx",
+            ["image"],
+            ["tier_logits", "nsfw_prob"],
+        ),
     }
 
     # 2E: 4 Specialist Enhancers (denoise, detail, upscale, temporal) from 0 with #29 wordmark guard + GPO
@@ -503,7 +584,13 @@ def train_pixelenhance_labs_cleanstart() -> dict:
         results[spec_name] = {
             "pt_path": str(spec_pt),
             "psnr_db": round(final_psnr, 2),
-            "onnx": export_onnx_verified(spec_m, (torch.rand(1, in_ch, 64, 64),), f"{spec_name}.onnx", ["input_frames"], ["enhanced_rgb"]),
+            "onnx": export_onnx_verified(
+                spec_m,
+                (torch.rand(1, in_ch, 64, 64),),
+                f"{spec_name}.onnx",
+                ["input_frames"],
+                ["enhanced_rgb"],
+            ),
         }
         print(f"  [PEL Clean-Start] {spec_name}: PSNR={final_psnr:.2f} dB")
 
@@ -522,9 +609,10 @@ def main():
     }
     out_json = WORKSPACE / "outputs" / "batch13_h100_cleanstart_29_and_pel.json"
     out_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(f"\n=== CLEAN-START 29-CLASS & PIXELENHANCE-LABS COMPLETE in {summary['elapsed_sec']}s -> {out_json} ===")
+    print(
+        f"\n=== CLEAN-START 29-CLASS & PIXELENHANCE-LABS COMPLETE in {summary['elapsed_sec']}s -> {out_json} ==="
+    )
 
 
 if __name__ == "__main__":
     main()
-

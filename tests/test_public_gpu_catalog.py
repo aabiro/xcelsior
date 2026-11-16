@@ -45,7 +45,9 @@ def test_hardware_import_needs_no_stripe_manifest(tmp_path):
 def test_hardware_catalog_contains_only_names_and_vram():
     catalog = json.loads((ROOT / "hosts/gpu_catalog.json").read_text())
     assert len(catalog) >= 50
-    assert all(isinstance(name, str) and type(vram) is int and vram > 0 for name, vram in catalog.items())
+    assert all(
+        isinstance(name, str) and type(vram) is int and vram > 0 for name, vram in catalog.items()
+    )
 
 
 def test_public_hardware_matches_private_snapshot_when_available():

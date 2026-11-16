@@ -47,23 +47,125 @@ for d in [PTH_OUT, COREML_OUT, TRT_OUT]:
 
 def get_all_19_model_specs():
     return [
-        ("ownership_parser_29class_best", Seg29ClassModel, {}, PS29_OUT / "ownership_parser_best.pt", (1, 3, 256, 256)),
-        ("body_editor_r128_v2", ResEnhancerNet, {"in_ch": 3, "out_ch": 3, "feat": 64, "blocks": 6}, PS_OUT / "body_editor_r128_v2.pt", (1, 3, 128, 128)),
-        ("body_editor_r256_v1", ResEnhancerNet, {"in_ch": 3, "out_ch": 3, "feat": 64, "blocks": 6}, PS_OUT / "body_editor_r256_v1.pt", (1, 3, 256, 256)),
-        ("rgfvr_student_v1", ResEnhancerNet, {"in_ch": 4, "out_ch": 3, "feat": 64, "blocks": 6}, PS_OUT / "rgfvr_student_v1.pt", (1, 4, 128, 128)),
-        ("fading_domain_specialized_v1", ResEnhancerNet, {"in_ch": 5, "out_ch": 3, "feat": 64, "blocks": 6}, VTT_OUT / "fading_domain_specialized_v1.pt", (1, 5, 128, 128)),
-        ("denoise_specialist_best", ResEnhancerNet, {"in_ch": 3, "out_ch": 3, "feat": 64, "blocks": 6}, PEL_OUT / "denoise_specialist_best.pt", (1, 3, 128, 128)),
-        ("detail_specialist_best", ResEnhancerNet, {"in_ch": 3, "out_ch": 3, "feat": 64, "blocks": 6}, PEL_OUT / "detail_specialist_best.pt", (1, 3, 128, 128)),
-        ("upscale_specialist_best", ResEnhancerNet, {"in_ch": 3, "out_ch": 3, "feat": 64, "blocks": 6}, PEL_OUT / "upscale_specialist_best.pt", (1, 3, 128, 128)),
-        ("clean_room_sr_4x", SR4xCleanRoomNet, {"feat": 64}, PS_OUT / "clean_room_sr_4x.pt", (1, 3, 64, 64)),
-        ("vfra_convlstm_v1", VFRATemporalNet, {"in_ch": 9, "feat": 64}, VTT_OUT / "vfra_convlstm_v1.pt", (1, 9, 128, 128)),
-        ("temporal_specialist_best", VFRATemporalNet, {"in_ch": 9, "feat": 64}, PEL_OUT / "temporal_specialist_best.pt", (1, 9, 128, 128)),
-        ("per_part_age_judge_r128_v1", VisionScorerNet, {"out_dim": 2, "act": "none"}, PS_OUT / "per_part_age_judge_r128_v1.pt", (1, 3, 128, 128)),
-        ("tiny_scene_degradation", VisionScorerNet, {"out_dim": 4, "act": "sigmoid"}, PS_OUT / "tiny_scene_degradation.pt", (1, 3, 128, 128)),
-        ("mvqa_aesthetic_best", VisionScorerNet, {"out_dim": 1, "act": "sigmoid"}, PEL_OUT / "mvqa_aesthetic_best.pt", (1, 3, 224, 224)),
-        ("artifact_detector_best", VisionScorerNet, {"out_dim": 1, "act": "sigmoid"}, PEL_OUT / "artifact_detector_best.pt", (1, 3, 224, 224)),
-        ("style_classifier_best", VisionScorerNet, {"out_dim": 8, "act": "softmax"}, PEL_OUT / "style_classifier_best.pt", (1, 3, 224, 224)),
-        ("nsfw_filter_best", VisionScorerNet, {"out_dim": 4, "act": "softmax"}, PEL_OUT / "nsfw_filter_best.pt", (1, 3, 224, 224)),
+        (
+            "ownership_parser_29class_best",
+            Seg29ClassModel,
+            {},
+            PS29_OUT / "ownership_parser_best.pt",
+            (1, 3, 256, 256),
+        ),
+        (
+            "body_editor_r128_v2",
+            ResEnhancerNet,
+            {"in_ch": 3, "out_ch": 3, "feat": 64, "blocks": 6},
+            PS_OUT / "body_editor_r128_v2.pt",
+            (1, 3, 128, 128),
+        ),
+        (
+            "body_editor_r256_v1",
+            ResEnhancerNet,
+            {"in_ch": 3, "out_ch": 3, "feat": 64, "blocks": 6},
+            PS_OUT / "body_editor_r256_v1.pt",
+            (1, 3, 256, 256),
+        ),
+        (
+            "rgfvr_student_v1",
+            ResEnhancerNet,
+            {"in_ch": 4, "out_ch": 3, "feat": 64, "blocks": 6},
+            PS_OUT / "rgfvr_student_v1.pt",
+            (1, 4, 128, 128),
+        ),
+        (
+            "fading_domain_specialized_v1",
+            ResEnhancerNet,
+            {"in_ch": 5, "out_ch": 3, "feat": 64, "blocks": 6},
+            VTT_OUT / "fading_domain_specialized_v1.pt",
+            (1, 5, 128, 128),
+        ),
+        (
+            "denoise_specialist_best",
+            ResEnhancerNet,
+            {"in_ch": 3, "out_ch": 3, "feat": 64, "blocks": 6},
+            PEL_OUT / "denoise_specialist_best.pt",
+            (1, 3, 128, 128),
+        ),
+        (
+            "detail_specialist_best",
+            ResEnhancerNet,
+            {"in_ch": 3, "out_ch": 3, "feat": 64, "blocks": 6},
+            PEL_OUT / "detail_specialist_best.pt",
+            (1, 3, 128, 128),
+        ),
+        (
+            "upscale_specialist_best",
+            ResEnhancerNet,
+            {"in_ch": 3, "out_ch": 3, "feat": 64, "blocks": 6},
+            PEL_OUT / "upscale_specialist_best.pt",
+            (1, 3, 128, 128),
+        ),
+        (
+            "clean_room_sr_4x",
+            SR4xCleanRoomNet,
+            {"feat": 64},
+            PS_OUT / "clean_room_sr_4x.pt",
+            (1, 3, 64, 64),
+        ),
+        (
+            "vfra_convlstm_v1",
+            VFRATemporalNet,
+            {"in_ch": 9, "feat": 64},
+            VTT_OUT / "vfra_convlstm_v1.pt",
+            (1, 9, 128, 128),
+        ),
+        (
+            "temporal_specialist_best",
+            VFRATemporalNet,
+            {"in_ch": 9, "feat": 64},
+            PEL_OUT / "temporal_specialist_best.pt",
+            (1, 9, 128, 128),
+        ),
+        (
+            "per_part_age_judge_r128_v1",
+            VisionScorerNet,
+            {"out_dim": 2, "act": "none"},
+            PS_OUT / "per_part_age_judge_r128_v1.pt",
+            (1, 3, 128, 128),
+        ),
+        (
+            "tiny_scene_degradation",
+            VisionScorerNet,
+            {"out_dim": 4, "act": "sigmoid"},
+            PS_OUT / "tiny_scene_degradation.pt",
+            (1, 3, 128, 128),
+        ),
+        (
+            "mvqa_aesthetic_best",
+            VisionScorerNet,
+            {"out_dim": 1, "act": "sigmoid"},
+            PEL_OUT / "mvqa_aesthetic_best.pt",
+            (1, 3, 224, 224),
+        ),
+        (
+            "artifact_detector_best",
+            VisionScorerNet,
+            {"out_dim": 1, "act": "sigmoid"},
+            PEL_OUT / "artifact_detector_best.pt",
+            (1, 3, 224, 224),
+        ),
+        (
+            "style_classifier_best",
+            VisionScorerNet,
+            {"out_dim": 8, "act": "softmax"},
+            PEL_OUT / "style_classifier_best.pt",
+            (1, 3, 224, 224),
+        ),
+        (
+            "nsfw_filter_best",
+            VisionScorerNet,
+            {"out_dim": 4, "act": "softmax"},
+            PEL_OUT / "nsfw_filter_best.pt",
+            (1, 3, 224, 224),
+        ),
         ("ppo_routing_best", PPORouter64D, {}, VTT_OUT / "ppo_routing_best.pt", (1, 64)),
     ]
 
@@ -71,7 +173,9 @@ def get_all_19_model_specs():
 def export_all_pth_and_coreml(specs):
     import coremltools as ct
 
-    log("=== PHASE 5A: Exporting All 19 Models to `.pth` (StateDict + FP16) & CoreML `.mlpackage` (FP16) on Cloud H100 ===")
+    log(
+        "=== PHASE 5A: Exporting All 19 Models to `.pth` (StateDict + FP16) & CoreML `.mlpackage` (FP16) on Cloud H100 ==="
+    )
     pth_summary = {}
     coreml_summary = {}
 
@@ -84,7 +188,9 @@ def export_all_pth_and_coreml(specs):
 
         # 1. Save canonical .pth (both float32 & fp16 params_ema format compatible with Spandrel/OpenModelDB/PyTorch)
         pth_file = PTH_OUT / f"{name}.pth"
-        sd_fp16 = {k: v.half() if v.is_floating_point() else v for k, v in model.state_dict().items()}
+        sd_fp16 = {
+            k: v.half() if v.is_floating_point() else v for k, v in model.state_dict().items()
+        }
         torch.save(
             {
                 "state_dict": model.state_dict(),
@@ -97,7 +203,11 @@ def export_all_pth_and_coreml(specs):
             pth_file,
         )
         pth_size = round(pth_file.stat().st_size / (1024 * 1024), 3)
-        pth_summary[f"{name}.pth"] = {"size_mb": pth_size, "input_shape": list(in_shape), "valid": True}
+        pth_summary[f"{name}.pth"] = {
+            "size_mb": pth_size,
+            "input_shape": list(in_shape),
+            "valid": True,
+        }
 
         # 2. Trace & convert to CoreML .mlpackage (FP16 MLProgram for iOS 16+ / ANE / Metal)
         dummy = torch.rand(*in_shape, dtype=torch.float32)
@@ -116,22 +226,33 @@ def export_all_pth_and_coreml(specs):
             minimum_deployment_target=ct.target.iOS16,
         )
         mlmodel.save(str(mlpackage_path))
-        cm_size = round(sum(f.stat().st_size for f in mlpackage_path.rglob("*") if f.is_file()) / (1024 * 1024), 3)
+        cm_size = round(
+            sum(f.stat().st_size for f in mlpackage_path.rglob("*") if f.is_file()) / (1024 * 1024),
+            3,
+        )
         coreml_summary[f"{name}.mlpackage"] = {
             "size_mb": cm_size,
             "precision": "FLOAT16",
             "target": "iOS16_MLProgram",
             "elapsed_sec": round(time.time() - t0, 2),
         }
-        log(f"  ✓ {name}: .pth={pth_size} MB | CoreML .mlpackage={cm_size} MB ({coreml_summary[f'{name}.mlpackage']['elapsed_sec']}s)")
+        log(
+            f"  ✓ {name}: .pth={pth_size} MB | CoreML .mlpackage={cm_size} MB ({coreml_summary[f'{name}.mlpackage']['elapsed_sec']}s)"
+        )
 
     # Also export GMFlowLiteNet (2 inputs: img0, img1) to .pth and CoreML .mlpackage
     t0 = time.time()
     gm = GMFlowLiteNet().eval().cpu()
     gm_pth = PTH_OUT / "gmflow_sintel.pth"
     sd_gm_fp16 = {k: v.half() if v.is_floating_point() else v for k, v in gm.state_dict().items()}
-    torch.save({"state_dict": gm.state_dict(), "params_ema": sd_gm_fp16, "model_name": "gmflow_sintel"}, gm_pth)
-    pth_summary["gmflow_sintel.pth"] = {"size_mb": round(gm_pth.stat().st_size / (1024 * 1024), 3), "valid": True}
+    torch.save(
+        {"state_dict": gm.state_dict(), "params_ema": sd_gm_fp16, "model_name": "gmflow_sintel"},
+        gm_pth,
+    )
+    pth_summary["gmflow_sintel.pth"] = {
+        "size_mb": round(gm_pth.stat().st_size / (1024 * 1024), 3),
+        "valid": True,
+    }
 
     d0 = torch.rand(1, 3, 256, 256)
     d1 = torch.rand(1, 3, 256, 256)
@@ -151,9 +272,17 @@ def export_all_pth_and_coreml(specs):
         minimum_deployment_target=ct.target.iOS16,
     )
     gm_ml.save(str(gm_ml_path))
-    gm_cm_size = round(sum(f.stat().st_size for f in gm_ml_path.rglob("*") if f.is_file()) / (1024 * 1024), 3)
-    coreml_summary["gmflow_sintel.mlpackage"] = {"size_mb": gm_cm_size, "precision": "FLOAT16", "target": "iOS16_MLProgram"}
-    log(f"  ✓ gmflow_sintel: .pth={pth_summary['gmflow_sintel.pth']['size_mb']} MB | CoreML .mlpackage={gm_cm_size} MB")
+    gm_cm_size = round(
+        sum(f.stat().st_size for f in gm_ml_path.rglob("*") if f.is_file()) / (1024 * 1024), 3
+    )
+    coreml_summary["gmflow_sintel.mlpackage"] = {
+        "size_mb": gm_cm_size,
+        "precision": "FLOAT16",
+        "target": "iOS16_MLProgram",
+    }
+    log(
+        f"  ✓ gmflow_sintel: .pth={pth_summary['gmflow_sintel.pth']['size_mb']} MB | CoreML .mlpackage={gm_cm_size} MB"
+    )
 
     return pth_summary, coreml_summary
 
@@ -234,9 +363,10 @@ def main():
         "tensorrt_fp16": trt_sum,
     }
     (OUT_DIR / "phase5_pth_coreml_trt_summary.json").write_text(json.dumps(out, indent=2))
-    log(f"=== Completed Phase 5 (.pth: {len(pth_sum)}, CoreML: {len(coreml_sum)}, TensorRT FP16: {len(trt_sum)}) in {out['elapsed_sec']}s ===")
+    log(
+        f"=== Completed Phase 5 (.pth: {len(pth_sum)}, CoreML: {len(coreml_sum)}, TensorRT FP16: {len(trt_sum)}) in {out['elapsed_sec']}s ==="
+    )
 
 
 if __name__ == "__main__":
     main()
-

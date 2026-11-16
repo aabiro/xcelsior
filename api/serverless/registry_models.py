@@ -44,9 +44,7 @@ DOC_PRESET_MODELS: tuple[str, ...] = (
     "Cohere/cohere-rerank-v3.5",
 )
 # Support weights required at worker start (not user-selectable presets).
-DOC_SUPPORT_MODELS: tuple[str, ...] = (
-    "RedHatAI/Qwen3-8B-speculator.eagle3",
-)
+DOC_SUPPORT_MODELS: tuple[str, ...] = ("RedHatAI/Qwen3-8B-speculator.eagle3",)
 REQUIRED_PRESET_MODELS: tuple[str, ...] = DOC_PRESET_MODELS + DOC_SUPPORT_MODELS
 
 

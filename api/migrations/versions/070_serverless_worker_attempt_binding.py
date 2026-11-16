@@ -34,15 +34,13 @@ def upgrade() -> None:
     # Additive FK — NOT VALID skips the full-table scan (all rows are NULL),
     # then VALIDATE confirms without a strong lock. ON DELETE SET NULL so a
     # deleted attempt never orphans the worker row.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE serverless_workers
             ADD CONSTRAINT fk_serverless_workers_attempt
             FOREIGN KEY (attempt_id) REFERENCES job_attempts(attempt_id)
             ON DELETE SET NULL
             NOT VALID
-        """
-    )
+        """)
     op.execute("ALTER TABLE serverless_workers VALIDATE CONSTRAINT fk_serverless_workers_attempt")
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_serverless_workers_attempt_id "
@@ -52,5 +50,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_serverless_workers_attempt_id")
-    op.execute("ALTER TABLE serverless_workers DROP CONSTRAINT IF EXISTS fk_serverless_workers_attempt")
+    op.execute(
+        "ALTER TABLE serverless_workers DROP CONSTRAINT IF EXISTS fk_serverless_workers_attempt"
+    )
     op.execute("ALTER TABLE serverless_workers DROP COLUMN IF EXISTS attempt_id")

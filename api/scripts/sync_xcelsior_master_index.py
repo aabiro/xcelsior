@@ -19,11 +19,14 @@ LOCAL_MIRROR = ROOT / "docs" / "AI_ML_MASTER_INDEX_XCELSIOR.md"
 PXL_MIRROR_IN_XCELSIOR = ROOT / "docs" / "pxl_registry_AI_ML_MASTER_INDEX_BY_REPO.md"
 PXL_SECTION_MIRROR = ROOT / "docs" / "PXL_REGISTRY_SECTION_10_MIRROR.md"
 SECTION_SYNCED = ROOT / "docs" / "MASTER_INDEX_SECTION_10_XCELSIOR.synced.md"
-DEFAULT_EVIDENCE = Path(
-    __import__("os").environ.get(
-        "XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer"
+DEFAULT_EVIDENCE = (
+    Path(
+        __import__("os").environ.get(
+            "XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer"
+        )
     )
-) / "row-evidence.json"
+    / "row-evidence.json"
+)
 
 SECTION_HEADER = "## 10. `xcelsior`"
 NEXT_SECTION = "## 11. `vaultwarden-secrets`"
@@ -31,7 +34,9 @@ NEXT_SECTION = "## 11. `vaultwarden-secrets`"
 
 def _load_evidence(path: Path) -> dict:
     if not path.is_file():
-        raise SystemExit(f"Missing row evidence: {path} — run scripts/capture_row_evidence.py first")
+        raise SystemExit(
+            f"Missing row evidence: {path} — run scripts/capture_row_evidence.py first"
+        )
     with path.open(encoding="utf-8") as f:
         data = json.load(f)
     if not isinstance(data.get("rows"), dict):
@@ -59,7 +64,7 @@ def _build_section(checked: dict[int, bool], evidence: dict) -> str:
         7: "Publish `/v1/usage` SLO metrics (TTFT p95, tokens/s) per endpoint — sell against them. | S6 F5.1",
         8: "SCIP application or partner LOI submitted; attestation schema merged. | S6 F5 acceptance",
         9: "Write the SCIP alignment one-pager + application scan (Canadian ownership ✓, 18-month ops plan = mesh + partner DC). | S6 F5.2",
-        10: 'Design `attestation` fields in host admission schema now (TEE evidence JWT, NRAS verify) so H100 hosts slot in without API breaks; recruit 1 H100 host partner; price the dedicated tier at 2–3× commodity. | S6 F5.2',
+        10: "Design `attestation` fields in host admission schema now (TEE evidence JWT, NRAS verify) so H100 hosts slot in without API breaks; recruit 1 H100 host partner; price the dedicated tier at 2–3× commodity. | S6 F5.2",
         11: "stellar-subs: 14-day GPU-demand forecast with weekday covariates feeding the capacity planner; alert on interval breach (anomaly = actual outside 99% band — no extra anomaly model needed). | S6 F6.3",
         12: "MCP tool `should_i_run_this` pattern adapted for PEL jobs (internal admin / power users) | S4 M2.4",
         13: "**F5** Token SKU with published SLOs + cached-token pricing; SCIP submission/LOI out; attestation schema merged. | S6 DoD",
@@ -97,10 +102,7 @@ def _build_section(checked: dict[int, bool], evidence: dict) -> str:
     eng_rows = evidence.get("engineering_shipped_rows") or []
     eng_note = ""
     if eng_rows:
-        tiers = {
-            r: (ev_rows.get(str(r)) or {}).get("evidence_tier", "")
-            for r in eng_rows
-        }
+        tiers = {r: (ev_rows.get(str(r)) or {}).get("evidence_tier", "") for r in eng_rows}
         eng_note = (
             f" Engineering shipped (unchecked): "
             + "; ".join(f"row {r}={tiers.get(r, '')}" for r in eng_rows)
@@ -167,8 +169,7 @@ def main() -> int:
 
     mirror_body = (
         f"<!-- synced from scripts/sync_xcelsior_master_index.py ({policy}) -->\n"
-        f"<!-- evidence: {args.evidence} -->\n\n"
-        + section
+        f"<!-- evidence: {args.evidence} -->\n\n" + section
     )
     if args.dry_run:
         print(mirror_body[:2500])
@@ -179,9 +180,11 @@ def main() -> int:
             REGISTRY_MD.write_text(_replace_section(full, section), encoding="utf-8")
             PXL_MIRROR_IN_XCELSIOR.write_text(
                 _replace_section(
-                    PXL_MIRROR_IN_XCELSIOR.read_text(encoding="utf-8")
-                    if PXL_MIRROR_IN_XCELSIOR.is_file()
-                    else full,
+                    (
+                        PXL_MIRROR_IN_XCELSIOR.read_text(encoding="utf-8")
+                        if PXL_MIRROR_IN_XCELSIOR.is_file()
+                        else full
+                    ),
                     section,
                 ),
                 encoding="utf-8",

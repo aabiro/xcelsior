@@ -14,11 +14,11 @@ Revision ID: 005
 Revises: 004
 Create Date: 2026-03-30
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-
 
 revision: str = "005"
 down_revision: Union[str, None] = "004"
@@ -90,7 +90,9 @@ def upgrade() -> None:
     # ── Wallet auto-top-up columns ───────────────────────────────────
     op.add_column("wallets", sa.Column("auto_topup_enabled", sa.Boolean(), server_default="false"))
     op.add_column("wallets", sa.Column("auto_topup_amount_cad", sa.Float(), server_default="50.0"))
-    op.add_column("wallets", sa.Column("auto_topup_threshold_cad", sa.Float(), server_default="10.0"))
+    op.add_column(
+        "wallets", sa.Column("auto_topup_threshold_cad", sa.Float(), server_default="10.0")
+    )
     op.add_column("wallets", sa.Column("stripe_payment_method_id", sa.Text(), server_default=""))
     op.add_column("wallets", sa.Column("auto_topup_failures", sa.Integer(), server_default="0"))
     op.add_column("wallets", sa.Column("last_topup_attempt_at", sa.Float(), server_default="0"))
@@ -168,7 +170,9 @@ def upgrade() -> None:
         sa.Column("job_id", sa.Text(), nullable=False),
         sa.Column("gpu_count", sa.Integer(), server_default="1"),
         sa.Column("price_cents_per_hour", sa.BigInteger(), nullable=False),
-        sa.Column("allocation_type", sa.Text(), server_default="on_demand"),  # on_demand, spot, reserved
+        sa.Column(
+            "allocation_type", sa.Text(), server_default="on_demand"
+        ),  # on_demand, spot, reserved
         sa.Column("created_at", sa.Float(), nullable=False),
         sa.Column("released_at", sa.Float(), server_default="0"),
     )
@@ -273,7 +277,9 @@ def upgrade() -> None:
         sa.Column("encrypted", sa.Boolean(), server_default="true"),
         sa.Column("encryption_key_id", sa.Text(), server_default=""),
         sa.Column("mount_path_host", sa.Text(), server_default=""),
-        sa.Column("status", sa.Text(), server_default="provisioning"),  # provisioning, available, attached, deleting, deleted, error
+        sa.Column(
+            "status", sa.Text(), server_default="provisioning"
+        ),  # provisioning, available, attached, deleting, deleted, error
         sa.Column("created_at", sa.Float(), nullable=False),
         sa.Column("deleted_at", sa.Float(), server_default="0"),
     )
@@ -315,7 +321,9 @@ def upgrade() -> None:
         sa.Column("gpu_count", sa.Integer(), server_default="1"),
         sa.Column("cost_per_hour_cad", sa.Float(), nullable=False),
         sa.Column("host_id", sa.Text(), server_default=""),  # xcelsior host_id once registered
-        sa.Column("status", sa.Text(), server_default="provisioning"),  # provisioning, running, draining, terminated
+        sa.Column(
+            "status", sa.Text(), server_default="provisioning"
+        ),  # provisioning, running, draining, terminated
         sa.Column("started_at", sa.Float(), nullable=False),
         sa.Column("terminated_at", sa.Float(), server_default="0"),
         sa.Column("budget_spent_cad", sa.Float(), server_default="0"),

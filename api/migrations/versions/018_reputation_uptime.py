@@ -4,11 +4,11 @@ Revision ID: 018
 Revises: 017
 Create Date: 2026-04-06
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-
 
 revision: str = "018"
 down_revision: Union[str, None] = "017"

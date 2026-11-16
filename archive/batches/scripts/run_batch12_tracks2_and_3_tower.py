@@ -60,7 +60,9 @@ HELDOUT_CLIPS_DIR = Path(
 )
 
 GFPGAN_CKPT = Path("/home/aaryn/storage/projects/ai-data-factory/repos/GFPGAN/GFPGANv1.4.pth")
-PARSENET_CKPT = Path("/home/aaryn/storage/datasets/model_weights/RGFVR/ckpts/face_encoder/parsing_parsenet.pth")
+PARSENET_CKPT = Path(
+    "/home/aaryn/storage/datasets/model_weights/RGFVR/ckpts/face_encoder/parsing_parsenet.pth"
+)
 VISAGE_CKPT = Path("/home/aaryn/storage/datasets/model_weights/FRAN/VISAGE/generator.pt")
 
 FADING_OUT_DIR = Path("/home/aaryn/storage/models/fading")
@@ -158,8 +160,8 @@ def compute_psnr(pred: torch.Tensor, target: torch.Tensor) -> float:
 
 
 def compute_ssim(pred: torch.Tensor, target: torch.Tensor) -> float:
-    c1 = 0.01 ** 2
-    c2 = 0.03 ** 2
+    c1 = 0.01**2
+    c2 = 0.03**2
     mu_x = F.avg_pool2d(pred, 7, 1, 3)
     mu_y = F.avg_pool2d(target, 7, 1, 3)
     sigma_x = F.avg_pool2d(pred * pred, 7, 1, 3) - mu_x * mu_x
@@ -320,9 +322,7 @@ def train_fading_unet_lora_on_point_ages(device: torch.device) -> Dict:
     labels_path = POINT_AGES_DIR / "labels.json"
     labels_data = json.loads(labels_path.read_text(encoding="utf-8"))
     eligible_entries = [
-        (fname, meta)
-        for fname, meta in labels_data.items()
-        if meta.get("training_eligible", True)
+        (fname, meta) for fname, meta in labels_data.items() if meta.get("training_eligible", True)
     ]
     print(
         f"[Track 2A] Loaded {len(eligible_entries)} reconciled point-age entries from {labels_path.name}."
@@ -341,26 +341,39 @@ def train_fading_unet_lora_on_point_ages(device: torch.device) -> Dict:
         bgr = cv2.imread(str(img_p), cv2.IMREAD_COLOR)
         if bgr is None:
             continue
-        rgb_small = cv2.resize(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), (16, 16)).astype(np.float32) / 127.5 - 1.0
+        rgb_small = (
+            cv2.resize(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), (16, 16)).astype(np.float32) / 127.5
+            - 1.0
+        )
         sampled_feats.append(rgb_small.reshape(-1))  # 768-d
         sampled_ages.append(float(meta.get("age", 35.0)))
         if len(sampled_feats) >= 256:
             break
 
-    feats_768 = torch.tensor(np.stack(sampled_feats, axis=0), device=device, dtype=torch.float32)  # [N, 768]
-    ages_t = torch.tensor(sampled_ages, device=device, dtype=torch.float32).unsqueeze(1) / 100.0  # [N, 1]
+    feats_768 = torch.tensor(
+        np.stack(sampled_feats, axis=0), device=device, dtype=torch.float32
+    )  # [N, 768]
+    ages_t = (
+        torch.tensor(sampled_ages, device=device, dtype=torch.float32).unsqueeze(1) / 100.0
+    )  # [N, 1]
 
     # Inspect FADING UNet attention weights
     attn_weights: Dict[str, torch.Tensor] = {}
     all_attn_shapes: Dict[str, Tuple[int, int]] = {}
     with safe_open(str(FADING_UNET_SAFETENSORS), framework="pt", device="cpu") as f:
         for k in f.keys():
-            if ("attn1" in k or "attn2" in k) and k.endswith(".weight") and (
-                "to_q" in k or "to_k" in k or "to_v" in k or "to_out.0" in k
+            if (
+                ("attn1" in k or "attn2" in k)
+                and k.endswith(".weight")
+                and ("to_q" in k or "to_k" in k or "to_v" in k or "to_out.0" in k)
             ):
                 shp = tuple(f.get_slice(k).get_shape())
                 all_attn_shapes[k] = (int(shp[0]), int(shp[1]))
-                if "mid_block" in k or "up_blocks.1.attentions.0" in k or "down_blocks.2.attentions.0" in k:
+                if (
+                    "mid_block" in k
+                    or "up_blocks.1.attentions.0" in k
+                    or "down_blocks.2.attentions.0" in k
+                ):
                     attn_weights[k] = f.get_tensor(k).to(device=device, dtype=torch.float32)
 
     rank = 32
@@ -374,7 +387,9 @@ def train_fading_unet_lora_on_point_ages(device: torch.device) -> Dict:
     for k, w in attn_weights.items():
         s_key = k.replace(".", "__")
         out_d, in_d = w.shape
-        d_param = nn.Parameter(torch.randn((rank, in_d), generator=gen, device=device) / math.sqrt(in_d))
+        d_param = nn.Parameter(
+            torch.randn((rank, in_d), generator=gen, device=device) / math.sqrt(in_d)
+        )
         u_param = nn.Parameter(torch.zeros((out_d, rank), device=device))
         lora_down[s_key] = d_param
         lora_up[s_key] = u_param
@@ -385,14 +400,18 @@ def train_fading_unet_lora_on_point_ages(device: torch.device) -> Dict:
         x_in = F.adaptive_avg_pool1d(feats_768.unsqueeze(1), in_d).squeeze(1) * (0.7 + 0.6 * ages_t)
         targets[s_key] = (x_in @ t_v.t() @ t_u.t()).detach()
 
-    opt = torch.optim.AdamW(list(lora_down.parameters()) + list(lora_up.parameters()), lr=3e-3, weight_decay=1e-4)
+    opt = torch.optim.AdamW(
+        list(lora_down.parameters()) + list(lora_up.parameters()), lr=3e-3, weight_decay=1e-4
+    )
     for step in range(1, 201):
         opt.zero_grad(set_to_none=True)
         loss = torch.tensor(0.0, device=device)
         for k, w in attn_weights.items():
             s_key = k.replace(".", "__")
             _, in_d = w.shape
-            x_in = F.adaptive_avg_pool1d(feats_768.unsqueeze(1), in_d).squeeze(1) * (0.7 + 0.6 * ages_t)
+            x_in = F.adaptive_avg_pool1d(feats_768.unsqueeze(1), in_d).squeeze(1) * (
+                0.7 + 0.6 * ages_t
+            )
             pred = (x_in @ lora_down[s_key].t() @ lora_up[s_key].t()) * scale
             loss = loss + F.mse_loss(pred, targets[s_key])
         loss.backward()
@@ -406,13 +425,13 @@ def train_fading_unet_lora_on_point_ages(device: torch.device) -> Dict:
         d_cpu = lora_down[s_key].detach().cpu().half()
         u_cpu = lora_up[s_key].detach().cpu().half()
         by_shape[(u_cpu.shape[0], d_cpu.shape[1])] = (d_cpu, u_cpu)
-        prefix = "lora_unet_" + k[:-len(".weight")].replace(".", "_")
+        prefix = "lora_unet_" + k[: -len(".weight")].replace(".", "_")
         lora_sd[f"{prefix}.lora_down.weight"] = d_cpu
         lora_sd[f"{prefix}.lora_up.weight"] = u_cpu
         lora_sd[f"{prefix}.alpha"] = torch.tensor(alpha, dtype=torch.float16)
 
     for k, shp in all_attn_shapes.items():
-        prefix = "lora_unet_" + k[:-len(".weight")].replace(".", "_")
+        prefix = "lora_unet_" + k[: -len(".weight")].replace(".", "_")
         if f"{prefix}.lora_down.weight" in lora_sd:
             continue
         if shp in by_shape:
@@ -480,8 +499,12 @@ def run_track2_fading_specialization(device: torch.device) -> Dict:
     heldout_dirs = sorted([d for d in HELDOUT_CLIPS_DIR.iterdir() if d.is_dir()])
 
     dev_bundles = [b for d in dev_dirs if (b := load_clip_bundle(d, max_frames=24)) is not None]
-    heldout_bundles = [b for d in heldout_dirs if (b := load_clip_bundle(d, max_frames=24)) is not None]
-    print(f"[Track 2B] Loaded {len(dev_bundles)} dev clips and {len(heldout_bundles)} heldout2 clips.")
+    heldout_bundles = [
+        b for d in heldout_dirs if (b := load_clip_bundle(d, max_frames=24)) is not None
+    ]
+    print(
+        f"[Track 2B] Loaded {len(dev_bundles)} dev clips and {len(heldout_bundles)} heldout2 clips."
+    )
 
     model = FADINGDomainSpecializedNet(hidden_dim=48).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1.5e-3, weight_decay=1e-4)
@@ -551,8 +574,12 @@ def run_track2_fading_specialization(device: torch.device) -> Dict:
             flow_crop = torch.zeros((1, ch, cw, 2), device=device, dtype=torch.float32)
 
         target_age = float([20.0, 30.0, 50.0, 70.0, 80.0][step % 5])
-        target_prev = FADINGDomainSpecializedNet.compute_continuous_base(src_prev, a30_prev, a70_prev, target_age)
-        target_curr = FADINGDomainSpecializedNet.compute_continuous_base(src_t, a30_t, a70_t, target_age)
+        target_prev = FADINGDomainSpecializedNet.compute_continuous_base(
+            src_prev, a30_prev, a70_prev, target_age
+        )
+        target_curr = FADINGDomainSpecializedNet.compute_continuous_base(
+            src_t, a30_t, a70_t, target_age
+        )
         warped_prev = warp_with_flow(target_prev, flow_crop)
 
         optimizer.zero_grad(set_to_none=True)
@@ -763,7 +790,9 @@ class RGFVRStudentNet(nn.Module):
         self.res_scale = nn.Parameter(torch.tensor(0.08))
 
     @staticmethod
-    def _guided_filter_3x3(guide: torch.Tensor, src: torch.Tensor, eps: float = 0.0008) -> torch.Tensor:
+    def _guided_filter_3x3(
+        guide: torch.Tensor, src: torch.Tensor, eps: float = 0.0008
+    ) -> torch.Tensor:
         mean_i = F.avg_pool2d(guide, 3, 1, 1)
         mean_p = F.avg_pool2d(src, 3, 1, 1)
         mean_ip = F.avg_pool2d(guide * src, 3, 1, 1)
@@ -822,6 +851,7 @@ def synthesize_degraded_window(
       - Additive sensor Gaussian noise (sigma ~ 0.018)
       - Frame-to-frame luminance flicker
     """
+
     def degrade_single(img: torch.Tensor, seed_offset: int) -> torch.Tensor:
         B, C, H, W = img.shape
         low = F.interpolate(img, size=(H // 2, W // 2), mode="bilinear", align_corners=False)
@@ -872,7 +902,9 @@ def inspect_teacher_checkpoints() -> Dict:
 
 def run_track3_rgfvr_distillation(device: torch.device) -> Dict:
     t0 = time.time()
-    print("\n=== Batch 12 Track 3: RGFVR Reference-Guided Face Video Restoration Student Distillation ===")
+    print(
+        "\n=== Batch 12 Track 3: RGFVR Reference-Guided Face Video Restoration Student Distillation ==="
+    )
 
     teacher_info = inspect_teacher_checkpoints()
     print(f"[Track 3] Verified all 3 teacher checkpoints on tower: {list(teacher_info.keys())}")
@@ -880,7 +912,9 @@ def run_track3_rgfvr_distillation(device: torch.device) -> Dict:
     dev_dirs = sorted([d for d in DEV_CLIPS_DIR.iterdir() if d.is_dir()])
     heldout_dirs = sorted([d for d in HELDOUT_CLIPS_DIR.iterdir() if d.is_dir()])
     dev_bundles = [b for d in dev_dirs if (b := load_clip_bundle(d, max_frames=20)) is not None]
-    heldout_bundles = [b for d in heldout_dirs if (b := load_clip_bundle(d, max_frames=16)) is not None]
+    heldout_bundles = [
+        b for d in heldout_dirs if (b := load_clip_bundle(d, max_frames=16)) is not None
+    ]
 
     student = RGFVRStudentNet(channels=48).to(device)
     optimizer = torch.optim.AdamW(student.parameters(), lr=2e-3, weight_decay=1e-4)
@@ -1027,7 +1061,9 @@ def run_track3_rgfvr_distillation(device: torch.device) -> Dict:
         )
         onnx_exported = RGFVR_ONNX_OUT.exists()
     except Exception as e:
-        print(f"  [Track 3] torch.onnx.export note ({e}); exporting JIT traced artifact to {RGFVR_ONNX_OUT}...")
+        print(
+            f"  [Track 3] torch.onnx.export note ({e}); exporting JIT traced artifact to {RGFVR_ONNX_OUT}..."
+        )
         dummy_deg = torch.randn(1, 9, 128, 128, device=device)
         dummy_ref = torch.randn(1, 3, 128, 128, device=device)
         traced = torch.jit.trace(student, (dummy_deg, dummy_ref))
@@ -1091,7 +1127,9 @@ def main() -> int:
     rep3 = run_track3_rgfvr_distillation(device)
 
     both_ok = bool(rep2["all_gates_passed"] and rep3["all_gates_passed"])
-    print(f"\n=== Batch 12 Tower Summary: Track 2={rep2['all_gates_passed']} | Track 3={rep3['all_gates_passed']} ===")
+    print(
+        f"\n=== Batch 12 Tower Summary: Track 2={rep2['all_gates_passed']} | Track 3={rep3['all_gates_passed']} ==="
+    )
     return 0 if both_ok else 1
 
 

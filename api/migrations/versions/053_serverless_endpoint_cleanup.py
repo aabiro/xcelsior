@@ -14,32 +14,24 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE serverless_workers
         ADD COLUMN IF NOT EXISTS billing_exempt BOOLEAN NOT NULL DEFAULT FALSE
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         ALTER TABLE serverless_workers
         ADD COLUMN IF NOT EXISTS warm_expires_at DOUBLE PRECISION NOT NULL DEFAULT 0
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         ALTER TABLE serverless_jobs
         ADD COLUMN IF NOT EXISTS billing_exempt BOOLEAN NOT NULL DEFAULT FALSE
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE serverless_endpoints
            SET name = regexp_replace(name, '^.*/', '')
          WHERE name LIKE '%/%'
            AND deleted_at = 0
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

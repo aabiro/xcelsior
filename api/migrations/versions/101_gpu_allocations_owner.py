@@ -40,22 +40,18 @@ def upgrade() -> None:
     # Backfill from the job the allocation was created for. A LEFT JOIN would
     # leave the same NULLs, so this is written as a correlated UPDATE that
     # touches only rows it can actually resolve.
-    op.execute(
-        """
+    op.execute("""
         UPDATE gpu_allocations a
            SET owner_id = j.owner_id
           FROM jobs j
          WHERE j.job_id = a.job_id
            AND a.owner_id IS NULL
            AND j.owner_id IS NOT NULL
-        """
-    )
+        """)
     # Releasing is looked up by (allocation_id, owner_id); allocation_id is
     # already the primary key, so this index serves the "list what I own" reads
     # rather than the release path.
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_gpu_alloc_owner ON gpu_allocations (owner_id)"
-    )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_gpu_alloc_owner ON gpu_allocations (owner_id)")
 
 
 def downgrade() -> None:

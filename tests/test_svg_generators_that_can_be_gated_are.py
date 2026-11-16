@@ -116,7 +116,12 @@ SOCIAL_SVGS = ROOT / "api" / "frontend" / "public" / "brand-system" / "assets" /
 
 def test_the_social_cards_match_a_fresh_generation_from_the_og_card(tmp_path: Path) -> None:
     result = subprocess.run(
-        [sys.executable, str(ROOT / "api" / "scripts" / "generate_social_cards.py"), str(SOCIAL_SOURCE), str(tmp_path)],
+        [
+            sys.executable,
+            str(ROOT / "api" / "scripts" / "generate_social_cards.py"),
+            str(SOCIAL_SOURCE),
+            str(tmp_path),
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -129,8 +134,10 @@ def test_the_social_cards_match_a_fresh_generation_from_the_og_card(tmp_path: Pa
     generated = sorted(p.name for p in tmp_path.glob("*.svg"))
     assert generated, "generate_social_cards.py wrote no SVGs"
     differing = [
-        n for n in generated
-        if not (SOCIAL_SVGS / n).is_file() or not filecmp.cmp(tmp_path / n, SOCIAL_SVGS / n, shallow=False)
+        n
+        for n in generated
+        if not (SOCIAL_SVGS / n).is_file()
+        or not filecmp.cmp(tmp_path / n, SOCIAL_SVGS / n, shallow=False)
     ]
     assert not differing, (
         f"brand-system/assets/social/ no longer matches the OG card: {differing}. Run "

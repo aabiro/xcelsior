@@ -90,9 +90,7 @@ def main() -> int:
     for rank in sorted(evidence_rows):
         row = (evidence.get("rows") or {}).get(str(rank)) or {}
         reason = row.get("reason", "")
-        lines.append(
-            f"  {rank}: {'[x]' if evidence_rows[rank] else '[ ]'}  # {reason[:80]}"
-        )
+        lines.append(f"  {rank}: {'[x]' if evidence_rows[rank] else '[ ]'}  # {reason[:80]}")
     lines.append("")
     lines.append("mac_checkboxes:")
     for rank in sorted(mac_rows):
@@ -138,10 +136,22 @@ def main() -> int:
         lines.append(f"  error={exc}")
 
     review_cmds = [
-        ("F5_token_billing", "sed -n '/# F5 — xcelsior Tokens/,/^# F6/p' ~/Projects/pxl-registry/docs/AI_ML_FRONTIER_NEXT7_PLAN.md | head -80"),
-        ("S2_xcelsior_rows", "grep -nE 'xcelsior|token|metering|embed|prefix|EAGLE|cached' ~/Projects/pxl-registry/docs/AI_ML_UPGRADE_PLAN.md 2>/dev/null | head -35"),
-        ("model_paths", "grep -nE 'Qwen3-8B|bge-m3|b2|staging|/mnt/storage' ~/Projects/pxl-registry/docs/AI_ML_MODEL_UPGRADES_AND_DOWNLOADS.md 2>/dev/null | head -25"),
-        ("checklist_scope", "grep -nE 'xcelsior|token|metering|excluded' ~/Projects/pxl-registry/docs/AI_ML_UPGRADE_IMPLEMENTATION_CHECKLIST.md 2>/dev/null | head -20"),
+        (
+            "F5_token_billing",
+            "sed -n '/# F5 — xcelsior Tokens/,/^# F6/p' ~/Projects/pxl-registry/docs/AI_ML_FRONTIER_NEXT7_PLAN.md | head -80",
+        ),
+        (
+            "S2_xcelsior_rows",
+            "grep -nE 'xcelsior|token|metering|embed|prefix|EAGLE|cached' ~/Projects/pxl-registry/docs/AI_ML_UPGRADE_PLAN.md 2>/dev/null | head -35",
+        ),
+        (
+            "model_paths",
+            "grep -nE 'Qwen3-8B|bge-m3|b2|staging|/mnt/storage' ~/Projects/pxl-registry/docs/AI_ML_MODEL_UPGRADES_AND_DOWNLOADS.md 2>/dev/null | head -25",
+        ),
+        (
+            "checklist_scope",
+            "grep -nE 'xcelsior|token|metering|excluded' ~/Projects/pxl-registry/docs/AI_ML_UPGRADE_IMPLEMENTATION_CHECKLIST.md 2>/dev/null | head -20",
+        ),
     ]
     review_path = SCRATCH / "mac-ai-ml-docs-review.txt"
     review_lines = ["=== Deep AI/ML doc content review (Mac) ===", f"host={MAC_HOST}", ""]

@@ -164,11 +164,7 @@ def validation_status(model_ref: str, *, store: dict[str, Any] | None = None) ->
         throughput_ok = mean_tps >= float(baseline) * MIN_THROUGHPUT_GAIN
     elif tps:
         throughput_ok = mean_tps > 0
-    validated = (
-        len(rates) >= MIN_SAMPLES
-        and mean_rate >= MIN_ACCEPTANCE_RATE
-        and throughput_ok
-    )
+    validated = len(rates) >= MIN_SAMPLES and mean_rate >= MIN_ACCEPTANCE_RATE and throughput_ok
     return {
         "model_ref": model_ref,
         "sample_count": len(rates),

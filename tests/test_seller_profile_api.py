@@ -288,7 +288,9 @@ def test_profile_gate_runs_before_stripe_and_skips_an_existing_account(monkeypat
 
 
 @pytest.mark.parametrize("requested_country", ["", "CA", "USA"])
-def test_new_payout_country_comes_from_saved_seller_without_truncation_or_default(monkeypatch, requested_country):
+def test_new_payout_country_comes_from_saved_seller_without_truncation_or_default(
+    monkeypatch, requested_country
+):
     import json
     from types import SimpleNamespace
     import stripe_connect
@@ -296,22 +298,43 @@ def test_new_payout_country_comes_from_saved_seller_without_truncation_or_defaul
     manager = stripe_connect.get_stripe_manager()
     provider_id = f"prov-{uuid.uuid4().hex[:12]}"
     created = []
+
     class Account:
         @staticmethod
         def create(**kwargs):
             created.append(kwargs)
             return SimpleNamespace(id="acct_local_country_test")
+
         @staticmethod
         def retrieve(account_id):
-            return json.dumps({"charges_enabled":False, "payouts_enabled":False})
+            return json.dumps({"charges_enabled": False, "payouts_enabled": False})
+
     monkeypatch.setattr(stripe_connect, "STRIPE_ENABLED", True)
-    monkeypatch.setattr(stripe_connect, "stripe", SimpleNamespace(Account=Account,
-        AccountLink=SimpleNamespace(create=lambda **kwargs: SimpleNamespace(url="https://connect.stripe.test/onboarding"))))
+    monkeypatch.setattr(
+        stripe_connect,
+        "stripe",
+        SimpleNamespace(
+            Account=Account,
+            AccountLink=SimpleNamespace(
+                create=lambda **kwargs: SimpleNamespace(
+                    url="https://connect.stripe.test/onboarding"
+                )
+            ),
+        ),
+    )
     try:
-        manager.save_seller_profile(provider_id, "supplier@example.test", _profile("TEST1234", country="US", province="NY", postal_code="10001", tax_id_kind="other"))
+        manager.save_seller_profile(
+            provider_id,
+            "supplier@example.test",
+            _profile(
+                "TEST1234", country="US", province="NY", postal_code="10001", tax_id_kind="other"
+            ),
+        )
         if requested_country:
             with pytest.raises(ValueError, match="saved seller address"):
-                manager.create_provider_account(provider_id, "supplier@example.test", country=requested_country)
+                manager.create_provider_account(
+                    provider_id, "supplier@example.test", country=requested_country
+                )
             assert not created
         else:
             manager.create_provider_account(provider_id, "supplier@example.test")
@@ -330,14 +353,24 @@ def test_transient_stripe_lookup_failure_does_not_replace_an_existing_account(mo
     manager = stripe_connect.get_stripe_manager()
     provider_id = f"prov-{uuid.uuid4().hex[:12]}"
     create = Mock()
+
     def unavailable(*args, **kwargs):
         raise RuntimeError("temporary service failure")
+
     monkeypatch.setattr(stripe_connect, "STRIPE_ENABLED", True)
-    monkeypatch.setattr(stripe_connect, "stripe", SimpleNamespace(
-        Account=SimpleNamespace(create=create, retrieve=unavailable),
-        AccountLink=SimpleNamespace(create=unavailable)))
+    monkeypatch.setattr(
+        stripe_connect,
+        "stripe",
+        SimpleNamespace(
+            Account=SimpleNamespace(create=create, retrieve=unavailable),
+            AccountLink=SimpleNamespace(create=unavailable),
+        ),
+    )
     with manager._conn() as conn:
-        conn.execute("INSERT INTO provider_accounts (provider_id,email,stripe_account_id,status,created_at) VALUES (%s,%s,%s,'active',1)", (provider_id,"supplier@example.test","acct_existing_transient"))
+        conn.execute(
+            "INSERT INTO provider_accounts (provider_id,email,stripe_account_id,status,created_at) VALUES (%s,%s,%s,'active',1)",
+            (provider_id, "supplier@example.test", "acct_existing_transient"),
+        )
     try:
         with pytest.raises(RuntimeError, match="Unable to check"):
             manager.create_provider_account(provider_id, "supplier@example.test")

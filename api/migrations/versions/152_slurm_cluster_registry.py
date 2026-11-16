@@ -79,9 +79,7 @@ DROP_MAPPING_COLUMNS = (
 
 
 def _create_clusters(conn):
-    conn.execute(
-        text(
-            """
+    conn.execute(text("""
             CREATE TABLE IF NOT EXISTS slurm_clusters (
                 cluster_id            TEXT PRIMARY KEY,
                 profile_key           TEXT NOT NULL,
@@ -107,9 +105,7 @@ def _create_clusters(conn):
                 CONSTRAINT ck_slurm_cluster_poll_interval
                     CHECK (poll_interval_seconds BETWEEN 30 AND 3600)
             )
-            """
-        )
-    )
+            """))
 
 
 def _add_mapping_columns(conn):
@@ -120,14 +116,18 @@ def _add_mapping_columns(conn):
 def _observed_constraint(states):
     def run(conn):
         allowed = ", ".join(f"'{s}'" for s in states)
-        conn.execute(text("ALTER TABLE slurm_job_mappings DROP CONSTRAINT IF EXISTS ck_slurm_observed_state"))
+        conn.execute(
+            text("ALTER TABLE slurm_job_mappings DROP CONSTRAINT IF EXISTS ck_slurm_observed_state")
+        )
         conn.execute(
             text(
                 "ALTER TABLE slurm_job_mappings ADD CONSTRAINT ck_slurm_observed_state "
                 f"CHECK (observed_state IS NULL OR observed_state IN ({allowed})) NOT VALID"
             )
         )
-        conn.execute(text("ALTER TABLE slurm_job_mappings VALIDATE CONSTRAINT ck_slurm_observed_state"))
+        conn.execute(
+            text("ALTER TABLE slurm_job_mappings VALIDATE CONSTRAINT ck_slurm_observed_state")
+        )
 
     return run
 
@@ -135,7 +135,9 @@ def _observed_constraint(states):
 def _unknown_for_new_states(conn):
     new = [s for s in SLURM_OBSERVED if s not in SLURM_OBSERVED_067]
     conn.execute(
-        text("UPDATE slurm_job_mappings SET observed_state = 'unknown' WHERE observed_state = ANY(:new)"),
+        text(
+            "UPDATE slurm_job_mappings SET observed_state = 'unknown' WHERE observed_state = ANY(:new)"
+        ),
         {"new": new},
     )
 
@@ -162,7 +164,10 @@ def downgrade():
             ("slurm_job_mappings new states", _unknown_for_new_states),
             ("slurm_job_mappings observed_state", _observed_constraint(SLURM_OBSERVED_067)),
             ("slurm_job_mappings columns", _drop_mapping_columns),
-            ("slurm_clusters", lambda conn: conn.execute(text("DROP TABLE IF EXISTS slurm_clusters"))),
+            (
+                "slurm_clusters",
+                lambda conn: conn.execute(text("DROP TABLE IF EXISTS slurm_clusters")),
+            ),
         ],
         tables=("slurm_clusters", "slurm_job_mappings"),
     )

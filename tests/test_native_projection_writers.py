@@ -30,34 +30,25 @@ from tests.native_jobs import admit_fixture_job
 def without_projection_triggers():
     pool = _get_pg_pool()
     with pool.connection() as conn:
-        triggers = conn.execute(
-            """SELECT pg_get_triggerdef(oid) FROM pg_trigger
+        triggers = conn.execute("""SELECT pg_get_triggerdef(oid) FROM pg_trigger
             WHERE tgname IN ('trg_jobs_control_plane_projection',
-                             'trg_hosts_control_plane_projection') ORDER BY tgname"""
-        ).fetchall()
+                             'trg_hosts_control_plane_projection') ORDER BY tgname""").fetchall()
         assert len(triggers) in {0, 2}, "partially removed projection schema"
         # Prepared regprocedure constants can retain a dropped function's OID.
         # Resolve live names on every rehearsal instead.
-        functions = conn.execute(
-            """SELECT pg_get_functiondef(p.oid)
+        functions = conn.execute("""SELECT pg_get_functiondef(p.oid)
             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='public' AND p.pronargs=0
               AND p.proname IN ('control_plane_project_job','control_plane_project_host')
-            ORDER BY p.proname"""
-        ).fetchall()
+            ORDER BY p.proname""").fetchall()
         assert len(functions) == len(triggers)
         if triggers:
             conn.execute("DROP TRIGGER trg_jobs_control_plane_projection ON jobs")
             conn.execute("DROP TRIGGER trg_hosts_control_plane_projection ON hosts")
             conn.execute("DROP FUNCTION control_plane_project_job()")
             conn.execute("DROP FUNCTION control_plane_project_host()")
-        assert (
-            conn.execute(
-                """SELECT to_regprocedure('control_plane_project_job()'),
-            to_regprocedure('control_plane_project_host()')"""
-            ).fetchone()
-            == (None, None)
-        )
+        assert conn.execute("""SELECT to_regprocedure('control_plane_project_job()'),
+            to_regprocedure('control_plane_project_host()')""").fetchone() == (None, None)
     try:
         yield pool
     finally:

@@ -3261,8 +3261,7 @@ class BillingEngine:
             return []
         methods = stripe_mod.PaymentMethod.list(customer=customer, type="link", limit=100)
         return [
-            {"id": pm["id"], "type": "link", "email": pm["link"]["email"]}
-            for pm in methods.data
+            {"id": pm["id"], "type": "link", "email": pm["link"]["email"]} for pm in methods.data
         ]
 
     def welcome_bonus_eligible(self, customer_id: str) -> bool:

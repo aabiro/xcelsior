@@ -370,8 +370,7 @@ def test_no_placement_gating_symbols_survive():
                 s
                 for s in banned
                 if any(
-                    s in line and not ABSENCE_ASSERTION.search(line)
-                    for line in body.splitlines()
+                    s in line and not ABSENCE_ASSERTION.search(line) for line in body.splitlines()
                 )
             ]
             if found:

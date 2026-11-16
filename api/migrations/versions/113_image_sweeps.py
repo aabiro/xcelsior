@@ -47,8 +47,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS image_sweeps (
             sweep_id        TEXT PRIMARY KEY,
             -- Ledger rule 9 / companion §4.4.10: every tenant-owned table
@@ -78,15 +77,13 @@ def upgrade() -> None:
             -- future caller passing `name:tag` would quietly break.
             CONSTRAINT ck_image_sweeps_digest CHECK (image_digest LIKE '%@sha256:%')
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_image_sweeps_tenant "
         "ON image_sweeps (tenant_id, created_at DESC)"
     )
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS image_sweep_members (
             sweep_id     TEXT NOT NULL,
             member_index INTEGER NOT NULL,
@@ -111,8 +108,7 @@ def upgrade() -> None:
                 state IN ('pending', 'failed') OR job_id IS NOT NULL
             )
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_sweep_members_tenant "
         "ON image_sweep_members (tenant_id, sweep_id)"

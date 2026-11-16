@@ -139,9 +139,8 @@ def _load_dotenv() -> None:
 
 def _resolve_secret_key(mode: str) -> str:
     if mode == "sandbox":
-        return (
-            os.environ.get("XCELSIOR_STRIPE_SANDBOX_SECRET_KEY", "")
-            or os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
+        return os.environ.get("XCELSIOR_STRIPE_SANDBOX_SECRET_KEY", "") or os.environ.get(
+            "XCELSIOR_STRIPE_SECRET_KEY", ""
         )
     return os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
 
@@ -452,7 +451,9 @@ def _seed_platform_services(stripe, dry_run: bool, manifest: dict) -> int:
                 entry["prices"].append({"price_id": f"price_DRY_{lk}", "lookup_key": lk})
 
         manifest["platform_services"].append(entry)
-        print(f"  [{'exists' if existing else 'created' if not dry_run else 'dry-run'}] {svc['name']}")
+        print(
+            f"  [{'exists' if existing else 'created' if not dry_run else 'dry-run'}] {svc['name']}"
+        )
     return created
 
 
@@ -485,7 +486,9 @@ def _seed_reserved_commitments(stripe, dry_run: bool, manifest: dict) -> int:
             created += 1
             time.sleep(0.05)
         manifest["reserved_commitments"].append({**plan, "product_id": product_id})
-        print(f"  [{'exists' if existing else 'created' if not dry_run else 'dry-run'}] {plan['name']}")
+        print(
+            f"  [{'exists' if existing else 'created' if not dry_run else 'dry-run'}] {plan['name']}"
+        )
     return created
 
 
@@ -595,6 +598,7 @@ def _seed_gpu_catalog(stripe, dry_run: bool, manifest: dict, meter_id: str) -> t
                         else ""
                     )
                 )
+
                 # Normalize "0.49" vs "0.4900"
                 def _norm(d: str) -> str:
                     try:
@@ -618,9 +622,7 @@ def _seed_gpu_catalog(stripe, dry_run: bool, manifest: dict, meter_id: str) -> t
                         price_id = pr.id
                         created_prices += 1
                         time.sleep(0.05)
-                        print(
-                            f"    [reprice] {lk}: {old_decimal} → {want_decimal} ({price_id})"
-                        )
+                        print(f"    [reprice] {lk}: {old_decimal} → {want_decimal} ({price_id})")
                 else:
                     price_id = existing_price.id
                     if not dry_run:
@@ -665,7 +667,9 @@ def _seed_gpu_catalog(stripe, dry_run: bool, manifest: dict, meter_id: str) -> t
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Seed Stripe GPU product catalog for Xcelsior")
-    parser.add_argument("--dry-run", action="store_true", help="Print plan without Stripe API writes")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print plan without Stripe API writes"
+    )
     parser.add_argument("--apply", action="store_true", help="Create/update products in Stripe")
     parser.add_argument(
         "--mode",
@@ -697,7 +701,9 @@ def main() -> int:
     variant_count = len(_group_variants())
 
     print(f"Stripe mode: {mode}")
-    print(f"Catalog: {base_count} base variants → {variant_count} products × 12 prices = {row_count} price rows")
+    print(
+        f"Catalog: {base_count} base variants → {variant_count} products × 12 prices = {row_count} price rows"
+    )
     print()
 
     manifest: dict = {
@@ -741,7 +747,9 @@ def main() -> int:
     print("── Stripe Dashboard polish ──")
     print("  Run the internal polish_stripe_dashboard.py --apply")
     print("  (kept outside the repo; see ~/xcelsior-internal-docs/README.md)")
-    print("  Then paste brand file IDs in Dashboard → Settings → Branding (platform Account.modify is N/A)")
+    print(
+        "  Then paste brand file IDs in Dashboard → Settings → Branding (platform Account.modify is N/A)"
+    )
     print("  Webhooks: /api/providers/webhook + /api/connect/webhooks")
     return 0
 

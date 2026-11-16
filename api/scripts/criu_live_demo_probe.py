@@ -13,9 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-SCRATCH = Path(
-    os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer")
-)
+SCRATCH = Path(os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer"))
 DEMO_SCRIPT = ROOT / "scripts" / "criu_process_demo.sh"
 
 
@@ -62,7 +60,9 @@ def main() -> int:
                     else "criu demo finished without output_unchanged"
                 )
             else:
-                out["reason"] = f"demo script exit {proc.returncode}: {(proc.stderr or proc.stdout)[-500:]}"
+                out["reason"] = (
+                    f"demo script exit {proc.returncode}: {(proc.stderr or proc.stdout)[-500:]}"
+                )
         except subprocess.TimeoutExpired:
             out["reason"] = "criu demo timed out after 180s"
         except OSError as exc:

@@ -476,7 +476,9 @@ def build_event(
     if resolved_url:
         event["event_source_url"] = resolved_url
     if custom_data:
-        event["custom_data"] = {key: value for key, value in custom_data.items() if value is not None}
+        event["custom_data"] = {
+            key: value for key, value in custom_data.items() if value is not None
+        }
     return event
 
 
@@ -513,13 +515,11 @@ def _identity_from_user(
             if v:
                 combined_raw_addr[k] = v
     addr = _extract_billing_address(combined_raw_addr or None)
-    full_name = str(merged_user.get("name") or merged_user.get("full_name") or addr.get("full_name") or "")
-    first, last = split_name(full_name)
-    city = (
-        merged_user.get("city")
-        or prefs.get("city")
-        or addr.get("city")
+    full_name = str(
+        merged_user.get("name") or merged_user.get("full_name") or addr.get("full_name") or ""
     )
+    first, last = split_name(full_name)
+    city = merged_user.get("city") or prefs.get("city") or addr.get("city")
     state = (
         merged_user.get("province")
         or merged_user.get("state")
@@ -537,12 +537,7 @@ def _identity_from_user(
         or prefs.get("postal")
         or addr.get("zip_code")
     )
-    country = (
-        merged_user.get("country")
-        or prefs.get("country")
-        or addr.get("country")
-        or "CA"
-    )
+    country = merged_user.get("country") or prefs.get("country") or addr.get("country") or "CA"
     return {
         "email": merged_user.get("email"),
         "phone": merged_user.get("phone"),
@@ -677,7 +672,9 @@ def track_event(
             request,
             billing_address=override_addr if isinstance(override_addr, dict) else None,
         )
-        identity.update({key: value for key, value in overrides.items() if value and key != "billing_address"})
+        identity.update(
+            {key: value for key, value in overrides.items() if value and key != "billing_address"}
+        )
         event = build_event(
             event_name,
             str(event_id),

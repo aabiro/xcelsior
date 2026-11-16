@@ -11,6 +11,7 @@ Revision ID: 032
 Revises: 031
 Create Date: 2026-06-01
 """
+
 from alembic import op
 
 revision = "032"
@@ -20,8 +21,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS reserved_commitments (
             commitment_id        TEXT PRIMARY KEY,
             customer_id          TEXT NOT NULL,
@@ -38,8 +38,7 @@ def upgrade() -> None:
             start_at             DOUBLE PRECISION NOT NULL,
             end_at               DOUBLE PRECISION NOT NULL
         );
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_reserved_commitments_customer "
         "ON reserved_commitments (customer_id, status);"

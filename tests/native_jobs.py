@@ -62,7 +62,9 @@ def insert_schedulable_host(
         (
             host_id,
             _time.time(),
-            _json.dumps({"admitted": True, "cost_per_hour": 0, "gpu_model": model, **(payload or {})}),
+            _json.dumps(
+                {"admitted": True, "cost_per_hour": 0, "gpu_model": model, **(payload or {})}
+            ),
             inventory_generation,
             observed,
         ),

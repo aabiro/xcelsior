@@ -102,7 +102,9 @@ def _normalize_address(profile: dict) -> dict[str, str]:
         postal = re.sub(r"\s+", "", postal)
     kind = str(profile.get("tax_id_kind") or "").strip().lower()
     if kind not in _TAX_KINDS:
-        raise ValueError("Tax identifier must be a SIN, a business number, a GST/HST number, or another tax id")
+        raise ValueError(
+            "Tax identifier must be a SIN, a business number, a GST/HST number, or another tax id"
+        )
     return {
         "legal_name": legal_name,
         "address_line1": line1,

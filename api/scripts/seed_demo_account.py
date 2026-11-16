@@ -84,9 +84,7 @@ def check() -> int:
         print(f"[demo-seed] MISSING: {DEMO_EMAIL} does not exist in this DB.")
         return 1
     pw_ok = _verify_password(user)
-    drift = {
-        k: (user.get(k), v) for k, v in _DESIRED.items() if user.get(k) != v
-    }
+    drift = {k: (user.get(k), v) for k, v in _DESIRED.items() if user.get(k) != v}
     print(f"[demo-seed] present: {DEMO_EMAIL}")
     print(f"[demo-seed]   user_id      = {user.get('user_id')}")
     print(f"[demo-seed]   is_admin     = {user.get('is_admin')}")

@@ -35,7 +35,9 @@ def _page(*, approved=True, loopback=True, name="Claude"):
 def test_the_page_waits_at_least_three_seconds_before_returning():
     assert auth._OAUTH_RETURN_DELAY_MS >= 3000
     page = _page()
-    delays = re.findall(r"setTimeout\(function\(\)\{window\.location\.replace\(.*?\);\},(\d+)\)", page)
+    delays = re.findall(
+        r"setTimeout\(function\(\)\{window\.location\.replace\(.*?\);\},(\d+)\)", page
+    )
     assert delays == [str(auth._OAUTH_RETURN_DELAY_MS)]
 
 
@@ -44,7 +46,9 @@ def test_the_handoff_bar_fills_over_the_same_wait():
     assert f"animation: handoff-fill {auth._OAUTH_RETURN_DELAY_MS}ms linear forwards" in page
     assert "__HANDOFF_MS__" not in page
     # Reduced motion keeps the bar, without the movement.
-    assert re.search(r"prefers-reduced-motion: reduce\)[^@]*\.handoff::after \{ animation: none; \}", page)
+    assert re.search(
+        r"prefers-reduced-motion: reduce\)[^@]*\.handoff::after \{ animation: none; \}", page
+    )
 
 
 def test_only_an_approved_loopback_return_explains_a_refused_connection():
@@ -60,9 +64,16 @@ def test_the_client_name_in_the_hint_is_escaped():
 
 
 def test_safe_to_close_notice_links_the_close_word_and_preserves_callback_handoff():
-    for page in (_page(approved=True), _page(approved=False), auth._oauth_error_page("Expired", "Try again.", 400)):
+    for page in (
+        _page(approved=True),
+        _page(approved=False),
+        auth._oauth_error_page("Expired", "Try again.", 400),
+    ):
         assert "It’s safe to " in page
-        assert '<a class="close-link" href="#close" role="button" data-close-window>close</a> this window.' in page
+        assert (
+            '<a class="close-link" href="#close" role="button" data-close-window>close</a> this window.'
+            in page
+        )
         assert "window.close()" in page
         assert "onclick=" not in page
 

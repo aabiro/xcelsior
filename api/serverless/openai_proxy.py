@@ -25,9 +25,19 @@ SUPPORTED_ROUTES = frozenset(
 # vLLM with --task embed / --task score and expose /v1/embeddings or /v1/rerank.
 _RERANK_MARKERS = ("rerank", "reranker", "cross-encoder", "cohere-rerank")
 _EMBED_MARKERS = (
-    "bge-m3", "bge-large", "bge-base", "bge-small", "nomic-embed", "gte-",
-    "e5-large", "e5-base", "e5-small", "stella", "snowflake-arctic-embed",
-    "embed", "voyage",
+    "bge-m3",
+    "bge-large",
+    "bge-base",
+    "bge-small",
+    "nomic-embed",
+    "gte-",
+    "e5-large",
+    "e5-base",
+    "e5-small",
+    "stella",
+    "snowflake-arctic-embed",
+    "embed",
+    "voyage",
 )
 
 
@@ -281,11 +291,7 @@ def extract_usage_from_response(payload: dict[str, Any]) -> dict[str, int]:
     prompt_details = usage.get("prompt_tokens_details") or {}
     if not isinstance(prompt_details, dict):
         prompt_details = {}
-    cached = int(
-        prompt_details.get("cached_tokens")
-        or usage.get("cached_tokens")
-        or 0
-    )
+    cached = int(prompt_details.get("cached_tokens") or usage.get("cached_tokens") or 0)
     completion_details = usage.get("completion_tokens_details") or {}
     if not isinstance(completion_details, dict):
         completion_details = {}

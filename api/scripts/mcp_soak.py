@@ -90,7 +90,9 @@ def one_call(http: httpx.Client, base: str, token: str, body: dict, results: Res
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--base", default="https://mcp.xcelsior.ca/mcp")
     parser.add_argument("--token", required=True, help="MCP-audience bearer token")
     parser.add_argument("--rate", type=int, default=240, help="requests per minute to offer")
@@ -106,7 +108,9 @@ def main() -> int:
     # A read that touches the upstream API, so the soak exercises the real path
     # rather than a handler that answers from memory.
     body = {
-        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
         "params": {"name": "get_pricing_reference", "arguments": {}},
     }
 

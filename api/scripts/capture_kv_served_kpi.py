@@ -9,9 +9,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRATCH = Path(
-    os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer")
-)
+SCRATCH = Path(os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer"))
 
 
 def _usage_kv(sample: dict) -> tuple[float | None, dict]:
@@ -30,9 +28,7 @@ def main() -> int:
     sample = json.loads(usage_path.read_text(encoding="utf-8"))
     kv_rate, last24 = _usage_kv(sample)
     ledger = sample.get("ledger_rows") or []
-    proxy_rows = [
-        r for r in ledger if "usage-proxy" in str(r.get("idempotency_key", ""))
-    ]
+    proxy_rows = [r for r in ledger if "usage-proxy" in str(r.get("idempotency_key", ""))]
     out = {
         "source": "openai_proxy_served_traffic",
         "evidence_tier": "launch_served_traffic",

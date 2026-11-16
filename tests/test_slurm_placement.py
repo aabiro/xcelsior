@@ -556,7 +556,9 @@ def test_submit_job_admits_the_cluster_and_the_narrow_tick_places_it(fleet):
     )
     fleet["jobs"].append(job["job_id"])
     with _pool.connection() as conn:
-        spec = conn.execute("SELECT spec FROM jobs WHERE job_id = %s", (job["job_id"],)).fetchone()[0]
+        spec = conn.execute("SELECT spec FROM jobs WHERE job_id = %s", (job["job_id"],)).fetchone()[
+            0
+        ]
     assert spec["hpc_cluster_id"] == cluster_id
     assert spec["admission_request"]["hpc_cluster_id"] == cluster_id
 
@@ -581,7 +583,9 @@ def test_a_job_without_a_cluster_gets_no_cluster_key(fleet):
     job = scheduler.submit_job(name=f"plain-{uuid.uuid4().hex[:8]}", vram_needed_gb=0)
     fleet["jobs"].append(job["job_id"])
     with _pool.connection() as conn:
-        spec = conn.execute("SELECT spec FROM jobs WHERE job_id = %s", (job["job_id"],)).fetchone()[0]
+        spec = conn.execute("SELECT spec FROM jobs WHERE job_id = %s", (job["job_id"],)).fetchone()[
+            0
+        ]
     assert "hpc_cluster_id" not in spec
     assert "hpc_cluster_id" not in spec["admission_request"]
 

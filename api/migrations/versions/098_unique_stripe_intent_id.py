@@ -43,23 +43,19 @@ def upgrade() -> None:
     # Defensive: if duplicates exist, keep the earliest row for each intent.
     # Later rows are re-registrations of a charge Stripe already deduplicated,
     # so they describe no additional money.
-    op.execute(
-        """
+    op.execute("""
         DELETE FROM payment_intents a
          USING payment_intents b
          WHERE a.stripe_intent_id = b.stripe_intent_id
            AND a.stripe_intent_id IS NOT NULL
            AND a.stripe_intent_id <> ''
            AND (a.created_at, a.intent_id) > (b.created_at, b.intent_id)
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_intents_stripe_intent_id
             ON payment_intents (stripe_intent_id)
          WHERE stripe_intent_id IS NOT NULL AND stripe_intent_id <> ''
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

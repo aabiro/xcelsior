@@ -117,7 +117,9 @@ class TestAdapterAndGateAgree:
         # first shadow-week job was rejected at sbatch (2026-11-10) until the
         # xcl-local profile turned mail off.
         monkeypatch.setenv("XCELSIOR_SLURM_EMAIL", "ops@example.com")
-        script, _ = _sa.xcelsior_job_to_sbatch(_job(num_gpus=1, command="nvidia-smi -L"), lab_profile)
+        script, _ = _sa.xcelsior_job_to_sbatch(
+            _job(num_gpus=1, command="nvidia-smi -L"), lab_profile
+        )
         assert "--mail" not in script
         gate.check_script(script)
 

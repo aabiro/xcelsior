@@ -180,8 +180,12 @@ def main() -> None:
     parser.add_argument("--provision", action="store_true", help="Create/update user in DB")
     parser.add_argument("--verify-login", action="store_true", help="POST /api/auth/login probe")
     parser.add_argument("--write-env", action="store_true", help="Write .env.audit")
-    parser.add_argument("--json", action="store_true", help="Print JSON summary (no secrets unless --show-secret)")
-    parser.add_argument("--show-secret", action="store_true", help="Include password in JSON output")
+    parser.add_argument(
+        "--json", action="store_true", help="Print JSON summary (no secrets unless --show-secret)"
+    )
+    parser.add_argument(
+        "--show-secret", action="store_true", help="Include password in JSON output"
+    )
     args = parser.parse_args()
 
     cfg = _cfg()

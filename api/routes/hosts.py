@@ -307,7 +307,11 @@ def _photon_address(
         "country": country,
         # Only an exact match fills the region; otherwise the person picks it.
         "province": resolve_subdivision(
-            country, state=text("state"), county=text("county"), city=place_city, postal_code=formatted
+            country,
+            state=text("state"),
+            county=text("county"),
+            city=place_city,
+            postal_code=formatted,
         ),
     }
 
@@ -356,7 +360,9 @@ def _here_items(params: list[tuple[str, str]]) -> list[dict]:
     items = payload.get("items") if isinstance(payload, dict) else None
     if not isinstance(items, list):
         raise _HereUnavailable("no items in the answer")
-    items = [item for item in items if isinstance(item, dict) and isinstance(item.get("address"), dict)]
+    items = [
+        item for item in items if isinstance(item, dict) and isinstance(item.get("address"), dict)
+    ]
     if len(_HERE_CACHE) >= _PHOTON_CACHE_SIZE:
         _HERE_CACHE.pop(next(iter(_HERE_CACHE)))
     _HERE_CACHE[cache_key] = (now, items)
@@ -1692,7 +1698,9 @@ def api_update_host_availability(host_id: str, body: HostAvailabilityUpdate, req
     if body.accepting_jobs and host.get("admitted") is not True:
         raise HTTPException(409, "Machine verification must finish before accepting jobs")
     try:
-        updated = set_host_draining(resolved, draining=not body.accepting_jobs, expected_version=body.expected_version)
+        updated = set_host_draining(
+            resolved, draining=not body.accepting_jobs, expected_version=body.expected_version
+        )
     except PlanConflict as exc:
         raise HTTPException(409, str(exc)) from exc
     if updated is None:

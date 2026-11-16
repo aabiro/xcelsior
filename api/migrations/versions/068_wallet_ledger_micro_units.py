@@ -102,9 +102,7 @@ def upgrade() -> None:
 
     for table, pairs, pk in WALLET_MONEY:
         for _, minor_col in pairs:
-            op.execute(
-                f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {minor_col} BIGINT"
-            )
+            op.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {minor_col} BIGINT")
         _create_projection_trigger(table, pairs)
         _backfill(table, pairs, pk)
 
@@ -112,8 +110,7 @@ def upgrade() -> None:
 
     # A balance may legitimately be negative (overdraft/grace), so the only
     # structural claim is that the accumulating totals never go backwards.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE wallets
         ADD CONSTRAINT ck_wallets_totals_non_negative
         CHECK (
@@ -121,8 +118,7 @@ def upgrade() -> None:
             AND (total_spent_micros IS NULL OR total_spent_micros >= 0)
             AND (total_refunded_micros IS NULL OR total_refunded_micros >= 0)
         ) NOT VALID
-        """
-    )
+        """)
     op.execute("ALTER TABLE wallets VALIDATE CONSTRAINT ck_wallets_totals_non_negative")
 
 
@@ -136,29 +132,24 @@ def _create_projection_trigger(table: str, pairs: tuple[tuple[str, str], ...]) -
     """
     branches = []
     for float_col, minor_col in pairs:
-        branches.append(
-            f"""
+        branches.append(f"""
             IF NEW.{minor_col} IS DISTINCT FROM OLD.{minor_col} THEN
                 NEW.{float_col} := {_MAJOR.format(col=f"NEW.{minor_col}")};
             ELSIF NEW.{float_col} IS DISTINCT FROM OLD.{float_col} THEN
                 NEW.{minor_col} := {_MINOR.format(col=f"NEW.{float_col}")};
             END IF;
-            """
-        )
+            """)
     insert_branches = []
     for float_col, minor_col in pairs:
-        insert_branches.append(
-            f"""
+        insert_branches.append(f"""
             IF NEW.{minor_col} IS NULL THEN
                 NEW.{minor_col} := {_MINOR.format(col=f"NEW.{float_col}")};
             ELSE
                 NEW.{float_col} := {_MAJOR.format(col=f"NEW.{minor_col}")};
             END IF;
-            """
-        )
+            """)
 
-    op.execute(
-        f"""
+    op.execute(f"""
         CREATE OR REPLACE FUNCTION {table}_project_money()
         RETURNS trigger AS $$
         BEGIN
@@ -170,16 +161,13 @@ def _create_projection_trigger(table: str, pairs: tuple[tuple[str, str], ...]) -
             RETURN NEW;
         END
         $$ LANGUAGE plpgsql
-        """
-    )
+        """)
     op.execute(f"DROP TRIGGER IF EXISTS trg_{table}_project_money ON {table}")
-    op.execute(
-        f"""
+    op.execute(f"""
         CREATE TRIGGER trg_{table}_project_money
         BEFORE INSERT OR UPDATE ON {table}
         FOR EACH ROW EXECUTE FUNCTION {table}_project_money()
-        """
-    )
+        """)
 
 
 def _backfill(table: str, pairs: tuple[tuple[str, str], ...], pk: str) -> None:
@@ -193,15 +181,13 @@ def _backfill(table: str, pairs: tuple[tuple[str, str], ...], pk: str) -> None:
     """
     first_float, first_micros = pairs[0]
     sets = ", ".join(
-        f"{minor_col} = {_MINOR.format(col=f't.{float_col}')}"
-        for float_col, minor_col in pairs
+        f"{minor_col} = {_MINOR.format(col=f't.{float_col}')}" for float_col, minor_col in pairs
     )
     bind = op.get_bind()
     max_passes = 1_000_000
     for _ in range(max_passes):
         result = bind.execute(
-            sa.text(
-                f"""
+            sa.text(f"""
                 WITH batch AS (
                     SELECT {pk}
                       FROM {table}
@@ -214,8 +200,7 @@ def _backfill(table: str, pairs: tuple[tuple[str, str], ...], pk: str) -> None:
                    SET {sets}
                   FROM batch
                  WHERE t.{pk} = batch.{pk}
-                """
-            ),
+                """),
             {"batch_size": BACKFILL_BATCH_SIZE},
         )
         if result.rowcount == 0:
@@ -245,8 +230,7 @@ def _verify_backfill() -> None:
             ).scalar_one()
             if unconverted:
                 raise RuntimeError(
-                    f"migration 068 left {unconverted} {table}.{minor_col} "
-                    f"values unconverted."
+                    f"migration 068 left {unconverted} {table}.{minor_col} " f"values unconverted."
                 )
             drift = bind.execute(
                 sa.text(
@@ -266,9 +250,7 @@ def _verify_backfill() -> None:
 
 def downgrade() -> None:
     op.execute("SET lock_timeout = '5s'")
-    op.execute(
-        "ALTER TABLE wallets DROP CONSTRAINT IF EXISTS ck_wallets_totals_non_negative"
-    )
+    op.execute("ALTER TABLE wallets DROP CONSTRAINT IF EXISTS ck_wallets_totals_non_negative")
     for table, pairs, _ in WALLET_MONEY:
         op.execute(f"DROP TRIGGER IF EXISTS trg_{table}_project_money ON {table}")
         op.execute(f"DROP FUNCTION IF EXISTS {table}_project_money()")

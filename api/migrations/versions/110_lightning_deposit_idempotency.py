@@ -28,13 +28,11 @@ depends_on = None
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
     op.execute("ALTER TABLE ln_deposits ADD COLUMN IF NOT EXISTS idempotency_key TEXT")
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_ln_deposits_idempotency
             ON ln_deposits (customer_id, idempotency_key)
          WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

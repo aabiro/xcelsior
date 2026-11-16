@@ -582,9 +582,15 @@ class DatabaseOps:
             payload = {
                 k: v
                 for k, v in host.items()
-                if k not in {
-                    "owner", "owner_id", "tenant_id", "provider_id", "user_id",
-                    "location_confirmed_at", "location_confirmed_by",
+                if k
+                not in {
+                    "owner",
+                    "owner_id",
+                    "tenant_id",
+                    "provider_id",
+                    "user_id",
+                    "location_confirmed_at",
+                    "location_confirmed_by",
                 }
             }
             payload.update(

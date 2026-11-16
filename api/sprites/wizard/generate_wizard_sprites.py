@@ -32,62 +32,63 @@ SKIP_LEGACY = ONLY is not None
 def should_generate(group: str) -> bool:
     return ONLY is None or group in ONLY
 
+
 # Canvas dimensions
 W, H = 40, 27
 
 # ========== XCELSIOR BRAND PALETTE ==========
 # Gradient: Blue #00d4ff → Purple #7c3aed → Red #dc2626
-XC_BLUE   = (62, 135, 246, 255)    # #3E87F6 — deeper blue (mid-gradient from SVG)
-XC_PURPLE = (124, 58, 237, 255)   # #7C3AED — brand purple (mid gradient)
-XC_RED    = (220, 38, 38, 255)    # #DC2626 — brand red (bottom of gradient)
-XC_DARK   = (10, 14, 26, 255)     # #0A0E1A — brand dark navy bg
+XC_BLUE = (62, 135, 246, 255)  # #3E87F6 — deeper blue (mid-gradient from SVG)
+XC_PURPLE = (124, 58, 237, 255)  # #7C3AED — brand purple (mid gradient)
+XC_RED = (220, 38, 38, 255)  # #DC2626 — brand red (bottom of gradient)
+XC_DARK = (10, 14, 26, 255)  # #0A0E1A — brand dark navy bg
 
 # Color palette (RGBA) — Xcelsior-branded
-T = (0, 0, 0, 0)                  # Transparent
+T = (0, 0, 0, 0)  # Transparent
 
 # Hat uses Xcelsior purple
-HAT     = XC_PURPLE                # Purple hat — brand purple
-HAT_D   = (95, 40, 190, 255)      # Slightly darker purple (brim)
-HAT_STAR = XC_BLUE                 # Blue star at hat tip
+HAT = XC_PURPLE  # Purple hat — brand purple
+HAT_D = (95, 40, 190, 255)  # Slightly darker purple (brim)
+HAT_STAR = XC_BLUE  # Blue star at hat tip
 
-SKIN    = (255, 218, 185, 255)    # Pale skin
-SKIN_S  = (230, 190, 155, 255)    # Skin shadow
+SKIN = (255, 218, 185, 255)  # Pale skin
+SKIN_S = (230, 190, 155, 255)  # Skin shadow
 
 # Long silver-white Dumbledore beard
-BEARD   = (220, 220, 230, 255)    # Bright silver beard
-BEARD_D = (180, 180, 195, 255)    # Darker silver
-BEARD_L = (240, 240, 250, 255)    # Lightest beard highlight
+BEARD = (220, 220, 230, 255)  # Bright silver beard
+BEARD_D = (180, 180, 195, 255)  # Darker silver
+BEARD_L = (240, 240, 250, 255)  # Lightest beard highlight
 
 # Robes use Xcelsior blue as primary
-ROBE    = XC_BLUE                  # Bright blue robes — brand primary
-ROBE_D  = (35, 95, 200, 255)       # Darker blue shadow
-ROBE_L  = (110, 170, 250, 255)     # Light blue highlight
+ROBE = XC_BLUE  # Bright blue robes — brand primary
+ROBE_D = (35, 95, 200, 255)  # Darker blue shadow
+ROBE_L = (110, 170, 250, 255)  # Light blue highlight
 
 # Accents use Xcelsior red
-BELT    = XC_RED                   # Xcelsior red belt/sash
-BELT_D  = (180, 30, 30, 255)      # Darker red belt accent
+BELT = XC_RED  # Xcelsior red belt/sash
+BELT_D = (180, 30, 30, 255)  # Darker red belt accent
 
 # Glasses — half-moon style (Dumbledore)
-GLASS_FRAME = (180, 170, 140, 255) # Gold/brass frame
-GLASS_LENS  = (200, 220, 255, 255) # Slight blue tint lens
+GLASS_FRAME = (180, 170, 140, 255)  # Gold/brass frame
+GLASS_LENS = (200, 220, 255, 255)  # Slight blue tint lens
 
-WAND     = (139, 69, 19, 255)     # Brown wand
-WAND_TIP = XC_RED                  # Xcelsior red wand tip (magic!)
+WAND = (139, 69, 19, 255)  # Brown wand
+WAND_TIP = XC_RED  # Xcelsior red wand tip (magic!)
 
 # Particles use all 3 brand colors
-STAR    = XC_BLUE                  # Blue star/particle
-STAR_W  = (255, 255, 255, 255)    # White sparkle
-MAGIC_P = XC_PURPLE               # Purple magic particle
-MAGIC_B = XC_BLUE                 # Blue magic particle
-MAGIC_K = XC_RED                  # Red magic particle
-FLASH   = (255, 235, 100, 255)    # Golden wand flash
+STAR = XC_BLUE  # Blue star/particle
+STAR_W = (255, 255, 255, 255)  # White sparkle
+MAGIC_P = XC_PURPLE  # Purple magic particle
+MAGIC_B = XC_BLUE  # Blue magic particle
+MAGIC_K = XC_RED  # Red magic particle
+FLASH = (255, 235, 100, 255)  # Golden wand flash
 
 # Spell energy colors
-SPELL_GOLD   = (255, 215, 0, 255)     # Bright gold energy
-SPELL_YELLOW = (255, 255, 60, 255)    # Bright yellow energy
+SPELL_GOLD = (255, 215, 0, 255)  # Bright gold energy
+SPELL_YELLOW = (255, 255, 60, 255)  # Bright yellow energy
 
-EYE  = (20, 20, 60, 255)          # Dark eye behind glasses
-SHOE = XC_DARK                     # Dark navy shoes (brand dark)
+EYE = (20, 20, 60, 255)  # Dark eye behind glasses
+SHOE = XC_DARK  # Dark navy shoes (brand dark)
 
 
 def create_canvas():
@@ -127,7 +128,7 @@ def draw_base_wizard(canvas, offset_y=0, offset_x=0):
     by = 2 + offset_y
 
     # === HAT (pointed wizard hat — Xcelsior violet) ===
-    set_pixel(canvas, bx + 6, by + 0, HAT_STAR)       # Blue star at hat tip!
+    set_pixel(canvas, bx + 6, by + 0, HAT_STAR)  # Blue star at hat tip!
     draw_rect(canvas, bx + 5, by + 1, 3, 1, HAT)
     draw_rect(canvas, bx + 4, by + 2, 5, 1, HAT)
     draw_rect(canvas, bx + 3, by + 3, 7, 1, HAT)
@@ -137,22 +138,22 @@ def draw_base_wizard(canvas, offset_y=0, offset_x=0):
     draw_rect(canvas, bx + 1, by + 5, 11, 1, HAT_D)
 
     # === FACE ===
-    draw_rect(canvas, bx + 3, by + 6, 7, 1, SKIN)    # forehead
-    draw_rect(canvas, bx + 3, by + 7, 7, 1, SKIN)    # eyes row
-    draw_rect(canvas, bx + 3, by + 8, 7, 1, SKIN)    # nose area
+    draw_rect(canvas, bx + 3, by + 6, 7, 1, SKIN)  # forehead
+    draw_rect(canvas, bx + 3, by + 7, 7, 1, SKIN)  # eyes row
+    draw_rect(canvas, bx + 3, by + 8, 7, 1, SKIN)  # nose area
     draw_rect(canvas, bx + 3, by + 9, 7, 1, SKIN_S)  # lower face / mouth area
 
     # === HALF-MOON GLASSES (Dumbledore-style) ===
-    set_pixel(canvas, bx + 4, by + 7, GLASS_FRAME)    # left frame top
-    set_pixel(canvas, bx + 5, by + 7, GLASS_LENS)     # left lens (over eye)
-    set_pixel(canvas, bx + 4, by + 8, GLASS_FRAME)    # left frame bottom curve
-    set_pixel(canvas, bx + 5, by + 8, GLASS_FRAME)    # left bottom
-    set_pixel(canvas, bx + 6, by + 7, GLASS_FRAME)    # bridge
-    set_pixel(canvas, bx + 7, by + 7, GLASS_LENS)     # right lens (over eye)
-    set_pixel(canvas, bx + 8, by + 7, GLASS_FRAME)    # right frame top
-    set_pixel(canvas, bx + 7, by + 8, GLASS_FRAME)    # right bottom
-    set_pixel(canvas, bx + 8, by + 8, GLASS_FRAME)    # right frame bottom curve
-    set_pixel(canvas, bx + 9, by + 7, GLASS_FRAME)    # right ear piece
+    set_pixel(canvas, bx + 4, by + 7, GLASS_FRAME)  # left frame top
+    set_pixel(canvas, bx + 5, by + 7, GLASS_LENS)  # left lens (over eye)
+    set_pixel(canvas, bx + 4, by + 8, GLASS_FRAME)  # left frame bottom curve
+    set_pixel(canvas, bx + 5, by + 8, GLASS_FRAME)  # left bottom
+    set_pixel(canvas, bx + 6, by + 7, GLASS_FRAME)  # bridge
+    set_pixel(canvas, bx + 7, by + 7, GLASS_LENS)  # right lens (over eye)
+    set_pixel(canvas, bx + 8, by + 7, GLASS_FRAME)  # right frame top
+    set_pixel(canvas, bx + 7, by + 8, GLASS_FRAME)  # right bottom
+    set_pixel(canvas, bx + 8, by + 8, GLASS_FRAME)  # right frame bottom curve
+    set_pixel(canvas, bx + 9, by + 7, GLASS_FRAME)  # right ear piece
 
     # Eyes (visible through lenses)
     set_pixel(canvas, bx + 5, by + 7, EYE)
@@ -168,29 +169,29 @@ def draw_base_wizard(canvas, offset_y=0, offset_x=0):
     # === LONG DUMBLEDORE BEARD (flows over robes, reaches below belt) ===
     # Upper beard — full width under face
     draw_rect(canvas, bx + 3, by + 10, 7, 1, BEARD_L)  # bright silver top
-    draw_rect(canvas, bx + 3, by + 11, 7, 1, BEARD)    # full width
-    draw_rect(canvas, bx + 4, by + 12, 6, 1, BEARD)    # slightly narrower
-    draw_rect(canvas, bx + 4, by + 13, 5, 1, BEARD)    # over belt area
+    draw_rect(canvas, bx + 3, by + 11, 7, 1, BEARD)  # full width
+    draw_rect(canvas, bx + 4, by + 12, 6, 1, BEARD)  # slightly narrower
+    draw_rect(canvas, bx + 4, by + 13, 5, 1, BEARD)  # over belt area
     draw_rect(canvas, bx + 5, by + 14, 4, 1, BEARD_D)  # below belt
     draw_rect(canvas, bx + 5, by + 15, 4, 1, BEARD_D)  # continues
     draw_rect(canvas, bx + 5, by + 16, 3, 1, BEARD_D)  # tapers
     draw_rect(canvas, bx + 6, by + 17, 2, 1, BEARD_D)  # tapers more
-    set_pixel(canvas, bx + 6, by + 18, BEARD_D)         # beard tip - very long!
+    set_pixel(canvas, bx + 6, by + 18, BEARD_D)  # beard tip - very long!
 
     # === BODY / ROBES (thinner midsection) ===
     # Shoulders (narrow)
-    set_pixel(canvas, bx + 2, by + 10, ROBE)           # left shoulder
-    set_pixel(canvas, bx + 10, by + 10, ROBE)          # right shoulder
+    set_pixel(canvas, bx + 2, by + 10, ROBE)  # left shoulder
+    set_pixel(canvas, bx + 10, by + 10, ROBE)  # right shoulder
 
     # Torso (slim flanks beside beard)
-    set_pixel(canvas, bx + 2, by + 11, ROBE)           # left
-    draw_rect(canvas, bx + 10, by + 11, 2, 1, ROBE)   # right
-    draw_rect(canvas, bx + 2, by + 12, 2, 1, ROBE)    # left
-    draw_rect(canvas, bx + 10, by + 12, 2, 1, ROBE)   # right
+    set_pixel(canvas, bx + 2, by + 11, ROBE)  # left
+    draw_rect(canvas, bx + 10, by + 11, 2, 1, ROBE)  # right
+    draw_rect(canvas, bx + 2, by + 12, 2, 1, ROBE)  # left
+    draw_rect(canvas, bx + 10, by + 12, 2, 1, ROBE)  # right
 
     # Belt/sash — Xcelsior red (no center buckle pixel)
-    draw_rect(canvas, bx + 2, by + 13, 2, 1, BELT)    # left belt
-    draw_rect(canvas, bx + 9, by + 13, 3, 1, BELT)    # right belt
+    draw_rect(canvas, bx + 2, by + 13, 2, 1, BELT)  # left belt
+    draw_rect(canvas, bx + 9, by + 13, 3, 1, BELT)  # right belt
 
     # Lower robe (gradually flares out)
     draw_rect(canvas, bx + 2, by + 14, 3, 1, ROBE)
@@ -220,18 +221,18 @@ def draw_base_wizard(canvas, offset_y=0, offset_x=0):
     draw_rect(canvas, bx + 8, by + 21, 4, 1, SHOE)
 
     # === RIGHT ARM + WAND (droopy triangle cuff) ===
-    draw_rect(canvas, bx + 11, by + 11, 3, 1, ROBE)   # upper sleeve
-    draw_rect(canvas, bx + 14, by + 11, 2, 1, SKIN)   # hand
-    draw_rect(canvas, bx + 11, by + 12, 4, 1, ROBE_D) # cuff droops wider
-    draw_rect(canvas, bx + 10, by + 13, 6, 1, ROBE_D) # cuff widest — triangle tip
+    draw_rect(canvas, bx + 11, by + 11, 3, 1, ROBE)  # upper sleeve
+    draw_rect(canvas, bx + 14, by + 11, 2, 1, SKIN)  # hand
+    draw_rect(canvas, bx + 11, by + 12, 4, 1, ROBE_D)  # cuff droops wider
+    draw_rect(canvas, bx + 10, by + 13, 6, 1, ROBE_D)  # cuff widest — triangle tip
 
     # Wand with Xcelsior red tip
     draw_rect(canvas, bx + 16, by + 11, 4, 1, WAND)
-    set_pixel(canvas, bx + 20, by + 11, WAND_TIP)      # red wand tip!
+    set_pixel(canvas, bx + 20, by + 11, WAND_TIP)  # red wand tip!
 
     # === LEFT ARM (droopy triangle cuff) ===
-    draw_rect(canvas, bx + 0, by + 11, 2, 1, ROBE)    # upper sleeve
-    set_pixel(canvas, bx - 1, by + 11, SKIN)           # hand
+    draw_rect(canvas, bx + 0, by + 11, 2, 1, ROBE)  # upper sleeve
+    set_pixel(canvas, bx - 1, by + 11, SKIN)  # hand
     draw_rect(canvas, bx - 1, by + 12, 3, 1, ROBE_D)  # cuff droops wider
     draw_rect(canvas, bx - 2, by + 13, 4, 1, ROBE_D)  # cuff widest — triangle tip
 
@@ -286,8 +287,23 @@ def add_particles(canvas, bx, by, tip_x, tip_y, pattern=0):
     offsets_by_pattern = {
         0: [(2, -1, XC_BLUE), (3, 0, STAR_W), (1, -2, XC_PURPLE), (4, 1, XC_RED)],
         1: [(3, -2, STAR_W), (2, 1, XC_BLUE), (4, -1, XC_PURPLE), (1, 0, XC_RED), (5, -1, XC_BLUE)],
-        2: [(1, -1, XC_RED), (3, 1, STAR_W), (4, -2, XC_BLUE), (2, 0, XC_PURPLE), (5, 0, STAR_W), (3, -3, FLASH)],
-        3: [(2, -2, FLASH), (4, 0, XC_BLUE), (1, 1, XC_PURPLE), (5, -1, STAR_W), (3, -1, XC_RED), (6, 0, FLASH), (4, -3, XC_BLUE)],
+        2: [
+            (1, -1, XC_RED),
+            (3, 1, STAR_W),
+            (4, -2, XC_BLUE),
+            (2, 0, XC_PURPLE),
+            (5, 0, STAR_W),
+            (3, -3, FLASH),
+        ],
+        3: [
+            (2, -2, FLASH),
+            (4, 0, XC_BLUE),
+            (1, 1, XC_PURPLE),
+            (5, -1, STAR_W),
+            (3, -1, XC_RED),
+            (6, 0, FLASH),
+            (4, -3, XC_BLUE),
+        ],
     }
     for dx, dy, color in offsets_by_pattern.get(pattern, []):
         set_pixel(canvas, tip_x + dx, tip_y + dy, color)
@@ -306,10 +322,10 @@ def add_wand_flash(canvas, tip_x, tip_y):
 def draw_wand_glow(canvas, tip_x, tip_y, intensity=1):
     """Add a growing glow around the wand tip. intensity 1-4."""
     # Glow colors escalate from dim gold to bright yellow
-    GLOW_DIM  = (255, 220, 60, 120)
-    GLOW_MED  = (255, 235, 80, 180)
-    GLOW_BRI  = (255, 245, 120, 220)
-    GLOW_HOT  = (255, 255, 180, 255)
+    GLOW_DIM = (255, 220, 60, 120)
+    GLOW_MED = (255, 235, 80, 180)
+    GLOW_BRI = (255, 245, 120, 220)
+    GLOW_HOT = (255, 255, 180, 255)
 
     if intensity >= 1:
         set_pixel(canvas, tip_x + 1, tip_y, GLOW_DIM)
@@ -330,10 +346,10 @@ def draw_wand_glow(canvas, tip_x, tip_y, intensity=1):
 def draw_smoke_cloud(canvas, cx, cy, radius, density=1.0):
     """Draw a smoke cloud centered at (cx, cy). density 0.0-1.0 controls coverage."""
     # Pre-baked smoke pixel offsets in concentric rings
-    SMOKE_W = (230, 230, 240, 200)   # bright white smoke
-    SMOKE_L = (200, 200, 210, 170)   # light gray smoke
-    SMOKE_M = (160, 160, 170, 140)   # medium gray smoke
-    SMOKE_D = (120, 120, 130, 100)   # dark edge smoke
+    SMOKE_W = (230, 230, 240, 200)  # bright white smoke
+    SMOKE_L = (200, 200, 210, 170)  # light gray smoke
+    SMOKE_M = (160, 160, 170, 140)  # medium gray smoke
+    SMOKE_D = (120, 120, 130, 100)  # dark edge smoke
 
     # Inner ring (always if density > 0)
     if density > 0.1:
@@ -344,22 +360,62 @@ def draw_smoke_cloud(canvas, cx, cy, radius, density=1.0):
 
     # Middle ring
     if density > 0.3 and radius >= 2:
-        ring2 = [(-2,0),(2,0),(0,-2),(0,2),(-1,-1),(1,-1),(-1,1),(1,1),
-                 (-2,-1),(2,-1),(-2,1),(2,1)]
+        ring2 = [
+            (-2, 0),
+            (2, 0),
+            (0, -2),
+            (0, 2),
+            (-1, -1),
+            (1, -1),
+            (-1, 1),
+            (1, 1),
+            (-2, -1),
+            (2, -1),
+            (-2, 1),
+            (2, 1),
+        ]
         for dx, dy in ring2:
             set_pixel(canvas, cx + dx, cy + dy, SMOKE_L)
 
     # Outer ring
     if density > 0.5 and radius >= 3:
-        ring3 = [(-3,0),(3,0),(0,-3),(0,3),(-2,-2),(2,-2),(-2,2),(2,2),
-                 (-3,-1),(3,-1),(-3,1),(3,1),(-1,-3),(1,-3),(-1,3),(1,3)]
+        ring3 = [
+            (-3, 0),
+            (3, 0),
+            (0, -3),
+            (0, 3),
+            (-2, -2),
+            (2, -2),
+            (-2, 2),
+            (2, 2),
+            (-3, -1),
+            (3, -1),
+            (-3, 1),
+            (3, 1),
+            (-1, -3),
+            (1, -3),
+            (-1, 3),
+            (1, 3),
+        ]
         for dx, dy in ring3:
             set_pixel(canvas, cx + dx, cy + dy, SMOKE_M)
 
     # Wispy edges
     if density > 0.7 and radius >= 4:
-        ring4 = [(-4,0),(4,0),(0,-4),(0,4),(-3,-2),(3,-2),(-3,2),(3,2),
-                 (-2,-3),(2,-3),(-2,3),(2,3)]
+        ring4 = [
+            (-4, 0),
+            (4, 0),
+            (0, -4),
+            (0, 4),
+            (-3, -2),
+            (3, -2),
+            (-3, 2),
+            (3, 2),
+            (-2, -3),
+            (2, -3),
+            (-2, 3),
+            (2, 3),
+        ]
         for dx, dy in ring4:
             set_pixel(canvas, cx + dx, cy + dy, SMOKE_D)
 
@@ -375,86 +431,175 @@ def draw_color_dots(canvas, dots):
 
 # Initial concentrated flash near center
 INTRO_DOTS_FLASH = [
-    (15, 10, STAR_W), (17, 9, FLASH), (19, 11, STAR_W), (16, 13, FLASH),
-    (18, 8, XC_BLUE), (20, 12, XC_PURPLE), (14, 11, XC_RED), (21, 10, STAR_W),
+    (15, 10, STAR_W),
+    (17, 9, FLASH),
+    (19, 11, STAR_W),
+    (16, 13, FLASH),
+    (18, 8, XC_BLUE),
+    (20, 12, XC_PURPLE),
+    (14, 11, XC_RED),
+    (21, 10, STAR_W),
 ]
 
 INTRO_DOTS_FULL = [
     # Wide burst of all brand colors
-    (3, 4, XC_BLUE), (5, 1, XC_PURPLE), (8, 0, STAR_W), (28, 2, XC_RED),
-    (30, 5, XC_BLUE), (1, 10, XC_PURPLE), (32, 8, STAR_W), (35, 3, XC_RED),
-    (25, 0, XC_BLUE), (0, 6, STAR_W), (33, 12, XC_PURPLE), (6, 15, XC_RED),
-    (27, 14, STAR_W), (2, 2, XC_BLUE), (34, 0, XC_PURPLE), (38, 6, XC_RED),
-    (22, 1, STAR_W), (12, 0, XC_BLUE), (39, 10, XC_PURPLE),
+    (3, 4, XC_BLUE),
+    (5, 1, XC_PURPLE),
+    (8, 0, STAR_W),
+    (28, 2, XC_RED),
+    (30, 5, XC_BLUE),
+    (1, 10, XC_PURPLE),
+    (32, 8, STAR_W),
+    (35, 3, XC_RED),
+    (25, 0, XC_BLUE),
+    (0, 6, STAR_W),
+    (33, 12, XC_PURPLE),
+    (6, 15, XC_RED),
+    (27, 14, STAR_W),
+    (2, 2, XC_BLUE),
+    (34, 0, XC_PURPLE),
+    (38, 6, XC_RED),
+    (22, 1, STAR_W),
+    (12, 0, XC_BLUE),
+    (39, 10, XC_PURPLE),
 ]
 
 # Between FULL and MED — dots starting to spread outward
 INTRO_DOTS_HEAVY = [
-    (4, 6, XC_BLUE), (29, 4, XC_PURPLE), (2, 12, STAR_W), (33, 9, XC_RED),
-    (36, 5, XC_BLUE), (1, 8, XC_PURPLE), (31, 13, STAR_W), (6, 16, XC_RED),
-    (26, 2, STAR_W), (34, 14, XC_BLUE), (8, 3, XC_PURPLE), (38, 8, XC_RED),
-    (23, 1, XC_BLUE), (0, 14, STAR_W),
+    (4, 6, XC_BLUE),
+    (29, 4, XC_PURPLE),
+    (2, 12, STAR_W),
+    (33, 9, XC_RED),
+    (36, 5, XC_BLUE),
+    (1, 8, XC_PURPLE),
+    (31, 13, STAR_W),
+    (6, 16, XC_RED),
+    (26, 2, STAR_W),
+    (34, 14, XC_BLUE),
+    (8, 3, XC_PURPLE),
+    (38, 8, XC_RED),
+    (23, 1, XC_BLUE),
+    (0, 14, STAR_W),
 ]
 
 INTRO_DOTS_MED = [
-    (4, 8, XC_BLUE), (28, 6, XC_PURPLE), (2, 14, STAR_W), (32, 10, XC_RED),
-    (35, 7, XC_BLUE), (0, 12, XC_PURPLE), (30, 15, STAR_W), (7, 18, XC_RED),
-    (25, 4, STAR_W), (33, 16, XC_BLUE),
+    (4, 8, XC_BLUE),
+    (28, 6, XC_PURPLE),
+    (2, 14, STAR_W),
+    (32, 10, XC_RED),
+    (35, 7, XC_BLUE),
+    (0, 12, XC_PURPLE),
+    (30, 15, STAR_W),
+    (7, 18, XC_RED),
+    (25, 4, STAR_W),
+    (33, 16, XC_BLUE),
 ]
 
 # Between MED and FEW — scattered remnants
 INTRO_DOTS_LIGHT = [
-    (5, 12, XC_BLUE), (30, 10, XC_PURPLE), (3, 18, STAR_W), (33, 14, XC_RED),
-    (28, 8, STAR_W), (1, 16, XC_BLUE), (35, 12, XC_PURPLE),
+    (5, 12, XC_BLUE),
+    (30, 10, XC_PURPLE),
+    (3, 18, STAR_W),
+    (33, 14, XC_RED),
+    (28, 8, STAR_W),
+    (1, 16, XC_BLUE),
+    (35, 12, XC_PURPLE),
 ]
 
 INTRO_DOTS_FEW = [
-    (5, 16, XC_BLUE), (28, 14, XC_PURPLE), (1, 20, STAR_W), (33, 18, XC_RED),
+    (5, 16, XC_BLUE),
+    (28, 14, XC_PURPLE),
+    (1, 20, STAR_W),
+    (33, 18, XC_RED),
     (30, 20, STAR_W),
 ]
 
 # Very sparse — just 2-3 sparkles drifting down
 INTRO_DOTS_SPARSE = [
-    (8, 22, XC_BLUE), (26, 20, STAR_W), (18, 24, XC_PURPLE),
+    (8, 22, XC_BLUE),
+    (26, 20, STAR_W),
+    (18, 24, XC_PURPLE),
 ]
 
 OUTRO_DOTS_BURST = [
-    (4, 6, XC_BLUE), (6, 2, XC_PURPLE), (9, 1, STAR_W), (27, 3, XC_RED),
-    (30, 6, XC_BLUE), (2, 11, XC_PURPLE), (33, 9, STAR_W), (36, 4, XC_RED),
-    (24, 1, XC_BLUE), (1, 7, STAR_W), (34, 13, XC_PURPLE), (7, 16, XC_RED),
-    (28, 15, STAR_W), (3, 3, XC_BLUE), (35, 1, XC_PURPLE), (37, 7, XC_RED),
-    (21, 2, STAR_W), (13, 1, XC_BLUE), (39, 11, XC_PURPLE),
+    (4, 6, XC_BLUE),
+    (6, 2, XC_PURPLE),
+    (9, 1, STAR_W),
+    (27, 3, XC_RED),
+    (30, 6, XC_BLUE),
+    (2, 11, XC_PURPLE),
+    (33, 9, STAR_W),
+    (36, 4, XC_RED),
+    (24, 1, XC_BLUE),
+    (1, 7, STAR_W),
+    (34, 13, XC_PURPLE),
+    (7, 16, XC_RED),
+    (28, 15, STAR_W),
+    (3, 3, XC_BLUE),
+    (35, 1, XC_PURPLE),
+    (37, 7, XC_RED),
+    (21, 2, STAR_W),
+    (13, 1, XC_BLUE),
+    (39, 11, XC_PURPLE),
 ]
 
 # Heavier outro dots — used during peak smoke phase
 OUTRO_DOTS_HEAVY = [
-    (5, 4, XC_BLUE), (7, 1, XC_PURPLE), (10, 0, STAR_W), (29, 2, XC_RED),
-    (31, 5, XC_BLUE), (3, 9, XC_PURPLE), (34, 8, STAR_W), (37, 3, XC_RED),
-    (25, 0, XC_BLUE), (2, 6, STAR_W), (35, 12, XC_PURPLE), (8, 14, XC_RED),
-    (26, 13, STAR_W), (4, 2, XC_BLUE), (36, 0, XC_PURPLE), (39, 5, XC_RED),
+    (5, 4, XC_BLUE),
+    (7, 1, XC_PURPLE),
+    (10, 0, STAR_W),
+    (29, 2, XC_RED),
+    (31, 5, XC_BLUE),
+    (3, 9, XC_PURPLE),
+    (34, 8, STAR_W),
+    (37, 3, XC_RED),
+    (25, 0, XC_BLUE),
+    (2, 6, STAR_W),
+    (35, 12, XC_PURPLE),
+    (8, 14, XC_RED),
+    (26, 13, STAR_W),
+    (4, 2, XC_BLUE),
+    (36, 0, XC_PURPLE),
+    (39, 5, XC_RED),
 ]
 
 # Lighter outro dots — smoke thinning stage
 OUTRO_DOTS_THIN = [
-    (6, 10, XC_BLUE), (30, 8, XC_PURPLE), (2, 16, STAR_W), (34, 12, XC_RED),
-    (28, 6, STAR_W), (1, 14, XC_BLUE), (36, 10, XC_PURPLE),
+    (6, 10, XC_BLUE),
+    (30, 8, XC_PURPLE),
+    (2, 16, STAR_W),
+    (34, 12, XC_RED),
+    (28, 6, STAR_W),
+    (1, 14, XC_BLUE),
+    (36, 10, XC_PURPLE),
 ]
+
 
 # Falling dot positions: same dots but shifted down progressively
 def make_falling_dots(base_dots, fall):
     """Shift dots downward by 'fall' pixels, clamped to canvas."""
     return [(x, min(y + fall, H - 1), c) for x, y, c in base_dots]
 
+
 # Ground-level dots (sitting at bottom rows, fading out)
 GROUND_DOTS = [
-    (5, 24, XC_BLUE), (10, 25, XC_PURPLE), (15, 24, STAR_W), (20, 25, XC_RED),
-    (25, 24, XC_BLUE), (30, 25, XC_PURPLE), (8, 25, STAR_W), (22, 24, XC_RED),
-    (13, 25, XC_BLUE), (28, 25, STAR_W),
+    (5, 24, XC_BLUE),
+    (10, 25, XC_PURPLE),
+    (15, 24, STAR_W),
+    (20, 25, XC_RED),
+    (25, 24, XC_BLUE),
+    (30, 25, XC_PURPLE),
+    (8, 25, STAR_W),
+    (22, 24, XC_RED),
+    (13, 25, XC_BLUE),
+    (28, 25, STAR_W),
 ]
 
 GROUND_DOTS_FADE = [
-    (5, 25, (62, 135, 246, 120)), (15, 25, (255, 255, 255, 100)),
-    (25, 25, (62, 135, 246, 100)), (10, 26, (124, 58, 237, 80)),
+    (5, 25, (62, 135, 246, 120)),
+    (15, 25, (255, 255, 255, 100)),
+    (25, 25, (62, 135, 246, 100)),
+    (10, 26, (124, 58, 237, 80)),
     (20, 26, (220, 38, 38, 80)),
 ]
 
@@ -471,14 +616,15 @@ def save(canvas, name):
 # NEW HELPER FUNCTIONS
 # ============================================================
 
+
 def draw_zzz(canvas, x, y, size=1, color=XC_BLUE):
     """Draw a 'Z' character at (x,y). size 1=3x3, size 2=4x4."""
     if size == 1:
         for dx in range(3):
-            set_pixel(canvas, x + dx, y, color)       # top bar
-        set_pixel(canvas, x + 1, y + 1, color)        # diagonal
+            set_pixel(canvas, x + dx, y, color)  # top bar
+        set_pixel(canvas, x + 1, y + 1, color)  # diagonal
         for dx in range(3):
-            set_pixel(canvas, x + dx, y + 2, color)   # bottom bar
+            set_pixel(canvas, x + dx, y + 2, color)  # bottom bar
     elif size == 2:
         for dx in range(4):
             set_pixel(canvas, x + dx, y, color)
@@ -626,10 +772,10 @@ def draw_left_hand_type(canvas, bx, by, raised=False):
     draw_rect(canvas, bx - 2, y + 1, 3, 1, ROBE_D)
 
 
-
 # ============================================================
 # FRAME GENERATION
 # ============================================================
+
 
 def generate_legacy_frames():
     """Generate the original 113-frame sprite set."""
@@ -787,23 +933,23 @@ def generate_legacy_frames():
     # Hat star cycles through brand colors for visual interest.
     PACE_DATA = [
         # rightward
-        ( 0,  0, XC_BLUE),    # pace-1:  neutral start
-        (+1,  0, XC_BLUE),    # pace-2:  step right
-        (+2,  0, XC_PURPLE),  # pace-3:  far right, hat → purple
+        (0, 0, XC_BLUE),  # pace-1:  neutral start
+        (+1, 0, XC_BLUE),  # pace-2:  step right
+        (+2, 0, XC_PURPLE),  # pace-3:  far right, hat → purple
         (+2, +1, XC_PURPLE),  # pace-4:  dip at far right
-        (+2,  0, XC_PURPLE),  # pace-5:  rise back
-        (+1,  0, XC_BLUE),    # pace-6:  return step
-        ( 0,  0, XC_BLUE),    # pace-7:  center
-        ( 0, +1, XC_BLUE),    # pace-8:  settle dip
+        (+2, 0, XC_PURPLE),  # pace-5:  rise back
+        (+1, 0, XC_BLUE),  # pace-6:  return step
+        (0, 0, XC_BLUE),  # pace-7:  center
+        (0, +1, XC_BLUE),  # pace-8:  settle dip
         # leftward
-        ( 0,  0, XC_BLUE),    # pace-9:  center rise
-        (-1,  0, XC_BLUE),    # pace-10: step left
-        (-2,  0, XC_RED),     # pace-11: far left, hat → red
-        (-2, +1, XC_RED),     # pace-12: dip at far left
-        (-2,  0, XC_RED),     # pace-13: rise back
-        (-1,  0, XC_BLUE),    # pace-14: return step
-        ( 0,  0, XC_BLUE),    # pace-15: center
-        ( 0, +1, XC_BLUE),    # pace-16: final settle (loops back to pace-1)
+        (0, 0, XC_BLUE),  # pace-9:  center rise
+        (-1, 0, XC_BLUE),  # pace-10: step left
+        (-2, 0, XC_RED),  # pace-11: far left, hat → red
+        (-2, +1, XC_RED),  # pace-12: dip at far left
+        (-2, 0, XC_RED),  # pace-13: rise back
+        (-1, 0, XC_BLUE),  # pace-14: return step
+        (0, 0, XC_BLUE),  # pace-15: center
+        (0, +1, XC_BLUE),  # pace-16: final settle (loops back to pace-1)
     ]
 
     for i, (ox, oy, hat_color) in enumerate(PACE_DATA, start=1):

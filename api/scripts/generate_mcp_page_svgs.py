@@ -117,17 +117,22 @@ def frame(inner, w, h, rx=20):
 
 SLIDES = {
     # Hero: agent -> MCP -> GPU bridge, no baked title
-    "hero-agent-gpu.svg": frame(f"""
+    "hero-agent-gpu.svg": frame(
+        f"""
   <circle cx="400" cy="60" r="78" fill="#7c3aed" filter="url(#bloom)" opacity="0.16"/>
   <circle cx="80" cy="220" r="70" fill="#22e0ff" filter="url(#bloom)" opacity="0.12"/>
   {beam(118, 196, 140)}{beam(284, 372, 140)}
   {agent_node(74, 140)}
   {mcp_hex(240, 140, 1.0)}
   {gpu_node(418, 140)}
-""", 480, 280, 24),
-
+""",
+        480,
+        280,
+        24,
+    ),
     # Guardrails: shield + wallet/estimate gauges
-    "flow-guardrails.svg": frame("""
+    "flow-guardrails.svg": frame(
+        """
   <circle cx="160" cy="70" r="64" fill="#fbbf24" filter="url(#bloom)" opacity="0.12"/>
   <g filter="url(#cardShadow)">
     <path d="M160,30 L206,48 V92 C206,124 160,146 160,146 C160,146 114,124 114,92 V48 Z" fill="url(#panel)" stroke="url(#gold)" stroke-width="1.75"/>
@@ -138,8 +143,10 @@ SLIDES = {
   <rect x="52" y="160" width="54" height="10" rx="5" fill="url(#gold)"/>
   <rect x="184" y="160" width="84" height="10" rx="5" fill="#1a2740"/>
   <rect x="184" y="160" width="66" height="10" rx="5" fill="url(#brand)"/>
-""", 320, 200),
-
+""",
+        320,
+        200,
+    ),
     # Settings + OG keep their text (standalone banners)
     "settings-hero.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 160" fill="none">
   <defs>{DEFS}</defs>

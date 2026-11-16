@@ -36,8 +36,7 @@ _COMPAT_MODES = ("backward", "forward", "full", "none")
 def upgrade() -> None:
     classes = ", ".join(f"'{c}'" for c in _CLASSIFICATIONS)
     modes = ", ".join(f"'{m}'" for m in _COMPAT_MODES)
-    op.execute(
-        f"""
+    op.execute(f"""
         CREATE TABLE IF NOT EXISTS event_contracts (
             event_type          TEXT NOT NULL,
             version             INTEGER NOT NULL DEFAULT 1,
@@ -52,8 +51,7 @@ def upgrade() -> None:
             updated_at          TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
             PRIMARY KEY (event_type, version)
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_event_contracts_active "
         "ON event_contracts (event_type) WHERE active"

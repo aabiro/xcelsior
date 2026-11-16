@@ -8,11 +8,11 @@ Revision ID: 014
 Revises: 013
 Create Date: 2026-04-06
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-
 
 revision: str = "014"
 down_revision: Union[str, None] = "013"
@@ -39,8 +39,7 @@ def upgrade() -> None:
     )
 
     # Back-fill from existing payout_ledger data
-    op.execute(
-        """
+    op.execute("""
         UPDATE provider_accounts pa
         SET
             total_earned_cad = COALESCE(agg.total_earned, 0),
@@ -58,8 +57,7 @@ def upgrade() -> None:
             GROUP BY provider_id
         ) agg
         WHERE pa.provider_id = agg.provider_id
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

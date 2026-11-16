@@ -21,12 +21,8 @@ def upgrade() -> None:
         "ALTER TABLE jobs "
         "ADD COLUMN IF NOT EXISTS pricing_mode TEXT NOT NULL DEFAULT 'on_demand';"
     )
-    op.execute(
-        "ALTER TABLE jobs "
-        "ADD COLUMN IF NOT EXISTS spot_rate_cad DOUBLE PRECISION;"
-    )
-    op.execute(
-        """
+    op.execute("ALTER TABLE jobs " "ADD COLUMN IF NOT EXISTS spot_rate_cad DOUBLE PRECISION;")
+    op.execute("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -37,19 +33,15 @@ def upgrade() -> None:
                 CHECK (pricing_mode IN ('on_demand', 'spot', 'reserved'));
             END IF;
         END $$;
-        """
-    )
+        """)
 
     # Strip max_bid and normalize spot jobs in payload.
-    op.execute(
-        """
+    op.execute("""
         UPDATE jobs
         SET payload = payload - 'max_bid'
         WHERE payload ? 'max_bid';
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE jobs
         SET payload = jsonb_set(
                 jsonb_set(
@@ -62,19 +54,15 @@ def upgrade() -> None:
         WHERE payload->>'spot' = 'true'
            OR (payload->>'tier') = 'spot'
            OR (payload->>'preemptible') = 'true';
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE jobs
         SET pricing_mode = COALESCE(payload->>'pricing_mode', 'on_demand')
         WHERE pricing_mode IS DISTINCT FROM COALESCE(payload->>'pricing_mode', 'on_demand');
-        """
-    )
+        """)
 
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_jobs_pricing_mode_status "
-        "ON jobs (pricing_mode, status);"
+        "CREATE INDEX IF NOT EXISTS idx_jobs_pricing_mode_status " "ON jobs (pricing_mode, status);"
     )
 
 

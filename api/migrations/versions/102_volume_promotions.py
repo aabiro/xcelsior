@@ -34,8 +34,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS volume_promotions (
             promotion_id      TEXT PRIMARY KEY,
             tenant_id         TEXT NOT NULL,
@@ -72,8 +71,7 @@ def upgrade() -> None:
                 state <> 'succeeded' OR (volume_id IS NOT NULL AND completed_at IS NOT NULL)
             )
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_volume_promotions_idem "
         "ON volume_promotions (tenant_id, job_id, idempotency_key)"

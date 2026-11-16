@@ -146,7 +146,9 @@ class Slide:
         )
 
     def dot(self, cx: float, cy: float, color: int, r: float = 2.6) -> None:
-        self.body.append(f'<circle cx="{_n(cx)}" cy="{_n(cy)}" r="{_n(r)}" fill="{self.t["edge"][color]}"/>')
+        self.body.append(
+            f'<circle cx="{_n(cx)}" cy="{_n(cy)}" r="{_n(r)}" fill="{self.t["edge"][color]}"/>'
+        )
 
     def node(self, cx: float, cy: float, r: float, color: int) -> None:
         bg = self.body_grad(cx - r, cy - r, cx + r, cy + r)
@@ -220,10 +222,17 @@ def hero(s: Slide) -> None:
             f'stroke="url(#{s.p}-edge)" stroke-opacity="{op}" stroke-width="1.5"/>'
         )
     # Nodes riding the orbits, behind and beside the tile.
-    for rx, ry, rot, deg, r, color in ((156, 44, -10, 200, 6, 0), (156, 44, -10, 20, 5, 2), (120, 66, 16, 300, 5, 1), (120, 66, 16, 135, 4, 0)):
+    for rx, ry, rot, deg, r, color in (
+        (156, 44, -10, 200, 6, 0),
+        (156, 44, -10, 20, 5, 2),
+        (120, 66, 16, 300, 5, 1),
+        (120, 66, 16, 135, 4, 0),
+    ):
         a, t = math.radians(deg), math.radians(rot)
         x, y = rx * math.cos(a), ry * math.sin(a)
-        s.node(cx + x * math.cos(t) - y * math.sin(t), cy + x * math.sin(t) + y * math.cos(t), r, color)
+        s.node(
+            cx + x * math.cos(t) - y * math.sin(t), cy + x * math.sin(t) + y * math.cos(t), r, color
+        )
     s.ground(cx, 74, 186)
     s.tile(cx - 46, cy - 46, 92, 92, 22)
     fill = s.edge_grad(cx - 24, cy - 26, cx + 24, cy + 26)
@@ -263,7 +272,12 @@ def actions(s: Slide) -> None:
     s.backdrop(((140, 110, 90, 0), (340, 110, 96, 1)))
     s.sparks(((62, 30), (420, 34), (240, 18), (40, 196), (440, 194)))
     hub = (240, 106)
-    tiles = (((112, 64), ROCKET, 0), ((112, 150), SERVER, 1), ((368, 64), WALLET, 2), ((368, 150), TERMINAL, 0))
+    tiles = (
+        ((112, 64), ROCKET, 0),
+        ((112, 150), SERVER, 1),
+        ((368, 64), WALLET, 2),
+        ((368, 150), TERMINAL, 0),
+    )
     for (tx, ty), _icon, color in tiles:
         s.body.append(
             f'<path d="M{hub[0]} {hub[1]}L{tx} {ty}" stroke="url(#{s.p}-edge)" stroke-opacity="{s.t["line_opacity"]}" stroke-width="1.5"/>'
@@ -298,7 +312,12 @@ def api(s: Slide) -> None:
         f'<path d="M{x + 2} {y + 30}H{x + w - 2}" stroke="url(#{s.p}-edge)" stroke-opacity=".25" stroke-width="1.5"/>'
     )
     # Request lines: a method tag and a path, the first one being sent.
-    rows = ((y + 50, 26, 92, 0, ".9"), (y + 70, 20, 70, 1, ".45"), (y + 90, 26, 84, 2, ".45"), (y + 110, 20, 58, 1, ".45"))
+    rows = (
+        (y + 50, 26, 92, 0, ".9"),
+        (y + 70, 20, 70, 1, ".45"),
+        (y + 90, 26, 84, 2, ".45"),
+        (y + 110, 20, 58, 1, ".45"),
+    )
     for i, (ry, tag, path_len, color, op) in enumerate(rows):
         if i == 0:
             s.body.append(
@@ -312,7 +331,9 @@ def api(s: Slide) -> None:
             f'<path d="M{x0 + tag + 10} {ry}h{path_len}" stroke="url(#{s.p}-edge)" stroke-opacity="{".7" if i == 0 else ".28"}" '
             'stroke-width="5" stroke-linecap="round"/>'
         )
-    s.body.append(f'<rect x="{x + 26 + 26 + 10 + 92 + 8}" y="{y + 45}" width="7" height="10" rx="1.5" fill="{e[0]}" fill-opacity=".8"/>')
+    s.body.append(
+        f'<rect x="{x + 26 + 26 + 10 + 92 + 8}" y="{y + 45}" width="7" height="10" rx="1.5" fill="{e[0]}" fill-opacity=".8"/>'
+    )
     # The confirm shield.
     sx, sy = 334, 150
     shield = (
@@ -353,7 +374,9 @@ def ready(s: Slide) -> None:
         s.dot(px, (176 if i != 1 else 172) + depth + 3, i, 2.6)
     s.ground(cx, 70, 160)
     fill = s.edge_grad(cx - 40, cy - 40, cx + 40, cy + 40)
-    s.body.append(f'<circle cx="{cx}" cy="{cy}" r="40" fill="url(#{fill})" filter="url(#{s.p}-glow)"/>')
+    s.body.append(
+        f'<circle cx="{cx}" cy="{cy}" r="40" fill="url(#{fill})" filter="url(#{s.p}-glow)"/>'
+    )
     s.body.append(
         f'<circle cx="{cx}" cy="{cy}" r="40" stroke="{s.t["ink"]}" stroke-opacity="{s.t["ink_opacity"]}" stroke-width="2"/>'
     )

@@ -12,16 +12,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS serverless_kv_cache_samples (
             sample_id BIGSERIAL PRIMARY KEY,
             sample_ts DOUBLE PRECISION NOT NULL,
             input_tokens INTEGER NOT NULL DEFAULT 0,
             cached_tokens INTEGER NOT NULL DEFAULT 0
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_kv_cache_samples_ts "
         "ON serverless_kv_cache_samples (sample_ts DESC)"

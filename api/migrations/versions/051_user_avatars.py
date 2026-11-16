@@ -21,16 +21,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS user_avatars (
             user_id TEXT PRIMARY KEY,
             content_type TEXT NOT NULL,
             data BYTEA NOT NULL,
             updated_at DOUBLE PRECISION NOT NULL DEFAULT 0
         );
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

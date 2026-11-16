@@ -18,7 +18,6 @@ import tempfile
 import urllib.error
 import urllib.request
 
-
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "frontend" / ".env.local"
 TARGET = ROOT / ".env"

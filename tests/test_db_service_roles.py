@@ -62,13 +62,11 @@ def test_every_live_table_is_claimed_by_exactly_one_domain():
     failure a red test instead of a production incident.
     """
     with _pool.connection() as conn:
-        rows = conn.execute(
-            """
+        rows = conn.execute("""
             SELECT schemaname, tablename
               FROM pg_tables
              WHERE schemaname IN ('public', 'storage')
-            """
-        ).fetchall()
+            """).fetchall()
 
     unclaimed: list[str] = []
     for schema, table in rows:
@@ -850,20 +848,16 @@ async def test_ssh_gateway_uses_real_restricted_login(provisioned_roles, monkeyp
     )
     with psycopg.connect(dsn, autocommit=True) as admin:
         allow_test_login(admin, "xcelsior_ssh_gateway", dsn)
-        admin.execute(
-            """
+        admin.execute("""
             INSERT INTO state (namespace, payload)
             VALUES ('security.suspended.ssh-test-user', '{"active": true}')
             ON CONFLICT (namespace) DO UPDATE SET payload = EXCLUDED.payload
-            """
-        )
-        admin.execute(
-            """
+            """)
+        admin.execute("""
             INSERT INTO state (namespace, payload)
             VALUES ('security.note.ssh-test-user', '{"active": true, "secret": "hidden"}')
             ON CONFLICT (namespace) DO UPDATE SET payload = EXCLUDED.payload
-            """
-        )
+            """)
     try:
         async with await ssh_gateway._get_pg_conn() as conn:
             assert await (await conn.execute("SELECT current_user")).fetchone() == (

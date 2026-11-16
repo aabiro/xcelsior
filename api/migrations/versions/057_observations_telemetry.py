@@ -59,8 +59,7 @@ def upgrade() -> None:
     op.execute("SET statement_timeout = '5min'")
 
     # ── host_observations ────────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS host_observations (
             observation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             host_id TEXT NOT NULL REFERENCES hosts(host_id) ON DELETE CASCADE,
@@ -77,18 +76,14 @@ def upgrade() -> None:
             CONSTRAINT uq_host_observation_generation
                 UNIQUE (host_id, session_id, inventory_generation)
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_host_observations_latest
         ON host_observations (host_id, received_at DESC)
-        """
-    )
+        """)
 
     # ── observed_workloads ───────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS observed_workloads (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             observation_id UUID NOT NULL
@@ -107,28 +102,22 @@ def upgrade() -> None:
             details JSONB NOT NULL DEFAULT '{}'::jsonb,
             observed_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_observed_workloads_host
         ON observed_workloads (host_id, observed_at DESC)
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_observed_workloads_attempt
         ON observed_workloads (attempt_id)
         WHERE attempt_id IS NOT NULL
-        """
-    )
+        """)
 
     # ── telemetry_latest ─────────────────────────────────────────────
     # gpu_uuid = '' is the host-level row; per-GPU rows use the stable
     # device UUID. Writers upsert; readers get fleet-wide current state
     # from any API worker.
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS telemetry_latest (
             host_id TEXT NOT NULL,
             gpu_uuid TEXT NOT NULL DEFAULT '',
@@ -136,18 +125,14 @@ def upgrade() -> None:
             received_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
             PRIMARY KEY (host_id, gpu_uuid)
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_telemetry_latest_freshness
         ON telemetry_latest (received_at)
-        """
-    )
+        """)
 
     # ── telemetry_samples (partitioned history) ──────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS telemetry_samples (
             id BIGINT GENERATED ALWAYS AS IDENTITY,
             host_id TEXT NOT NULL,
@@ -156,36 +141,28 @@ def upgrade() -> None:
             received_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
             PRIMARY KEY (id, received_at)
         ) PARTITION BY RANGE (received_at)
-        """
-    )
+        """)
     today = _dt.date.today().replace(day=1)
     for offset in range(_INITIAL_PARTITION_MONTHS):
         suffix, frm, to = _month_bounds(today, offset)
-        op.execute(
-            f"""
+        op.execute(f"""
             CREATE TABLE IF NOT EXISTS telemetry_samples_{suffix}
             PARTITION OF telemetry_samples
             FOR VALUES FROM ('{frm}') TO ('{to}')
-            """
-        )
+            """)
     # Safety net: writes beyond the pre-created range land here (and page
     # via the partition-lag metric) instead of failing ingestion.
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS telemetry_samples_default
         PARTITION OF telemetry_samples DEFAULT
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_telemetry_samples_host
         ON telemetry_samples (host_id, received_at DESC)
-        """
-    )
+        """)
 
     # ── service_heartbeats ───────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS service_heartbeats (
             service TEXT NOT NULL
                 CHECK (service IN ('scheduler', 'reconciler', 'outbox',
@@ -198,18 +175,14 @@ def upgrade() -> None:
             details JSONB NOT NULL DEFAULT '{}'::jsonb,
             PRIMARY KEY (service, replica_id)
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_service_heartbeats_freshness
         ON service_heartbeats (service, last_heartbeat_at DESC)
-        """
-    )
+        """)
 
     # ── Durable partition maintenance task (§13.4) ───────────────────
-    op.execute(
-        """
+    op.execute("""
         INSERT INTO scheduled_tasks (task_name, interval_seconds, payload)
         VALUES (
             'telemetry_partition_maintenance',
@@ -218,15 +191,12 @@ def upgrade() -> None:
               "retention_months": 6}'::jsonb
         )
         ON CONFLICT (task_name) DO NOTHING
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
     op.execute("SET lock_timeout = '5s'")
-    op.execute(
-        "DELETE FROM scheduled_tasks WHERE task_name = 'telemetry_partition_maintenance'"
-    )
+    op.execute("DELETE FROM scheduled_tasks WHERE task_name = 'telemetry_partition_maintenance'")
     op.execute("DROP TABLE IF EXISTS service_heartbeats")
     op.execute("DROP TABLE IF EXISTS telemetry_samples")  # drops partitions too
     op.execute("DROP TABLE IF EXISTS telemetry_latest")

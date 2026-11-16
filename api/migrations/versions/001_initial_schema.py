@@ -4,6 +4,7 @@ Revision ID: 001
 Revises: None
 Create Date: 2026-02-12
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -57,24 +58,13 @@ def upgrade() -> None:
     )
 
     # GIN indexes on JSONB for flexible querying of GPU capabilities
-    op.execute(
-        "CREATE INDEX idx_hosts_payload_gin ON hosts USING GIN (payload)"
-    )
-    op.execute(
-        "CREATE INDEX idx_jobs_payload_gin ON jobs USING GIN (payload)"
-    )
+    op.execute("CREATE INDEX idx_hosts_payload_gin ON hosts USING GIN (payload)")
+    op.execute("CREATE INDEX idx_jobs_payload_gin ON jobs USING GIN (payload)")
 
     # Expression indexes for common queries
-    op.execute(
-        "CREATE INDEX idx_hosts_gpu_model ON hosts ((payload->>'gpu_model'))"
-    )
-    op.execute(
-        "CREATE INDEX idx_hosts_free_vram ON hosts "
-        "(((payload->>'free_vram_gb')::float))"
-    )
-    op.execute(
-        "CREATE INDEX idx_jobs_tier ON jobs ((payload->>'tier'))"
-    )
+    op.execute("CREATE INDEX idx_hosts_gpu_model ON hosts ((payload->>'gpu_model'))")
+    op.execute("CREATE INDEX idx_hosts_free_vram ON hosts " "(((payload->>'free_vram_gb')::float))")
+    op.execute("CREATE INDEX idx_jobs_tier ON jobs ((payload->>'tier'))")
 
 
 def downgrade() -> None:

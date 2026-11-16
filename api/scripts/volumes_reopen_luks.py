@@ -92,7 +92,9 @@ def main() -> int:
             if ok:
                 ok_count += 1
         except Exception as e:
-            results.append({"volume_id": vid, "name": vol.get("name"), "ok": False, "error": str(e)})
+            results.append(
+                {"volume_id": vid, "name": vol.get("name"), "ok": False, "error": str(e)}
+            )
 
     report = {
         "total": len(volumes),

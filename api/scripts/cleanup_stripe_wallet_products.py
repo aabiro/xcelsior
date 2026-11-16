@@ -49,9 +49,8 @@ def _stripe_metadata(obj) -> dict[str, str]:
 
 def _resolve_key(mode: str | None) -> str:
     if mode == "sandbox":
-        return (
-            os.environ.get("XCELSIOR_STRIPE_SANDBOX_SECRET_KEY", "")
-            or os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
+        return os.environ.get("XCELSIOR_STRIPE_SANDBOX_SECRET_KEY", "") or os.environ.get(
+            "XCELSIOR_STRIPE_SECRET_KEY", ""
         )
     return os.environ.get("XCELSIOR_STRIPE_SECRET_KEY", "")
 
@@ -77,7 +76,9 @@ def main() -> int:
     canonical_id = None
     if MANIFEST.exists():
         try:
-            canonical_id = json.loads(MANIFEST.read_text()).get("wallet_product", {}).get("product_id")
+            canonical_id = (
+                json.loads(MANIFEST.read_text()).get("wallet_product", {}).get("product_id")
+            )
         except Exception:
             pass
 
@@ -116,7 +117,9 @@ def main() -> int:
     for prod in candidates:
         if prod.id == keep.id:
             continue
-        print(f"  [{'would archive' if args.dry_run else 'archive'}] {prod.id} created={prod.created}")
+        print(
+            f"  [{'would archive' if args.dry_run else 'archive'}] {prod.id} created={prod.created}"
+        )
         if args.apply:
             stripe.Product.modify(prod.id, active=False)
             archived += 1

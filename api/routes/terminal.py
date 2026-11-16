@@ -1254,10 +1254,12 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         )
         await _refuse_after_accept(
             websocket,
-            "Terminal access was refused: the ticket expired, was already used, "
-            "or came from a different IP address. Reconnect to get a new one."
-            if ticket
-            else "Unauthorized",
+            (
+                "Terminal access was refused: the ticket expired, was already used, "
+                "or came from a different IP address. Reconnect to get a new one."
+                if ticket
+                else "Unauthorized"
+            ),
             4001,
         )
         return

@@ -45,8 +45,7 @@ def upgrade() -> None:
     # high_frequency, tier, pricing_mode) unique key. Drop the superseded
     # `sovereign` duplicates first — they priced identically once the premium
     # was zeroed, so nothing is lost — then rename whatever remains.
-    op.execute(
-        """
+    op.execute("""
         DELETE FROM gpu_pricing s
          WHERE s.tier = 'sovereign'
            AND EXISTS (
@@ -58,8 +57,7 @@ def upgrade() -> None:
                   AND e.high_frequency = s.high_frequency
                   AND e.pricing_mode = s.pricing_mode
            )
-        """
-    )
+        """)
     op.execute("UPDATE gpu_pricing SET tier = 'dedicated' WHERE tier = 'sovereign'")
     op.execute(
         "UPDATE jobs SET payload = jsonb_set(payload, '{tier}', '\"dedicated\"') "
@@ -82,8 +80,7 @@ def downgrade() -> None:
         "sovereignty_premium DOUBLE PRECISION DEFAULT 0.0"
     )
     op.execute(
-        "ALTER TABLE usage_meters ADD COLUMN IF NOT EXISTS "
-        "is_canadian_compute INTEGER DEFAULT 0"
+        "ALTER TABLE usage_meters ADD COLUMN IF NOT EXISTS " "is_canadian_compute INTEGER DEFAULT 0"
     )
     for column in (
         "canadian_compute_total_cad",

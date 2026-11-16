@@ -29,8 +29,7 @@ def upgrade() -> None:
     op.execute("CREATE SCHEMA IF NOT EXISTS storage")
 
     # 1. artifacts table
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS storage.artifacts (
             artifact_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id TEXT NOT NULL,
@@ -68,33 +67,25 @@ def upgrade() -> None:
             UNIQUE (primary_provider, primary_bucket, object_key),
             CHECK (size_bytes IS NULL OR size_bytes >= 0)
         )
-        """
-    )
+        """)
 
     # Indexes on artifacts
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_artifacts_tenant_created
             ON storage.artifacts (tenant_id, created_at DESC)
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_artifacts_job
             ON storage.artifacts (tenant_id, job_id, artifact_type, created_at DESC)
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_artifacts_retention
             ON storage.artifacts (retain_until)
          WHERE state IN ('available', 'expiring') AND legal_hold = false
-        """
-    )
+        """)
 
     # 2. artifact_upload_sessions table
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS storage.artifact_upload_sessions (
             upload_session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             artifact_id UUID NOT NULL REFERENCES storage.artifacts(artifact_id) ON DELETE CASCADE,
@@ -109,12 +100,10 @@ def upgrade() -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
             UNIQUE (tenant_id, idempotency_key)
         )
-        """
-    )
+        """)
 
     # 3. artifact_replicas table
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS storage.artifact_replicas (
             artifact_id UUID NOT NULL REFERENCES storage.artifacts(artifact_id) ON DELETE CASCADE,
             provider TEXT NOT NULL,
@@ -126,12 +115,10 @@ def upgrade() -> None:
             last_error TEXT,
             PRIMARY KEY (artifact_id, provider, bucket)
         )
-        """
-    )
+        """)
 
     # 4. artifact_deletion_jobs table
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS storage.artifact_deletion_jobs (
             deletion_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             artifact_id UUID NOT NULL REFERENCES storage.artifacts(artifact_id) ON DELETE CASCADE,
@@ -146,17 +133,14 @@ def upgrade() -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
             completed_at TIMESTAMPTZ
         )
-        """
-    )
+        """)
 
     # Unique index for active deletion job per artifact
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_artifact_one_active_deletion
             ON storage.artifact_deletion_jobs (artifact_id)
          WHERE state IN ('requested', 'claimed', 'delete_pending', 'delete_failed')
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

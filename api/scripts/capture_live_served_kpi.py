@@ -22,9 +22,7 @@ from scripts.live_vllm_common import (
 )
 
 BASE_URL = DEFAULT_BASE_URL
-SCRATCH = Path(
-    os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer")
-)
+SCRATCH = Path(os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer"))
 SHARED_PREFIX = (
     "You are the Xcelsior fleet status assistant. Answer briefly about GPU queue depth, "
     "worker health, and token SKU launch readiness. "
@@ -81,7 +79,12 @@ def main() -> int:
     for i in range(6):
         try:
             payload = _chat(warm_msg, model_id)
-        except (urllib.error.URLError, TimeoutError, ConnectionResetError, json.JSONDecodeError) as exc:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            ConnectionResetError,
+            json.JSONDecodeError,
+        ) as exc:
             evidence["error"] = str(exc)
             break
         usage = payload.get("usage") or {}

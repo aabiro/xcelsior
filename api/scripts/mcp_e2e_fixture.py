@@ -333,5 +333,6 @@ if __name__ == "__main__":
         main()
     finally:
         import db
+
         if db._pg_pool is not None:
             db._pg_pool.close()

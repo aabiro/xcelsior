@@ -28,8 +28,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS agent_api_keys (
             key_id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -44,8 +43,7 @@ def upgrade() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             CHECK (length(key_hash) = 64)
         )
-        """
-    )
+        """)
     # Lookup path for every authenticated agent request: hash the presented
     # secret, find the one live row. Unique so a hash collision or a double
     # insert can never yield two principals for one credential.

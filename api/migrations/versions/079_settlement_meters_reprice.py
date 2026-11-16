@@ -46,22 +46,17 @@ _MODES = {
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE payout_splits
           ADD COLUMN IF NOT EXISTS settlement_status TEXT DEFAULT 'pending',
           ADD COLUMN IF NOT EXISTS settlement_error TEXT DEFAULT '',
           ADD COLUMN IF NOT EXISTS payment_rail TEXT DEFAULT 'stripe'
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_payout_splits_settlement
           ON payout_splits (settlement_status, created_at)
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE TABLE IF NOT EXISTS stripe_meter_event_outbox (
             event_id TEXT PRIMARY KEY,
             customer_id TEXT NOT NULL,
@@ -76,30 +71,25 @@ def upgrade() -> None:
             updated_at DOUBLE PRECISION NOT NULL,
             sent_at DOUBLE PRECISION
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_meter_outbox_pending
           ON stripe_meter_event_outbox (status, created_at)
           WHERE status = 'pending'
-        """
-    )
+        """)
 
     for model, vram, ff, hf, base in _REPRICED:
         for tier, tm in _PRICED_TIERS.items():
             for mode, mm in _MODES.items():
                 rate = round(base * tm * mm, 4)
-                op.execute(
-                    f"""
+                op.execute(f"""
                     UPDATE gpu_pricing
                        SET base_rate_cad = {rate}
                      WHERE gpu_model = '{model}' AND vram_gb = {vram}
                        AND form_factor = '{ff}'
                        AND high_frequency = {'TRUE' if hf else 'FALSE'}
                        AND tier = '{tier}' AND pricing_mode = '{mode}'
-                    """
-                )
+                    """)
 
 
 def downgrade() -> None:

@@ -51,7 +51,9 @@ def test_canonical_models_are_the_stripe_catalog_models():
 
 def test_default_vram_is_the_smallest_catalog_variant():
     for model in CANONICAL_GPU_MODELS:
-        smallest = min(r["variant"]["vram_gb"] for r in _CATALOG if r["variant"]["gpu_model"] == model)
+        smallest = min(
+            r["variant"]["vram_gb"] for r in _CATALOG if r["variant"]["gpu_model"] == model
+        )
         assert default_vram_gb(model) == smallest, model
     assert default_vram_gb("A100") == 40
     assert default_vram_gb("NVIDIA GeForce RTX 3060") == 12
@@ -151,22 +153,34 @@ def test_enrich_host_for_api_fills_region_from_province():
     assert out["region"] == "ca-on"
 
 
-
-@pytest.mark.parametrize("country,province,region", [
-    ("ca", "on", "ca-on"), ("US", "NY", "us-ny"), ("GB", "ENG", "gb-eng"),
-    ("DE", "BE", "de-be"), ("AU", "NSW", "au-nsw"),
-])
+@pytest.mark.parametrize(
+    "country,province,region",
+    [
+        ("ca", "on", "ca-on"),
+        ("US", "NY", "us-ny"),
+        ("GB", "ENG", "gb-eng"),
+        ("DE", "BE", "de-be"),
+        ("AU", "NSW", "au-nsw"),
+    ],
+)
 def test_exact_location_uses_the_shared_iso_catalog(country, province, region):
     from host_metadata import require_location
 
     assert require_location(country, province)["region"] == region
 
 
-@pytest.mark.parametrize("country,province,region", [
-    ("", "", ""), ("XX", "", ""), ("CA", "", "ca-central"),
-    ("CA", "", "ca-east"), ("CA", "Ontario", ""),
-    ("CA", "ON", "ca-east"), ("US", "ON", ""),
-])
+@pytest.mark.parametrize(
+    "country,province,region",
+    [
+        ("", "", ""),
+        ("XX", "", ""),
+        ("CA", "", "ca-central"),
+        ("CA", "", "ca-east"),
+        ("CA", "Ontario", ""),
+        ("CA", "ON", "ca-east"),
+        ("US", "ON", ""),
+    ],
+)
 def test_missing_ambiguous_or_conflicting_location_is_an_error(country, province, region):
     from host_metadata import require_location
 
@@ -192,13 +206,20 @@ def test_country_choices_are_complete_names_from_iso_data():
 def test_profile_completion_requires_every_required_account_field():
     from host_metadata import profile_missing_fields
 
-    valid = {"name":"Account Owner", "email":"owner@example.test", "country":"CA", "province":"ON",
-             "account_type":"individual", "address_line1":"1 Test Street",
-             "city":"London", "postal_code":"N6A 1A1"}
+    valid = {
+        "name": "Account Owner",
+        "email": "owner@example.test",
+        "country": "CA",
+        "province": "ON",
+        "account_type": "individual",
+        "address_line1": "1 Test Street",
+        "city": "London",
+        "postal_code": "N6A 1A1",
+    }
     assert profile_missing_fields(valid) == []
     assert profile_missing_fields({**valid, "onboarding_intent": ""}) == []
     for field in valid:
-        assert profile_missing_fields({**valid, field:""})
+        assert profile_missing_fields({**valid, field: ""})
 
 
 def test_address_requirements_follow_each_country_not_a_canadian_default():
@@ -206,7 +227,15 @@ def test_address_requirements_follow_each_country_not_a_canadian_default():
 
     assert "postal_code" in address_required_fields("CA")
     assert "postal_code" not in address_required_fields("HK")
-    _, errors = profile_address_values({"country":"CA", "province":"ON", "address_line1":"1 Test Street", "city":"London", "postal_code":"12345"})
+    _, errors = profile_address_values(
+        {
+            "country": "CA",
+            "province": "ON",
+            "address_line1": "1 Test Street",
+            "city": "London",
+            "postal_code": "12345",
+        }
+    )
     assert errors == ["postal_code"]  # Not a Canadian postal code at all.
 
 
@@ -214,26 +243,52 @@ def test_a_postal_code_from_the_next_province_warns_but_never_blocks():
     """Real addresses cross these lines: Lloydminster, Alberta uses Saskatchewan's S9V."""
     from host_metadata import profile_address_values, review_profile_address
 
-    lloydminster = {"country":"CA", "province":"AB", "address_line1":"4915 50 St", "city":"Lloydminster", "postal_code":"S9V 0A1"}
+    lloydminster = {
+        "country": "CA",
+        "province": "AB",
+        "address_line1": "4915 50 St",
+        "city": "Lloydminster",
+        "postal_code": "S9V 0A1",
+    }
     assert profile_address_values(lloydminster)[1] == []
     review = review_profile_address(lloydminster)
     assert review["errors"] == []
     assert "Saskatchewan, not Alberta" in review["warnings"][0]["message"]
-    typo = review_profile_address({**lloydminster, "province":"BC", "postal_code":"N6B 1Z2"})
+    typo = review_profile_address({**lloydminster, "province": "BC", "postal_code": "N6B 1Z2"})
     assert "Ontario, not British Columbia" in typo["warnings"][0]["message"]
-    us = review_profile_address({"country":"US", "province":"CA", "address_line1":"1 Main St", "city":"New York", "postal_code":"10001"})
+    us = review_profile_address(
+        {
+            "country": "US",
+            "province": "CA",
+            "address_line1": "1 Main St",
+            "city": "New York",
+            "postal_code": "10001",
+        }
+    )
     assert "ZIP code in New York, not California" in us["warnings"][0]["message"]
     # Two provinces share X (and K1A spans Ontario and Quebec): say so without guessing which.
-    shared = review_profile_address({**lloydminster, "province":"NU", "postal_code":"K1A 0B1"})
-    assert shared["warnings"][0]["message"].startswith("K1A 0B1 isn't usually a postal code in Nunavut.")
-    assert review_profile_address({**lloydminster, "province":"SK"})["warnings"] == []
+    shared = review_profile_address({**lloydminster, "province": "NU", "postal_code": "K1A 0B1"})
+    assert shared["warnings"][0]["message"].startswith(
+        "K1A 0B1 isn't usually a postal code in Nunavut."
+    )
+    assert review_profile_address({**lloydminster, "province": "SK"})["warnings"] == []
 
 
-@pytest.mark.parametrize("country,typed,stored", [
-    ("CA", "n6b1z2", "N6B 1Z2"), ("CA", "N6B-1Z2", "N6B 1Z2"), ("US", "100011234", "10001-1234"),
-    ("US", "10001", "10001"), ("GB", "sw1a1aa", "SW1A 1AA"), ("GB", "m11ae", "M1 1AE"),
-    ("NL", "1234ab", "1234 AB"), ("JP", "1008994", "100-8994"), ("CA", "12345", "12345"), ("CA", "", ""),
-])
+@pytest.mark.parametrize(
+    "country,typed,stored",
+    [
+        ("CA", "n6b1z2", "N6B 1Z2"),
+        ("CA", "N6B-1Z2", "N6B 1Z2"),
+        ("US", "100011234", "10001-1234"),
+        ("US", "10001", "10001"),
+        ("GB", "sw1a1aa", "SW1A 1AA"),
+        ("GB", "m11ae", "M1 1AE"),
+        ("NL", "1234ab", "1234 AB"),
+        ("JP", "1008994", "100-8994"),
+        ("CA", "12345", "12345"),
+        ("CA", "", ""),
+    ],
+)
 def test_postal_codes_are_stored_the_way_each_country_writes_them(country, typed, stored):
     from host_metadata import accepted_postal_code, profile_address_values, standard_postal_code
 
@@ -243,14 +298,32 @@ def test_postal_codes_are_stored_the_way_each_country_writes_them(country, typed
     else:
         assert accepted_postal_code(country, typed) == ""
     if country == "CA" and typed.startswith("n"):
-        cleaned, _ = profile_address_values({"country":"CA", "province":"ON", "address_line1":"300 Dufferin Ave", "city":"London", "postal_code":typed})
+        cleaned, _ = profile_address_values(
+            {
+                "country": "CA",
+                "province": "ON",
+                "address_line1": "300 Dufferin Ave",
+                "city": "London",
+                "postal_code": typed,
+            }
+        )
         assert cleaned["postal_code"] == stored
 
 
-@pytest.mark.parametrize("country,value,code", [
-    ("CA", "QC", "QC"), ("CA", "Québec", "QC"), ("CA", "quebec", "QC"), ("US", "District of Columbia", "DC"),
-    ("GB", "England", "ENG"), ("DE", "Bayern", "BY"), ("CA", "Atlantis", ""), ("CA", "", ""), ("", "Ontario", ""),
-])
+@pytest.mark.parametrize(
+    "country,value,code",
+    [
+        ("CA", "QC", "QC"),
+        ("CA", "Québec", "QC"),
+        ("CA", "quebec", "QC"),
+        ("US", "District of Columbia", "DC"),
+        ("GB", "England", "ENG"),
+        ("DE", "Bayern", "BY"),
+        ("CA", "Atlantis", ""),
+        ("CA", "", ""),
+        ("", "Ontario", ""),
+    ],
+)
 def test_a_state_name_or_code_maps_to_the_selector_or_to_nothing(country, value, code):
     from host_metadata import subdivision_code
 
@@ -260,10 +333,25 @@ def test_a_state_name_or_code_maps_to_the_selector_or_to_nothing(country, value,
 def test_postal_lines_follow_each_countrys_layout():
     from host_metadata import postal_lines
 
-    assert postal_lines({"country":"US", "province":"NY", "address_line1":"1 Main St", "address_line2":"Apt 4", "city":"New York", "postal_code":"10001"}) == [
-        "1 Main St", "Apt 4", "New York, NY 10001", "United States"]
-    assert postal_lines({"country":"DE", "province":"BE", "address_line1":"Unter den Linden 77", "city":"Berlin", "postal_code":"10117"}) == [
-        "Unter den Linden 77", "10117 Berlin", "Germany"]
+    assert postal_lines(
+        {
+            "country": "US",
+            "province": "NY",
+            "address_line1": "1 Main St",
+            "address_line2": "Apt 4",
+            "city": "New York",
+            "postal_code": "10001",
+        }
+    ) == ["1 Main St", "Apt 4", "New York, NY 10001", "United States"]
+    assert postal_lines(
+        {
+            "country": "DE",
+            "province": "BE",
+            "address_line1": "Unter den Linden 77",
+            "city": "Berlin",
+            "postal_code": "10117",
+        }
+    ) == ["Unter den Linden 77", "10117 Berlin", "Germany"]
 
 
 def test_address_metadata_covers_every_country_we_offer():
@@ -274,22 +362,37 @@ def test_address_metadata_covers_every_country_we_offer():
         assert isinstance(address_required_fields(country.alpha_2), list)
 
 
-@pytest.mark.parametrize("country,places,code", [
-    ("JP", {"state": "東京都"}, "13"),                         # Google's local name
-    ("KR", {"city": "Seoul"}, "11"),                          # Google's Latin name, from the city
-    ("KR", {"city": "서울특별시"}, "11"),
-    ("AE", {"state": "Dubai"}, "DU"),
-    ("ES", {"state": "Comunidad de Madrid", "city": "Madrid"}, "M"),  # the province, the level Spanish post uses
-    ("IE", {"county": "Dublin 2", "city": "Dublin"}, "D"),
-    ("DE", {"city": "Berlin"}, "BE"),                         # a city that is its own Land
-    ("SE", {"county": "Stockholms län"}, "AB"),               # ISO writes "Stockholms län [SE-01]"
-    ("PL", {"state": "województwo mazowieckie"}, "14"),       # without the generic word
-    ("CA", {"postal_code": "N6B 1Z2"}, "ON"),                 # nothing named: the postal prefix
-    ("JP", {"postal_code": "100-0005"}, "13"),
-    ("CA", {"state": "Alberta", "postal_code": "S9V 0A1"}, "AB"),  # a named province beats the prefix
-    ("PL", {"state": "Masovian Voivodeship", "city": "Warsaw"}, ""),  # no source knows this spelling
-    ("SG", {"city": "Singapore"}, ""),
-])
+@pytest.mark.parametrize(
+    "country,places,code",
+    [
+        ("JP", {"state": "東京都"}, "13"),  # Google's local name
+        ("KR", {"city": "Seoul"}, "11"),  # Google's Latin name, from the city
+        ("KR", {"city": "서울특별시"}, "11"),
+        ("AE", {"state": "Dubai"}, "DU"),
+        (
+            "ES",
+            {"state": "Comunidad de Madrid", "city": "Madrid"},
+            "M",
+        ),  # the province, the level Spanish post uses
+        ("IE", {"county": "Dublin 2", "city": "Dublin"}, "D"),
+        ("DE", {"city": "Berlin"}, "BE"),  # a city that is its own Land
+        ("SE", {"county": "Stockholms län"}, "AB"),  # ISO writes "Stockholms län [SE-01]"
+        ("PL", {"state": "województwo mazowieckie"}, "14"),  # without the generic word
+        ("CA", {"postal_code": "N6B 1Z2"}, "ON"),  # nothing named: the postal prefix
+        ("JP", {"postal_code": "100-0005"}, "13"),
+        (
+            "CA",
+            {"state": "Alberta", "postal_code": "S9V 0A1"},
+            "AB",
+        ),  # a named province beats the prefix
+        (
+            "PL",
+            {"state": "Masovian Voivodeship", "city": "Warsaw"},
+            "",
+        ),  # no source knows this spelling
+        ("SG", {"city": "Singapore"}, ""),
+    ],
+)
 def test_regions_resolve_only_from_an_exact_source(country, places, code):
     from host_metadata import resolve_subdivision
 
@@ -301,15 +404,29 @@ def test_every_country_keeps_its_regions_for_an_address():
     from host_metadata import location_catalog
 
     gb = location_catalog("GB", "address")
-    assert len(gb["subdivisions"]) > 200 and gb["subdivision_mode"] == "optional" and not gb["requires_subdivision"]
+    assert (
+        len(gb["subdivisions"]) > 200
+        and gb["subdivision_mode"] == "optional"
+        and not gb["requires_subdivision"]
+    )
     assert gb["labels"]["subdivision"] == "Region"
-    assert all("[" not in item["name"] for item in location_catalog("SE", "address")["subdivisions"])
+    assert all(
+        "[" not in item["name"] for item in location_catalog("SE", "address")["subdivisions"]
+    )
     us = location_catalog("US", "address")
-    assert us["requires_subdivision"] and us["labels"] == {"subdivision": "State", "city": "City", "postal_code": "ZIP code"}
+    assert us["requires_subdivision"] and us["labels"] == {
+        "subdivision": "State",
+        "city": "City",
+        "postal_code": "ZIP code",
+    }
     jp = location_catalog("JP", "address")
     assert jp["requires_subdivision"] and jp["labels"]["subdivision"] == "Prefecture"
-    assert location_catalog("HK", "address")["subdivision_mode"] == "none"  # ISO lists no regions to pick
-    assert location_catalog("GB", "host")["requires_subdivision"]  # a host's region is its scheduling region
+    assert (
+        location_catalog("HK", "address")["subdivision_mode"] == "none"
+    )  # ISO lists no regions to pick
+    assert location_catalog("GB", "host")[
+        "requires_subdivision"
+    ]  # a host's region is its scheduling region
 
 
 def test_a_chosen_region_is_kept_everywhere_and_a_blank_one_is_fine_unless_required():
@@ -324,12 +441,21 @@ def test_a_chosen_region_is_kept_everywhere_and_a_blank_one_is_fine_unless_requi
         require_address_location("GB", "XX")  # given, so it must be real
 
 
-@pytest.mark.parametrize("country,code,latin,shown", [
-    ("CA", "ON", True, "ON"), ("US", "NY", True, "NY"),            # the post writes the abbreviation
-    ("IE", "D", True, "Co. Dublin"), ("JP", "13", True, "Tokyo"), ("JP", "13", False, "東京都"),
-    ("KR", "11", True, "Seoul"), ("ES", "M", True, "Madrid"), ("SE", "AB", True, "Stockholms län"),
-    ("DE", "BE", True, "Berlin"), ("GB", "", True, ""),
-])
+@pytest.mark.parametrize(
+    "country,code,latin,shown",
+    [
+        ("CA", "ON", True, "ON"),
+        ("US", "NY", True, "NY"),  # the post writes the abbreviation
+        ("IE", "D", True, "Co. Dublin"),
+        ("JP", "13", True, "Tokyo"),
+        ("JP", "13", False, "東京都"),
+        ("KR", "11", True, "Seoul"),
+        ("ES", "M", True, "Madrid"),
+        ("SE", "AB", True, "Stockholms län"),
+        ("DE", "BE", True, "Berlin"),
+        ("GB", "", True, ""),
+    ],
+)
 def test_regions_are_written_the_way_each_post_writes_them(country, code, latin, shown):
     from host_metadata import region_display
 
@@ -341,10 +467,35 @@ def test_review_lines_use_the_script_of_the_address():
 
     jp = {"country": "JP", "province": "13", "postal_code": "100-0005"}
     assert postal_lines({**jp, "address_line1": "Marunouchi 1-9-1", "city": "Chiyoda"}) == [
-        "Marunouchi 1-9-1, Chiyoda, Tokyo", "100-0005", "Japan"]
+        "Marunouchi 1-9-1, Chiyoda, Tokyo",
+        "100-0005",
+        "Japan",
+    ]
     assert postal_lines({**jp, "address_line1": "丸の内一丁目9-1", "city": "千代田区"}) == [
-        "〒100-0005", "東京都", "千代田区丸の内一丁目9-1", "Japan"]
-    assert postal_lines({"country": "ES", "province": "M", "address_line1": "Calle de Alcalá 42", "city": "Madrid", "postal_code": "28014"}) == [
-        "Calle de Alcalá 42", "28014 Madrid", "Spain"]  # not "28014 Madrid Madrid"
-    assert postal_lines({"country": "IE", "province": "D", "address_line1": "1 Grafton Street", "city": "Dublin", "postal_code": "D02 K198"}) == [
-        "1 Grafton Street", "Dublin", "Co. Dublin", "D02 K198", "Ireland"]
+        "〒100-0005",
+        "東京都",
+        "千代田区丸の内一丁目9-1",
+        "Japan",
+    ]
+    assert postal_lines(
+        {
+            "country": "ES",
+            "province": "M",
+            "address_line1": "Calle de Alcalá 42",
+            "city": "Madrid",
+            "postal_code": "28014",
+        }
+    ) == [
+        "Calle de Alcalá 42",
+        "28014 Madrid",
+        "Spain",
+    ]  # not "28014 Madrid Madrid"
+    assert postal_lines(
+        {
+            "country": "IE",
+            "province": "D",
+            "address_line1": "1 Grafton Street",
+            "city": "Dublin",
+            "postal_code": "D02 K198",
+        }
+    ) == ["1 Grafton Street", "Dublin", "Co. Dublin", "D02 K198", "Ireland"]

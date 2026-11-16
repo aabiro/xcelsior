@@ -72,8 +72,12 @@ def log(msg: str):
 def load_dataset_and_masks():
     log("=== PHASE 1: Loading 1,869 Real Dataset Images, Captions & 29-Class/#29 Masks on H100 ===")
     exts = {".jpg", ".jpeg", ".png", ".webp"}
-    raw_imgs = sorted([p for p in RAW_DIR.iterdir() if p.suffix.lower() in exts and not p.name.startswith("._")])
-    clean_imgs = sorted([p for p in CLEAN_DIR.iterdir() if p.suffix.lower() in exts and not p.name.startswith("._")])
+    raw_imgs = sorted(
+        [p for p in RAW_DIR.iterdir() if p.suffix.lower() in exts and not p.name.startswith("._")]
+    )
+    clean_imgs = sorted(
+        [p for p in CLEAN_DIR.iterdir() if p.suffix.lower() in exts and not p.name.startswith("._")]
+    )
     log(f"Found {len(raw_imgs)} raw images and {len(clean_imgs)} clean images.")
 
     imgs_256 = []
@@ -89,7 +93,9 @@ def load_dataset_and_masks():
 
             # Compute 29-class + #29 watermark alpha loss mask [1, 64, 64]
             # Foreground=1.0, Background=0.1, #29 text_wordmark=0.0
-            im64 = F.interpolate(t.unsqueeze(0), size=(64, 64), mode="bilinear", align_corners=False)[0]
+            im64 = F.interpolate(
+                t.unsqueeze(0), size=(64, 64), mode="bilinear", align_corners=False
+            )[0]
             r, g, b = im64[0], im64[1], im64[2]
             lum = 0.299 * r + 0.587 * g + 0.114 * b
             sat = torch.max(im64, dim=0)[0] - torch.min(im64, dim=0)[0]
@@ -113,13 +119,17 @@ def load_dataset_and_masks():
             masks_64.append(mask.unsqueeze(0))
 
             txt_p = p.with_suffix(".txt")
-            cap = txt_p.read_text(encoding="utf-8", errors="ignore").strip() if txt_p.exists() else "pxloraxx, natural skin texture, photorealistic"
+            cap = (
+                txt_p.read_text(encoding="utf-8", errors="ignore").strip()
+                if txt_p.exists()
+                else "pxloraxx, natural skin texture, photorealistic"
+            )
             captions.append(cap)
         except Exception:
             continue
 
-    imgs_tensor = torch.stack(imgs_256)        # [N, 3, 256, 256]
-    masks_tensor = torch.stack(masks_64)       # [N, 1, 64, 64]
+    imgs_tensor = torch.stack(imgs_256)  # [N, 3, 256, 256]
+    masks_tensor = torch.stack(masks_64)  # [N, 1, 64, 64]
 
     clean_list = []
     for p in clean_imgs[:512]:
@@ -131,7 +141,9 @@ def load_dataset_and_masks():
             continue
     clean_tensor = torch.stack(clean_list) if clean_list else imgs_tensor[:256]
 
-    log(f"Loaded {imgs_tensor.shape[0]} raw tensors, {masks_tensor.shape[0]} masks, {clean_tensor.shape[0]} clean tensors.")
+    log(
+        f"Loaded {imgs_tensor.shape[0]} raw tensors, {masks_tensor.shape[0]} masks, {clean_tensor.shape[0]} clean tensors."
+    )
     return imgs_tensor, masks_tensor, captions, clean_tensor
 
 
@@ -147,7 +159,9 @@ def encode_real_sdxl_latents_and_text(imgs_tensor: torch.Tensor, captions: list[
     from transformers import CLIPTextModel, CLIPTokenizer
 
     log("Downloading & loading real `madebyollin/sdxl-vae-fp16-fix` from HuggingFace...")
-    vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=DTYPE).to(DEVICE)
+    vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=DTYPE).to(
+        DEVICE
+    )
     vae.eval()
     vae.requires_grad_(False)
 
@@ -167,9 +181,13 @@ def encode_real_sdxl_latents_and_text(imgs_tensor: torch.Tensor, captions: list[
     torch.cuda.empty_cache()
     log(f"Encoded real SDXL VAE latents: shape={list(latents_all.shape)}")
 
-    log("Downloading & loading real `openai/clip-vit-large-patch14` tokenizer & text encoder from HuggingFace...")
+    log(
+        "Downloading & loading real `openai/clip-vit-large-patch14` tokenizer & text encoder from HuggingFace..."
+    )
     tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14")
-    text_encoder = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14", torch_dtype=DTYPE).to(DEVICE)
+    text_encoder = CLIPTextModel.from_pretrained(
+        "openai/clip-vit-large-patch14", torch_dtype=DTYPE
+    ).to(DEVICE)
     text_encoder.eval()
     text_encoder.requires_grad_(False)
 
@@ -189,10 +207,12 @@ def encode_real_sdxl_latents_and_text(imgs_tensor: torch.Tensor, captions: list[
             text_embeds_list.append(out.last_hidden_state.cpu())
             pooled_list.append(out.pooler_output.cpu())
     text_embeds = torch.cat(text_embeds_list, dim=0)  # [N, 77, 768]
-    pooled_embeds = torch.cat(pooled_list, dim=0)    # [N, 768]
+    pooled_embeds = torch.cat(pooled_list, dim=0)  # [N, 768]
     del text_encoder
     torch.cuda.empty_cache()
-    log(f"Encoded real CLIP text embeddings: {list(text_embeds.shape)}, pooled: {list(pooled_embeds.shape)}")
+    log(
+        f"Encoded real CLIP text embeddings: {list(text_embeds.shape)}, pooled: {list(pooled_embeds.shape)}"
+    )
     return latents_all, text_embeds, pooled_embeds
 
 
@@ -209,7 +229,10 @@ def download_online_diffusion_reference_priors():
     from huggingface_hub import hf_hub_download
 
     online_repos = {
-        "sdxl_base_1_0": ("stabilityai/stable-diffusion-xl-base-1.0", "vae/diffusion_pytorch_model.fp16.safetensors"),
+        "sdxl_base_1_0": (
+            "stabilityai/stable-diffusion-xl-base-1.0",
+            "vae/diffusion_pytorch_model.fp16.safetensors",
+        ),
         "realvisxl_v5": ("SG161222/RealVisXL_V5.0", "vae/diffusion_pytorch_model.safetensors"),
         "ssd_1b": ("segmind/SSD-1B", "vae/diffusion_pytorch_model.fp16.safetensors"),
         "sdxl_turbo": ("stabilityai/sdxl-turbo", "vae/diffusion_pytorch_model.fp16.safetensors"),
@@ -236,7 +259,9 @@ def download_online_diffusion_reference_priors():
                 "upstream_weight_std": weight_std,
                 "status": "downloaded_verified",
             }
-            log(f"  ✓ Verified `{repo_id}` UNet & weights: channels={priors[key]['block_out_channels']}, std={weight_std}")
+            log(
+                f"  ✓ Verified `{repo_id}` UNet & weights: channels={priors[key]['block_out_channels']}, std={weight_std}"
+            )
         except Exception as e:
             priors[key] = {"repo_id": repo_id, "status": f"fallback ({e})"}
     return priors
@@ -248,6 +273,7 @@ class RealLatentDiffusionLoRATrainer(nn.Module):
     directly on real SDXL VAE latents `[B, 4, 64, 64]` + real CLIP text embeddings `[B, 77, 768]`
     under flow-matching / epsilon-prediction noise scheduling with 29-class + #29 watermark masks.
     """
+
     def __init__(self, template_sd: dict, rank: int):
         super().__init__()
         self.rank = rank
@@ -268,7 +294,10 @@ class RealLatentDiffusionLoRATrainer(nn.Module):
                     self.key_map[p_id] = (k, up_k)
                     d_shape = (rank, in_dim, *rest)
                     u_shape = (out_dim, rank, *([1] * len(rest)))
-                    down_p = nn.Parameter(torch.randn(d_shape, device=DEVICE, dtype=torch.float32) * (1.0 / math.sqrt(rank * in_dim)))
+                    down_p = nn.Parameter(
+                        torch.randn(d_shape, device=DEVICE, dtype=torch.float32)
+                        * (1.0 / math.sqrt(rank * in_dim))
+                    )
                     up_p = nn.Parameter(torch.zeros(u_shape, device=DEVICE, dtype=torch.float32))
                     # Warm-init slight directional structure for clean gradient flow from step 0
                     nn.init.normal_(up_p, mean=0.0, std=1e-3)
@@ -314,7 +343,9 @@ class RealLatentDiffusionLoRATrainer(nn.Module):
 
 
 def train_online_diffusion_lora_suite(latents_all, pooled_embeds, masks_tensor, priors):
-    log("=== PHASE 2: Training Multi-Base Online Diffusion LoRA Suite (30 Epochs Each, bf16 + GPO) ===")
+    log(
+        "=== PHASE 2: Training Multi-Base Online Diffusion LoRA Suite (30 Epochs Each, bf16 + GPO) ==="
+    )
     template_path = WORK_DIR / "domain_lora_r64_template.safetensors"
     if template_path.exists():
         template_sd = load_file(str(template_path))
@@ -323,8 +354,12 @@ def train_online_diffusion_lora_suite(latents_all, pooled_embeds, masks_tensor, 
         template_sd = {}
         for i in range(291):
             dim = 320 if i < 97 else (640 if i < 194 else 1280)
-            template_sd[f"lora_unet_block_{i}.lora_down.weight"] = torch.zeros((64, dim), dtype=torch.bfloat16)
-            template_sd[f"lora_unet_block_{i}.lora_up.weight"] = torch.zeros((dim, 64), dtype=torch.bfloat16)
+            template_sd[f"lora_unet_block_{i}.lora_down.weight"] = torch.zeros(
+                (64, dim), dtype=torch.bfloat16
+            )
+            template_sd[f"lora_unet_block_{i}.lora_up.weight"] = torch.zeros(
+                (dim, 64), dtype=torch.bfloat16
+            )
 
     lora_jobs = [
         ("domain_lora_r64", 64, 30, "sdxl_base_1_0", 1.0),
@@ -341,7 +376,9 @@ def train_online_diffusion_lora_suite(latents_all, pooled_embeds, masks_tensor, 
 
     for name, rank, epochs, base_key, noise_scale in lora_jobs:
         t0 = time.time()
-        log(f"--- Training `{name}` (rank={rank}, epochs={epochs}, base={base_key}) on H100 bf16 + GPO ---")
+        log(
+            f"--- Training `{name}` (rank={rank}, epochs={epochs}, base={base_key}) on H100 bf16 + GPO ---"
+        )
         trainer = RealLatentDiffusionLoRATrainer(template_sd, rank=rank).to(DEVICE)
         all_pids = list(trainer.key_map.keys())
         opt = torch.optim.AdamW(trainer.parameters(), lr=1.5e-4, weight_decay=1e-2)
@@ -379,7 +416,13 @@ def train_online_diffusion_lora_suite(latents_all, pooled_embeds, masks_tensor, 
                     diff2 = (pred_v - target_v) ** 2
                     masked_loss = (diff2 * m).sum() / (m.sum() * 4.0 + 1e-6)
                     # Spectral norm stability across all LoRA up/down matrices
-                    spec_reg = sum((trainer.lora_up[p].pow(2).mean() + trainer.lora_down[p].pow(2).mean()) for p in active_pids) * 0.01
+                    spec_reg = (
+                        sum(
+                            (trainer.lora_up[p].pow(2).mean() + trainer.lora_down[p].pow(2).mean())
+                            for p in active_pids
+                        )
+                        * 0.01
+                    )
                     loss = masked_loss + spec_reg
 
                 loss.backward()
@@ -405,10 +448,14 @@ def train_online_diffusion_lora_suite(latents_all, pooled_embeds, masks_tensor, 
             epoch_metrics.append(rec)
 
             if ep % 5 == 0 or ep == epochs or gpo_score > best_gpo:
-                log(f"  [{name}] Epoch {ep:02d}/{epochs:02d} | loss={avg_loss:.5f} | overcook={overcook:.4f} | GPO={gpo_score:.5f}")
+                log(
+                    f"  [{name}] Epoch {ep:02d}/{epochs:02d} | loss={avg_loss:.5f} | overcook={overcook:.4f} | GPO={gpo_score:.5f}"
+                )
 
             # Save per-epoch checkpoints for domain_lora_r64 & r128 at key epochs and promote best GPO
-            if name in ("domain_lora_r64", "domain_lora_r128") and (ep <= 10 or ep % 5 == 0 or gpo_score > best_gpo):
+            if name in ("domain_lora_r64", "domain_lora_r128") and (
+                ep <= 10 or ep % 5 == 0 or gpo_score > best_gpo
+            ):
                 ep_file = LORA_OUT / f"{name}_epoch-{ep:02d}.safetensors"
                 trainer.export_safetensors(ep_file)
 
@@ -433,15 +480,21 @@ def train_online_diffusion_lora_suite(latents_all, pooled_embeds, masks_tensor, 
             "elapsed_sec": elapsed,
             "history": epoch_metrics,
         }
-        log(f"✓ Completed `{name}` in {elapsed}s -> Promoted Epoch {best_ep:02d} (GPO={best_gpo:.5f}, {size_mb} MB)")
+        log(
+            f"✓ Completed `{name}` in {elapsed}s -> Promoted Epoch {best_ep:02d} (GPO={best_gpo:.5f}, {size_mb} MB)"
+        )
         del trainer
         torch.cuda.empty_cache()
 
     # Copy promoted domain_lora_r128 to pxloraxx.safetensors
     if (LORA_OUT / "domain_lora_r128.safetensors").exists():
-        (LORA_OUT / "pxloraxx.safetensors").write_bytes((LORA_OUT / "domain_lora_r128.safetensors").read_bytes())
+        (LORA_OUT / "pxloraxx.safetensors").write_bytes(
+            (LORA_OUT / "domain_lora_r128.safetensors").read_bytes()
+        )
 
-    (OUT_DIR / "phase2_online_diffusion_lora_summary.json").write_text(json.dumps(summary, indent=2))
+    (OUT_DIR / "phase2_online_diffusion_lora_summary.json").write_text(
+        json.dumps(summary, indent=2)
+    )
     return summary
 
 
@@ -451,11 +504,19 @@ def train_online_diffusion_lora_suite(latents_all, pooled_embeds, masks_tensor, 
 class Seg29ClassModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.e1 = nn.Sequential(nn.Conv2d(3, 48, 3, stride=2, padding=1), nn.BatchNorm2d(48), nn.SiLU())
-        self.e2 = nn.Sequential(nn.Conv2d(48, 96, 3, stride=2, padding=1), nn.BatchNorm2d(96), nn.SiLU())
+        self.e1 = nn.Sequential(
+            nn.Conv2d(3, 48, 3, stride=2, padding=1), nn.BatchNorm2d(48), nn.SiLU()
+        )
+        self.e2 = nn.Sequential(
+            nn.Conv2d(48, 96, 3, stride=2, padding=1), nn.BatchNorm2d(96), nn.SiLU()
+        )
         self.b = nn.Sequential(
-            nn.Conv2d(96, 192, 3, padding=1), nn.BatchNorm2d(192), nn.SiLU(),
-            nn.Conv2d(192, 96, 3, padding=1), nn.BatchNorm2d(96), nn.SiLU(),
+            nn.Conv2d(96, 192, 3, padding=1),
+            nn.BatchNorm2d(192),
+            nn.SiLU(),
+            nn.Conv2d(192, 96, 3, padding=1),
+            nn.BatchNorm2d(96),
+            nn.SiLU(),
         )
         self.u1 = nn.Sequential(nn.Conv2d(96, 48, 3, padding=1), nn.BatchNorm2d(48), nn.SiLU())
         self.head = nn.Conv2d(48, 29, 1)
@@ -476,10 +537,13 @@ class ResEnhancerNet(nn.Module):
         self.head = nn.Sequential(nn.Conv2d(in_ch, feat, 3, padding=1), nn.SiLU())
         body = []
         for _ in range(blocks):
-            body.append(nn.Sequential(
-                nn.Conv2d(feat, feat, 3, padding=1), nn.SiLU(),
-                nn.Conv2d(feat, feat, 3, padding=1),
-            ))
+            body.append(
+                nn.Sequential(
+                    nn.Conv2d(feat, feat, 3, padding=1),
+                    nn.SiLU(),
+                    nn.Conv2d(feat, feat, 3, padding=1),
+                )
+            )
         self.body = nn.ModuleList(body)
         self.tail = nn.Sequential(nn.Conv2d(feat, out_ch, 3, padding=1), nn.Tanh())
 
@@ -495,8 +559,12 @@ class SR4xCleanRoomNet(nn.Module):
     def __init__(self, feat=64):
         super().__init__()
         self.head = nn.Sequential(nn.Conv2d(3, feat, 3, padding=1), nn.SiLU())
-        self.b1 = nn.Sequential(nn.Conv2d(feat, feat, 3, padding=1), nn.SiLU(), nn.Conv2d(feat, feat, 3, padding=1))
-        self.b2 = nn.Sequential(nn.Conv2d(feat, feat, 3, padding=1), nn.SiLU(), nn.Conv2d(feat, feat, 3, padding=1))
+        self.b1 = nn.Sequential(
+            nn.Conv2d(feat, feat, 3, padding=1), nn.SiLU(), nn.Conv2d(feat, feat, 3, padding=1)
+        )
+        self.b2 = nn.Sequential(
+            nn.Conv2d(feat, feat, 3, padding=1), nn.SiLU(), nn.Conv2d(feat, feat, 3, padding=1)
+        )
         self.up1 = nn.Conv2d(feat, feat, 3, padding=1)
         self.up2 = nn.Conv2d(feat, 3, 3, padding=1)
 
@@ -505,7 +573,9 @@ class SR4xCleanRoomNet(nn.Module):
         h = self.head(x)
         h = F.silu(h + self.b1(h))
         h = F.silu(h + self.b2(h))
-        u1 = F.silu(self.up1(F.interpolate(h, scale_factor=2.0, mode="bilinear", align_corners=False)))
+        u1 = F.silu(
+            self.up1(F.interpolate(h, scale_factor=2.0, mode="bilinear", align_corners=False))
+        )
         delta = self.up2(F.interpolate(u1, scale_factor=2.0, mode="bilinear", align_corners=False))
         return torch.clamp(base + delta, 0.0, 1.0)
 
@@ -515,13 +585,22 @@ class VisionScorerNet(nn.Module):
         super().__init__()
         self.act = act
         self.features = nn.Sequential(
-            nn.Conv2d(3, 48, 3, stride=2, padding=1), nn.BatchNorm2d(48), nn.SiLU(),
-            nn.Conv2d(48, 96, 3, stride=2, padding=1), nn.BatchNorm2d(96), nn.SiLU(),
-            nn.Conv2d(96, 192, 3, stride=2, padding=1), nn.BatchNorm2d(192), nn.SiLU(),
-            nn.Conv2d(192, 256, 3, stride=2, padding=1), nn.BatchNorm2d(256), nn.SiLU(),
+            nn.Conv2d(3, 48, 3, stride=2, padding=1),
+            nn.BatchNorm2d(48),
+            nn.SiLU(),
+            nn.Conv2d(48, 96, 3, stride=2, padding=1),
+            nn.BatchNorm2d(96),
+            nn.SiLU(),
+            nn.Conv2d(96, 192, 3, stride=2, padding=1),
+            nn.BatchNorm2d(192),
+            nn.SiLU(),
+            nn.Conv2d(192, 256, 3, stride=2, padding=1),
+            nn.BatchNorm2d(256),
+            nn.SiLU(),
             nn.AdaptiveAvgPool2d((1, 1)),
             nn.Flatten(),
-            nn.Linear(256, 128), nn.SiLU(),
+            nn.Linear(256, 128),
+            nn.SiLU(),
             nn.Linear(128, out_dim),
         )
 
@@ -538,10 +617,14 @@ class VFRATemporalNet(nn.Module):
     def __init__(self, in_ch=9, feat=64):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(in_ch, feat, 3, padding=1), nn.SiLU(),
-            nn.Conv2d(feat, feat, 3, padding=1), nn.SiLU(),
-            nn.Conv2d(feat, feat, 3, padding=1), nn.SiLU(),
-            nn.Conv2d(feat, 3, 3, padding=1), nn.Tanh(),
+            nn.Conv2d(in_ch, feat, 3, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(feat, feat, 3, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(feat, feat, 3, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(feat, 3, 3, padding=1),
+            nn.Tanh(),
         )
 
     def forward(self, x):
@@ -554,8 +637,10 @@ class PPORouter64D(nn.Module):
         super().__init__()
         self.trunk = nn.Sequential(
             nn.LayerNorm(64),
-            nn.Linear(64, 256), nn.SiLU(),
-            nn.Linear(256, 128), nn.SiLU(),
+            nn.Linear(64, 256),
+            nn.SiLU(),
+            nn.Linear(256, 128),
+            nn.SiLU(),
         )
         self.policy = nn.Linear(128, 6)
         self.value = nn.Linear(128, 1)
@@ -569,9 +654,12 @@ class GMFlowLiteNet(nn.Module):
     def __init__(self):
         super().__init__()
         self.enc = nn.Sequential(
-            nn.Conv2d(6, 64, 3, stride=2, padding=1), nn.SiLU(),
-            nn.Conv2d(64, 128, 3, stride=2, padding=1), nn.SiLU(),
-            nn.Conv2d(128, 128, 3, padding=1), nn.SiLU(),
+            nn.Conv2d(6, 64, 3, stride=2, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(64, 128, 3, stride=2, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(128, 128, 3, padding=1),
+            nn.SiLU(),
             nn.Conv2d(128, 2, 3, padding=1),
         )
 
@@ -581,7 +669,9 @@ class GMFlowLiteNet(nn.Module):
         return F.interpolate(flow_low, scale_factor=4.0, mode="bilinear", align_corners=False) * 4.0
 
 
-def export_and_verify_onnx(model: nn.Module, dummy_inputs: tuple, onnx_path: Path, input_names=None, output_names=None):
+def export_and_verify_onnx(
+    model: nn.Module, dummy_inputs: tuple, onnx_path: Path, input_names=None, output_names=None
+):
     model_cpu = model.eval().cpu().float()
     if input_names is None:
         input_names = ["input"]
@@ -609,7 +699,9 @@ def export_and_verify_onnx(model: nn.Module, dummy_inputs: tuple, onnx_path: Pat
 
 
 def train_all_18_models_high_epochs(imgs_tensor: torch.Tensor, clean_tensor: torch.Tensor):
-    log("=== PHASE 3: Training All 18 Vision/VTT/PEL/PS Models for 80-100 Epochs on H100 (bf16 + GPO) ===")
+    log(
+        "=== PHASE 3: Training All 18 Vision/VTT/PEL/PS Models for 80-100 Epochs on H100 (bf16 + GPO) ==="
+    )
     summary = {}
     N_clean = clean_tensor.shape[0]
     N_raw = imgs_tensor.shape[0]
@@ -626,7 +718,9 @@ def train_all_18_models_high_epochs(imgs_tensor: torch.Tensor, clean_tensor: tor
             lum = 0.299 * x[:, 0] + 0.587 * x[:, 1] + 0.114 * x[:, 2]
             target = torch.clamp((lum * 28.99).long(), 0, 28)
             # Inject explicit #27/#28/#29 watermark synthetic corners for high recall
-            target[:, -32:, -64:] = torch.where(lum[:, -32:, -64:] > 0.65, 28, target[:, -32:, -64:])
+            target[:, -32:, -64:] = torch.where(
+                lum[:, -32:, -64:] > 0.65, 28, target[:, -32:, -64:]
+            )
         opt.zero_grad(set_to_none=True)
         with torch.amp.autocast("cuda", dtype=DTYPE):
             logits = seg_model(x)
@@ -638,9 +732,18 @@ def train_all_18_models_high_epochs(imgs_tensor: torch.Tensor, clean_tensor: tor
         preds = seg_model(x).argmax(dim=1)
         acc = float((preds == target).float().mean().item()) * 100.0
     torch.save(seg_model.state_dict(), PS29_OUT / "ownership_parser_best.pt")
-    onnx_info = export_and_verify_onnx(seg_model, (torch.randn(1, 3, 256, 256),), ONNX_OUT / "ownership_parser_29class_best.onnx")
-    summary["ownership_parser_29class_best"] = {"epochs": 100, "pixel_acc": round(acc, 2), "onnx": onnx_info, "elapsed_sec": round(time.time() - t0, 2)}
-    log(f"✓ ownership_parser_29class_best (100 epochs): pixel_acc={acc:.2f}% | {onnx_info['size_mb']} MB")
+    onnx_info = export_and_verify_onnx(
+        seg_model, (torch.randn(1, 3, 256, 256),), ONNX_OUT / "ownership_parser_29class_best.onnx"
+    )
+    summary["ownership_parser_29class_best"] = {
+        "epochs": 100,
+        "pixel_acc": round(acc, 2),
+        "onnx": onnx_info,
+        "elapsed_sec": round(time.time() - t0, 2),
+    }
+    log(
+        f"✓ ownership_parser_29class_best (100 epochs): pixel_acc={acc:.2f}% | {onnx_info['size_mb']} MB"
+    )
 
     # 2. Image Restoration & Enhancement Suite (80 epochs each on real clean patches)
     enhancer_jobs = [
@@ -660,10 +763,17 @@ def train_all_18_models_high_epochs(imgs_tensor: torch.Tensor, clean_tensor: tor
         final_psnr = 0.0
         for ep in range(1, epochs + 1):
             idx = torch.randint(0, N_clean, (32,))
-            gt = F.interpolate(clean_tensor[idx].to(DEVICE, dtype=DTYPE), size=(res, res), mode="bilinear", align_corners=False)
+            gt = F.interpolate(
+                clean_tensor[idx].to(DEVICE, dtype=DTYPE),
+                size=(res, res),
+                mode="bilinear",
+                align_corners=False,
+            )
             deg = torch.clamp(gt + torch.randn_like(gt) * 0.08, 0.0, 1.0)
             if in_ch > 3:
-                extra = torch.ones((gt.shape[0], in_ch - 3, res, res), device=DEVICE, dtype=DTYPE) * 0.5
+                extra = (
+                    torch.ones((gt.shape[0], in_ch - 3, res, res), device=DEVICE, dtype=DTYPE) * 0.5
+                )
                 inp = torch.cat([deg, extra], dim=1)
             else:
                 inp = deg
@@ -679,8 +789,15 @@ def train_all_18_models_high_epochs(imgs_tensor: torch.Tensor, clean_tensor: tor
             if ep == epochs:
                 final_psnr = float(-10.0 * math.log10(max(float(mse.item()), 1e-8)))
         torch.save(net.state_dict(), out_dir / f"{name}.pt")
-        onnx_info = export_and_verify_onnx(net, (torch.randn(1, in_ch, res, res),), ONNX_OUT / f"{name}.onnx")
-        summary[name] = {"epochs": epochs, "psnr_db": round(final_psnr, 2), "onnx": onnx_info, "elapsed_sec": round(time.time() - t0, 2)}
+        onnx_info = export_and_verify_onnx(
+            net, (torch.randn(1, in_ch, res, res),), ONNX_OUT / f"{name}.onnx"
+        )
+        summary[name] = {
+            "epochs": epochs,
+            "psnr_db": round(final_psnr, 2),
+            "onnx": onnx_info,
+            "elapsed_sec": round(time.time() - t0, 2),
+        }
         log(f"✓ {name} ({epochs} epochs): PSNR={final_psnr:.2f} dB | {onnx_info['size_mb']} MB")
 
     # 3. clean_room_sr_4x (80 epochs)
@@ -700,18 +817,28 @@ def train_all_18_models_high_epochs(imgs_tensor: torch.Tensor, clean_tensor: tor
         opt.step()
     sr_psnr = float(-10.0 * math.log10(max(float(mse.item()), 1e-8)))
     torch.save(sr_net.state_dict(), PS_OUT / "clean_room_sr_4x.pt")
-    onnx_info = export_and_verify_onnx(sr_net, (torch.randn(1, 3, 64, 64),), ONNX_OUT / "clean_room_sr_4x.onnx")
+    onnx_info = export_and_verify_onnx(
+        sr_net, (torch.randn(1, 3, 64, 64),), ONNX_OUT / "clean_room_sr_4x.onnx"
+    )
     summary["clean_room_sr_4x"] = {"epochs": 80, "psnr_db": round(sr_psnr, 2), "onnx": onnx_info}
     log(f"✓ clean_room_sr_4x (80 epochs): PSNR={sr_psnr:.2f} dB | {onnx_info['size_mb']} MB")
 
     # 4. Temporal Models: vfra_convlstm_v1 (100 epochs) & temporal_specialist_best (80 epochs)
-    for t_name, t_dir, epochs in [("vfra_convlstm_v1", VTT_OUT, 100), ("temporal_specialist_best", PEL_OUT, 80)]:
+    for t_name, t_dir, epochs in [
+        ("vfra_convlstm_v1", VTT_OUT, 100),
+        ("temporal_specialist_best", PEL_OUT, 80),
+    ]:
         t0 = time.time()
         t_net = VFRATemporalNet(in_ch=9, feat=64).to(DEVICE)
         opt = torch.optim.AdamW(t_net.parameters(), lr=6e-4, weight_decay=1e-4)
         for ep in range(1, epochs + 1):
             idx = torch.randint(0, N_clean, (32,))
-            c = F.interpolate(clean_tensor[idx].to(DEVICE, dtype=DTYPE), size=(128, 128), mode="bilinear", align_corners=False)
+            c = F.interpolate(
+                clean_tensor[idx].to(DEVICE, dtype=DTYPE),
+                size=(128, 128),
+                mode="bilinear",
+                align_corners=False,
+            )
             f_prev = torch.clamp(c + torch.randn_like(c) * 0.05, 0.0, 1.0)
             f_curr = torch.clamp(c + torch.randn_like(c) * 0.06, 0.0, 1.0)
             f_next = torch.clamp(c + torch.randn_like(c) * 0.05, 0.0, 1.0)
@@ -725,7 +852,9 @@ def train_all_18_models_high_epochs(imgs_tensor: torch.Tensor, clean_tensor: tor
             opt.step()
         t_psnr = float(-10.0 * math.log10(max(float(mse.item()), 1e-8)))
         torch.save(t_net.state_dict(), t_dir / f"{t_name}.pt")
-        onnx_info = export_and_verify_onnx(t_net, (torch.randn(1, 9, 128, 128),), ONNX_OUT / f"{t_name}.onnx")
+        onnx_info = export_and_verify_onnx(
+            t_net, (torch.randn(1, 9, 128, 128),), ONNX_OUT / f"{t_name}.onnx"
+        )
         summary[t_name] = {"epochs": epochs, "psnr_db": round(t_psnr, 2), "onnx": onnx_info}
         log(f"✓ {t_name} ({epochs} epochs): PSNR={t_psnr:.2f} dB | {onnx_info['size_mb']} MB")
 
@@ -744,7 +873,12 @@ def train_all_18_models_high_epochs(imgs_tensor: torch.Tensor, clean_tensor: tor
         opt = torch.optim.AdamW(s_net.parameters(), lr=6e-4, weight_decay=1e-4)
         for ep in range(1, epochs + 1):
             idx = torch.randint(0, N_raw, (32,))
-            x = F.interpolate(imgs_tensor[idx].to(DEVICE, dtype=DTYPE), size=(res, res), mode="bilinear", align_corners=False)
+            x = F.interpolate(
+                imgs_tensor[idx].to(DEVICE, dtype=DTYPE),
+                size=(res, res),
+                mode="bilinear",
+                align_corners=False,
+            )
             with torch.no_grad():
                 target = x.mean(dim=[2, 3])[:, :1].repeat(1, out_dim)
                 if act == "softmax":
@@ -756,8 +890,14 @@ def train_all_18_models_high_epochs(imgs_tensor: torch.Tensor, clean_tensor: tor
             loss.backward()
             opt.step()
         torch.save(s_net.state_dict(), s_dir / f"{s_name}.pt")
-        onnx_info = export_and_verify_onnx(s_net, (torch.randn(1, 3, res, res),), ONNX_OUT / f"{s_name}.onnx")
-        summary[s_name] = {"epochs": epochs, "final_loss": round(float(loss.item()), 6), "onnx": onnx_info}
+        onnx_info = export_and_verify_onnx(
+            s_net, (torch.randn(1, 3, res, res),), ONNX_OUT / f"{s_name}.onnx"
+        )
+        summary[s_name] = {
+            "epochs": epochs,
+            "final_loss": round(float(loss.item()), 6),
+            "onnx": onnx_info,
+        }
         log(f"✓ {s_name} ({epochs} epochs): loss={loss.item():.6f} | {onnx_info['size_mb']} MB")
 
     # 6. PPO 64-D Router (100 epochs) & GMFlow Sintel ONNX
@@ -774,7 +914,9 @@ def train_all_18_models_high_epochs(imgs_tensor: torch.Tensor, clean_tensor: tor
         opt.step()
     acc = float((r_net(ctx_bank)[:, :6].argmax(dim=-1) == oracle).float().mean().item()) * 100.0
     torch.save(r_net.state_dict(), VTT_OUT / "ppo_routing_best.pt")
-    onnx_info = export_and_verify_onnx(r_net, (torch.randn(1, 64),), ONNX_OUT / "ppo_routing_best.onnx")
+    onnx_info = export_and_verify_onnx(
+        r_net, (torch.randn(1, 64),), ONNX_OUT / "ppo_routing_best.onnx"
+    )
     summary["ppo_routing_best"] = {"epochs": 100, "top1_acc": round(acc, 2), "onnx": onnx_info}
     log(f"✓ ppo_routing_best (100 epochs): top1_acc={acc:.2f}% | {onnx_info['size_mb']} MB")
 
@@ -797,13 +939,19 @@ def train_all_18_models_high_epochs(imgs_tensor: torch.Tensor, clean_tensor: tor
 # PHASE 4: In-Cloud TFLite FP16 Conversion & Verification on H100 VM
 # ==============================================================================
 def run_in_cloud_tflite_conversions():
-    log("=== PHASE 4: Running In-Cloud TFLite FP16 Conversions & Validations on `xcelsior-gpu` H100 ===")
+    log(
+        "=== PHASE 4: Running In-Cloud TFLite FP16 Conversions & Validations on `xcelsior-gpu` H100 ==="
+    )
     import tensorflow as tf
 
     def export_keras_to_tflite_fp16(model, in_shape, pt_path: Path, out_path: Path):
         if pt_path.exists():
             sd = torch.load(pt_path, map_location="cpu", weights_only=False)
-            pt_tensors = [v.float().numpy() for v in sd.values() if isinstance(v, torch.Tensor) and v.ndim >= 1]
+            pt_tensors = [
+                v.float().numpy()
+                for v in sd.values()
+                if isinstance(v, torch.Tensor) and v.ndim >= 1
+            ]
             if pt_tensors:
                 pt_std = float(np.clip(np.mean([np.std(t) for t in pt_tensors]), 0.02, 0.25))
                 for w in model.trainable_weights:
@@ -887,27 +1035,109 @@ def run_in_cloud_tflite_conversions():
         h = tf.keras.layers.LayerNormalization()(inp)
         h = tf.keras.layers.Dense(256, activation="swish")(h)
         h = tf.keras.layers.Dense(128, activation="swish")(h)
-        out = tf.keras.layers.Concatenate(axis=-1)([tf.keras.layers.Dense(6)(h), tf.keras.layers.Dense(1)(h)])
+        out = tf.keras.layers.Concatenate(axis=-1)(
+            [tf.keras.layers.Dense(6)(h), tf.keras.layers.Dense(1)(h)]
+        )
         return tf.keras.Model(inp, out)
 
     specs = [
-        ("body_editor_r128_v2_fp16.tflite", lambda s: tf_res(s, 3), (1, 3, 128, 128), PS_OUT / "body_editor_r128_v2.pt"),
-        ("body_editor_r256_v1_fp16.tflite", lambda s: tf_res(s, 3), (1, 3, 256, 256), PS_OUT / "body_editor_r256_v1.pt"),
-        ("per_part_age_judge_r128_v1_fp16.tflite", lambda s: tf_scorer(s, 2, None), (1, 3, 128, 128), PS_OUT / "per_part_age_judge_r128_v1.pt"),
-        ("ownership_parser_29class_best_fp16.tflite", tf_seg29, (1, 3, 256, 256), PS29_OUT / "ownership_parser_best.pt"),
+        (
+            "body_editor_r128_v2_fp16.tflite",
+            lambda s: tf_res(s, 3),
+            (1, 3, 128, 128),
+            PS_OUT / "body_editor_r128_v2.pt",
+        ),
+        (
+            "body_editor_r256_v1_fp16.tflite",
+            lambda s: tf_res(s, 3),
+            (1, 3, 256, 256),
+            PS_OUT / "body_editor_r256_v1.pt",
+        ),
+        (
+            "per_part_age_judge_r128_v1_fp16.tflite",
+            lambda s: tf_scorer(s, 2, None),
+            (1, 3, 128, 128),
+            PS_OUT / "per_part_age_judge_r128_v1.pt",
+        ),
+        (
+            "ownership_parser_29class_best_fp16.tflite",
+            tf_seg29,
+            (1, 3, 256, 256),
+            PS29_OUT / "ownership_parser_best.pt",
+        ),
         ("clean_room_sr_4x_fp16.tflite", tf_sr4x, (1, 3, 64, 64), PS_OUT / "clean_room_sr_4x.pt"),
-        ("tiny_scene_degradation_fp16.tflite", lambda s: tf_scorer(s, 4, "sigmoid"), (1, 3, 128, 128), PS_OUT / "tiny_scene_degradation.pt"),
-        ("rgfvr_student_v1_fp16.tflite", lambda s: tf_res(s, 3), (1, 4, 128, 128), PS_OUT / "rgfvr_student_v1.pt"),
-        ("fading_domain_specialized_v1_fp16.tflite", lambda s: tf_res(s, 3), (1, 5, 128, 128), VTT_OUT / "fading_domain_specialized_v1.pt"),
-        ("vfra_convlstm_v1_fp16.tflite", lambda s: tf_res(s, 3), (1, 9, 128, 128), VTT_OUT / "vfra_convlstm_v1.pt"),
-        ("mvqa_aesthetic_best_fp16.tflite", lambda s: tf_scorer(s, 1, "sigmoid"), (1, 3, 224, 224), PEL_OUT / "mvqa_aesthetic_best.pt"),
-        ("artifact_detector_best_fp16.tflite", lambda s: tf_scorer(s, 1, "sigmoid"), (1, 3, 224, 224), PEL_OUT / "artifact_detector_best.pt"),
-        ("style_classifier_best_fp16.tflite", lambda s: tf_scorer(s, 8, "softmax"), (1, 3, 224, 224), PEL_OUT / "style_classifier_best.pt"),
-        ("nsfw_filter_best_fp16.tflite", lambda s: tf_scorer(s, 4, "softmax"), (1, 3, 224, 224), PEL_OUT / "nsfw_filter_best.pt"),
-        ("denoise_specialist_best_fp16.tflite", lambda s: tf_res(s, 3), (1, 3, 128, 128), PEL_OUT / "denoise_specialist_best.pt"),
-        ("detail_specialist_best_fp16.tflite", lambda s: tf_res(s, 3), (1, 3, 128, 128), PEL_OUT / "detail_specialist_best.pt"),
-        ("upscale_specialist_best_fp16.tflite", lambda s: tf_res(s, 3), (1, 3, 128, 128), PEL_OUT / "upscale_specialist_best.pt"),
-        ("temporal_specialist_best_fp16.tflite", lambda s: tf_res(s, 3), (1, 9, 128, 128), PEL_OUT / "temporal_specialist_best.pt"),
+        (
+            "tiny_scene_degradation_fp16.tflite",
+            lambda s: tf_scorer(s, 4, "sigmoid"),
+            (1, 3, 128, 128),
+            PS_OUT / "tiny_scene_degradation.pt",
+        ),
+        (
+            "rgfvr_student_v1_fp16.tflite",
+            lambda s: tf_res(s, 3),
+            (1, 4, 128, 128),
+            PS_OUT / "rgfvr_student_v1.pt",
+        ),
+        (
+            "fading_domain_specialized_v1_fp16.tflite",
+            lambda s: tf_res(s, 3),
+            (1, 5, 128, 128),
+            VTT_OUT / "fading_domain_specialized_v1.pt",
+        ),
+        (
+            "vfra_convlstm_v1_fp16.tflite",
+            lambda s: tf_res(s, 3),
+            (1, 9, 128, 128),
+            VTT_OUT / "vfra_convlstm_v1.pt",
+        ),
+        (
+            "mvqa_aesthetic_best_fp16.tflite",
+            lambda s: tf_scorer(s, 1, "sigmoid"),
+            (1, 3, 224, 224),
+            PEL_OUT / "mvqa_aesthetic_best.pt",
+        ),
+        (
+            "artifact_detector_best_fp16.tflite",
+            lambda s: tf_scorer(s, 1, "sigmoid"),
+            (1, 3, 224, 224),
+            PEL_OUT / "artifact_detector_best.pt",
+        ),
+        (
+            "style_classifier_best_fp16.tflite",
+            lambda s: tf_scorer(s, 8, "softmax"),
+            (1, 3, 224, 224),
+            PEL_OUT / "style_classifier_best.pt",
+        ),
+        (
+            "nsfw_filter_best_fp16.tflite",
+            lambda s: tf_scorer(s, 4, "softmax"),
+            (1, 3, 224, 224),
+            PEL_OUT / "nsfw_filter_best.pt",
+        ),
+        (
+            "denoise_specialist_best_fp16.tflite",
+            lambda s: tf_res(s, 3),
+            (1, 3, 128, 128),
+            PEL_OUT / "denoise_specialist_best.pt",
+        ),
+        (
+            "detail_specialist_best_fp16.tflite",
+            lambda s: tf_res(s, 3),
+            (1, 3, 128, 128),
+            PEL_OUT / "detail_specialist_best.pt",
+        ),
+        (
+            "upscale_specialist_best_fp16.tflite",
+            lambda s: tf_res(s, 3),
+            (1, 3, 128, 128),
+            PEL_OUT / "upscale_specialist_best.pt",
+        ),
+        (
+            "temporal_specialist_best_fp16.tflite",
+            lambda s: tf_res(s, 3),
+            (1, 9, 128, 128),
+            PEL_OUT / "temporal_specialist_best.pt",
+        ),
         ("ppo_routing_best_fp16.tflite", tf_router, (1, 64), VTT_OUT / "ppo_routing_best.pt"),
     ]
 
@@ -926,8 +1156,12 @@ def main():
     log("=== Starting Batch 13 Deep Cloud H100 Max Pipeline ===")
     imgs_tensor, masks_tensor, captions, clean_tensor = load_dataset_and_masks()
     priors = download_online_diffusion_reference_priors()
-    latents_all, text_embeds, pooled_embeds = encode_real_sdxl_latents_and_text(imgs_tensor, captions)
-    lora_summary = train_online_diffusion_lora_suite(latents_all, pooled_embeds, masks_tensor, priors)
+    latents_all, text_embeds, pooled_embeds = encode_real_sdxl_latents_and_text(
+        imgs_tensor, captions
+    )
+    lora_summary = train_online_diffusion_lora_suite(
+        latents_all, pooled_embeds, masks_tensor, priors
+    )
     models_summary = train_all_18_models_high_epochs(imgs_tensor, clean_tensor)
     tflite_summary = run_in_cloud_tflite_conversions()
 
@@ -939,7 +1173,9 @@ def main():
         "cloud_tflite_fp16": tflite_summary,
     }
     (OUT_DIR / "batch13_deep_cloud_master_summary.json").write_text(json.dumps(master, indent=2))
-    log(f"=== Completed Batch 13 Deep Cloud H100 Max Pipeline in {master['total_elapsed_sec']}s ===")
+    log(
+        f"=== Completed Batch 13 Deep Cloud H100 Max Pipeline in {master['total_elapsed_sec']}s ==="
+    )
 
 
 if __name__ == "__main__":

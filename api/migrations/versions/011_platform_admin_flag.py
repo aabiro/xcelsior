@@ -7,6 +7,7 @@ Revision ID: 011
 Revises: 010
 Create Date: 2026-04-02
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -44,22 +45,18 @@ def upgrade() -> None:
 
     # Preserve any legacy accounts that used role='admin' for platform access.
     op.execute("UPDATE users SET is_admin = 1 WHERE LOWER(role) = 'admin'")
-    op.execute(
-        """
+    op.execute("""
         UPDATE sessions AS s
         SET is_admin = COALESCE(u.is_admin, 0)
         FROM users AS u
         WHERE s.email = u.email
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         UPDATE api_keys AS k
         SET is_admin = COALESCE(u.is_admin, 0)
         FROM users AS u
         WHERE k.email = u.email
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

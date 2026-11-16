@@ -66,9 +66,10 @@ def test_deploy_credential_injection_is_one_shot_and_fails_closed(
             assert "XCELSIOR_POSTGRES_DSN_MIGRATOR" in invocation["argv"]
             grants = invocations[1]
             assert grants["credential"] == "private-fixture"
-            assert grants["argv"][: invocation["argv"].index("api")] == invocation["argv"][
-                : invocation["argv"].index("api")
-            ]
+            assert (
+                grants["argv"][: invocation["argv"].index("api")]
+                == invocation["argv"][: invocation["argv"].index("api")]
+            )
             assert grants["argv"][-4:] == [
                 "api",
                 "python",

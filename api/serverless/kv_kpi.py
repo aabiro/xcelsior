@@ -41,7 +41,7 @@ def rolling_kv_cache_hit_rate(*, since_ts: float | None = None) -> float:
     from db import _get_pg_pool
     from psycopg.rows import dict_row
 
-    window_start = (since_ts if since_ts is not None else time.time() - _window_sec())
+    window_start = since_ts if since_ts is not None else time.time() - _window_sec()
     pool = _get_pg_pool()
     with pool.connection() as conn:
         conn.row_factory = dict_row

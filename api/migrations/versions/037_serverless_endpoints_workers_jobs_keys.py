@@ -19,8 +19,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS serverless_endpoints (
             endpoint_id TEXT PRIMARY KEY,
             owner_id TEXT NOT NULL,
@@ -58,8 +57,7 @@ def upgrade() -> None:
             updated_at DOUBLE PRECISION NOT NULL,
             deleted_at DOUBLE PRECISION NOT NULL DEFAULT 0
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_serverless_endpoints_owner "
         "ON serverless_endpoints (owner_id, deleted_at, created_at DESC)"
@@ -69,8 +67,7 @@ def upgrade() -> None:
         "ON serverless_endpoints (status) WHERE deleted_at = 0"
     )
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS serverless_workers (
             worker_id TEXT PRIMARY KEY,
             endpoint_id TEXT NOT NULL REFERENCES serverless_endpoints(endpoint_id),
@@ -86,8 +83,7 @@ def upgrade() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             updated_at DOUBLE PRECISION NOT NULL
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_serverless_workers_endpoint_state "
         "ON serverless_workers (endpoint_id, state)"
@@ -97,8 +93,7 @@ def upgrade() -> None:
         "ON serverless_workers (scheduler_job_id) WHERE scheduler_job_id IS NOT NULL"
     )
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS serverless_jobs (
             job_id TEXT PRIMARY KEY,
             endpoint_id TEXT NOT NULL REFERENCES serverless_endpoints(endpoint_id),
@@ -121,8 +116,7 @@ def upgrade() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             updated_at DOUBLE PRECISION NOT NULL
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_serverless_jobs_queue "
         "ON serverless_jobs (endpoint_id, status, queued_at)"
@@ -132,16 +126,13 @@ def upgrade() -> None:
         "ON serverless_jobs (endpoint_id, finished_at) "
         "WHERE finished_at IS NOT NULL"
     )
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_serverless_jobs_idempotency
         ON serverless_jobs (endpoint_id, idempotency_key)
         WHERE idempotency_key IS NOT NULL
-        """
-    )
+        """)
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS serverless_job_stream_events (
             job_id TEXT NOT NULL REFERENCES serverless_jobs(job_id) ON DELETE CASCADE,
             seq_no INTEGER NOT NULL,
@@ -150,11 +141,9 @@ def upgrade() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             PRIMARY KEY (job_id, seq_no)
         )
-        """
-    )
+        """)
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS serverless_api_keys (
             key_id TEXT PRIMARY KEY,
             endpoint_id TEXT REFERENCES serverless_endpoints(endpoint_id),
@@ -168,8 +157,7 @@ def upgrade() -> None:
             revoked_at DOUBLE PRECISION NOT NULL DEFAULT 0,
             created_at DOUBLE PRECISION NOT NULL
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_serverless_api_keys_hash "
         "ON serverless_api_keys (key_hash) WHERE revoked_at = 0"

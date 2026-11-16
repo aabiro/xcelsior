@@ -32,7 +32,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-EVAL_FILE = pathlib.Path(__file__).resolve().parent.parent / "mcp" / "evals" / "tool-selection.jsonl"
+EVAL_FILE = (
+    pathlib.Path(__file__).resolve().parent.parent / "mcp" / "evals" / "tool-selection.jsonl"
+)
 
 SYSTEM = (
     "You are an assistant connected to the Xcelsior GPU cloud over MCP. "
@@ -89,14 +91,18 @@ def fetch_tools(base: str, token: str, timeout: float) -> list[dict[str, Any]]:
         init = http.post(
             base,
             headers=headers,
-            content=json.dumps({
-                "jsonrpc": "2.0", "id": 1, "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {},
-                    "clientInfo": {"name": "xcelsior-tool-eval", "version": "1.0.0"},
-                },
-            }),
+            content=json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "xcelsior-tool-eval", "version": "1.0.0"},
+                    },
+                }
+            ),
         )
         init.raise_for_status()
         listed = http.post(
@@ -162,7 +168,9 @@ def estimated_cost_usd(model: str) -> float:
 # ── Running one case ──────────────────────────────────────────────────────
 
 
-def selected_tools(client, model: str, tools: list[dict[str, Any]], case: Case) -> tuple[list[str], str]:
+def selected_tools(
+    client, model: str, tools: list[dict[str, Any]], case: Case
+) -> tuple[list[str], str]:
     messages = [*case.context, {"role": "user", "content": case.prompt}]
     # Prompt caching on the static prefix.
     #
@@ -182,9 +190,7 @@ def selected_tools(client, model: str, tools: list[dict[str, Any]], case: Case) 
     common = {
         "model": model,
         "max_tokens": 4096,
-        "system": [
-            {"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}
-        ],
+        "system": [{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
         "tools": tools,
         "messages": messages,
     }
@@ -236,7 +242,9 @@ def grade(case: Case, chosen: list[str]) -> tuple[bool, str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--base", default="https://mcp.xcelsior.ca/mcp")
     parser.add_argument("--token", default=os.environ.get("XCELSIOR_MCP_TOKEN", ""))
     parser.add_argument("--model", default="claude-opus-5")
@@ -249,7 +257,9 @@ def main() -> int:
         "tool at a greeting is worse than one that misroutes a real request",
     )
     parser.add_argument("--timeout", type=float, default=30.0)
-    parser.add_argument("--only", default="", help="run one category: direct|indirect|followup|approval|no_tool")
+    parser.add_argument(
+        "--only", default="", help="run one category: direct|indirect|followup|approval|no_tool"
+    )
     parser.add_argument(
         "--limit",
         type=int,
@@ -320,7 +330,9 @@ def main() -> int:
     try:
         client = anthropic.Anthropic()
     except Exception as exc:
-        print(f"BLOCKED(env): no Anthropic credential ({exc}). Run `ant auth login` or set ANTHROPIC_API_KEY.")
+        print(
+            f"BLOCKED(env): no Anthropic credential ({exc}). Run `ant auth login` or set ANTHROPIC_API_KEY."
+        )
         return 0
 
     try:
@@ -393,8 +405,10 @@ def main() -> int:
     abstention = by_category.get("no_tool", [])
     abstention_rate = (sum(abstention) / len(abstention)) if abstention else 1.0
     if abstention:
-        print(f"Abstention: {sum(abstention)}/{len(abstention)} ({abstention_rate:.0%}), "
-              f"threshold {args.abstention_threshold:.0%}")
+        print(
+            f"Abstention: {sum(abstention)}/{len(abstention)} ({abstention_rate:.0%}), "
+            f"threshold {args.abstention_threshold:.0%}"
+        )
 
     if failures:
         print("\nFailures — each one is a description that does not say what it should:")
@@ -471,12 +485,8 @@ def main() -> int:
                     # single overall rate cannot tell a real regression from
                     # run-to-run variance, and two consecutive single-sample
                     # runs of this eval disagreed on three of thirty cases.
-                    "always_failed": sorted(
-                        cid for cid, r in per_case.items() if not any(r)
-                    ),
-                    "flaky": sorted(
-                        cid for cid, r in per_case.items() if any(r) and not all(r)
-                    ),
+                    "always_failed": sorted(cid for cid, r in per_case.items() if not any(r)),
+                    "flaky": sorted(cid for cid, r in per_case.items() if any(r) and not all(r)),
                     # The abstention cases are the ones where calling *any* tool
                     # is the failure, so the interesting rate is the inverse.
                     "abstention_rate": round(abstention_rate, 4),

@@ -15,10 +15,7 @@ _DEFAULT_VRAM_BY_MODEL: dict[str, int] = json.loads(
     Path(__file__).with_name("gpu_catalog.json").read_text()
 )
 if not _DEFAULT_VRAM_BY_MODEL or any(
-    not isinstance(model, str)
-    or not model.strip()
-    or type(vram) is not int
-    or vram <= 0
+    not isinstance(model, str) or not model.strip() or type(vram) is not int or vram <= 0
     for model, vram in _DEFAULT_VRAM_BY_MODEL.items()
 ):
     raise ValueError("Invalid public GPU hardware catalog")
@@ -314,7 +311,11 @@ def location_catalog(country: str = "", purpose: str = "host") -> dict:
     subdivisions = (
         sorted(
             (
-                {"code": s.code.split("-", 1)[1], "region": s.code.lower(), "name": _region_name(s.name)}
+                {
+                    "code": s.code.split("-", 1)[1],
+                    "region": s.code.lower(),
+                    "name": _region_name(s.name),
+                }
                 for s in pycountry.subdivisions.get(country_code=country_code) or []
             ),
             key=lambda s: (s["name"], s["code"]),
@@ -342,9 +343,18 @@ def location_catalog(country: str = "", purpose: str = "host") -> dict:
 
 
 _SUBDIVISION_LABELS = {
-    "province": "Province", "state": "State", "prefecture": "Prefecture", "county": "County",
-    "department": "Department", "emirate": "Emirate", "island": "Island", "parish": "Parish",
-    "oblast": "Region", "do_si": "Province", "district": "District", "area": "Area",
+    "province": "Province",
+    "state": "State",
+    "prefecture": "Prefecture",
+    "county": "County",
+    "department": "Department",
+    "emirate": "Emirate",
+    "island": "Island",
+    "parish": "Parish",
+    "oblast": "Region",
+    "do_si": "Province",
+    "district": "District",
+    "area": "Area",
 }
 _SUBDIVISION_LABEL_OVERRIDES = {"CA": "Province or territory", "AU": "State or territory"}
 _CITY_LABELS = {"post_town": "Town or city", "suburb": "Suburb", "district": "District"}
@@ -378,12 +388,20 @@ def address_labels(country: str) -> dict[str, str]:
 
     country_code = str(country or "").strip().upper()
     if not country_code:
-        return {"subdivision": "State, province, or territory", "city": "City or locality", "postal_code": "Postal code"}
+        return {
+            "subdivision": "State, province, or territory",
+            "city": "City or locality",
+            "postal_code": "Postal code",
+        }
     rules = get_validation_rules({"country_code": country_code})
     named = "%S" in rules.address_format
     return {
         "subdivision": _SUBDIVISION_LABEL_OVERRIDES.get(country_code)
-        or (_SUBDIVISION_LABELS.get(rules.country_area_type, "State or province") if named else "Region"),
+        or (
+            _SUBDIVISION_LABELS.get(rules.country_area_type, "State or province")
+            if named
+            else "Region"
+        ),
         "city": _CITY_LABELS.get(rules.city_type, "City"),
         "postal_code": _POSTAL_LABELS.get(rules.postal_code_type, "Postal code"),
     }
@@ -460,7 +478,9 @@ def _fold(value: str) -> str:
     import unicodedata
 
     decomposed = unicodedata.normalize("NFKD", value)
-    return " ".join("".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold().split())
+    return " ".join(
+        "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold().split()
+    )
 
 
 _GENERIC_REGION_WORDS = frozenset(
@@ -485,7 +505,9 @@ def _region_keys(value: str) -> list[str]:
         head, tail = folded.split(", ", 1)
         keys.append(f"{tail} {head}")
     for key in list(keys):
-        core = " ".join(w for w in re.split(r"[\s.,]+", key) if w and w not in _GENERIC_REGION_WORDS)
+        core = " ".join(
+            w for w in re.split(r"[\s.,]+", key) if w and w not in _GENERIC_REGION_WORDS
+        )
         if core and core not in keys:
             keys.append(core)
     return keys
@@ -560,7 +582,9 @@ def _region_labels(country: str) -> dict[str, tuple[str, str]]:
         raw = str(data.get(name) or "")
         return raw.split("~") if raw else []
 
-    keys, names, lnames, isoids = (column(n) for n in ("sub_keys", "sub_names", "sub_lnames", "sub_isoids"))
+    keys, names, lnames, isoids = (
+        column(n) for n in ("sub_keys", "sub_names", "sub_lnames", "sub_isoids")
+    )
     labels: dict[str, tuple[str, str]] = {}
     for index, key in enumerate(keys):
         code = (isoids[index] if index < len(isoids) and isoids[index] else key).upper()
@@ -830,9 +854,15 @@ def review_profile_address(profile: dict[str, Any]) -> dict[str, Any]:
             if cleaned["address_line1"]
             else "Enter your street address."
         ),
-        "city": "City can be 80 characters at most." if cleaned["city"] else "Enter your city or locality.",
+        "city": (
+            "City can be 80 characters at most."
+            if cleaned["city"]
+            else "Enter your city or locality."
+        ),
         "postal_code": (
-            f"{postal} isn't a valid {label} in {country_name}." if postal else f"Enter your {label}."
+            f"{postal} isn't a valid {label} in {country_name}."
+            if postal
+            else f"Enter your {label}."
         ),
     }
     fields = ("country", "province", "address_line1", "address_line2", "city", "postal_code")

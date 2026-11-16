@@ -15,7 +15,6 @@ from typing import Sequence, Union
 
 from alembic import op
 
-
 revision: str = "030"
 down_revision: Union[str, None] = "029"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -65,9 +64,7 @@ def upgrade() -> None:
     )
     # Some environments created it as a plain index rather than a named
     # constraint; drop that too if present.
-    op.execute(
-        "DROP INDEX IF EXISTS gpu_pricing_gpu_model_tier_pricing_mode_key"
-    )
+    op.execute("DROP INDEX IF EXISTS gpu_pricing_gpu_model_tier_pricing_mode_key")
 
     # Wipe legacy rows (``NVIDIA GeForce RTX …`` etc.) — startup seed in
     # db.py will repopulate with canonical short names.
@@ -92,18 +89,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS idx_gpu_pricing_model")
-    op.execute(
-        "ALTER TABLE gpu_pricing "
-        "DROP CONSTRAINT IF EXISTS gpu_pricing_variant_unique"
-    )
-    op.execute(
-        "ALTER TABLE gpu_pricing "
-        "DROP COLUMN IF EXISTS high_frequency"
-    )
-    op.execute(
-        "ALTER TABLE gpu_pricing "
-        "DROP COLUMN IF EXISTS form_factor"
-    )
+    op.execute("ALTER TABLE gpu_pricing " "DROP CONSTRAINT IF EXISTS gpu_pricing_variant_unique")
+    op.execute("ALTER TABLE gpu_pricing " "DROP COLUMN IF EXISTS high_frequency")
+    op.execute("ALTER TABLE gpu_pricing " "DROP COLUMN IF EXISTS form_factor")
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_gpu_pricing_model "
         "ON gpu_pricing (gpu_model, tier, pricing_mode) WHERE active = TRUE"

@@ -58,7 +58,9 @@ def _extract_usage(result: Any) -> tuple[Any, dict[str, int]]:
     return result, usage
 
 
-def normalize_handler_result(result: Any) -> tuple[dict[str, Any] | None, list[dict[str, Any]], dict[str, int]]:
+def normalize_handler_result(
+    result: Any,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], dict[str, int]]:
     """
     Normalize handler return values:
     - dict → output (optional ``usage`` key stripped)

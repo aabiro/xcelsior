@@ -44,30 +44,25 @@ def upgrade() -> None:
     # Epoch seconds convert directly; 0 meant "never" for the nullable ones,
     # so it becomes NULL rather than 1970-01-01, which would sort as "used
     # long ago" instead of "never used".
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE agent_api_keys
             ALTER COLUMN created_at TYPE TIMESTAMPTZ
                 USING to_timestamp(created_at),
             ALTER COLUMN created_at SET DEFAULT now()
-        """
-    )
+        """)
     for column in ("last_used_at", "revoked_at"):
-        op.execute(
-            f"""
+        op.execute(f"""
             ALTER TABLE agent_api_keys
                 ALTER COLUMN {column} DROP DEFAULT,
                 ALTER COLUMN {column} DROP NOT NULL,
                 ALTER COLUMN {column} TYPE TIMESTAMPTZ
                     USING CASE WHEN {column} = 0 THEN NULL
                                ELSE to_timestamp({column}) END
-            """
-        )
+            """)
 
     # ── §4.4.10: tenant ownership ─────────────────────────────────────
     op.execute("ALTER TABLE agent_api_keys ADD COLUMN IF NOT EXISTS tenant_id TEXT")
-    op.execute(
-        """
+    op.execute("""
         UPDATE agent_api_keys k
            SET tenant_id = COALESCE(
                    NULLIF(u.team_id, ''),
@@ -76,8 +71,7 @@ def upgrade() -> None:
           FROM users u
          WHERE u.user_id = k.user_id
            AND k.tenant_id IS NULL
-        """
-    )
+        """)
     # Keys whose user row has since been erased (privacy deletion) still need
     # a tenant; the user id is the correct fallback for a personal workspace.
     op.execute("UPDATE agent_api_keys SET tenant_id = user_id WHERE tenant_id IS NULL")
@@ -110,23 +104,19 @@ def downgrade() -> None:
     op.execute("ALTER TABLE agent_api_keys DROP COLUMN IF EXISTS tenant_id")
 
     for column in ("last_used_at", "revoked_at"):
-        op.execute(
-            f"""
+        op.execute(f"""
             ALTER TABLE agent_api_keys
                 ALTER COLUMN {column} TYPE DOUBLE PRECISION
                     USING COALESCE(extract(epoch FROM {column}), 0),
                 ALTER COLUMN {column} SET DEFAULT 0,
                 ALTER COLUMN {column} SET NOT NULL
-            """
-        )
-    op.execute(
-        """
+            """)
+    op.execute("""
         ALTER TABLE agent_api_keys
             ALTER COLUMN created_at DROP DEFAULT,
             ALTER COLUMN created_at TYPE DOUBLE PRECISION
                 USING extract(epoch FROM created_at)
-        """
-    )
+        """)
     op.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_api_keys_hash "
         "ON agent_api_keys (key_hash) WHERE revoked_at = 0"

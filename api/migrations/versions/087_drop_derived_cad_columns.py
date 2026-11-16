@@ -83,8 +83,7 @@ def upgrade() -> None:
             # rebuild every component in one statement and derive the platform
             # share as the remainder — that keeps the identity exact instead of
             # trusting two independently rounded floats to add up.
-            op.execute(
-                """
+            op.execute("""
                 UPDATE payout_splits
                    SET total_micros = ROUND(COALESCE(total_cad, 0)::numeric * 1000000)::bigint,
                        source_total_micros =
@@ -99,8 +98,7 @@ def upgrade() -> None:
                            ROUND(COALESCE(gst_hst_cad, 0)::numeric * 1000000)::bigint
                  WHERE total_micros IS NULL
                     OR total_micros <> ROUND(COALESCE(total_cad, 0)::numeric * 1000000)::bigint
-                """
-            )
+                """)
         if trigger:
             op.execute(f"DROP TRIGGER IF EXISTS {trigger} ON {table}")
         if function:
@@ -128,7 +126,4 @@ def downgrade() -> None:
                 f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} "
                 f"DOUBLE PRECISION DEFAULT 0"
             )
-            op.execute(
-                f"UPDATE {table} SET {column} = "
-                f"COALESCE({base}_micros, 0) / 1000000.0"
-            )
+            op.execute(f"UPDATE {table} SET {column} = " f"COALESCE({base}_micros, 0) / 1000000.0")

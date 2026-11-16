@@ -70,12 +70,9 @@ def upgrade() -> None:
     op.execute("SET statement_timeout = '5min'")
 
     # ── typed columns, nullable during expand ────────────────────────
+    op.execute("ALTER TABLE ln_deposits ADD COLUMN IF NOT EXISTS amount_cad_minor BIGINT")
     op.execute(
-        "ALTER TABLE ln_deposits ADD COLUMN IF NOT EXISTS amount_cad_minor BIGINT"
-    )
-    op.execute(
-        "ALTER TABLE ln_deposits "
-        "ADD COLUMN IF NOT EXISTS btc_cad_rate_exact NUMERIC(20,8)"
+        "ALTER TABLE ln_deposits " "ADD COLUMN IF NOT EXISTS btc_cad_rate_exact NUMERIC(20,8)"
     )
     for col in ("created_at_ts", "expires_at_ts", "paid_at_ts", "credited_at_ts"):
         op.execute(f"ALTER TABLE ln_deposits ADD COLUMN IF NOT EXISTS {col} TIMESTAMPTZ")
@@ -85,8 +82,7 @@ def upgrade() -> None:
     # not supply one. An old replica writing only floats therefore keeps
     # the typed columns correct, and new code supplying exact values wins
     # (COALESCE takes NEW.<typed> first).
-    op.execute(
-        f"""
+    op.execute(f"""
         CREATE OR REPLACE FUNCTION ln_deposits_project_typed()
         RETURNS trigger AS $$
         BEGIN
@@ -113,16 +109,13 @@ def upgrade() -> None:
             RETURN NEW;
         END
         $$ LANGUAGE plpgsql
-        """
-    )
+        """)
     op.execute("DROP TRIGGER IF EXISTS trg_ln_deposits_project_typed ON ln_deposits")
-    op.execute(
-        """
+    op.execute("""
         CREATE TRIGGER trg_ln_deposits_project_typed
         BEFORE INSERT OR UPDATE ON ln_deposits
         FOR EACH ROW EXECUTE FUNCTION ln_deposits_project_typed()
-        """
-    )
+        """)
 
     _backfill()
     _verify_backfill()
@@ -130,35 +123,25 @@ def upgrade() -> None:
     # ── constraints: NOT VALID, then validated ───────────────────────
     # A deposit is a positive amount by construction (create_deposit
     # enforces LN_MIN_CAD); a zero or negative one is a data bug.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE ln_deposits
         ADD CONSTRAINT ck_ln_deposits_amount_minor_positive
         CHECK (amount_cad_minor IS NULL OR amount_cad_minor > 0) NOT VALID
-        """
-    )
-    op.execute(
-        "ALTER TABLE ln_deposits VALIDATE CONSTRAINT ck_ln_deposits_amount_minor_positive"
-    )
-    op.execute(
-        """
+        """)
+    op.execute("ALTER TABLE ln_deposits VALIDATE CONSTRAINT ck_ln_deposits_amount_minor_positive")
+    op.execute("""
         ALTER TABLE ln_deposits
         ADD CONSTRAINT ck_ln_deposits_rate_positive
         CHECK (btc_cad_rate_exact IS NULL OR btc_cad_rate_exact > 0) NOT VALID
-        """
-    )
-    op.execute(
-        "ALTER TABLE ln_deposits VALIDATE CONSTRAINT ck_ln_deposits_rate_positive"
-    )
+        """)
+    op.execute("ALTER TABLE ln_deposits VALIDATE CONSTRAINT ck_ln_deposits_rate_positive")
 
     # Operator/reconciliation access path: "paid but not credited" is the
     # companion §10.1 reconciliation case that matters most.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_ln_deposits_status_created
         ON ln_deposits (status, created_at_ts DESC)
-        """
-    )
+        """)
 
 
 def _backfill() -> None:
@@ -176,8 +159,7 @@ def _backfill() -> None:
     max_passes = 1_000_000
     for _ in range(max_passes):
         result = bind.execute(
-            sa.text(
-                f"""
+            sa.text(f"""
                 WITH batch AS (
                     SELECT deposit_id
                       FROM ln_deposits
@@ -197,8 +179,7 @@ def _backfill() -> None:
                        credited_at_ts = {_TS_EXPR.format(col="d.credited_at")}
                   FROM batch
                  WHERE d.deposit_id = batch.deposit_id
-                """
-            ),
+                """),
             {"batch_size": BACKFILL_BATCH_SIZE},
         )
         if result.rowcount == 0:
@@ -261,12 +242,9 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS ln_deposits_project_typed()")
     op.execute("DROP INDEX IF EXISTS idx_ln_deposits_status_created")
     op.execute(
-        "ALTER TABLE ln_deposits "
-        "DROP CONSTRAINT IF EXISTS ck_ln_deposits_amount_minor_positive"
+        "ALTER TABLE ln_deposits " "DROP CONSTRAINT IF EXISTS ck_ln_deposits_amount_minor_positive"
     )
-    op.execute(
-        "ALTER TABLE ln_deposits DROP CONSTRAINT IF EXISTS ck_ln_deposits_rate_positive"
-    )
+    op.execute("ALTER TABLE ln_deposits DROP CONSTRAINT IF EXISTS ck_ln_deposits_rate_positive")
     for col in (
         "amount_cad_minor",
         "btc_cad_rate_exact",

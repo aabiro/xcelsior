@@ -18,6 +18,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
+
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
 from psycopg.types.json import Jsonb
@@ -26,17 +27,17 @@ from psycopg.types.json import Jsonb
 DRY_RUN = "--dry-run" in sys.argv
 
 SQLITE_DBS = {
-    "auth":         os.environ.get("XCELSIOR_AUTH_DB_PATH", "data/auth.db"),
-    "billing":      os.environ.get("XCELSIOR_BILLING_DB_PATH", "xcelsior_billing.db"),
-    "reputation":   os.environ.get("XCELSIOR_REPUTATION_DB_PATH", "xcelsior_reputation.db"),
-    "chat":         os.environ.get("XCELSIOR_CHAT_DB_PATH", "data/chat.db"),
-    "sla":          os.environ.get("XCELSIOR_SLA_DB", "xcelsior_sla.db"),
-    "privacy":      os.environ.get("XCELSIOR_PRIVACY_DB_PATH", "xcelsior_privacy.db"),
-    "events":       "xcelsior_events.db",
-    "stripe":       os.environ.get("XCELSIOR_STRIPE_DB", "xcelsior_stripe.db"),
+    "auth": os.environ.get("XCELSIOR_AUTH_DB_PATH", "data/auth.db"),
+    "billing": os.environ.get("XCELSIOR_BILLING_DB_PATH", "xcelsior_billing.db"),
+    "reputation": os.environ.get("XCELSIOR_REPUTATION_DB_PATH", "xcelsior_reputation.db"),
+    "chat": os.environ.get("XCELSIOR_CHAT_DB_PATH", "data/chat.db"),
+    "sla": os.environ.get("XCELSIOR_SLA_DB", "xcelsior_sla.db"),
+    "privacy": os.environ.get("XCELSIOR_PRIVACY_DB_PATH", "xcelsior_privacy.db"),
+    "events": "xcelsior_events.db",
+    "stripe": os.environ.get("XCELSIOR_STRIPE_DB", "xcelsior_stripe.db"),
     "transparency": os.environ.get("XCELSIOR_TRANSPARENCY_DB_PATH", "xcelsior_transparency.db"),
-    "inference":    os.environ.get("XCELSIOR_INFERENCE_DB_PATH", "data/inference.db"),
-    "btc":          os.environ.get("XCELSIOR_BTC_DB", "xcelsior_btc.db"),
+    "inference": os.environ.get("XCELSIOR_INFERENCE_DB_PATH", "data/inference.db"),
+    "btc": os.environ.get("XCELSIOR_BTC_DB", "xcelsior_btc.db"),
 }
 
 # Columns that are JSONB in PG but TEXT in SQLite (need json.loads)
@@ -54,6 +55,7 @@ JSONB_COLUMNS = {
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
 
 def sqlite_rows(db_path: str, table: str) -> tuple[list[str], list[tuple]]:
     """Return (column_names, rows) from a SQLite table."""
@@ -104,7 +106,7 @@ def pg_insert(conn, table: str, cols: list[str], rows: list[tuple]) -> int:
         return 0
     placeholders = ", ".join(["%s"] * len(cols))
     col_list = ", ".join(f'"{c}"' for c in cols)
-    sql = f'INSERT INTO {table} ({col_list}) VALUES ({placeholders}) ON CONFLICT DO NOTHING'
+    sql = f"INSERT INTO {table} ({col_list}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
     if DRY_RUN:
         print(f"  [DRY RUN] Would insert {len(rows)} rows into {table}")
         return len(rows)
@@ -120,11 +122,13 @@ def pg_insert(conn, table: str, cols: list[str], rows: list[tuple]) -> int:
     return count
 
 
-def filter_columns(pg_conn, table: str, sqlite_cols: list[str], rows: list[tuple]) -> tuple[list[str], list[tuple]]:
+def filter_columns(
+    pg_conn, table: str, sqlite_cols: list[str], rows: list[tuple]
+) -> tuple[list[str], list[tuple]]:
     """Filter out SQLite columns that don't exist in PG table."""
     cur = pg_conn.execute(
         "SELECT column_name FROM information_schema.columns WHERE table_name = %s AND table_schema = 'public'",
-        (table,)
+        (table,),
     )
     pg_cols = {r[0] for r in cur.fetchall()}
     if not pg_cols:
@@ -194,6 +198,7 @@ MIGRATIONS = [
 
 
 # ── Main ──────────────────────────────────────────────────────────────
+
 
 def main():
     from db import pg_connection

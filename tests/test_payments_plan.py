@@ -103,7 +103,9 @@ class TestWalletHardStopShippedPath:
 
         create = Mock(return_value=SimpleNamespace(client_secret="test-secret", id="seti-test"))
         monkeypatch.setattr(stripe_connect, "STRIPE_ENABLED", True)
-        monkeypatch.setattr(stripe_connect, "stripe", SimpleNamespace(SetupIntent=SimpleNamespace(create=create)))
+        monkeypatch.setattr(
+            stripe_connect, "stripe", SimpleNamespace(SetupIntent=SimpleNamespace(create=create))
+        )
         engine = BillingEngine.__new__(BillingEngine)
         monkeypatch.setattr(engine, "ensure_stripe_customer", lambda customer_id, email: "cus-test")
         engine.create_setup_intent("customer-test")
@@ -174,8 +176,7 @@ class TestMeterDualWrite:
         # Ensure outbox table exists (migration 079 may not be applied in CI).
         pool = _get_pg_pool()
         with pool.connection() as conn:
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS stripe_meter_event_outbox (
                     event_id TEXT PRIMARY KEY,
                     customer_id TEXT NOT NULL,
@@ -190,8 +191,7 @@ class TestMeterDualWrite:
                     updated_at DOUBLE PRECISION NOT NULL,
                     sent_at DOUBLE PRECISION
                 )
-                """
-            )
+                """)
             conn.commit()
 
         stripe_meters.set_outbox_backend(None)  # real Postgres path
@@ -438,7 +438,11 @@ class TestConnectContracts:
             patch.object(StripeConnectManager, "_conn", return_value=mock_conn),
             # A new payout account requires a complete seller profile first.
             patch.object(StripeConnectManager, "seller_is_complete", return_value=True),
-            patch.object(StripeConnectManager, "get_provider", return_value={"country":"US", "province":"CA"}),
+            patch.object(
+                StripeConnectManager,
+                "get_provider",
+                return_value={"country": "US", "province": "CA"},
+            ),
         ):
             result = mgr.create_provider_account(
                 provider_id="prov-us-1",

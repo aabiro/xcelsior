@@ -25,9 +25,7 @@ SSE_RESPONSE_HEADERS = {
     "X-Accel-Buffering": "no",
 }
 
-TERMINAL_STATUSES = frozenset(
-    {JOB_STATUS_COMPLETED, JOB_STATUS_FAILED, JOB_STATUS_CANCELLED}
-)
+TERMINAL_STATUSES = frozenset({JOB_STATUS_COMPLETED, JOB_STATUS_FAILED, JOB_STATUS_CANCELLED})
 ACTIVE_STATUSES = frozenset({JOB_STATUS_QUEUED, JOB_STATUS_IN_PROGRESS})
 
 
@@ -82,9 +80,7 @@ def _terminal_frames(job: dict) -> list[str]:
             )
         ]
     if status == JOB_STATUS_CANCELLED:
-        return [
-            format_error_chunk("job_cancelled", "Job cancelled", retryable=False)
-        ]
+        return [format_error_chunk("job_cancelled", "Job cancelled", retryable=False)]
     if status == JOB_STATUS_COMPLETED:
         return [format_done_chunk()]
     return []
@@ -108,14 +104,14 @@ def _yield_new_events(
         if etype == "error":
             saw_error = True
             msg = payload.get("message") if isinstance(payload, dict) else str(payload)
-            code = payload.get("code", "stream_error") if isinstance(payload, dict) else "stream_error"
+            code = (
+                payload.get("code", "stream_error") if isinstance(payload, dict) else "stream_error"
+            )
             frames.append(
                 format_error_chunk(str(code), str(msg or "Stream error"), retryable=False)
             )
             continue
-        frames.append(
-            format_sse_event(payload, event=etype, seq_no=last_seq)
-        )
+        frames.append(format_sse_event(payload, event=etype, seq_no=last_seq))
     return frames, last_seq, saw_error
 
 

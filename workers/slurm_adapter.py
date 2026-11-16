@@ -924,11 +924,7 @@ def xcelsior_job_to_sbatch(
     # gate refuses --mail-user (the kit has no mail), and any environment that
     # sets XCELSIOR_SLURM_EMAIL otherwise got every submission rejected there.
     email = os.environ.get("XCELSIOR_SLURM_EMAIL", "")
-    if (
-        email
-        and profile.get("mail_notifications", True)
-        and re.match(r"^[^\s@]+@[^\s@]+$", email)
-    ):
+    if email and profile.get("mail_notifications", True) and re.match(r"^[^\s@]+@[^\s@]+$", email):
         lines.append(f"#SBATCH --mail-user={email}")
         lines.append("#SBATCH --mail-type=END,FAIL")
 

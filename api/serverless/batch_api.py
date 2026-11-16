@@ -63,5 +63,7 @@ def get_batch(repo: Any, batch_id: str, *, owner_id: str | None = None) -> dict 
     return None
 
 
-def apply_batch_token_discount(cost_cad: float, *, discount_rate: float = BATCH_DISCOUNT_RATE) -> float:
+def apply_batch_token_discount(
+    cost_cad: float, *, discount_rate: float = BATCH_DISCOUNT_RATE
+) -> float:
     return round(cost_cad * (1.0 - discount_rate), 6)

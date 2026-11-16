@@ -12,8 +12,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS serverless_semantic_cache (
             cache_id TEXT PRIMARY KEY,
             endpoint_id TEXT NOT NULL,
@@ -24,14 +23,12 @@ def upgrade() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             UNIQUE (endpoint_id, prompt_fingerprint)
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_semantic_cache_endpoint "
         "ON serverless_semantic_cache (endpoint_id, created_at DESC)"
     )
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS serverless_batches (
             batch_id TEXT PRIMARY KEY,
             endpoint_id TEXT NOT NULL,
@@ -47,10 +44,8 @@ def upgrade() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             completed_at DOUBLE PRECISION
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE TABLE IF NOT EXISTS serverless_prefix_affinity (
             endpoint_id TEXT NOT NULL,
             prefix_hash TEXT NOT NULL,
@@ -58,10 +53,8 @@ def upgrade() -> None:
             last_seen_at DOUBLE PRECISION NOT NULL,
             PRIMARY KEY (endpoint_id, prefix_hash)
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE TABLE IF NOT EXISTS serverless_cache_savings (
             savings_id TEXT PRIMARY KEY,
             endpoint_id TEXT NOT NULL,
@@ -69,8 +62,7 @@ def upgrade() -> None:
             similarity DOUBLE PRECISION NOT NULL DEFAULT 1.0,
             created_at DOUBLE PRECISION NOT NULL
         )
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

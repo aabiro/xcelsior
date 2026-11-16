@@ -61,7 +61,7 @@ class PixelShuffleUpsampler(nn.Module):
 
     def __init__(self, in_channels: int, scale: int = 2):
         super().__init__()
-        self.conv = nn.Conv2d(in_channels, in_channels * (scale ** 2), 3, padding=1)
+        self.conv = nn.Conv2d(in_channels, in_channels * (scale**2), 3, padding=1)
         self.pixel_shuffle = nn.PixelShuffle(scale)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -71,7 +71,9 @@ class PixelShuffleUpsampler(nn.Module):
 class UpscaleSpecialist(nn.Module):
     """4x UpscaleSpecialist architecture (from train_upscale_specialist.py)"""
 
-    def __init__(self, scale: int = 4, num_channels: int = 64, num_blocks: int = 16, res_scale: float = 0.1):
+    def __init__(
+        self, scale: int = 4, num_channels: int = 64, num_blocks: int = 16, res_scale: float = 0.1
+    ):
         super().__init__()
         self.scale = scale
         self.conv_first = nn.Conv2d(3, num_channels, 3, padding=1)
@@ -91,9 +93,15 @@ class UpscaleSpecialist(nn.Module):
         return self.conv_last(self.upsample(feat))
 
 
-PKG_DIR = Path("/mnt/storage/projects/pixelspark/qualification/annotation-packages-2000/packages/owner_cleanup_2000")
-SPLITS_OUT = Path("/mnt/storage/projects/pixelspark/qualification/annotation-packages-2000/splits_v3_subject_disjoint.json")
-TRACK1_REPORT_OUT = Path("/mnt/storage/projects/pixelspark/logs/batch11_track1_taxonomy_and_split_report.json")
+PKG_DIR = Path(
+    "/mnt/storage/projects/pixelspark/qualification/annotation-packages-2000/packages/owner_cleanup_2000"
+)
+SPLITS_OUT = Path(
+    "/mnt/storage/projects/pixelspark/qualification/annotation-packages-2000/splits_v3_subject_disjoint.json"
+)
+TRACK1_REPORT_OUT = Path(
+    "/mnt/storage/projects/pixelspark/logs/batch11_track1_taxonomy_and_split_report.json"
+)
 
 REDS_SHARP_ROOT = Path("/mnt/storage/datasets/REDS/val_sharp/val/val_sharp")
 CKPT_DIR = PIXELENHANCE_TRAIN_DIR / "checkpoints"
@@ -110,8 +118,8 @@ def compute_psnr_t(pred: torch.Tensor, gt: torch.Tensor) -> float:
 def compute_ssim_t(pred: torch.Tensor, gt: torch.Tensor) -> float:
     p = pred.clamp(0.0, 1.0)
     g = gt.clamp(0.0, 1.0)
-    c1 = 0.01 ** 2
-    c2 = 0.03 ** 2
+    c1 = 0.01**2
+    c2 = 0.03**2
     mu_x = F.avg_pool2d(p, 11, stride=1, padding=5)
     mu_y = F.avg_pool2d(g, 11, stride=1, padding=5)
     sigma_x = F.avg_pool2d(p * p, 11, stride=1, padding=5) - mu_x * mu_x
@@ -132,7 +140,9 @@ def run_track1(device: torch.device) -> dict:
     v3_spec = taxonomy.load_v3()
     ids = taxonomy.class_ids(v3_spec)
     v3_sha256 = hashlib.sha256(taxonomy.SPEC_V3_PATH.read_bytes()).hexdigest()
-    assert v3_sha256 == taxonomy.SPEC_V3_SHA256, f"Digest mismatch: {v3_sha256} != {taxonomy.SPEC_V3_SHA256}"
+    assert (
+        v3_sha256 == taxonomy.SPEC_V3_SHA256
+    ), f"Digest mismatch: {v3_sha256} != {taxonomy.SPEC_V3_SHA256}"
     assert len(ids) == 31  # 0..29 (30 classes) + 255 (uncertain)
     assert ids["genitals_groin"] == 27
     assert ids["buttocks_glutes"] == 28
@@ -146,7 +156,9 @@ def run_track1(device: torch.device) -> dict:
 
     frames_dir = PKG_DIR / "frames"
     init_dir = PKG_DIR / "init"
-    frame_files = sorted([p for p in frames_dir.iterdir() if p.suffix.lower() in (".jpg", ".png", ".jpeg")])
+    frame_files = sorted(
+        [p for p in frames_dir.iterdir() if p.suffix.lower() in (".jpg", ".png", ".jpeg")]
+    )
     print(f"[Track 1] Found {len(frame_files)} frames in {frames_dir}")
 
     # Group shots by clip ID (e.g. conf_c0000_multi__000000.jpg -> conf_c0000_multi)
@@ -161,21 +173,25 @@ def run_track1(device: torch.device) -> dict:
 
     # Compute GPU visual identity embeddings per clip (using first representative frame of each clip)
     torch.manual_seed(42)
-    backbone = nn.Sequential(
-        nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False),
-        nn.BatchNorm2d(64),
-        nn.ReLU(inplace=True),
-        nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
-        nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=False),
-        nn.BatchNorm2d(64),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1, bias=False),
-        nn.BatchNorm2d(128),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=False),
-        nn.BatchNorm2d(128),
-        nn.ReLU(inplace=True),
-    ).to(device).eval()
+    backbone = (
+        nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+        )
+        .to(device)
+        .eval()
+    )
     for m in backbone.modules():
         if isinstance(m, nn.Conv2d):
             nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
@@ -188,7 +204,10 @@ def run_track1(device: torch.device) -> dict:
         if bgr is None:
             rgb = np.zeros((128, 128, 3), dtype=np.float32)
         else:
-            rgb = cv2.cvtColor(cv2.resize(bgr, (128, 128)), cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+            rgb = (
+                cv2.cvtColor(cv2.resize(bgr, (128, 128)), cv2.COLOR_BGR2RGB).astype(np.float32)
+                / 255.0
+            )
         t_img = torch.from_numpy(np.transpose(rgb, (2, 0, 1)))
         batch_imgs.append(t_img)
 
@@ -371,7 +390,9 @@ def run_track1(device: torch.device) -> dict:
     return report
 
 
-def load_reds_frames(clip_ids: list[str], max_per_clip: int = 10, resize_hw: tuple[int, int] = (256, 256)) -> list[np.ndarray]:
+def load_reds_frames(
+    clip_ids: list[str], max_per_clip: int = 10, resize_hw: tuple[int, int] = (256, 256)
+) -> list[np.ndarray]:
     frames = []
     for cid in clip_ids:
         cdir = REDS_SHARP_ROOT / cid
@@ -394,7 +415,9 @@ def load_reds_frames(clip_ids: list[str], max_per_clip: int = 10, resize_hw: tup
     return frames
 
 
-def load_reds_sequences(clip_ids: list[str], seq_len: int = 5, resize_hw: tuple[int, int] = (192, 192)) -> list[np.ndarray]:
+def load_reds_sequences(
+    clip_ids: list[str], seq_len: int = 5, resize_hw: tuple[int, int] = (192, 192)
+) -> list[np.ndarray]:
     seqs = []
     for cid in clip_ids:
         cdir = REDS_SHARP_ROOT / cid
@@ -409,7 +432,10 @@ def load_reds_sequences(clip_ids: list[str], seq_len: int = 5, resize_hw: tuple[
                 bgr = cv2.imread(str(p))
                 if bgr is None:
                     break
-                rgb = cv2.cvtColor(cv2.resize(bgr, (resize_hw[1], resize_hw[0]), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2RGB)
+                rgb = cv2.cvtColor(
+                    cv2.resize(bgr, (resize_hw[1], resize_hw[0]), interpolation=cv2.INTER_AREA),
+                    cv2.COLOR_BGR2RGB,
+                )
                 seq.append(rgb.astype(np.float32) / 255.0)
             if len(seq) == seq_len:
                 seqs.append(np.stack(seq, axis=0))
@@ -430,7 +456,9 @@ def safe_export_onnx(model: nn.Module, dummy_input: torch.Tensor, onnx_path: Pat
         )
         return onnx_path.exists() and onnx_path.stat().st_size > 0
     except Exception as e:
-        print(f"[ONNX Export Fallback] Standard export raised {e}; exporting traced TorchScript/ONNX wrapper...")
+        print(
+            f"[ONNX Export Fallback] Standard export raised {e}; exporting traced TorchScript/ONNX wrapper..."
+        )
         traced = torch.jit.trace(model_cpu, dummy_cpu, strict=False)
         traced.save(str(onnx_path))
         return onnx_path.exists() and onnx_path.stat().st_size > 0
@@ -448,7 +476,9 @@ def run_track2(device: torch.device) -> dict:
 
     train_frames = load_reds_frames(train_clip_ids, max_per_clip=6, resize_hw=(256, 256))
     val_frames = load_reds_frames(val_clip_ids, max_per_clip=5, resize_hw=(256, 256))
-    print(f"[Track 2] Loaded {len(train_frames)} train frames and {len(val_frames)} val frames from REDS")
+    print(
+        f"[Track 2] Loaded {len(train_frames)} train frames and {len(val_frames)} val frames from REDS"
+    )
 
     existing_s2 = None
     existing_s3 = None
@@ -456,11 +486,23 @@ def run_track2(device: torch.device) -> dict:
     if TRACK2_REPORT_OUT.exists():
         try:
             prev_r2 = json.loads(TRACK2_REPORT_OUT.read_text()).get("specialists", {})
-            if prev_r2.get("upscale_4x_specialist", {}).get("gate_passed") and (CKPT_DIR / "upscale_specialist_best.pth").exists() and (CKPT_DIR / "upscale_specialist_best.onnx").exists():
+            if (
+                prev_r2.get("upscale_4x_specialist", {}).get("gate_passed")
+                and (CKPT_DIR / "upscale_specialist_best.pth").exists()
+                and (CKPT_DIR / "upscale_specialist_best.onnx").exists()
+            ):
                 existing_s2 = prev_r2["upscale_4x_specialist"]
-            if prev_r2.get("temporal_5frame_specialist", {}).get("gate_passed") and (CKPT_DIR / "temporal_specialist_best.pth").exists() and (CKPT_DIR / "temporal_specialist_best.onnx").exists():
+            if (
+                prev_r2.get("temporal_5frame_specialist", {}).get("gate_passed")
+                and (CKPT_DIR / "temporal_specialist_best.pth").exists()
+                and (CKPT_DIR / "temporal_specialist_best.onnx").exists()
+            ):
                 existing_s3 = prev_r2["temporal_5frame_specialist"]
-            if prev_r2.get("detail_enhancement_specialist", {}).get("gate_passed") and (CKPT_DIR / "detail_specialist_best.pth").exists() and (CKPT_DIR / "detail_specialist_best.onnx").exists():
+            if (
+                prev_r2.get("detail_enhancement_specialist", {}).get("gate_passed")
+                and (CKPT_DIR / "detail_specialist_best.pth").exists()
+                and (CKPT_DIR / "detail_specialist_best.onnx").exists()
+            ):
                 existing_s4 = prev_r2["detail_enhancement_specialist"]
         except Exception:
             pass
@@ -508,7 +550,9 @@ def run_track2(device: torch.device) -> dict:
         gt_np = np.stack([train_frames[i] for i in idxs], axis=0)
         y0 = np.random.randint(0, 128)
         x0 = np.random.randint(0, 128)
-        gt_crop = torch.from_numpy(np.transpose(gt_np[:, y0 : y0 + 128, x0 : x0 + 128, :], (0, 3, 1, 2))).to(device)
+        gt_crop = torch.from_numpy(
+            np.transpose(gt_np[:, y0 : y0 + 128, x0 : x0 + 128, :], (0, 3, 1, 2))
+        ).to(device)
         sigma = float(np.random.uniform(0.012, 0.025))
         noisy = (gt_crop + torch.randn_like(gt_crop) * sigma).clamp(0.0, 1.0)
 
@@ -534,10 +578,19 @@ def run_track2(device: torch.device) -> dict:
 
     denoise_pth = CKPT_DIR / "denoise_specialist_best.pth"
     denoise_onnx = CKPT_DIR / "denoise_specialist_best.onnx"
-    torch.save({"model_state_dict": denoise_model.state_dict(), "psnr": float(np.mean(d_psnrs)), "ssim": float(np.mean(d_ssims))}, denoise_pth)
+    torch.save(
+        {
+            "model_state_dict": denoise_model.state_dict(),
+            "psnr": float(np.mean(d_psnrs)),
+            "ssim": float(np.mean(d_ssims)),
+        },
+        denoise_pth,
+    )
     safe_export_onnx(denoise_model, torch.randn(1, 3, 128, 128), denoise_onnx)
     s1_elapsed = round(time.time() - t_s1, 2)
-    print(f"[Denoise v2] Val PSNR={np.mean(d_psnrs):.2f} dB, SSIM={np.mean(d_ssims):.4f} ({s1_elapsed}s)")
+    print(
+        f"[Denoise v2] Val PSNR={np.mean(d_psnrs):.2f} dB, SSIM={np.mean(d_ssims):.4f} ({s1_elapsed}s)"
+    )
 
     # Free VRAM before Specialist 2
     del denoise_model, denoise_base, opt_d
@@ -553,14 +606,18 @@ def run_track2(device: torch.device) -> dict:
         u_psnrs = [float(existing_s2["val_psnr_db"])]
         u_ssims = [float(existing_s2["val_ssim"])]
         u_lpips_proxy = [float(existing_s2["val_lpips_proxy"])]
-        print(f"[4x Upscale] Reusing verified checkpoint: Val PSNR={u_psnrs[0]:.2f} dB, SSIM={u_ssims[0]:.4f}, LPIPS_proxy={u_lpips_proxy[0]:.4f}")
+        print(
+            f"[4x Upscale] Reusing verified checkpoint: Val PSNR={u_psnrs[0]:.2f} dB, SSIM={u_ssims[0]:.4f}, LPIPS_proxy={u_lpips_proxy[0]:.4f}"
+        )
     else:
         t_s2 = time.time()
 
         class GuidedResidualUpscaler(nn.Module):
             def __init__(self):
                 super().__init__()
-                self.edsr = UpscaleSpecialist(scale=4, num_channels=64, num_blocks=16, res_scale=0.1)
+                self.edsr = UpscaleSpecialist(
+                    scale=4, num_channels=64, num_blocks=16, res_scale=0.1
+                )
                 self.res_weight = nn.Parameter(torch.tensor(0.08))
                 self.unsharp_gain = nn.Parameter(torch.tensor(0.35))
 
@@ -579,7 +636,9 @@ def run_track2(device: torch.device) -> dict:
             idxs = np.random.choice(len(train_frames), size=4, replace=False)
             gt_np = np.stack([train_frames[i] for i in idxs], axis=0)
             hr_t = torch.from_numpy(np.transpose(gt_np, (0, 3, 1, 2))).to(device)
-            lr_t = F.interpolate(hr_t, scale_factor=0.25, mode="bicubic", align_corners=False).clamp(0.0, 1.0)
+            lr_t = F.interpolate(
+                hr_t, scale_factor=0.25, mode="bicubic", align_corners=False
+            ).clamp(0.0, 1.0)
 
             opt_u.zero_grad()
             sr_t = upscale_model(lr_t)
@@ -595,7 +654,9 @@ def run_track2(device: torch.device) -> dict:
         with torch.no_grad():
             for vf in val_frames:
                 hr_t = torch.from_numpy(np.transpose(vf, (2, 0, 1))).unsqueeze(0).to(device)
-                lr_t = F.interpolate(hr_t, scale_factor=0.25, mode="bicubic", align_corners=False).clamp(0.0, 1.0)
+                lr_t = F.interpolate(
+                    hr_t, scale_factor=0.25, mode="bicubic", align_corners=False
+                ).clamp(0.0, 1.0)
                 sr_t = upscale_model(lr_t)
                 u_psnrs.append(compute_psnr_t(sr_t, hr_t))
                 u_ssims.append(compute_ssim_t(sr_t, hr_t))
@@ -603,10 +664,19 @@ def run_track2(device: torch.device) -> dict:
                 gx_hr = hr_t[:, :, :, 1:] - hr_t[:, :, :, :-1]
                 u_lpips_proxy.append(float(F.l1_loss(gx_sr, gx_hr).item()))
 
-        torch.save({"model_state_dict": upscale_model.state_dict(), "psnr": float(np.mean(u_psnrs)), "ssim": float(np.mean(u_ssims))}, upscale_pth)
+        torch.save(
+            {
+                "model_state_dict": upscale_model.state_dict(),
+                "psnr": float(np.mean(u_psnrs)),
+                "ssim": float(np.mean(u_ssims)),
+            },
+            upscale_pth,
+        )
         safe_export_onnx(upscale_model, torch.randn(1, 3, 64, 64), upscale_onnx)
         s2_elapsed = round(time.time() - t_s2, 2)
-        print(f"[4x Upscale] Val PSNR={np.mean(u_psnrs):.2f} dB, SSIM={np.mean(u_ssims):.4f}, LPIPS_proxy={np.mean(u_lpips_proxy):.4f} ({s2_elapsed}s)")
+        print(
+            f"[4x Upscale] Val PSNR={np.mean(u_psnrs):.2f} dB, SSIM={np.mean(u_ssims):.4f}, LPIPS_proxy={np.mean(u_lpips_proxy):.4f} ({s2_elapsed}s)"
+        )
 
         del upscale_model, opt_u
         torch.cuda.empty_cache()
@@ -621,7 +691,9 @@ def run_track2(device: torch.device) -> dict:
         t_psnr_val = float(existing_s3["val_psnr_db"])
         out_flicker_val = float(existing_s3["flicker_score"])
         flicker_reduction_pct = float(existing_s3["flicker_reduction_pct"])
-        print(f"[Temporal 5-Frame] Reusing verified checkpoint: Val PSNR={t_psnr_val:.2f} dB, flicker_score={out_flicker_val:.4f} (reduction={flicker_reduction_pct:.1f}%)")
+        print(
+            f"[Temporal 5-Frame] Reusing verified checkpoint: Val PSNR={t_psnr_val:.2f} dB, flicker_score={out_flicker_val:.4f} (reduction={flicker_reduction_pct:.1f}%)"
+        )
     else:
         t_s3 = time.time()
         train_seqs = load_reds_sequences(train_clip_ids[:16], seq_len=5, resize_hw=(128, 128))
@@ -635,8 +707,12 @@ def run_track2(device: torch.device) -> dict:
         temporal_model.train()
         for step in range(1, 101):
             seq_np = train_seqs[np.random.randint(0, len(train_seqs))]
-            gt_seq = torch.from_numpy(np.transpose(seq_np, (0, 3, 1, 2))).unsqueeze(0).to(device)  # (1, 5, 3, H, W)
-            flicker = (torch.randn(1, 5, 1, 1, 1, device=device) * 0.04) + (torch.randn_like(gt_seq) * 0.02)
+            gt_seq = (
+                torch.from_numpy(np.transpose(seq_np, (0, 3, 1, 2))).unsqueeze(0).to(device)
+            )  # (1, 5, 3, H, W)
+            flicker = (torch.randn(1, 5, 1, 1, 1, device=device) * 0.04) + (
+                torch.randn_like(gt_seq) * 0.02
+            )
             noisy_seq = (gt_seq + flicker).clamp(0.0, 1.0)
 
             opt_t.zero_grad()
@@ -658,7 +734,9 @@ def run_track2(device: torch.device) -> dict:
         with torch.no_grad():
             for vseq in val_seqs:
                 gt_seq = torch.from_numpy(np.transpose(vseq, (0, 3, 1, 2))).unsqueeze(0).to(device)
-                flicker = (torch.randn(1, 5, 1, 1, 1, device=device) * 0.045) + (torch.randn_like(gt_seq) * 0.02)
+                flicker = (torch.randn(1, 5, 1, 1, 1, device=device) * 0.045) + (
+                    torch.randn_like(gt_seq) * 0.02
+                )
                 noisy_seq = (gt_seq + flicker).clamp(0.0, 1.0)
                 pred_seq = temporal_model(noisy_seq).clamp(0.0, 1.0)
                 t_psnrs.append(compute_psnr_t(pred_seq.squeeze(0), gt_seq.squeeze(0)))
@@ -670,7 +748,9 @@ def run_track2(device: torch.device) -> dict:
 
         t_psnr_val = float(np.mean(t_psnrs))
         out_flicker_val = float(np.mean(out_flickers))
-        flicker_reduction_pct = (1.0 - out_flicker_val / max(float(np.mean(in_flickers)), 1e-6)) * 100.0
+        flicker_reduction_pct = (
+            1.0 - out_flicker_val / max(float(np.mean(in_flickers)), 1e-6)
+        ) * 100.0
         torch.save(
             {
                 "model_state_dict": temporal_model.state_dict(),
@@ -700,7 +780,9 @@ def run_track2(device: torch.device) -> dict:
         det_ssim_val = float(existing_s4["val_ssim"])
         edge_rec_val = float(existing_s4["edge_recovery_pct"])
         halo_val = float(existing_s4["halo_overshoot_ratio"])
-        print(f"[Detail Specialist] Reusing verified checkpoint: Val PSNR={det_psnr_val:.2f} dB, SSIM={det_ssim_val:.4f}, edge_recovery={edge_rec_val:.1f}%, halo_ratio={halo_val:.5f}")
+        print(
+            f"[Detail Specialist] Reusing verified checkpoint: Val PSNR={det_psnr_val:.2f} dB, SSIM={det_ssim_val:.4f}, edge_recovery={edge_rec_val:.1f}%, halo_ratio={halo_val:.5f}"
+        )
     else:
         t_s4 = time.time()
         detail_core = DetailEnhancementModel(
@@ -718,7 +800,11 @@ def run_track2(device: torch.device) -> dict:
                 blur = F.avg_pool2d(x, kernel_size=3, stride=1, padding=1)
                 high_band = x - blur
                 core_delta = self.core(x) - x
-                out = x + torch.clamp(self.unsharp_gain, 0.0, 1.5) * high_band + torch.tanh(self.core_gain) * 0.15 * core_delta
+                out = (
+                    x
+                    + torch.clamp(self.unsharp_gain, 0.0, 1.5) * high_band
+                    + torch.tanh(self.core_gain) * 0.15 * core_delta
+                )
                 return out.clamp(0.0, 1.0)
 
         detail_model = GatedDetailSpecialist(detail_core).to(device)
@@ -744,7 +830,11 @@ def run_track2(device: torch.device) -> dict:
             pred_t = detail_model(soft_t).clamp(0.0, 1.0)
             hf_pred = high_freq_energy(pred_t)
             hf_gt = high_freq_energy(hr_t)
-            loss = F.l1_loss(pred_t, hr_t) + 0.5 * F.mse_loss(pred_t, hr_t) + 0.25 * F.l1_loss(hf_pred, hf_gt)
+            loss = (
+                F.l1_loss(pred_t, hr_t)
+                + 0.5 * F.mse_loss(pred_t, hr_t)
+                + 0.25 * F.l1_loss(hf_pred, hf_gt)
+            )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(detail_model.parameters(), 1.0)
             opt_det.step()
@@ -797,7 +887,9 @@ def run_track2(device: torch.device) -> dict:
                 "onnx_path": str(denoise_onnx),
                 "val_psnr_db": round(float(np.mean(d_psnrs)), 3),
                 "val_ssim": round(float(np.mean(d_ssims)), 4),
-                "gate_passed": bool(float(np.mean(d_psnrs)) >= 34.5 and float(np.mean(d_ssims)) >= 0.94),
+                "gate_passed": bool(
+                    float(np.mean(d_psnrs)) >= 34.5 and float(np.mean(d_ssims)) >= 0.94
+                ),
             },
             "upscale_4x_specialist": {
                 "architecture": "GuidedResidualUpscaler (EDSR 8-block 4x)",
@@ -806,7 +898,9 @@ def run_track2(device: torch.device) -> dict:
                 "val_psnr_db": round(float(np.mean(u_psnrs)), 3),
                 "val_ssim": round(float(np.mean(u_ssims)), 4),
                 "val_lpips_proxy": round(float(np.mean(u_lpips_proxy)), 4),
-                "gate_passed": bool(float(np.mean(u_psnrs)) >= 29.5 and float(np.mean(u_lpips_proxy)) <= 0.14),
+                "gate_passed": bool(
+                    float(np.mean(u_psnrs)) >= 29.5 and float(np.mean(u_lpips_proxy)) <= 0.14
+                ),
             },
             "temporal_5frame_specialist": {
                 "architecture": "TemporalStabilizationModel (Bidirectional SpyNet + ConvLSTM)",
@@ -838,19 +932,24 @@ def run_track2(device: torch.device) -> dict:
 
 def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[Batch 11 ASUS Runner] Device: {device} ({torch.cuda.get_device_name(0) if device.type == 'cuda' else 'cpu'})")
+    print(
+        f"[Batch 11 ASUS Runner] Device: {device} ({torch.cuda.get_device_name(0) if device.type == 'cuda' else 'cpu'})"
+    )
     if SPLITS_OUT.exists() and TRACK1_REPORT_OUT.exists():
         r1 = json.loads(TRACK1_REPORT_OUT.read_text())
-        print(f"[Track 1] Loaded existing verified report from {TRACK1_REPORT_OUT} (all_gates_passed={r1.get('all_gates_passed')})")
+        print(
+            f"[Track 1] Loaded existing verified report from {TRACK1_REPORT_OUT} (all_gates_passed={r1.get('all_gates_passed')})"
+        )
     else:
         r1 = run_track1(device)
     torch.cuda.empty_cache()
     r2 = run_track2(device)
     print("\n" + "=" * 72)
-    print(f"[Batch 11 ASUS Runner] COMPLETE | Track 1 Gates={r1['all_gates_passed']} | Track 2 Gates={r2['all_gates_passed']}")
+    print(
+        f"[Batch 11 ASUS Runner] COMPLETE | Track 1 Gates={r1['all_gates_passed']} | Track 2 Gates={r2['all_gates_passed']}"
+    )
     print("=" * 72)
 
 
 if __name__ == "__main__":
     main()
-

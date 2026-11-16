@@ -15,16 +15,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-SCRATCH = Path(
-    os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer")
-)
+SCRATCH = Path(os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer"))
 DEFAULT_MODEL_ROOT = Path("/mnt/storage/models/staging/2026H2/hf")
 BASE_URL = os.environ.get("XCELSIOR_LIVE_VLLM_URL", "http://127.0.0.1:8199/v1")
 MODEL = os.environ.get(
     "XCELSIOR_LIVE_VLLM_MODEL",
-    "Qwen/Qwen3-4B-AWQ"
-    if (DEFAULT_MODEL_ROOT / "Qwen_Qwen3-4B-AWQ").is_dir()
-    else "Qwen/Qwen3-8B",
+    "Qwen/Qwen3-4B-AWQ" if (DEFAULT_MODEL_ROOT / "Qwen_Qwen3-4B-AWQ").is_dir() else "Qwen/Qwen3-8B",
 )
 MODEL_PATH = os.environ.get("XCELSIOR_LIVE_VLLM_MODEL_PATH", "").strip()
 DRAFT_PATH = os.environ.get("XCELSIOR_LIVE_VLLM_DRAFT_PATH", "").strip()
@@ -90,7 +86,9 @@ def _request_model_id() -> str:
 
     if _server_ready():
         return resolve_live_model_id(BASE_URL.rstrip("/"))
-    return "/model" if MODEL_PATH or (DEFAULT_MODEL_ROOT / MODEL.replace("/", "_")).is_dir() else MODEL
+    return (
+        "/model" if MODEL_PATH or (DEFAULT_MODEL_ROOT / MODEL.replace("/", "_")).is_dir() else MODEL
+    )
 
 
 def _spec_metrics() -> dict[str, float]:
@@ -216,8 +214,12 @@ def main() -> int:
         evidence["usage"] = usage
         evidence["proxy_requests"] = samples + 1
         details = usage.get("completion_tokens_details") or {}
-        accepted = int(details.get("accepted_tokens") or usage.get("speculative_accepted_tokens") or 0)
-        rejected = int(details.get("rejected_tokens") or usage.get("speculative_rejected_tokens") or 0)
+        accepted = int(
+            details.get("accepted_tokens") or usage.get("speculative_accepted_tokens") or 0
+        )
+        rejected = int(
+            details.get("rejected_tokens") or usage.get("speculative_rejected_tokens") or 0
+        )
         if accepted + rejected > 0:
             evidence["acceptance_rate"] = round(accepted / (accepted + rejected), 4)
         metrics = _spec_metrics()

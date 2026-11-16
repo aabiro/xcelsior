@@ -875,9 +875,7 @@ def api_mfa_pending(request: Request):
     if not challenge or time.time() > float(challenge.get("expires_at") or 0):
         raise HTTPException(401, "Verification expired. Please sign in again.")
     methods = [
-        m["method_type"]
-        for m in MfaStore.list_methods(challenge["email"])
-        if m.get("enabled")
+        m["method_type"] for m in MfaStore.list_methods(challenge["email"]) if m.get("enabled")
     ]
     if not methods:
         raise HTTPException(401, "No pending verification")

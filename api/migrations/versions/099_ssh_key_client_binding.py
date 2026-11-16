@@ -40,14 +40,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE user_ssh_keys "
-        "ADD COLUMN IF NOT EXISTS registered_by_client_id TEXT"
-    )
-    op.execute(
-        "ALTER TABLE user_ssh_keys "
-        "ADD COLUMN IF NOT EXISTS registered_by_auth_type TEXT"
-    )
+    op.execute("ALTER TABLE user_ssh_keys " "ADD COLUMN IF NOT EXISTS registered_by_client_id TEXT")
+    op.execute("ALTER TABLE user_ssh_keys " "ADD COLUMN IF NOT EXISTS registered_by_auth_type TEXT")
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_user_ssh_keys_registered_by_client "
         "ON user_ssh_keys (registered_by_client_id) "

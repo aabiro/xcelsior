@@ -33,8 +33,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS casl_consent (
             consent_id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
             user_id TEXT NOT NULL,
@@ -48,15 +47,11 @@ def upgrade() -> None:
             active BOOLEAN DEFAULT TRUE,
             UNIQUE(user_id, purpose)
         )
-        """
-    )
+        """)
     # Deletion and consent lookups are both per-user.
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_casl_consent_user ON casl_consent (user_id)"
-    )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_casl_consent_user ON casl_consent (user_id)")
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS user_encryption_keys (
             user_id TEXT PRIMARY KEY,
             fernet_key TEXT NOT NULL,
@@ -64,8 +59,7 @@ def upgrade() -> None:
             destroyed_at TIMESTAMPTZ,
             active BOOLEAN DEFAULT TRUE
         )
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

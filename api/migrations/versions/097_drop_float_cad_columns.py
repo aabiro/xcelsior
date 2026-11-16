@@ -145,8 +145,7 @@ def _restore_float(table: str, column: str):
         )
         conn.execute(
             text(
-                f"UPDATE {table} SET {column} = {micros} / 1000000.0 "
-                f"WHERE {micros} IS NOT NULL"
+                f"UPDATE {table} SET {column} = {micros} / 1000000.0 " f"WHERE {micros} IS NOT NULL"
             )
         )
 

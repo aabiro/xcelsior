@@ -25,8 +25,7 @@ def upgrade() -> None:
     # This table used to be created from an application request.  Alembic is
     # the only production DDL authority; preserve any live rows while bringing
     # the object under the migration ledger.
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS user_encryption_keys (
             user_id TEXT PRIMARY KEY,
             fernet_key TEXT NOT NULL,
@@ -35,11 +34,9 @@ def upgrade() -> None:
             destroyed_at DOUBLE PRECISION NOT NULL DEFAULT 0,
             active BOOLEAN NOT NULL DEFAULT TRUE
         )
-        """
-    )
+        """)
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE privacy_deletion_requests (
             request_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             subject_reference_hash TEXT NOT NULL,
@@ -73,32 +70,24 @@ def upgrade() -> None:
             UNIQUE (subject_reference_hash, idempotency_key),
             CHECK (jsonb_typeof(subject_customer_ids) = 'array')
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE UNIQUE INDEX privacy_one_active_request_per_subject
             ON privacy_deletion_requests (subject_reference_hash)
          WHERE state NOT IN ('completed', 'cancelled')
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX privacy_deletion_requests_due
             ON privacy_deletion_requests (next_attempt_at, created_at)
          WHERE state NOT IN ('completed', 'cancelled', 'failed')
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX privacy_deletion_requests_deadline
             ON privacy_deletion_requests (deadline_at)
          WHERE state NOT IN ('completed', 'cancelled')
-        """
-    )
+        """)
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE privacy_deletion_sink_status (
             request_id UUID NOT NULL
                 REFERENCES privacy_deletion_requests(request_id)
@@ -125,15 +114,12 @@ def upgrade() -> None:
             updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
             PRIMARY KEY (request_id, sink)
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX privacy_deletion_sink_due
             ON privacy_deletion_sink_status (next_attempt_at, request_id)
          WHERE status IN ('pending', 'failed')
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

@@ -598,9 +598,7 @@ def report_day(cluster: dict, day: dt.date, *, runner=None) -> dict:
     with pg_connection() as conn:
         segments = _ledger_rows(conn, cluster["cluster_id"], start, end)
         platform = _platform_names(conn, cluster["cluster_id"], [str(k) for k in acct["records"]])
-    result = compare_day(
-        acct["records"], segments, start=start, end=end, platform_names=platform
-    )
+    result = compare_day(acct["records"], segments, start=start, end=end, platform_names=platform)
     with pg_transaction() as conn:
         conn.execute(
             """

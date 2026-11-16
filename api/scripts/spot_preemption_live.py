@@ -34,7 +34,14 @@ def _poll(session: requests.Session, base: str, job_id: str) -> dict:
         r = session.get(f"{base}/instance/{job_id}", timeout=30)
         if r.status_code == 200:
             last = r.json().get("instance") or {}
-            if last.get("status") in ("running", "failed", "stopped", "cancelled", "completed", "queued"):
+            if last.get("status") in (
+                "running",
+                "failed",
+                "stopped",
+                "cancelled",
+                "completed",
+                "queued",
+            ):
                 return last
         time.sleep(POLL_SEC)
     return last
@@ -69,7 +76,9 @@ def main() -> int:
         return 1
 
     spot_flag = requests.get(f"{base}/api/pricing/spot-enabled", timeout=10)
-    results["spot_enabled"] = spot_flag.json().get("enabled") if spot_flag.status_code == 200 else None
+    results["spot_enabled"] = (
+        spot_flag.json().get("enabled") if spot_flag.status_code == 200 else None
+    )
 
     email = f"spot-live-{secrets.token_hex(4)}@xcelsior.ca"
     password = f"TestPass!{secrets.token_hex(6)}"
@@ -87,7 +96,9 @@ def main() -> int:
         print(json.dumps(results, indent=2))
         return 1
 
-    login = s.post(f"{base}/api/auth/login", json={"email": email, "password": password}, timeout=30)
+    login = s.post(
+        f"{base}/api/auth/login", json={"email": email, "password": password}, timeout=30
+    )
     if login.status_code != 200:
         results["login"] = login.status_code
         results["pass"] = False

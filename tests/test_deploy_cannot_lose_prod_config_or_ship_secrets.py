@@ -523,8 +523,7 @@ def test_a_normal_deploy_removes_placement_and_leaves_every_other_line(tmp_path:
     assert result.stdout.strip() == "slurm_placement off"
     assert "kept-secret" not in result.stdout + result.stderr
     assert text == (
-        "XCELSIOR_POSTGRES_PASSWORD=kept-secret\n"
-        "XCELSIOR_SLURM_KEY_XCL_LOCAL=kept-secret\n"
+        "XCELSIOR_POSTGRES_PASSWORD=kept-secret\n" "XCELSIOR_SLURM_KEY_XCL_LOCAL=kept-secret\n"
     )
     again, same = _rewrite(tmp_path, text)
     assert again.returncode == 0
@@ -540,10 +539,7 @@ def test_the_placement_flag_writes_one_line_and_nothing_else(tmp_path: Path) -> 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "slurm_placement on"
     assert "kept-secret" not in result.stdout + result.stderr
-    assert text == (
-        "XCELSIOR_SLURM_KEY_XCL_LOCAL=kept-secret\n"
-        "XCELSIOR_SLURM_PLACEMENT=1\n"
-    )
+    assert text == ("XCELSIOR_SLURM_KEY_XCL_LOCAL=kept-secret\n" "XCELSIOR_SLURM_PLACEMENT=1\n")
 
 
 def test_a_bad_placement_flag_is_refused(tmp_path: Path) -> None:
@@ -572,7 +568,9 @@ def test_prod_paths_apply_the_policy_before_hashing_the_runtime() -> None:
     }
     for start, end in branches.items():
         body = text.split(start, 1)[1].split(end, 1)[0]
-        assert body.index("apply_slurm_placement_policy") < body.index("detect_deploy_inputs"), start
+        assert body.index("apply_slurm_placement_policy") < body.index(
+            "detect_deploy_inputs"
+        ), start
     systemd = text.split("--systemd)", 1)[1].split("--drain-host)", 1)[0]
     assert "apply_slurm_placement_policy" in systemd
     assert 'text += "XCELSIOR_SLURM_PLACEMENT=1\\n"' in text

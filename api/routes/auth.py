@@ -467,27 +467,45 @@ def _validate_profile_values(body: ProfileUpdateRequest, user: dict) -> None:
         body.name = body.name.strip()
         if not body.name:
             raise HTTPException(422, "Name is required")
-    current = (UserStore.get_user(user["email"]) or {}) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"], {})
+    current = (
+        (UserStore.get_user(user["email"]) or {})
+        if _USE_PERSISTENT_AUTH
+        else _users_db.get(user["email"], {})
+    )
     if body.account_type is not None and body.account_type not in {"individual", "business"}:
         raise HTTPException(422, "Choose a personal or business account")
-    if body.onboarding_intent is not None and body.onboarding_intent not in {"rent", "provide", "both"}:
+    if body.onboarding_intent is not None and body.onboarding_intent not in {
+        "rent",
+        "provide",
+        "both",
+    }:
         raise HTTPException(422, "Choose whether to rent GPUs, provide GPUs, or both")
     candidate = {**current, **body.model_dump(exclude_none=True)}
-    if candidate.get("account_type") == "business" and not str(candidate.get("business_name") or "").strip():
+    if (
+        candidate.get("account_type") == "business"
+        and not str(candidate.get("business_name") or "").strip()
+    ):
         raise HTTPException(422, "Business name is required for a business account")
     if candidate.get("account_type") != "business" and any(
         (getattr(body, key) or "").strip() for key in _BUSINESS_FACE_FIELDS
     ):
-        raise HTTPException(422, "A business profile needs a business account. Switch the account type to Business first.")
+        raise HTTPException(
+            422,
+            "A business profile needs a business account. Switch the account type to Business first.",
+        )
     if body.country is not None or body.province is not None:
         try:
-            location = require_address_location(str(candidate.get("country") or ""), str(candidate.get("province") or ""))
+            location = require_address_location(
+                str(candidate.get("country") or ""), str(candidate.get("province") or "")
+            )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         body.country, body.province = location["country"], location["province"]
         candidate.update(location)
     address_fields = {"address_line1", "address_line2", "city", "postal_code"}
-    if address_fields & body.model_fields_set or (current.get("address_line1") and {"country", "province"} & body.model_fields_set):
+    if address_fields & body.model_fields_set or (
+        current.get("address_line1") and {"country", "province"} & body.model_fields_set
+    ):
         try:
             cleaned, errors = profile_address_values(candidate)
         except ValueError as exc:
@@ -499,9 +517,18 @@ def _validate_profile_values(body: ProfileUpdateRequest, user: dict) -> None:
 
 
 def _account_profile_updates(body: ProfileUpdateRequest) -> dict:
-    return {key: getattr(body, key) for key in
-            ("address_line1", "address_line2", "city", "postal_code", "account_type", "onboarding_intent")
-            if getattr(body, key) is not None}
+    return {
+        key: getattr(body, key)
+        for key in (
+            "address_line1",
+            "address_line2",
+            "city",
+            "postal_code",
+            "account_type",
+            "onboarding_intent",
+        )
+        if getattr(body, key) is not None
+    }
 
 
 _BUSINESS_FACE_FIELDS = ("business_display_name", "business_website", "business_tagline")
@@ -3057,7 +3084,9 @@ def api_auth_oauth_callback(provider: str, request: Request):
         from host_metadata import profile_missing_fields
 
         if profile_missing_fields(user) and not redirect_path.startswith("/onboarding"):
-            redirect_path = "/onboarding/account?redirect=" + _urllib_parse.quote(redirect_path, safe="")
+            redirect_path = "/onboarding/account?redirect=" + _urllib_parse.quote(
+                redirect_path, safe=""
+            )
         resp = RedirectResponse(redirect_path, status_code=302)
         _set_session_cookies(resp, token_bundle)
     # Non-httpOnly cookie so login page JS can show "Last used" badge
@@ -3416,8 +3445,15 @@ def _filter_auth_identity(user: dict, identity: dict) -> dict:
     filtered = dict(identity)
     # The profile scope does not grant access to postal addresses or business identity.
     for key in (
-        "address_line1", "address_line2", "city", "postal_code", "business_name", "gst_hst_number",
-        *_BUSINESS_FACE_FIELDS, "business_logo_url", "business_logo_tile",
+        "address_line1",
+        "address_line2",
+        "city",
+        "postal_code",
+        "business_name",
+        "gst_hst_number",
+        *_BUSINESS_FACE_FIELDS,
+        "business_logo_url",
+        "business_logo_tile",
     ):
         filtered.pop(key, None)
     if "email" not in scopes:
@@ -3446,9 +3482,7 @@ def api_auth_me(request: Request):
         raise HTTPException(401, "Not authenticated")
     if user.get("auth_type") == "client_credentials":
         raise HTTPException(403, "Interactive user authentication required")
-    if _is_delegated_connector_token(user) and not {"profile"} & set(
-        user.get("scopes") or []
-    ):
+    if _is_delegated_connector_token(user) and not {"profile"} & set(user.get("scopes") or []):
         raise HTTPException(403, "Profile access requires the profile permission")
 
     email = user["email"]
@@ -3468,8 +3502,17 @@ def api_auth_me(request: Request):
         "provider_id": full_user.get("provider_id"),
         "country": full_user.get("country") or "",
         "province": full_user.get("province") or "",
-        **{key: full_user.get(key) or "" for key in
-           ("address_line1", "address_line2", "city", "postal_code", "account_type", "onboarding_intent")},
+        **{
+            key: full_user.get(key) or ""
+            for key in (
+                "address_line1",
+                "address_line2",
+                "city",
+                "postal_code",
+                "account_type",
+                "onboarding_intent",
+            )
+        },
         "business_name": full_user.get("business_name") or "",
         "gst_hst_number": full_user.get("gst_hst_number") or "",
         **_business_face(full_user, user["user_id"]),
@@ -3712,7 +3755,8 @@ def _business_account_or_409(user: dict) -> None:
     ) or {}
     if full_user.get("account_type") != "business":
         raise HTTPException(
-            409, "A business logo needs a business account. Switch the account type to Business first."
+            409,
+            "A business logo needs a business account. Switch the account type to Business first.",
         )
 
 

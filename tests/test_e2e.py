@@ -296,7 +296,6 @@ class TestFullJobLifecycleE2E:
         detail = client.get(f"/instance/{job_id}")
         assert detail.json()["instance"]["status"] == "completed"
 
-
     def test_multiple_hosts_best_allocation(self):
         """Multiple hosts registered — job goes to the best one."""
         _reset_state()

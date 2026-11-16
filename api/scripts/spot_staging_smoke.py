@@ -60,7 +60,9 @@ def _poll_instance(client: httpx.Client, hdrs: dict[str, str], job_id: str) -> d
     return last
 
 
-def _infra_checks(client: httpx.Client, results: dict[str, object], hdrs: dict[str, str] | None = None) -> bool:
+def _infra_checks(
+    client: httpx.Client, results: dict[str, object], hdrs: dict[str, str] | None = None
+) -> bool:
     ok = True
     req_hdrs = hdrs or {}
 

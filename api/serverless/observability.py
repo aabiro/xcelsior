@@ -141,14 +141,12 @@ def worker_fleet_stats(workers: list[dict]) -> dict[str, int]:
     idle = sum(
         1
         for w in workers
-        if str(w.get("state") or "") in _READY_IDLE
-        and int(w.get("current_concurrency") or 0) == 0
+        if str(w.get("state") or "") in _READY_IDLE and int(w.get("current_concurrency") or 0) == 0
     )
     busy = sum(
         1
         for w in workers
-        if str(w.get("state") or "") in _READY_IDLE
-        and int(w.get("current_concurrency") or 0) > 0
+        if str(w.get("state") or "") in _READY_IDLE and int(w.get("current_concurrency") or 0) > 0
     )
     booting = sum(1 for w in workers if str(w.get("state") or "") == "booting")
     return {
@@ -188,33 +186,19 @@ def compute_endpoint_metrics(
     total_cached_tokens += sum(int(r.get("cached_tokens") or 0) for r in proxy_rows)
 
     total_exec_sec = sum(max(1, int(j.get("gpu_seconds") or 0)) for j in completed)
-    total_exec_sec += sum(
-        max(0.001, int(r.get("latency_ms") or 0) / 1000.0) for r in proxy_rows
-    )
-    tokens_per_sec = (
-        round(total_out_tokens / total_exec_sec, 2) if total_exec_sec > 0 else 0.0
-    )
-    ttft_vals = [
-        float(j.get("ttft_ms") or 0)
-        for j in completed
-        if int(j.get("ttft_ms") or 0) > 0
-    ]
+    total_exec_sec += sum(max(0.001, int(r.get("latency_ms") or 0) / 1000.0) for r in proxy_rows)
+    tokens_per_sec = round(total_out_tokens / total_exec_sec, 2) if total_exec_sec > 0 else 0.0
+    ttft_vals = [float(j.get("ttft_ms") or 0) for j in completed if int(j.get("ttft_ms") or 0) > 0]
     ttft_vals.extend(
-        float(r.get("ttft_ms") or 0)
-        for r in proxy_rows
-        if int(r.get("ttft_ms") or 0) > 0
+        float(r.get("ttft_ms") or 0) for r in proxy_rows if int(r.get("ttft_ms") or 0) > 0
     )
     kv_cache_hit_rate = (
-        round(total_cached_tokens / total_in_tokens, 4)
-        if total_in_tokens > 0
-        else 0.0
+        round(total_cached_tokens / total_in_tokens, 4) if total_in_tokens > 0 else 0.0
     )
 
     proxy_success = len(proxy_rows)
     denom = len(terminal) + proxy_success
-    success_rate = (
-        round((len(completed) + proxy_success) / denom, 4) if denom else 0.0
-    )
+    success_rate = round((len(completed) + proxy_success) / denom, 4) if denom else 0.0
     error_rate = round(len(failed) / denom, 4) if denom else 0.0
 
     cold_vals = [
@@ -249,9 +233,7 @@ def compute_endpoint_metrics(
         "queue_depth": queue_depth,
         "avg_queue_ms": _avg(queue_ms_vals),
         "avg_execution_ms": _avg(exec_ms_vals),
-        "avg_gpu_seconds": _avg(
-            [float(j.get("gpu_seconds") or 0) for j in completed]
-        ),
+        "avg_gpu_seconds": _avg([float(j.get("gpu_seconds") or 0) for j in completed]),
         "total_gpu_seconds": max(endpoint_gpu_seconds, job_gpu_seconds),
         "tokens_per_sec": tokens_per_sec,
         "ttft_p95_ms": _p95(ttft_vals),

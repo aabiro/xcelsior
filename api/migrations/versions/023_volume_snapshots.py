@@ -17,7 +17,6 @@ from typing import Sequence, Union
 
 from alembic import op
 
-
 revision: str = "023"
 down_revision: Union[str, None] = "022"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -25,8 +24,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS volume_snapshots (
             snapshot_id TEXT PRIMARY KEY,
             volume_id TEXT NOT NULL REFERENCES volumes(volume_id),
@@ -37,8 +35,7 @@ def upgrade() -> None:
             created_at DOUBLE PRECISION NOT NULL,
             deleted_at DOUBLE PRECISION DEFAULT 0
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_volume_snapshots_volume "
         "ON volume_snapshots (volume_id, deleted_at)"

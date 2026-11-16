@@ -27,8 +27,7 @@ def upgrade() -> None:
     op.execute("SET lock_timeout = '5s'")
     op.execute("SET statement_timeout = '5min'")
 
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS scheduler_shadow_decisions (
             decision_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             cycle_id         UUID NOT NULL,
@@ -82,38 +81,29 @@ def upgrade() -> None:
                 OR (compared_at IS NOT NULL AND comparison IS NOT NULL)
             )
         )
-        """
-    )
+        """)
 
     # Comparator work queue: uncompared decisions, oldest snapshot first.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_shadow_decisions_uncompared
         ON scheduler_shadow_decisions (snapshot_at)
         WHERE compared_at IS NULL
-        """
-    )
+        """)
     # Per-job history (dashboards: "what did shadow think about job X").
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_shadow_decisions_job
         ON scheduler_shadow_decisions (job_id, snapshot_at DESC)
-        """
-    )
+        """)
     # One scheduling cycle's full decision set.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_shadow_decisions_cycle
         ON scheduler_shadow_decisions (cycle_id)
-        """
-    )
+        """)
     # Retention pruning + mismatch-rate windows.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_shadow_decisions_created
         ON scheduler_shadow_decisions (created_at)
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

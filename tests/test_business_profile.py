@@ -321,7 +321,9 @@ def test_business_profile_round_trip(client):
 
         # Back to a personal account: the logo is hidden, not deleted, and the
         # public fields are kept for when the account becomes a business again.
-        personal = client.patch("/api/auth/me", json={"account_type": "individual"}, headers=headers)
+        personal = client.patch(
+            "/api/auth/me", json={"account_type": "individual"}, headers=headers
+        )
         assert personal.status_code == 200, personal.text[:300]
         me = _me(client, headers)
         assert me["business_logo_url"] is None
@@ -337,7 +339,11 @@ def test_business_profile_round_trip(client):
         )
         assert cleared.status_code == 200
         me = _me(client, headers)
-        assert (me["business_display_name"], me["business_website"], me["business_tagline"]) == ("", "", "")
+        assert (me["business_display_name"], me["business_website"], me["business_tagline"]) == (
+            "",
+            "",
+            "",
+        )
     finally:
         removed = client.delete("/api/auth/me/business-logo", headers=headers)
     assert removed.status_code == 200
@@ -377,7 +383,9 @@ def test_settings_save_route_echoes_what_it_stored(client):
     assert me["business_website"] == "https://northlabs.example.com"
 
     refused = client.put(
-        "/api/auth/me/profile", json={"business_website": "ftp://northlabs.example.com"}, headers=headers
+        "/api/auth/me/profile",
+        json={"business_website": "ftp://northlabs.example.com"},
+        headers=headers,
     )
     assert refused.status_code == 422
     assert "https://" in refused.json().get("detail", refused.text)

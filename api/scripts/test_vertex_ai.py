@@ -6,13 +6,16 @@ from dotenv import load_dotenv
 from google import genai
 from google.oauth2.credentials import Credentials
 
+
 def main():
     # Load .env file
-    dotenv_path = Path(__file__).resolve().parent.parent / '.env'
+    dotenv_path = Path(__file__).resolve().parent.parent / ".env"
     load_dotenv(dotenv_path=dotenv_path)
 
     # Check for dry run
-    DRY_RUN = os.environ.get("DRY_RUN", "0").lower() in ("1", "true", "yes") or "--dry-run" in sys.argv
+    DRY_RUN = (
+        os.environ.get("DRY_RUN", "0").lower() in ("1", "true", "yes") or "--dry-run" in sys.argv
+    )
 
     try:
         token = os.environ.get("VERTEX_OAUTH_TOKEN")
@@ -34,7 +37,9 @@ def main():
         print(f"Loaded explicit OAuth Credentials with quota project: {project}")
 
         # Initialize Vertex GenAI client
-        client = genai.Client(vertexai=True, project=project, location="us-central1", credentials=creds)
+        client = genai.Client(
+            vertexai=True, project=project, location="us-central1", credentials=creds
+        )
 
         print("\n=== [Retrieving Vertex AI Foundational Models via GenAI SDK] ===")
         models = client.models.list()
@@ -51,6 +56,7 @@ def main():
 
     except Exception as e:
         print(f"Error querying Vertex AI: {e}", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()

@@ -100,9 +100,7 @@ def main() -> int:
     customer_id = _customer_id()
     ve = get_volume_engine()
     volumes = [
-        v
-        for v in ve.list_volumes(customer_id)
-        if v.get("status") in ("available", "attached")
+        v for v in ve.list_volumes(customer_id) if v.get("status") in ("available", "attached")
     ]
 
     tick_result: dict | None = None

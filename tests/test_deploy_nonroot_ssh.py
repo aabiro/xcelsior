@@ -37,7 +37,7 @@ def test_remote_shell_preserves_quoting_and_stdin(tmp_path, user, stdin_script):
             'ssh() { test "$1" = "$REMOTE_USER@test-host"; shift; if [[ $# -eq 0 ]]; then bash -s; else bash -c "$*"; fi; }',
             'sudo() { test "$1" = -n; shift; printf used > "$SUDO_TRACE"; "$@"; }',
             "export -f sudo",
-            'ssh_cmd_host test-host' + ('' if stdin_script else ' "$REMOTE_PAYLOAD"'),
+            "ssh_cmd_host test-host" + ("" if stdin_script else ' "$REMOTE_PAYLOAD"'),
         ]
     )
     result = subprocess.run(

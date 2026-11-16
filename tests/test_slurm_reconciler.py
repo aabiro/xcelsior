@@ -297,8 +297,12 @@ class TestWhenAJobIsFinished:
         # time) skipped it on both sides and could not see a requeue at all.
         xid = cluster(305)
         runs = [
-            cluster.a("305", "REQUEUED", submit=1794000000, start=1794000000, end=1794000075, elapsed=75),
-            cluster.a("305", "COMPLETED", submit=1794000077, start=1794000090, end=1794000391, elapsed=301),
+            cluster.a(
+                "305", "REQUEUED", submit=1794000000, start=1794000000, end=1794000075, elapsed=75
+            ),
+            cluster.a(
+                "305", "COMPLETED", submit=1794000077, start=1794000090, end=1794000391, elapsed=301
+            ),
         ]
         run_pass(cluster, FakeCluster(squeue=[], sacct=runs))
         with pg_connection() as conn:

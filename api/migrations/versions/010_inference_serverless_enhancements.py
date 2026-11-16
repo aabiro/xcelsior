@@ -8,6 +8,7 @@ Revision ID: 010
 Revises: 009
 Create Date: 2025-06-09
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -25,7 +26,9 @@ def upgrade() -> None:
 
     # Serverless inference endpoint enhancements
     if inspector.has_table("inference_endpoints"):
-        endpoint_columns = {column["name"] for column in inspector.get_columns("inference_endpoints")}
+        endpoint_columns = {
+            column["name"] for column in inspector.get_columns("inference_endpoints")
+        }
         if "docker_image" not in endpoint_columns:
             op.add_column(
                 "inference_endpoints",

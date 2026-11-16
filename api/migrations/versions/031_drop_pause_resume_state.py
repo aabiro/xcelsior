@@ -11,6 +11,7 @@ Revision ID: 031
 Revises: 030
 Create Date: 2025-01-21
 """
+
 from alembic import op
 
 revision = "031"
@@ -20,8 +21,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         UPDATE jobs
         SET status = 'stopped',
             payload = jsonb_set(
@@ -34,15 +34,13 @@ def upgrade() -> None:
                 true
             )
         WHERE status IN ('user_paused', 'paused_low_balance');
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
     # Best-effort reverse: instances that carry stop_reason get mapped back.
     # Stopped rows without a reason stay as 'stopped'.
-    op.execute(
-        """
+    op.execute("""
         UPDATE jobs
         SET status = CASE
             WHEN payload->>'stop_reason' = 'low_balance' THEN 'paused_low_balance'
@@ -50,5 +48,4 @@ def downgrade() -> None:
             ELSE status
         END
         WHERE status = 'stopped' AND payload ? 'stop_reason';
-        """
-    )
+        """)

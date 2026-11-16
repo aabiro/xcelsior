@@ -57,7 +57,13 @@ def _mount_smoke(host: str, ssh_user: str, ssh_key: str) -> int:
 
     err = (proc.stderr or proc.stdout or "")[:300]
     unreachable = any(
-        s in err for s in ("Connection refused", "No route to host", "Could not resolve", "Connection timed out")
+        s in err
+        for s in (
+            "Connection refused",
+            "No route to host",
+            "Could not resolve",
+            "Connection timed out",
+        )
     )
     if unreachable:
         print(f"worker-mount ({target}): SKIP — host unreachable (optional worker not registered)")

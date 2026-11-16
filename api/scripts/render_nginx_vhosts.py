@@ -89,7 +89,7 @@ def set_live(text: str, upstream: str, live: int, standby: int) -> str:
     primaries = re.findall(r"^\s*server\s+[^;]*;", body, re.M)
     if sum(1 for s in primaries if "backup" not in s) != 1:
         raise ValueError(f"upstream {upstream} must have exactly one primary server")
-    return text[: m.start(2)] + body + text[m.end(2):]
+    return text[: m.start(2)] + body + text[m.end(2) :]
 
 
 def render(text: str, *, topology: str, api_live: str, mcp_live: str) -> str:
@@ -115,13 +115,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--mcp-live", choices=("green", "blue"), required=True)
     args = ap.parse_args(argv)
     args.dst.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(pathlib.Path(__file__).with_name("check_ingress_policy.py"), args.dst / "check_ingress_policy.py")
+    shutil.copyfile(
+        pathlib.Path(__file__).with_name("check_ingress_policy.py"),
+        args.dst / "check_ingress_policy.py",
+    )
     for name in VHOSTS:
         src = args.src / f"{name}.conf"
         if not src.is_file():
             print(f"missing {src}", file=sys.stderr)
             return 1
-        out = render(src.read_text(), topology=args.topology, api_live=args.api_live, mcp_live=args.mcp_live)
+        out = render(
+            src.read_text(), topology=args.topology, api_live=args.api_live, mcp_live=args.mcp_live
+        )
         (args.dst / f"{name}.conf").write_text(out)
     return 0
 

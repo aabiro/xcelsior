@@ -56,8 +56,7 @@ def upgrade() -> None:
     # expand ALTERs below assume the table exists. CREATE IF NOT EXISTS is
     # a no-op on already-bootstrapped environments (same pattern as
     # migration 030 for gpu_pricing).
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS agent_commands (
             id BIGSERIAL PRIMARY KEY,
             host_id TEXT NOT NULL,
@@ -71,15 +70,12 @@ def upgrade() -> None:
             created_by TEXT,
             result JSONB
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_agent_commands_host_pending
         ON agent_commands (host_id, status, created_at)
         WHERE status = 'pending'
-        """
-    )
+        """)
 
     # ── agent_commands: claim/ACK lifecycle (expand in place) ────────
     # Stable identity for the v2 protocol; the legacy BIGSERIAL id stays
@@ -88,8 +84,7 @@ def upgrade() -> None:
         "ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS command_id UUID "
         "NOT NULL DEFAULT gen_random_uuid()"
     )
-    op.execute(
-        """
+    op.execute("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -101,8 +96,7 @@ def upgrade() -> None:
                     ADD CONSTRAINT uq_agent_commands_command_id UNIQUE (command_id);
             END IF;
         END$$;
-        """
-    )
+        """)
     # Authority references (§11.1 payload): which attempt/fence this
     # command belongs to. NULL for legacy admin commands.
     op.execute("ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS job_id TEXT")
@@ -111,16 +105,13 @@ def upgrade() -> None:
     op.execute("ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS spec_hash TEXT")
     # Delivery scheduling.
     op.execute(
-        "ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS priority INTEGER "
-        "NOT NULL DEFAULT 0"
+        "ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS priority INTEGER " "NOT NULL DEFAULT 0"
     )
     op.execute("ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS not_before TIMESTAMPTZ")
     # Claim ownership (claimed → pending redelivery on claim expiry).
     op.execute("ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS claim_owner TEXT")
     op.execute("ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS claim_session TEXT")
-    op.execute(
-        "ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS claim_expires_at TIMESTAMPTZ"
-    )
+    op.execute("ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS claim_expires_at TIMESTAMPTZ")
     # Bounded retry budget.
     op.execute(
         "ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS attempt_count INTEGER "
@@ -130,9 +121,7 @@ def upgrade() -> None:
         "ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS max_attempts INTEGER "
         "NOT NULL DEFAULT 5"
     )
-    op.execute(
-        "ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ"
-    )
+    op.execute("ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ")
     # Idempotency + durable outcome (duplicate ACK returns original result).
     op.execute("ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS idempotency_key TEXT")
     op.execute("ALTER TABLE agent_commands ADD COLUMN IF NOT EXISTS acked_at TIMESTAMPTZ")
@@ -146,8 +135,7 @@ def upgrade() -> None:
     )
 
     status_list = ", ".join(f"'{s}'" for s in COMMAND_STATUSES)
-    op.execute(
-        f"""
+    op.execute(f"""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -160,12 +148,10 @@ def upgrade() -> None:
                     CHECK (status IN ({status_list})) NOT VALID;
             END IF;
         END$$;
-        """
-    )
+        """)
     op.execute("ALTER TABLE agent_commands VALIDATE CONSTRAINT ck_agent_commands_status")
     # A claimed command must say who claimed it and until when.
-    op.execute(
-        """
+    op.execute("""
         DO $$
         BEGIN
             IF NOT EXISTS (
@@ -181,43 +167,33 @@ def upgrade() -> None:
                     ) NOT VALID;
             END IF;
         END$$;
-        """
-    )
-    op.execute(
-        "ALTER TABLE agent_commands VALIDATE CONSTRAINT ck_agent_commands_claim_shape"
-    )
+        """)
+    op.execute("ALTER TABLE agent_commands VALIDATE CONSTRAINT ck_agent_commands_claim_shape")
     # §10.6: duplicate enqueue of the same intent for one host is refused.
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_command_idempotency
         ON agent_commands (host_id, idempotency_key)
         WHERE idempotency_key IS NOT NULL
-        """
-    )
+        """)
     # v2 fetch scan: deliverable work per host in priority order.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_agent_commands_deliverable
         ON agent_commands (host_id, priority DESC, created_at)
         WHERE status = 'pending'
-        """
-    )
+        """)
     # Claim-expiry redelivery sweep.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_agent_commands_claim_expiry
         ON agent_commands (claim_expires_at)
         WHERE status = 'claimed'
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_agent_commands_attempt "
         "ON agent_commands (attempt_id) WHERE attempt_id IS NOT NULL"
     )
 
     # ── outbox_events ────────────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS outbox_events (
             event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             aggregate_type TEXT NOT NULL,
@@ -240,24 +216,20 @@ def upgrade() -> None:
             CONSTRAINT uq_outbox_idempotency
                 UNIQUE (destination_class, idempotency_key)
         )
-        """
-    )
+        """)
     # Dispatcher claim scan: unpublished, not dead-lettered, due now.
-    op.execute(
-        """
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_outbox_dispatch
         ON outbox_events (destination_class, available_at)
         WHERE published_at IS NULL AND dead_lettered_at IS NULL
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_outbox_aggregate "
         "ON outbox_events (aggregate_type, aggregate_id, created_at)"
     )
 
     # ── api_idempotency_keys ─────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS api_idempotency_keys (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             principal TEXT NOT NULL,
@@ -275,16 +247,14 @@ def upgrade() -> None:
             CONSTRAINT uq_api_idempotency
                 UNIQUE (principal, tenant_id, route, idempotency_key)
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_api_idempotency_expiry "
         "ON api_idempotency_keys (expires_at)"
     )
 
     # ── reconciliation_queue (coalesced per resource, §12.3) ─────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS reconciliation_queue (
             resource_type TEXT NOT NULL,
             resource_id TEXT NOT NULL,
@@ -300,18 +270,14 @@ def upgrade() -> None:
             updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
             PRIMARY KEY (resource_type, resource_id)
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_reconciliation_queue_due
         ON reconciliation_queue (due_at, priority DESC)
-        """
-    )
+        """)
 
     # ── reconciliation_findings ──────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS reconciliation_findings (
             finding_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             resource_type TEXT NOT NULL,
@@ -328,15 +294,12 @@ def upgrade() -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
             resolved_at TIMESTAMPTZ
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_reconciliation_findings_open
         ON reconciliation_findings (resource_type, resource_id, created_at)
         WHERE resolved_at IS NULL
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_reconciliation_findings_tenant "
         "ON reconciliation_findings (tenant_id, created_at) "
@@ -344,8 +307,7 @@ def upgrade() -> None:
     )
 
     # ── scheduled_tasks (durable periodic work, §6.1) ────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS scheduled_tasks (
             task_name TEXT PRIMARY KEY,
             enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -361,15 +323,12 @@ def upgrade() -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
         )
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_due
         ON scheduled_tasks (next_run_at)
         WHERE enabled
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
@@ -385,15 +344,9 @@ def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS idx_agent_commands_claim_expiry")
     op.execute("DROP INDEX IF EXISTS idx_agent_commands_deliverable")
     op.execute("DROP INDEX IF EXISTS uq_command_idempotency")
-    op.execute(
-        "ALTER TABLE agent_commands DROP CONSTRAINT IF EXISTS ck_agent_commands_claim_shape"
-    )
-    op.execute(
-        "ALTER TABLE agent_commands DROP CONSTRAINT IF EXISTS ck_agent_commands_status"
-    )
-    op.execute(
-        "ALTER TABLE agent_commands DROP CONSTRAINT IF EXISTS uq_agent_commands_command_id"
-    )
+    op.execute("ALTER TABLE agent_commands DROP CONSTRAINT IF EXISTS ck_agent_commands_claim_shape")
+    op.execute("ALTER TABLE agent_commands DROP CONSTRAINT IF EXISTS ck_agent_commands_status")
+    op.execute("ALTER TABLE agent_commands DROP CONSTRAINT IF EXISTS uq_agent_commands_command_id")
     for col in (
         "retention_expires_at",
         "trace_id",

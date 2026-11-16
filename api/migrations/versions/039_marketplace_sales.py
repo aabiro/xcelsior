@@ -17,8 +17,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS marketplace_sales (
             session_id           TEXT PRIMARY KEY,
             payment_intent_id    TEXT NOT NULL DEFAULT '',
@@ -30,8 +29,7 @@ def upgrade() -> None:
             event_id             TEXT NOT NULL DEFAULT '',
             created_at           DOUBLE PRECISION NOT NULL DEFAULT 0
         );
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_marketplace_sales_dest "
         "ON marketplace_sales (destination_account);"

@@ -426,9 +426,11 @@ def test_sync_persists_the_observation(own_cluster):
     changes = slurm_adapter.sync_slurm_statuses()
 
     assert (job_id, "9200", "pending", "running") in changes
-    assert _state(job_id) == ("running", False, True), (
-        "persisted, not terminal, and last_observed_at reflects real freshness"
-    )
+    assert _state(job_id) == (
+        "running",
+        False,
+        True,
+    ), "persisted, not terminal, and last_observed_at reflects real freshness"
 
 
 def test_terminal_mapping_is_retained_not_deleted(own_cluster):

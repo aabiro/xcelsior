@@ -46,8 +46,7 @@ def upgrade() -> None:
         # NULL means "not pinned" (a normal API client). A value means every
         # grant for this client must target exactly that resource.
         "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS resource_audience TEXT",
-        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS registration_expires_at "
-        "TIMESTAMPTZ",
+        "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS registration_expires_at " "TIMESTAMPTZ",
         "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS client_uri TEXT",
         "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS logo_uri TEXT",
         "ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS policy_uri TEXT",
@@ -59,12 +58,10 @@ def upgrade() -> None:
     ):
         op.execute(stmt)
 
-    op.execute(
-        """
+    op.execute("""
         UPDATE oauth_clients SET registration_source = 'first_party'
          WHERE is_first_party = 1 AND registration_source = 'manual'
-        """
-    )
+        """)
     # The sweep of expired, never-used dynamic registrations has to be an index
     # scan; without this it is a sequential scan of every client on the platform.
     op.execute(
@@ -74,8 +71,7 @@ def upgrade() -> None:
     )
 
     # ── oauth_consent_grants ──────────────────────────────────────────
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS oauth_consent_grants (
             grant_id TEXT PRIMARY KEY,
             tenant_id TEXT NOT NULL,
@@ -96,8 +92,7 @@ def upgrade() -> None:
             last_used_at TIMESTAMPTZ,
             revoked_at TIMESTAMPTZ
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_oauth_consent_grants_principal "
         "ON oauth_consent_grants (user_id, client_id, resource)"
@@ -127,8 +122,7 @@ def downgrade() -> None:
     # interpolated into DDL is the shape `tests/test_sql_injection_guard.py`
     # exists to keep out of the codebase, and there is no reason for a
     # migration to be the exception that teaches the pattern.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE oauth_clients
             DROP COLUMN IF EXISTS registration_source,
             DROP COLUMN IF EXISTS resource_audience,
@@ -140,5 +134,4 @@ def downgrade() -> None:
             DROP COLUMN IF EXISTS software_id,
             DROP COLUMN IF EXISTS software_version,
             DROP COLUMN IF EXISTS contacts
-        """
-    )
+        """)

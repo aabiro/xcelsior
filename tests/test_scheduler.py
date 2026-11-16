@@ -538,6 +538,7 @@ class TestPriorityTiers:
         assert [tiers[t]["priority"] for t in ("standard", "premium", "dedicated")] == [1, 2, 3]
         assert tiers["dedicated"]["scope"] == "physical_host"
 
+
 # ── Phase 17: Marketplace ───────────────────────────────────────────
 
 

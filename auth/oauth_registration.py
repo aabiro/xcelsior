@@ -326,8 +326,10 @@ def _fetch_cimd_document(client_id: str) -> dict[str, Any]:
         if urlsplit(client_id).scheme != "https":
             raise PublicHTTPError("client metadata requires HTTPS")
         response = public_request(
-            client_id, headers={"Accept": "application/json"},
-            timeout=CIMD_FETCH_TIMEOUT_SEC, max_response_bytes=CIMD_MAX_DOCUMENT_BYTES,
+            client_id,
+            headers={"Accept": "application/json"},
+            timeout=CIMD_FETCH_TIMEOUT_SEC,
+            max_response_bytes=CIMD_MAX_DOCUMENT_BYTES,
         )
     except (PublicHTTPError, ValueError):
         raise OAuthGrantError(

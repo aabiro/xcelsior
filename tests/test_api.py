@@ -2757,9 +2757,13 @@ class TestGpuAvailability:
         assert data["gpus"] == []
         assert data["source"] == "none"
         assert data["capacity"] == {
-            "hosts_online": 0, "hosts_ready": 0,
-            "gpus_total": 0, "gpus_available": 0, "gpus_allocated": 0,
-            "gpus_held": 0, "gpus_unavailable": 0,
+            "hosts_online": 0,
+            "hosts_ready": 0,
+            "gpus_total": 0,
+            "gpus_available": 0,
+            "gpus_allocated": 0,
+            "gpus_held": 0,
+            "gpus_unavailable": 0,
         }
         assert data["inventory"] == []
 
@@ -2773,9 +2777,13 @@ class TestGpuAvailability:
         data = client.get("/api/v2/gpu/available").json()
         assert data["gpus"] == []
         assert data["capacity"] == {
-            "hosts_online": 2, "hosts_ready": 2,
-            "gpus_total": 2, "gpus_available": 0, "gpus_allocated": 2,
-            "gpus_held": 0, "gpus_unavailable": 0,
+            "hosts_online": 2,
+            "hosts_ready": 2,
+            "gpus_total": 2,
+            "gpus_available": 0,
+            "gpus_allocated": 2,
+            "gpus_held": 0,
+            "gpus_unavailable": 0,
         }
         assert sum(row["count_allocated"] for row in data["inventory"]) == 2
         assert {row["region"] for row in data["inventory"]} == {"ca-on", "ca-bc"}

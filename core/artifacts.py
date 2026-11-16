@@ -505,9 +505,7 @@ class StorageClient:
         except Exception as exc:
             if _provider_error_code(exc) in _NOT_FOUND_CODES:
                 raise FileNotFoundError(key) from exc
-            raise StorageUnavailable(
-                f"GET {key} failed on {self.config.backend}: {exc}"
-            ) from exc
+            raise StorageUnavailable(f"GET {key} failed on {self.config.backend}: {exc}") from exc
 
     def delete_object(self, key: str) -> bool:
         """Delete an artifact."""
@@ -1120,7 +1118,11 @@ class ArtifactManager:
         if not caller or str(stored_principal or "").strip() != caller:
             raise PermissionError("not your upload")
 
-        client = self.cache if catalog_text(provider) == StorageBackend.R2.value and self.cache else self.primary
+        client = (
+            self.cache
+            if catalog_text(provider) == StorageBackend.R2.value and self.cache
+            else self.primary
+        )
         client.put_object(key, data, content_type or "application/octet-stream")
         with control_plane_transaction() as conn:
             conn.execute(
@@ -1135,7 +1137,9 @@ class ArtifactManager:
             "size_bytes": len(data),
         }
 
-    def read_artifact_bytes(self, artifact_id: str, *, authorize: Callable) -> tuple[bytes, str, str]:
+    def read_artifact_bytes(
+        self, artifact_id: str, *, authorize: Callable
+    ) -> tuple[bytes, str, str]:
         """Bytes of an available artifact, after ``authorize`` accepts it."""
         located = self.request_download_by_id(artifact_id, authorize=authorize)
         key = located["key"]

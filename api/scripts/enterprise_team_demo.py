@@ -88,7 +88,7 @@ def _register(session: requests.Session, base: str, label: str) -> dict:
     if login.status_code != 200:
         raise RuntimeError(f"login {label}: {login.status_code} {login.text[:200]}")
     body = login.json()
-    user = (reg_body.get("user") or body.get("user") or {})
+    user = reg_body.get("user") or body.get("user") or {}
     token = body.get("access_token") or reg_body.get("access_token")
     if not token:
         raise RuntimeError(f"register {label}: no access_token in register/login response")
@@ -103,7 +103,9 @@ def _register(session: requests.Session, base: str, label: str) -> dict:
 def _session_for(base: str, email: str, password: str) -> tuple[requests.Session, dict]:
     s = requests.Session()
     s.headers["Content-Type"] = "application/json"
-    login = s.post(f"{base}/api/auth/login", json={"email": email, "password": password}, timeout=30)
+    login = s.post(
+        f"{base}/api/auth/login", json={"email": email, "password": password}, timeout=30
+    )
     if login.status_code != 200:
         raise RuntimeError(f"login failed: {login.status_code} {login.text[:200]}")
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
@@ -112,8 +114,12 @@ def _session_for(base: str, email: str, password: str) -> tuple[requests.Session
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Enterprise team tenancy API demo")
-    parser.add_argument("--base-url", default=None, help="API base (default: AUDIT_BASE or localhost)")
-    parser.add_argument("--json", action="store_true", help="Print machine-readable summary on success")
+    parser.add_argument(
+        "--base-url", default=None, help="API base (default: AUDIT_BASE or localhost)"
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Print machine-readable summary on success"
+    )
     args = parser.parse_args()
 
     cfg = _load_cfg()

@@ -54,8 +54,7 @@ def _month_bounds(start: _dt.date, offset: int) -> tuple[str, str, str]:
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS audit_events_v2 (
             event_id         UUID NOT NULL DEFAULT gen_random_uuid(),
             tenant_id        TEXT,
@@ -76,19 +75,16 @@ def upgrade() -> None:
             PRIMARY KEY (event_id, created_at),
             UNIQUE (stream_id, stream_sequence, created_at)
         ) PARTITION BY RANGE (created_at)
-        """
-    )
+        """)
 
     today = _dt.date.today().replace(day=1)
     for offset in range(_INITIAL_PARTITION_MONTHS):
         suffix, frm, to = _month_bounds(today, offset)
-        op.execute(
-            f"""
+        op.execute(f"""
             CREATE TABLE IF NOT EXISTS audit_events_v2_{suffix}
             PARTITION OF audit_events_v2
             FOR VALUES FROM ('{frm}') TO ('{to}')
-            """
-        )
+            """)
     # Safety net: a write beyond the pre-created range lands here (and pages via
     # the partition-lag metric) instead of failing the append.
     op.execute(
@@ -110,23 +106,19 @@ def upgrade() -> None:
 
     # WORM: reject any row UPDATE/DELETE. Partition drops (retention) are DDL and
     # are unaffected.
-    op.execute(
-        """
+    op.execute("""
         CREATE OR REPLACE FUNCTION audit_events_v2_immutable() RETURNS trigger AS $$
         BEGIN
             RAISE EXCEPTION 'audit_events_v2 is append-only (WORM); % is not permitted', TG_OP
                 USING ERRCODE = 'restrict_violation';
         END;
         $$ LANGUAGE plpgsql
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE TRIGGER trg_audit_events_v2_immutable
             BEFORE UPDATE OR DELETE ON audit_events_v2
             FOR EACH ROW EXECUTE FUNCTION audit_events_v2_immutable()
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

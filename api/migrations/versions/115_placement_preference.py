@@ -69,85 +69,67 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE jobs
           ADD COLUMN IF NOT EXISTS placement_min_uptime_bps INTEGER,
           ADD COLUMN IF NOT EXISTS placement_min_tier TEXT,
           ADD COLUMN IF NOT EXISTS placement_require_verified BOOLEAN NOT NULL DEFAULT FALSE,
           ADD COLUMN IF NOT EXISTS placement_max_premium_bps INTEGER
-        """
-    )
+        """)
 
     # 0–100% expressed in basis points. Out of range is a caller bug, and the
     # database is the only place that catches it for every writer at once.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE jobs
           DROP CONSTRAINT IF EXISTS ck_jobs_placement_min_uptime_bps_range
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         ALTER TABLE jobs
           ADD CONSTRAINT ck_jobs_placement_min_uptime_bps_range
           CHECK (placement_min_uptime_bps IS NULL
                  OR (placement_min_uptime_bps >= 0 AND placement_min_uptime_bps <= 10000))
-        """
-    )
+        """)
 
     # A premium bound is unbounded above in principle; the API caps the request
     # at 10,000% and the schema agrees rather than trusting one validator.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE jobs
           DROP CONSTRAINT IF EXISTS ck_jobs_placement_max_premium_bps_range
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         ALTER TABLE jobs
           ADD CONSTRAINT ck_jobs_placement_max_premium_bps_range
           CHECK (placement_max_premium_bps IS NULL
                  OR (placement_max_premium_bps >= 0
                      AND placement_max_premium_bps <= 100000000))
-        """
-    )
+        """)
 
     # Shape, not vocabulary — see the module docstring. An empty string is a
     # caller that meant NULL and said something else; refuse it here so the
     # scheduler never has to decide what `''` means.
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE jobs
           DROP CONSTRAINT IF EXISTS ck_jobs_placement_min_tier_shape
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         ALTER TABLE jobs
           ADD CONSTRAINT ck_jobs_placement_min_tier_shape
           CHECK (placement_min_tier IS NULL
                  OR placement_min_tier ~ '^[a-z][a-z_]{0,31}$')
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         ALTER TABLE jobs
           DROP CONSTRAINT IF EXISTS ck_jobs_placement_min_uptime_bps_range,
           DROP CONSTRAINT IF EXISTS ck_jobs_placement_max_premium_bps_range,
           DROP CONSTRAINT IF EXISTS ck_jobs_placement_min_tier_shape
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         ALTER TABLE jobs
           DROP COLUMN IF EXISTS placement_min_uptime_bps,
           DROP COLUMN IF EXISTS placement_min_tier,
           DROP COLUMN IF EXISTS placement_require_verified,
           DROP COLUMN IF EXISTS placement_max_premium_bps
-        """
-    )
+        """)

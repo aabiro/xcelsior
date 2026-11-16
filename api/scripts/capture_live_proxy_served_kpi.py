@@ -20,9 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-SCRATCH = Path(
-    os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer")
-)
+SCRATCH = Path(os.environ.get("XCELSIOR_GOAL_SCRATCH", "/tmp/grok-goal-6f86c7cfe9c2/implementer"))
 
 
 def main() -> int:
@@ -71,9 +69,7 @@ def main() -> int:
     total_cached = 0
     errors: list[str] = []
     # Short prompts for live vLLM (max_model_len may be 512); warm + repeat for prefix hits.
-    shared_system = (
-        "You are the Xcelsior fleet status assistant. Reply in one short sentence."
-    )
+    shared_system = "You are the Xcelsior fleet status assistant. Reply in one short sentence."
     base_prompts = [
         {
             "messages": [

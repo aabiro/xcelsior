@@ -28,8 +28,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
-    op.execute(
-        """
+    op.execute("""
         CREATE TABLE IF NOT EXISTS volume_promotion_files (
             promotion_id     TEXT NOT NULL,
             -- Denormalised from the promotion. Ledger rule 9 / companion
@@ -58,8 +57,7 @@ def upgrade() -> None:
                 state <> 'done' OR sha256_verified
             )
         )
-        """
-    )
+        """)
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_promotion_files_tenant "
         "ON volume_promotion_files (tenant_id, promotion_id, state)"

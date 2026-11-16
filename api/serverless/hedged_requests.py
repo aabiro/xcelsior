@@ -59,7 +59,10 @@ def dispatch_hedge(
         wid = str(w.get("worker_id") or "")
         if wid == primary:
             continue
-        if str(w.get("state") or "") in ("ready", "idle") and int(w.get("current_concurrency") or 0) == 0:
+        if (
+            str(w.get("state") or "") in ("ready", "idle")
+            and int(w.get("current_concurrency") or 0) == 0
+        ):
             secondary = w
             break
     if not secondary:

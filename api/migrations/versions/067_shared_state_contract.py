@@ -64,7 +64,12 @@ depends_on: Union[str, Sequence[str], None] = None
 LN_STATUSES = ("pending", "paid", "credited", "expired", "failed")
 SLURM_DESIRED = ("running", "cancelled")
 SLURM_OBSERVED = (
-    "pending", "running", "completed", "failed", "cancelled", "unknown",
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    "unknown",
 )
 
 
@@ -85,14 +90,10 @@ def _upgrade_ln_deposits() -> None:
         "ALTER TABLE ln_deposits ADD COLUMN IF NOT EXISTS currency CHAR(3) "
         "NOT NULL DEFAULT 'CAD'"
     )
-    op.execute(
-        "ALTER TABLE ln_deposits ADD COLUMN IF NOT EXISTS wallet_ledger_entry_id TEXT"
-    )
+    op.execute("ALTER TABLE ln_deposits ADD COLUMN IF NOT EXISTS wallet_ledger_entry_id TEXT")
 
     # Transitional tenancy projection, same rule as migration 054 for jobs.
-    op.execute(
-        "UPDATE ln_deposits SET tenant_id = customer_id WHERE tenant_id IS NULL"
-    )
+    op.execute("UPDATE ln_deposits SET tenant_id = customer_id WHERE tenant_id IS NULL")
 
     bind = op.get_bind()
     unprojected = bind.execute(
@@ -107,21 +108,13 @@ def _upgrade_ln_deposits() -> None:
     # A payment hash identifies one provider payment. Duplicates would let
     # two deposit rows credit one payment, so surface them rather than
     # letting the index creation fail with an opaque error.
-    dupes = (
-        bind.execute(
-            sa.text(
-                """
+    dupes = bind.execute(sa.text("""
                 SELECT payment_hash, count(*) AS n
                   FROM ln_deposits
                  GROUP BY payment_hash
                 HAVING count(*) > 1
                  LIMIT 10
-                """
-            )
-        )
-        .mappings()
-        .all()
-    )
+                """)).mappings().all()
     if dupes:
         raise RuntimeError(
             f"migration 067: ln_deposits has duplicate payment_hash values "
@@ -139,20 +132,17 @@ def _upgrade_ln_deposits() -> None:
     )
 
     statuses = ", ".join(f"'{s}'" for s in LN_STATUSES)
-    op.execute(
-        f"""
+    op.execute(f"""
         ALTER TABLE ln_deposits
         ADD CONSTRAINT ck_ln_deposits_status
         CHECK (status IN ({statuses})) NOT VALID
-        """
-    )
+        """)
     op.execute("ALTER TABLE ln_deposits VALIDATE CONSTRAINT ck_ln_deposits_status")
 
     # Immutable payment terms. A settled deposit's amount, currency, payer,
     # payment hash, and expiry are what the customer paid against; an
     # UPDATE that edits them rewrites history under a completed payment.
-    op.execute(
-        """
+    op.execute("""
         CREATE OR REPLACE FUNCTION ln_deposits_guard_immutable()
         RETURNS trigger AS $$
         BEGIN
@@ -170,18 +160,15 @@ def _upgrade_ln_deposits() -> None:
             RETURN NEW;
         END
         $$ LANGUAGE plpgsql
-        """
-    )
+        """)
     op.execute("DROP TRIGGER IF EXISTS trg_ln_deposits_immutable ON ln_deposits")
     # AFTER the projection trigger (066) alphabetically, so the typed
     # columns are already populated when this compares them.
-    op.execute(
-        """
+    op.execute("""
         CREATE TRIGGER trg_ln_deposits_immutable
         BEFORE UPDATE ON ln_deposits
         FOR EACH ROW EXECUTE FUNCTION ln_deposits_guard_immutable()
-        """
-    )
+        """)
 
 
 # ─────────────────────── slurm_job_mappings ───────────────────────
@@ -206,8 +193,7 @@ def _upgrade_slurm_mappings() -> None:
     # Backfill legacy rows into the contract shape. `cluster_id` has no
     # legacy source — 'unknown' is honest and keeps the composite unique
     # index meaningful for rows written from now on.
-    op.execute(
-        """
+    op.execute("""
         UPDATE slurm_job_mappings
            SET cluster_id = COALESCE(cluster_id, 'unknown'),
                desired_state = COALESCE(desired_state, 'running'),
@@ -221,25 +207,16 @@ def _upgrade_slurm_mappings() -> None:
                submit_idempotency_key = COALESCE(
                    submit_idempotency_key, 'legacy:' || xcelsior_job_id
                )
-        """
-    )
+        """)
 
     bind = op.get_bind()
-    dupes = (
-        bind.execute(
-            sa.text(
-                """
+    dupes = bind.execute(sa.text("""
                 SELECT cluster_id, slurm_job_id, count(*) AS n
                   FROM slurm_job_mappings
                  GROUP BY cluster_id, slurm_job_id
                 HAVING count(*) > 1
                  LIMIT 10
-                """
-            )
-        )
-        .mappings()
-        .all()
-    )
+                """)).mappings().all()
     if dupes:
         raise RuntimeError(
             f"migration 067: slurm_job_mappings maps one external job to "
@@ -269,26 +246,18 @@ def _upgrade_slurm_mappings() -> None:
 
     desired = ", ".join(f"'{s}'" for s in SLURM_DESIRED)
     observed = ", ".join(f"'{s}'" for s in SLURM_OBSERVED)
-    op.execute(
-        f"""
+    op.execute(f"""
         ALTER TABLE slurm_job_mappings
         ADD CONSTRAINT ck_slurm_desired_state
         CHECK (desired_state IS NULL OR desired_state IN ({desired})) NOT VALID
-        """
-    )
-    op.execute(
-        "ALTER TABLE slurm_job_mappings VALIDATE CONSTRAINT ck_slurm_desired_state"
-    )
-    op.execute(
-        f"""
+        """)
+    op.execute("ALTER TABLE slurm_job_mappings VALIDATE CONSTRAINT ck_slurm_desired_state")
+    op.execute(f"""
         ALTER TABLE slurm_job_mappings
         ADD CONSTRAINT ck_slurm_observed_state
         CHECK (observed_state IS NULL OR observed_state IN ({observed})) NOT VALID
-        """
-    )
-    op.execute(
-        "ALTER TABLE slurm_job_mappings VALIDATE CONSTRAINT ck_slurm_observed_state"
-    )
+        """)
+    op.execute("ALTER TABLE slurm_job_mappings VALIDATE CONSTRAINT ck_slurm_observed_state")
 
 
 def downgrade() -> None:
@@ -317,15 +286,19 @@ def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS uq_slurm_attempt")
     op.execute("DROP INDEX IF EXISTS uq_slurm_submit_idempotency")
     op.execute("DROP INDEX IF EXISTS idx_slurm_open")
-    op.execute(
-        "ALTER TABLE slurm_job_mappings DROP CONSTRAINT IF EXISTS ck_slurm_desired_state"
-    )
-    op.execute(
-        "ALTER TABLE slurm_job_mappings DROP CONSTRAINT IF EXISTS ck_slurm_observed_state"
-    )
+    op.execute("ALTER TABLE slurm_job_mappings DROP CONSTRAINT IF EXISTS ck_slurm_desired_state")
+    op.execute("ALTER TABLE slurm_job_mappings DROP CONSTRAINT IF EXISTS ck_slurm_observed_state")
     for col in (
-        "tenant_id", "cluster_id", "xcelsior_attempt_id", "desired_state",
-        "observed_state", "submit_idempotency_key", "version", "submitted_at",
-        "last_observed_at", "terminal_at", "metadata",
+        "tenant_id",
+        "cluster_id",
+        "xcelsior_attempt_id",
+        "desired_state",
+        "observed_state",
+        "submit_idempotency_key",
+        "version",
+        "submitted_at",
+        "last_observed_at",
+        "terminal_at",
+        "metadata",
     ):
         op.execute(f"ALTER TABLE slurm_job_mappings DROP COLUMN IF EXISTS {col}")

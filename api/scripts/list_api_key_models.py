@@ -5,13 +5,16 @@ from pathlib import Path
 from dotenv import load_dotenv
 from google import genai
 
+
 def main():
     # Load .env file
-    dotenv_path = Path(__file__).resolve().parent.parent / '.env'
+    dotenv_path = Path(__file__).resolve().parent.parent / ".env"
     load_dotenv(dotenv_path=dotenv_path)
 
     # Check for dry run
-    DRY_RUN = os.environ.get("DRY_RUN", "0").lower() in ("1", "true", "yes") or "--dry-run" in sys.argv
+    DRY_RUN = (
+        os.environ.get("DRY_RUN", "0").lower() in ("1", "true", "yes") or "--dry-run" in sys.argv
+    )
 
     try:
         api_key = os.environ.get("GEMINI_API_KEY")
@@ -33,14 +36,15 @@ def main():
         print("\n=== [AVAILABLE MODELS] ===")
         for model in models:
             # Let's dynamically print attributes that exist
-            name = getattr(model, 'name', 'N/A')
-            display_name = getattr(model, 'display_name', 'N/A')
+            name = getattr(model, "name", "N/A")
+            display_name = getattr(model, "display_name", "N/A")
             print(f"- Name: {name}")
             print(f"  Display Name: {display_name}")
             print("-" * 40)
 
     except Exception as e:
         print(f"Failed to list models: {e}", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()

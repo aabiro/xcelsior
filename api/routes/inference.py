@@ -56,26 +56,31 @@ class InferenceRequest(BaseModel):
 def _submit_priced_inference(*, model: str, owner: str, gpu_model: str = "any"):
     """Resolve an automatic request to a real Stripe SKU before admission."""
     from db import pg_connection
-    from service_tier_pricing import TierPricingUnavailable, TierFundingRequired, TierSchedulingUnavailable
+    from service_tier_pricing import (
+        TierPricingUnavailable,
+        TierFundingRequired,
+        TierSchedulingUnavailable,
+    )
 
     price_id = None
     if gpu_model.strip().lower() in ("", "any"):
         with pg_connection() as conn:
-            row = conn.execute(
-                """SELECT p.gpu_model,p.stripe_price_id FROM gpu_pricing p
+            row = conn.execute("""SELECT p.gpu_model,p.stripe_price_id FROM gpu_pricing p
                    JOIN stripe_compute_prices s ON s.stripe_price_id=p.stripe_price_id
                    WHERE p.active AND s.active AND p.tier='standard'
                      AND p.pricing_mode='on_demand' AND p.vram_gb>=2
-                   ORDER BY s.unit_amount_micros,p.vram_gb,p.gpu_model LIMIT 1"""
-            ).fetchone()
+                   ORDER BY s.unit_amount_micros,p.vram_gb,p.gpu_model LIMIT 1""").fetchone()
         if row is None:
             raise HTTPException(503, "No Stripe-priced inference GPU is available")
         gpu_model, price_id = row[0], row[1]
     try:
         return submit_job(
-            name=f"inference:{model.replace('/', '--')}", vram_needed_gb=2,
-            gpu_model=gpu_model, service_tier_price_id=price_id,
-            image=f"xcelsior/inference:{model.replace('/', '--')}", owner=owner,
+            name=f"inference:{model.replace('/', '--')}",
+            vram_needed_gb=2,
+            gpu_model=gpu_model,
+            service_tier_price_id=price_id,
+            image=f"xcelsior/inference:{model.replace('/', '--')}",
+            owner=owner,
         )
     except TierFundingRequired as exc:
         raise HTTPException(402, str(exc)) from exc

@@ -523,7 +523,11 @@ def _catalog_standard(model, mode="on_demand", *, vram_gb=None):
     ]
     row = min(
         rows,
-        key=lambda r: (r["variant"]["vram_gb"], r["variant"]["high_frequency"], r["variant"]["form_factor"]),
+        key=lambda r: (
+            r["variant"]["vram_gb"],
+            r["variant"]["high_frequency"],
+            r["variant"]["form_factor"],
+        ),
     )
     return float(Decimal(row["price"]["unit_amount_decimal"]) / 100), row["price"]["id"]
 
@@ -589,8 +593,12 @@ class TestEstimateCost:
             {"gpu_model": "A100 40GB", "gpu_count": 1, "hours": 1}, _user()
         )
         assert (r80["gpu_model"], r80["vram_gb"]) == ("A100", 80)
-        assert r80["base_rate_cad_per_gpu_hr"] == pytest.approx(_catalog_standard("A100", vram_gb=80)[0])
-        assert r40["base_rate_cad_per_gpu_hr"] == pytest.approx(_catalog_standard("A100", vram_gb=40)[0])
+        assert r80["base_rate_cad_per_gpu_hr"] == pytest.approx(
+            _catalog_standard("A100", vram_gb=80)[0]
+        )
+        assert r40["base_rate_cad_per_gpu_hr"] == pytest.approx(
+            _catalog_standard("A100", vram_gb=40)[0]
+        )
         assert r80["base_rate_cad_per_gpu_hr"] > r40["base_rate_cad_per_gpu_hr"]
 
     def test_spot_selects_the_spot_estimate(self):
@@ -729,7 +737,9 @@ class TestGetPricing:
         from stripe_catalog import load_manifest
 
         result = _TOOL_HANDLERS["get_pricing"]({}, _user())
-        models = {r["variant"]["gpu_model"] for r in load_manifest()["service_tier_catalog"]["prices"]}
+        models = {
+            r["variant"]["gpu_model"] for r in load_manifest()["service_tier_catalog"]["prices"]
+        }
         for gpu in models:
             entry = result["reference_pricing"][gpu]
             assert entry["base_rate_cad"] == pytest.approx(_catalog_standard(gpu)[0]), gpu
@@ -1793,7 +1803,9 @@ class TestToolHandlerIntegration:
         from stripe_catalog import load_manifest
 
         pricing = _TOOL_HANDLERS["get_pricing"]({}, _user())
-        catalog = {r["variant"]["gpu_model"] for r in load_manifest()["service_tier_catalog"]["prices"]}
+        catalog = {
+            r["variant"]["gpu_model"] for r in load_manifest()["service_tier_catalog"]["prices"]
+        }
         for gpu_name in sorted(catalog):
             entry = pricing["reference_pricing"][gpu_name]
             est = _TOOL_HANDLERS["estimate_cost"](

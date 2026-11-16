@@ -21,26 +21,19 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE usage_meters "
-        "ADD COLUMN IF NOT EXISTS attempt_id TEXT NULL"
-    )
+    op.execute("ALTER TABLE usage_meters " "ADD COLUMN IF NOT EXISTS attempt_id TEXT NULL")
     # One terminal usage meter per placement attempt (fenced work).
     # Legacy rows leave attempt_id NULL and are outside this uniqueness.
-    op.execute(
-        """
+    op.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS uq_usage_meters_one_per_attempt
             ON usage_meters (attempt_id)
          WHERE attempt_id IS NOT NULL
-        """
-    )
-    op.execute(
-        """
+        """)
+    op.execute("""
         CREATE INDEX IF NOT EXISTS idx_usage_meters_attempt
             ON usage_meters (attempt_id)
          WHERE attempt_id IS NOT NULL
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

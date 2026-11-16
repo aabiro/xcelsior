@@ -47,7 +47,9 @@ def main() -> int:
 
     record = hf.dns_a_record(settings)
     current = record.get("content")
-    print(f"  {settings.dns_name}: {current} (proxied={record.get('proxied')}, ttl={record.get('ttl')})")
+    print(
+        f"  {settings.dns_name}: {current} (proxied={record.get('proxied')}, ttl={record.get('ttl')})"
+    )
 
     if current == args.target:
         print(f"  already {args.target} — nothing to do")
@@ -64,8 +66,12 @@ def main() -> int:
         return 1
     probe = subprocess.run(
         [
-            "curl", "-s", "--max-time", "15",
-            "--resolve", f"{settings.dns_name}:443:{args.target}",
+            "curl",
+            "-s",
+            "--max-time",
+            "15",
+            "--resolve",
+            f"{settings.dns_name}:443:{args.target}",
             f"https://{settings.dns_name}/health",
         ],
         capture_output=True,
@@ -74,7 +80,9 @@ def main() -> int:
     body = (probe.stdout or "").strip()
     if probe.returncode != 0 or "pass" not in body.lower():
         print(f"  PRE-FLIGHT FAILED: {args.target} cannot serve {settings.dns_name}")
-        print(f"    curl exit={probe.returncode} body={body[:120]!r} err={(probe.stderr or '')[:160]!r}")
+        print(
+            f"    curl exit={probe.returncode} body={body[:120]!r} err={(probe.stderr or '')[:160]!r}"
+        )
         print("  refusing to move the record")
         return 1
     print(f"  pre-flight OK: {args.target} serves {settings.dns_name} with a trusted certificate")
@@ -84,10 +92,11 @@ def main() -> int:
         return 0
 
     result = hf.set_dns_a(settings, args.target).get("result", {})
-    print(f"  CHANGED: {result.get('name')} -> {result.get('content')} "
-          f"(proxied={result.get('proxied')}, ttl={result.get('ttl')})")
+    print(
+        f"  CHANGED: {result.get('name')} -> {result.get('content')} "
+        f"(proxied={result.get('proxied')}, ttl={result.get('ttl')})"
+    )
     return 0
-
 
 
 if __name__ == "__main__":

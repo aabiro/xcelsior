@@ -68,7 +68,12 @@ def test_image_templates():
 def test_exclusive_gpu_launch_is_preserved_for_worker(instance_ctx):
     response = client.post(
         "/instance",
-        json={"name": "exclusive-contract", "vram_needed_gb": 1, "exclusive_gpu": True, "gpu_model": "RTX 4090"},
+        json={
+            "name": "exclusive-contract",
+            "vram_needed_gb": 1,
+            "exclusive_gpu": True,
+            "gpu_model": "RTX 4090",
+        },
         headers=instance_ctx["headers"],
     )
     assert response.status_code == 200, response.text[:200]

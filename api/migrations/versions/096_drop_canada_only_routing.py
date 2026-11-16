@@ -30,6 +30,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS canada_only_routing INTEGER DEFAULT 0"
-    )
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS canada_only_routing INTEGER DEFAULT 0")

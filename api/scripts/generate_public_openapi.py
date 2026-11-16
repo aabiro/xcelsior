@@ -148,6 +148,7 @@ def _live_app_schema() -> dict:
     """
     return copy.deepcopy(FastAPI.openapi(app))
 
+
 # Title-case words that should render as proper acronyms / brand casing in the
 # docs sidebar (Fern uses the operation `summary` as the endpoint title).
 _ACRONYMS = {
@@ -336,8 +337,7 @@ def build_public_spec() -> dict:
             if isinstance(tag, dict) and tag.get("name")
         }
         full_spec["tags"] = [
-            declared.get(tag_name, {"name": tag_name})
-            for tag_name in sorted(used_tags)
+            declared.get(tag_name, {"name": tag_name}) for tag_name in sorted(used_tags)
         ]
 
     info = full_spec.setdefault("info", {})
