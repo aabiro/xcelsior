@@ -13,6 +13,7 @@ export function TermsContent() {
         <p className="site-legal-effective">{t("terms.effective")}</p>
 
         <div className="site-legal-body">
+          <p>{t("terms.maps_intro")}{" "}<a className="site-inline-link" href="https://www.google.com/intl/en/help/terms_maps/">Google Maps/Google Earth</a>.</p>
           <Section title={`1. ${t("terms.s1_title")}`}>
             <p>{t("terms.s1_p1")}</p>
           </Section>

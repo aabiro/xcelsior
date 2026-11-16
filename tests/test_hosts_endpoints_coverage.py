@@ -338,6 +338,7 @@ def test_address_lookup_requires_an_interactive_account():
     fresh = TestClient(app)
     for path, body in (
         ("/api/locations/search", {"country": "CA", "text": "Test Street"}),
+        ("/api/locations/resolve", {"place_id": "ChIJ-test", "session_token": "test-session"}),
         ("/api/locations/check", {"country": "CA", "province": "ON"}),
     ):
         assert fresh.post(path, json=body).status_code == 401
@@ -352,7 +353,9 @@ def _fresh_photon(monkeypatch):
     monkeypatch.setattr(hosts, "_photon_paused_until", 0.0)
     monkeypatch.setattr(hosts, "_HERE_CACHE", {})
     monkeypatch.setattr(hosts, "_here_paused_until", 0.0)
+    monkeypatch.setattr(hosts, "_google_paused_until", 0.0)
     monkeypatch.delenv("XCELSIOR_HERE_API_KEY", raising=False)
+    monkeypatch.delenv("XCELSIOR_GOOGLE_PLACES_API_KEY", raising=False)
 
 
 def _photon(monkeypatch, features, calls=None, status=200, by_country=None):

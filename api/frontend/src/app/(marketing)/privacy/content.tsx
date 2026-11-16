@@ -101,7 +101,7 @@ export function PrivacyContent() {
               <li>{t("privacy.s9_p4")}</li>
               <li>{t("privacy.s9_p6")}</li>
               <li>{t("privacy.s9_p7")}</li>
-              <li>{t("privacy.s9_p8")}</li>
+              <li>{t("privacy.s9_p8")}{" "}<a className="site-inline-link" href="https://policies.google.com/privacy">{t("privacy.google_policy")}</a></li>
             </ul>
             <p className="site-legal-paragraph-gap">{t("privacy.s9_p5")}</p>
           </Section>

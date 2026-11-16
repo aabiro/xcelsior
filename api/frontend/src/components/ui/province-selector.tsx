@@ -180,7 +180,10 @@ type CapturedAddress = {
   address_line1: string; address_line2: string; city: string;
   postal_code: string; country: string; province: string;
 };
-type AddressSuggestion = { id: string; text: string; description: string; address: CapturedAddress };
+type AddressSuggestion = {
+  id: string; text: string; description: string; address?: CapturedAddress;
+  provider?: "google"; place_id?: string; session_token?: string;
+};
 type AddressReview = {
   address: CapturedAddress;
   errors: { field: string; message: string }[];
@@ -235,9 +238,11 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
   // A search that finds nothing is not a dead end: a new street may simply not be listed yet.
   const [noMatches, setNoMatches] = useState(false);
   const requestVersion = useRef(0);
+  const session = useRef({ token: "", startedAt: 0 });
   useEffect(() => () => { requestVersion.current++; }, []);
   useEffect(() => {
     requestVersion.current++;
+    session.current = { token: "", startedAt: 0 };
     setQuery(""); setSuggestions([]); setError(""); setDismissed(false); setNoMatches(false);
   }, [country, editRevision]);
   useEffect(() => {
@@ -252,11 +257,15 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
+        if (!session.current.token || Date.now() - session.current.startedAt > 180_000) {
+          session.current = { token: crypto.randomUUID(), startedAt: Date.now() };
+        }
+        const sessionToken = session.current.token;
         const result = await apiFetch<{ suggestions: AddressSuggestion[] }>("/api/locations/search", {
-          method: "POST", body: JSON.stringify({ country, text: query, lang: locale }),
+          method: "POST", body: JSON.stringify({ country, text: query, lang: locale, session_token: sessionToken }),
         });
         if (requestVersion.current === version) {
-          setSuggestions(result.suggestions);
+          setSuggestions(result.suggestions.map((item) => ({ ...item, session_token: sessionToken })));
           setActiveIndex(-1);
           setNoMatches(result.suggestions.length === 0);
         }
@@ -269,10 +278,30 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
     }, 250);
     return () => { clearTimeout(timer); if (requestVersion.current === version) requestVersion.current++; };
   }, [country, query, dismissed, locale]);
-  // Each suggestion already holds its whole address, so picking one makes no further request.
-  function choose(item: AddressSuggestion) {
-    requestVersion.current++;
-    onSelect(item.address); setQuery(""); setSuggestions([]); setLoading(false); setDismissed(true);
+  async function choose(item: AddressSuggestion) {
+    const version = ++requestVersion.current;
+    session.current = { token: "", startedAt: 0 };
+    setSuggestions([]); setError("");
+    let address = item.address;
+    if (item.provider === "google" && item.place_id && item.session_token) {
+      setLoading(true);
+      try {
+        const result = await apiFetch<{ address: CapturedAddress }>("/api/locations/resolve", {
+          method: "POST", body: JSON.stringify({ place_id: item.place_id, session_token: item.session_token, country, lang: locale }),
+        });
+        if (requestVersion.current !== version) return;
+        address = result.address;
+      } catch {
+        if (requestVersion.current === version) {
+          setLoading(false);
+          setError("Unable to load that address. Search again or enter it below.");
+        }
+        return;
+      }
+    }
+    if (address && requestVersion.current === version) {
+      onSelect(address); setQuery(""); setLoading(false); setDismissed(true);
+    }
   }
   const open = suggestions.length > 0 && !dismissed;
   return <div className="relative space-y-1.5">
@@ -305,6 +334,9 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
           <span className="block text-text-primary"><Highlight text={item.text} query={query} /></span>{" "}
           <span className="block text-xs text-text-secondary">{item.description}</span>
         </li>)}
+        {suggestions.some((item) => item.provider === "google") && <li role="presentation" className="px-3 pb-1 pt-2 text-right">
+          <span translate="no" className="text-xs font-medium text-text-secondary">Google Maps</span>
+        </li>}
       </ul>}
     </div>
     {loading && <p role="status" className="sr-only">Searching…</p>}
@@ -314,7 +346,8 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
     </p>}
     <p className="text-xs text-text-muted">Search for your address, or enter it below.</p>
     {query && <Button type="button" variant="outline" size="sm" onClick={() => {
-      requestVersion.current++; setDismissed(true); setSuggestions([]); setLoading(false); setError("");
+      requestVersion.current++; session.current = { token: "", startedAt: 0 };
+      setDismissed(true); setSuggestions([]); setLoading(false); setError("");
     }}>Enter manually</Button>}
   </div>;
 }

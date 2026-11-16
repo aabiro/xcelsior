@@ -65,6 +65,14 @@ class AddressSearchRequest(BaseModel):
     country: str = ""
     text: str = Field(min_length=3, max_length=200)
     lang: str = Field(default="", max_length=8)  # the page's language, for place names
+    session_token: str = Field(default="", pattern=r"^[A-Za-z0-9_-]{0,36}$")
+
+
+class AddressResolveRequest(BaseModel):
+    place_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,255}$")
+    session_token: str = Field(pattern=r"^[A-Za-z0-9_-]{1,36}$")
+    country: str = Field(default="", max_length=2)
+    lang: str = Field(default="", max_length=8)
 
 
 class AddressCheckRequest(BaseModel):
@@ -126,6 +134,7 @@ _photon_paused_until = 0.0
 _HERE_CACHE: dict[tuple[tuple[str, str], ...], tuple[float, list[dict]]] = {}
 _here_paused_until = 0.0
 _HERE_AUTOCOMPLETE = "https://autocomplete.search.hereapi.com/v1/autocomplete"
+_google_paused_until = 0.0
 
 
 class _HereUnavailable(Exception):
@@ -448,14 +457,11 @@ def _here_suggestions(text: str, *, country: str, lang: str, visitor_country: st
 
 @router.post("/api/locations/search", tags=["Account"])
 def api_address_search(body: AddressSearchRequest, request: Request):
-    """Suggest addresses while someone types, the way Google Maps does.
+    """Suggest addresses using Google Places, with HERE then Photon as fallbacks.
 
-    With XCELSIOR_HERE_API_KEY set to a HERE REST key, suggestions come from
-    HERE Autocomplete and include that service's postal code. The Maven
-    repository token is not that key. When HERE fails or finds nothing, and
-    when no key is set, results come from Photon (OpenStreetMap). Each
-    suggestion carries its whole address, so picking one costs nothing more.
-    The form shows the result back before it is saved.
+    Google uses a session token across keystrokes and a single selected-place
+    lookup. Older clients without tokens retain the HERE/Photon contract.
+    All provider keys remain on the server.
     """
     from routes._deps import _require_user_grant
 
@@ -469,8 +475,27 @@ def api_address_search(body: AddressSearchRequest, request: Request):
         country=country,
         lang=body.lang,
         visitor_country="" if country else _visitor_country_hint(request),
+        session_token=body.session_token,
     )
     return {"ok": True, "suggestions": suggestions}
+
+
+@router.post("/api/locations/resolve", tags=["Account"])
+def api_address_resolve(body: AddressResolveRequest, request: Request):
+    """Resolve a selected Google prediction using the same autocomplete session."""
+    import google_places
+
+    _require_user_grant(request)
+    country = _address_lookup_country(body.country) if body.country.strip() else ""
+    if not google_places.api_key():
+        raise HTTPException(502, _ADDRESS_UNAVAILABLE)
+    try:
+        address = google_places.details(
+            body.place_id, session_token=body.session_token, country=country, lang=body.lang
+        )
+    except google_places.PlacesUnavailable:
+        raise HTTPException(502, _ADDRESS_UNAVAILABLE) from None
+    return {"ok": True, "address": address}
 
 
 def _suggestion_rows(addresses: list[dict[str, str]], *, id_prefix: str) -> list[dict]:
@@ -537,9 +562,31 @@ def _one_postcode_per_door(addresses: list[dict[str, str]]) -> list[dict[str, st
     return folded
 
 
-def _address_suggestions(text: str, *, country: str, lang: str, visitor_country: str) -> list[dict]:
+def _address_suggestions(
+    text: str, *, country: str, lang: str, visitor_country: str, session_token: str = ""
+) -> list[dict]:
     """Search, parse and rank: the part of address search that needs no request."""
-    global _here_paused_until
+    import google_places
+
+    global _here_paused_until, _google_paused_until
+
+    if google_places.api_key() and session_token and time.monotonic() >= _google_paused_until:
+        try:
+            found = google_places.suggestions(
+                text,
+                country=country,
+                lang=lang,
+                visitor_country=visitor_country,
+                session_token=session_token,
+            )
+        except google_places.PlacesUnavailable as exc:
+            logging.getLogger(__name__).warning(
+                "Google address search unavailable (%s); using fallback providers for a minute", exc
+            )
+            _google_paused_until = time.monotonic() + _PHOTON_PAUSE_SECONDS
+        else:
+            if found:
+                return found
 
     if _here_api_key() and time.monotonic() >= _here_paused_until:
         try:

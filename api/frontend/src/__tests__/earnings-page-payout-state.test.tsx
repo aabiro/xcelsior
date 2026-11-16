@@ -324,7 +324,7 @@ it("fills the address from the picked suggestion without a second request, with 
     // The typed words are bold, as in Google Maps.
     expect(Array.from(listbox.querySelectorAll("strong"), (node) => node.textContent)).toEqual(["300", "Duff"]);
     const sent = JSON.parse(String(apiMocks.apiFetch.mock.calls[0][1].body));
-    expect(sent).toEqual({country:"CA", text:"300 Duff", lang:"en"});
+    expect(sent).toEqual({country:"CA", text:"300 Duff", lang:"en", session_token: expect.any(String)});
     fireEvent.click(screen.getByRole("option",{name:/300 Dufferin Avenue/}));
     expect(onSelect).toHaveBeenCalledWith(address);
     expect(apiMocks.apiFetch).toHaveBeenCalledTimes(1);
@@ -332,6 +332,62 @@ it("fills the address from the picked suggestion without a second request, with 
   } finally { vi.useRealTimers(); }
 });
 
+
+it("reuses a Google session through selection and starts a new token for the next search", async () => {
+  vi.useFakeTimers();
+  try {
+    const address = {address_line1:"300 Dufferin Avenue", address_line2:"", city:"London", postal_code:"N6B 2P8", country:"CA", province:"ON"};
+    const onSelect = vi.fn();
+    apiMocks.apiFetch.mockImplementation(async (path: string) => path === "/api/locations/resolve"
+      ? {address} : {suggestions:[{id:"google-place", provider:"google", place_id:"place", text:"300 Dufferin Avenue", description:"London, Canada"}]});
+    render(<AddressLookup country="CA" onSelect={onSelect} />);
+    const input = screen.getByRole("combobox", {name:"Search address"});
+    fireEvent.change(input, {target:{value:"300 Duff"}});
+    await act(async () => { await vi.advanceTimersByTimeAsync(260); });
+    fireEvent.change(input, {target:{value:"300 Dufferin"}});
+    await act(async () => { await vi.advanceTimersByTimeAsync(260); });
+    expect(screen.getByText("Google Maps")).toBeInTheDocument();
+    const bodies = () => apiMocks.apiFetch.mock.calls.map(([, init]) => JSON.parse(init.body));
+    expect(bodies()[0].session_token).toBe(bodies()[1].session_token);
+    await act(async () => { fireEvent.click(screen.getByRole("option", {name:/300 Dufferin Avenue/})); });
+    expect(onSelect).toHaveBeenCalledWith(address);
+    expect(bodies()[2]).toEqual({place_id:"place", session_token:bodies()[0].session_token, country:"CA", lang:"en"});
+    fireEvent.change(input, {target:{value:"301 Duff"}});
+    await act(async () => { await vi.advanceTimersByTimeAsync(260); });
+    expect(bodies()[3].session_token).not.toBe(bodies()[0].session_token);
+  } finally { vi.useRealTimers(); }
+});
+
+it("leaves manual entry available when Google details fail", async () => {
+  vi.useFakeTimers();
+  try {
+    const onSelect = vi.fn();
+    apiMocks.apiFetch.mockResolvedValueOnce({suggestions:[{id:"google-place", provider:"google", place_id:"place", text:"300 Dufferin Avenue", description:"London"}]}).mockRejectedValueOnce(new Error("unavailable"));
+    render(<AddressLookup country="CA" onSelect={onSelect} />);
+    fireEvent.change(screen.getByRole("combobox", {name:"Search address"}), {target:{value:"300 Duff"}});
+    await act(async () => { await vi.advanceTimersByTimeAsync(260); });
+    await act(async () => { fireEvent.click(screen.getByRole("option", {name:/300 Dufferin Avenue/})); });
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByText("Unable to load that address. Search again or enter it below.")).toBeInTheDocument();
+    expect(screen.getByRole("button", {name:"Enter manually"})).toBeEnabled();
+  } finally { vi.useRealTimers(); }
+});
+
+it("does not overwrite manual edits with a late Google details response", async () => {
+  vi.useFakeTimers();
+  try {
+    let deliver!: (value: unknown) => void;
+    const onSelect = vi.fn();
+    apiMocks.apiFetch.mockResolvedValueOnce({suggestions:[{id:"google-place", provider:"google", place_id:"place", text:"300 Dufferin Avenue", description:"London"}]}).mockImplementationOnce(() => new Promise((resolve) => { deliver = resolve; }));
+    render(<AddressLookup country="CA" onSelect={onSelect} />);
+    fireEvent.change(screen.getByRole("combobox", {name:"Search address"}), {target:{value:"300 Duff"}});
+    await act(async () => { await vi.advanceTimersByTimeAsync(260); });
+    fireEvent.click(screen.getByRole("option", {name:/300 Dufferin Avenue/}));
+    fireEvent.click(screen.getByRole("button", {name:"Enter manually"}));
+    await act(async () => { deliver({address:{address_line1:"300 Dufferin Avenue"}}); });
+    expect(onSelect).not.toHaveBeenCalled();
+  } finally { vi.useRealTimers(); }
+});
 
 it("keeps the last suggestions on screen while the next ones load", async () => {
   vi.useFakeTimers();

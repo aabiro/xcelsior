@@ -1219,6 +1219,10 @@
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
+  "PATCH /api/hosts/{host_id}/availability": {
+    "class": "internal",
+    "notes": "first-party hosting availability control; explicit interactive owner action with admission checks and version fencing; not an agent scheduling tool"
+  },
   "PATCH /api/hosts/{host_id}/location": {
     "class": "internal",
     "notes": "First-party host location editing; explicit owner action with validation and version fencing. Worker observations cannot overwrite a confirmed location."
@@ -1795,9 +1799,13 @@
     "class": "internal",
     "notes": "authenticated first-party profile form step; standardizes a finished address and reports errors and soft warnings before save, no provider call"
   },
+  "POST /api/locations/resolve": {
+    "class": "internal",
+    "notes": "authenticated first-party profile address selection; resolves one Google Places prediction with its autocomplete session token and an address-only Essentials field mask; never a general agent lookup"
+  },
   "POST /api/locations/search": {
     "class": "internal",
-    "notes": "authenticated first-party profile address entry; sends typed text, page language and at most one country to HERE Autocomplete, or to Photon (OpenStreetMap search) when HERE fails or finds nothing; never a general agent lookup"
+    "notes": "authenticated first-party profile address entry; Google Places (New) with session tokens is preferred, with HERE then Photon as fallbacks; provider keys stay server-only; never a general agent lookup"
   },
   "POST /api/mcp/permission-requests": {
     "class": "covered",
