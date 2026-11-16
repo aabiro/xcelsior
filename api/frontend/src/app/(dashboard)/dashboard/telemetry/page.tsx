@@ -8,7 +8,7 @@ import { Thermometer, Cpu, Zap, MemoryStick, RefreshCw, Server } from "lucide-re
 import { useApi } from "@/lib/use-api";
 import { useLocale } from "@/lib/locale";
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "@/lib/recharts";
 import { cn } from "@/lib/utils";
 import { readTelemetry } from "@/lib/telemetry";
@@ -65,9 +65,11 @@ export default function TelemetryPage() {
   const avgUtil = aggregate("utilization", true);
   const avgTemp = aggregate("temp", true);
 
-  // Chart data: one bar per host for each metric
+  // Chart data: one bar per host for each metric. Hosts are separate
+  // machines, not points in time, so bars rather than a line between them.
   const chartData = hosts.map((h) => ({
-    host: h.host_id.slice(-8),
+    host: shortHostLabel(h.host_id),
+    hostId: h.host_id,
     "GPU Util %": h.utilization,
     "Temp °C": h.temp,
     "Mem GB": h.memory_used_gb,
@@ -156,6 +158,13 @@ export default function TelemetryPage() {
   );
 }
 
+/** "aaryn-tuf-rtx2060" → "rtx2060": the last segment names the machine. The
+ *  old last-8-characters cut left a stray dash ("-rtx2060"). */
+function shortHostLabel(hostId: string): string {
+  const last = hostId.split(/[-_.]/).filter(Boolean).pop() ?? hostId;
+  return last.length >= 4 ? last : hostId.slice(-12);
+}
+
 function TelemetryChart({ title, data, dataKey, color, unit }: {
   title: string;
   data: Record<string, unknown>[];
@@ -171,13 +180,7 @@ function TelemetryChart({ title, data, dataKey, color, unit }: {
       <CardContent>
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
-            <AreaChart data={data}>
-              <defs>
-                <linearGradient id={`fill-${dataKey.replace(/[^a-z]/gi, "")}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={color} stopOpacity={0.3} />
-                  <stop offset="95%" stopColor={color} stopOpacity={0} />
-                </linearGradient>
-              </defs>
+            <BarChart data={data}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
               <XAxis dataKey="host" tick={{ fill: "#94a3b8", fontSize: 10 }} stroke="#475569" />
               <YAxis stroke="#475569" tick={{ fill: "#94a3b8", fontSize: 11 }} unit={unit} />
@@ -185,9 +188,11 @@ function TelemetryChart({ title, data, dataKey, color, unit }: {
                 contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" }}
                 labelStyle={{ color: "#94a3b8" }}
                 formatter={(v: unknown) => [`${v}${unit ?? ""}`, dataKey]}
+                labelFormatter={(_label, payload) => String(payload?.[0]?.payload?.hostId ?? _label)}
+                cursor={{ fill: "rgba(148, 163, 184, 0.08)" }}
               />
-              <Area type="monotone" dataKey={dataKey} stroke={color} fill={`url(#fill-${dataKey.replace(/[^a-z]/gi, "")})`} strokeWidth={2} dot={{ fill: color, r: 4 }} />
-            </AreaChart>
+              <Bar dataKey={dataKey} fill={color} fillOpacity={0.85} radius={[6, 6, 0, 0]} maxBarSize={56} />
+            </BarChart>
           </ResponsiveContainer>
         </div>
       </CardContent>

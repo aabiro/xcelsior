@@ -313,9 +313,12 @@ export default function AdminAiInsightsPage() {
                   By Source
                 </CardTitle>
               </CardHeader>
-              <CardContent className="flex items-center justify-center">
+              {/* A sized wrapper, as on the Revenue page: centred in a flex row the
+                  container measured zero wide and the pie never drew. */}
+              <CardContent>
                 {pieData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={280}>
+                  <div className="h-[280px]">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
                     <PieChart>
                       <Pie
                         data={pieData}
@@ -337,8 +340,9 @@ export default function AdminAiInsightsPage() {
                       <Tooltip contentStyle={tooltipStyle} />
                     </PieChart>
                   </ResponsiveContainer>
+                  </div>
                 ) : (
-                  <p className="text-text-muted text-sm py-12">No data in period</p>
+                  <p className="text-text-muted text-sm py-12 text-center">No data in period</p>
                 )}
               </CardContent>
             </Card>
