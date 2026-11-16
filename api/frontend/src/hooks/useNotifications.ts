@@ -34,7 +34,13 @@ export function useNotifications(): UseNotificationsReturn {
   const refreshCount = useCallback(() => {
     fetchUnreadCount()
       .then((r) => setUnreadCount(r.unread_count))
-      .catch((e) => console.error("Failed to fetch unread count", e));
+      .catch((e) => {
+        // A poll cut off by leaving the page, or a network blip, keeps the last
+        // count until the next poll; it is not worth a console error on every
+        // quick navigation. Anything the server answered still logs.
+        if (e instanceof TypeError || (e as { name?: string })?.name === "AbortError") return;
+        console.error("Failed to fetch unread count", e);
+      });
   }, []);
 
   const refresh = useCallback(() => {

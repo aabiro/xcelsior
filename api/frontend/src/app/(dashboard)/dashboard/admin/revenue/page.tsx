@@ -104,7 +104,8 @@ export default function AdminRevenuePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold">Revenue</h1>
-        <div className="flex items-center gap-2">
+        {/* Wraps on a phone: range picker plus three buttons is 513 px. */}
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1 rounded-lg bg-surface p-1">
             {RANGE_PRESETS.map((p) => (
               <button
