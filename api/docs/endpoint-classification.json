@@ -791,6 +791,10 @@
     "class": "internal",
     "notes": "control-plane telemetry for a host; operator diagnostics"
   },
+  "GET /api/v1/hpc/billing": {
+    "class": "internal",
+    "notes": "operator read for the HPC console: the Slurm billing ledger and its daily drift against the cluster's accounting. Crosses tenants, so the route takes a platform admin or a control_plane:read machine principal only; reads the reconciler's copy and never contacts a cluster"
+  },
   "GET /api/v1/hpc/clusters": {
     "class": "covered",
     "notes": "MCP server calls this path (list_hpc_clusters); reads the reconciler's copy and never contacts a cluster"
@@ -806,6 +810,10 @@
   "GET /api/v1/hpc/jobs/{xcelsior_job_id}/output": {
     "class": "covered",
     "notes": "MCP server calls this path (get_hpc_job_output); reads the reconciler's copy and never contacts a cluster"
+  },
+  "GET /api/v1/hpc/submissions": {
+    "class": "internal",
+    "notes": "operator read for the HPC console: the submit log, including submissions sbatch refused or that were lost. Crosses tenants, so the route takes a platform admin or a control_plane:read machine principal only; reads the reconciler's copy and never contacts a cluster"
   },
   "GET /api/v1/image-sweeps/{sweep_id}": {
     "class": "covered",

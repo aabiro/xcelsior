@@ -1,15 +1,48 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
-import type { HpcCluster, HpcJob } from "@/lib/api";
-import { attentionItems, clusterStatus, formatDuration, jobStateLabel, summarise } from "./hpc-format";
+import type { HpcBilling, HpcCluster, HpcJob, HpcSubmission } from "@/lib/api";
+import {
+  attentionItems,
+  billingRuleLabel,
+  clusterStatus,
+  formatDuration,
+  formatGpuHours,
+  formatMicros,
+  jobStateLabel,
+  rateLabel,
+  submissionTone,
+  summarise,
+} from "./hpc-format";
 
 // The operator console reads the v1 HPC read model (the reconciler's copy)
 // and keeps the admin-only bridge for submit and cancel. The submit and
 // cancel contracts were broken once (2026-11-07): priority went as "normal",
 // and cancel passed the Xcelsior id where the route takes the Slurm id.
 
-const replace = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace, back: vi.fn() }) }));
+// The tab and the open job live in the query string, so the router mock keeps one.
+const nav = vi.hoisted(() => ({
+  search: "",
+  listeners: new Set<() => void>(),
+  replace: vi.fn(),
+}));
+vi.mock("next/navigation", async () => {
+  const React = await import("react");
+  const router = { push: vi.fn(), replace: nav.replace, back: vi.fn() };
+  return {
+    useRouter: () => router,
+    usePathname: () => "/dashboard/hpc",
+    useSearchParams: () => {
+      const search = React.useSyncExternalStore(
+        (notify: () => void) => {
+          nav.listeners.add(notify);
+          return () => nav.listeners.delete(notify);
+        },
+        () => nav.search,
+      );
+      return React.useMemo(() => new URLSearchParams(search), [search]);
+    },
+  };
+});
 vi.mock("@/lib/locale", () => ({ useLocale: () => ({ t: (key: string) => key }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -63,11 +96,60 @@ const sick = cluster({
   orphan_slurm_job_ids: ["901"],
 });
 
+const billing: HpcBilling = {
+  ok: true, days: 14, tolerance_pct: 1,
+  totals: {
+    segments: 2, jobs: 1, gpu_seconds: 7200, billable_seconds: 7200, shadow_cost_micros: 700_000,
+    charged_micros: 0, charged_segments: 0, unpriced_segments: 0,
+  },
+  drift: [
+    {
+      cluster_id: "xcl-local", day: "2026-11-13", sacct_gpu_seconds: 400, ledger_gpu_seconds: 380,
+      sacct_records: 2, ledger_records: 2, drift_pct: 5, within_tolerance: false,
+      unmatched: { only_sacct: ["77@1"] }, checked_at: ago(600),
+    },
+    {
+      cluster_id: "xcl-local", day: "2026-11-12", sacct_gpu_seconds: 376, ledger_gpu_seconds: 376,
+      sacct_records: 2, ledger_records: 2, drift_pct: 0, within_tolerance: true, unmatched: {}, checked_at: ago(900),
+    },
+  ],
+  segments: [
+    {
+      segment_id: "s-2", mapping_id: "m-9", run_index: 1, cluster_id: "xcl-local", slurm_job_id: "298",
+      xcelsior_job_id: "requeued-job", slurm_state: "COMPLETED", started_at: ago(4000), ended_at: ago(3700),
+      elapsed_seconds: 211, suspended_seconds: 90, time_limit_seconds: 600, gpu_count: 1, cpu_count: 4,
+      node_count: 1, billable_seconds: 301, billing_rule: "ran_to_end+suspended_gres_held", gpu_seconds: 301,
+      rate_micros_per_gpu_hour: 350_000, shadow_cost_micros: 29_264, charged: false, meter_id: null,
+    },
+    {
+      segment_id: "s-1", mapping_id: "m-9", run_index: 0, cluster_id: "xcl-local", slurm_job_id: "298",
+      xcelsior_job_id: "requeued-job", slurm_state: "REQUEUED", started_at: ago(4200), ended_at: ago(4125),
+      elapsed_seconds: 75, suspended_seconds: 0, time_limit_seconds: 600, gpu_count: 1, cpu_count: 4,
+      node_count: 1, billable_seconds: 75, billing_rule: "requeued_run", gpu_seconds: 75,
+      rate_micros_per_gpu_hour: 350_000, shadow_cost_micros: 7292, charged: false, meter_id: null,
+    },
+  ],
+  next_cursor: null,
+};
+
+function submission(over: Partial<HpcSubmission> = {}): HpcSubmission {
+  return {
+    submission_name: "train-a1", cluster_id: "xcl-local", xcelsior_job_id: "a1b2c3d4", attempt_id: "att-1",
+    state: "submitted", slurm_job_id: "4242", sbatch_calls: 1, checks: 0, error_code: null, error: null,
+    created_at: ago(2010), submit_started_at: ago(2005), submitted_at: ago(2000), last_check_at: null,
+    resolved_at: ago(2000),
+    ...over,
+  };
+}
+
 const fetchHpcClusters = vi.fn();
 const fetchHpcJobs = vi.fn();
 const fetchHpcJob = vi.fn();
 const fetchHpcJobOutput = vi.fn();
+const fetchHpcBilling = vi.fn();
+const fetchHpcSubmissions = vi.fn();
 const checkHpcClusterConnection = vi.fn();
+const registerHpcCluster = vi.fn();
 const submitSlurmInstance = vi.fn();
 const cancelSlurmJob = vi.fn();
 
@@ -76,7 +158,10 @@ vi.mock("@/lib/api", () => ({
   fetchHpcJobs: (...a: unknown[]) => fetchHpcJobs(...a),
   fetchHpcJob: (...a: unknown[]) => fetchHpcJob(...a),
   fetchHpcJobOutput: (...a: unknown[]) => fetchHpcJobOutput(...a),
+  fetchHpcBilling: (...a: unknown[]) => fetchHpcBilling(...a),
+  fetchHpcSubmissions: (...a: unknown[]) => fetchHpcSubmissions(...a),
   checkHpcClusterConnection: (...a: unknown[]) => checkHpcClusterConnection(...a),
+  registerHpcCluster: (...a: unknown[]) => registerHpcCluster(...a),
   submitSlurmInstance: (...a: unknown[]) => submitSlurmInstance(...a),
   cancelSlurmJob: (...a: unknown[]) => cancelSlurmJob(...a),
   fetchSlurmProfiles: vi.fn(async () => ({
@@ -100,10 +185,18 @@ import HpcPage from "./page";
 
 const openTab = (name: RegExp) => fireEvent.click(screen.getByRole("tab", { name }));
 
+function navigate(url: string) {
+  nav.search = url.split("?")[1] ?? "";
+  for (const notify of [...nav.listeners]) notify();
+}
+
 describe("HPC operator console", () => {
   beforeEach(() => {
     currentUser = { is_admin: true };
-    replace.mockReset();
+    nav.search = "";
+    nav.replace.mockReset().mockImplementation((url: string) => {
+      if (url.startsWith("/dashboard/hpc")) act(() => navigate(url));
+    });
     fetchHpcClusters.mockReset().mockResolvedValue({ ok: true, clusters: [cluster(), sick] });
     fetchHpcJobs.mockReset().mockResolvedValue({
       ok: true,
@@ -119,17 +212,35 @@ describe("HPC operator console", () => {
         fetched_age_seconds: 30, refresh_pending: true, poll_interval_seconds: 60, fetch_error_code: null,
       },
     });
+    fetchHpcBilling.mockReset().mockResolvedValue(billing);
+    fetchHpcSubmissions.mockReset().mockResolvedValue({
+      ok: true,
+      counts: { pending: 0, submitting: 0, submitted: 1, unknown: 0, rejected: 1, lost: 0 },
+      submissions: [
+        submission(),
+        submission({
+          submission_name: "bad-partition-a1", xcelsior_job_id: "dead0001", state: "rejected", slurm_job_id: null,
+          error_code: "invalid_partition", error: "sbatch: error: invalid partition",
+        }),
+      ],
+      next_cursor: null,
+    });
     checkHpcClusterConnection.mockReset().mockResolvedValue({ ok: true, check: { ok: false, error_code: "host_key_mismatch", error: "host key changed" } });
+    registerHpcCluster.mockReset().mockResolvedValue({ ok: true, cluster: { cluster_id: "nibi", profile_key: "nibi", research_only: true, transport: "registry" } });
     submitSlurmInstance.mockReset().mockResolvedValue({ slurm_job_id: "77", cluster_id: "nibi", script: "#!/bin/bash\n#SBATCH --gpus-per-node=h100:2" });
     cancelSlurmJob.mockReset().mockResolvedValue({ cancelled: true, slurm_job_id: "4242" });
   });
 
   it("shows each cluster's health from the read model", async () => {
     render(<HpcPage />);
-    const healthy = within(await screen.findByTestId("cluster-xcl-local"));
+    const healthyCard = await screen.findByTestId("cluster-xcl-local");
+    const healthy = within(healthyCard);
     expect(healthy.getByText("Healthy")).toBeTruthy();
+    // How it is reached is one click away, never the key itself.
+    fireEvent.click(healthy.getByRole("button", { name: "Details" }));
     expect(healthy.getByText("xclslurm@10.0.0.5:22")).toBeTruthy();
     expect(healthy.getByText("env:XCELSIOR_SLURM_KEY_LOCAL")).toBeTruthy();
+    expect(healthy.getByText("SHA256:abc")).toBeTruthy();
 
     const failing = within(screen.getByTestId("cluster-nibi"));
     expect(failing.getByText("Backing off")).toBeTruthy();
@@ -140,6 +251,32 @@ describe("HPC operator console", () => {
     expect(screen.getByText("1/2")).toBeTruthy();
     expect(screen.getByText(/SHARCNET Nibi is backing off after 4 failed passes/)).toBeTruthy();
     expect(screen.getByText(/1 open job\(s\) have not been confirmed/)).toBeTruthy();
+    expect(screen.getByText("Needs attention now")).toBeTruthy();
+  });
+
+  it("shows a cluster's exact open-job counts, rate and failures when the registry sends them", async () => {
+    fetchHpcClusters.mockResolvedValue({
+      ok: true,
+      clusters: [
+        cluster({
+          open_jobs: { total: 250, running: 200, pending: 50, stale: 0, awaiting_accounting: 3 },
+          rate_card: { gpu_hour_micros: 350_000, gpu_model: "RTX 3060" },
+          failure_counts: { "pass:transport_timeout": 2, "output:fetch_failed": 1 },
+          suspend_holds_gres: false,
+        }),
+      ],
+    });
+    render(<HpcPage />);
+    const card = within(await screen.findByTestId("cluster-xcl-local"));
+    expect(card.getByText("250")).toBeTruthy();
+    expect(card.getByRole("img", { name: "200 running, 50 pending" })).toBeTruthy();
+    expect(card.getByText("3 awaiting accounting")).toBeTruthy();
+    expect(card.getByText("$0.35 per GPU hour · RTX 3060")).toBeTruthy();
+    fireEvent.click(card.getByRole("button", { name: "Details" }));
+    expect(card.getByText("transport_timeout")).toBeTruthy();
+    expect(card.getByText(/Free: a suspended job releases its GPUs/)).toBeTruthy();
+    // The header counts every open job, not the two the job list loaded.
+    expect(screen.getByText("of 250 open")).toBeTruthy();
   });
 
   it("runs a connection check only after confirming, and shows a failure as a result", async () => {
@@ -153,15 +290,45 @@ describe("HPC operator console", () => {
     expect(card.getByText("host key changed")).toBeTruthy();
   });
 
+  it("registers a cluster disabled, and only with a pinned host key and a credential reference", async () => {
+    render(<HpcPage />);
+    await screen.findByTestId("cluster-xcl-local");
+    fireEvent.click(screen.getByRole("button", { name: /Register cluster/ }));
+    const dialog = within(await screen.findByRole("dialog"));
+    await waitFor(() => expect((dialog.getByLabelText("Adapter profile") as HTMLSelectElement).value).toBe("nibi"));
+    // The retired profile is not offered.
+    expect(dialog.queryByRole("option", { name: /Graham/ })).toBeNull();
+    const send = dialog.getByRole("button", { name: "Register disabled" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+
+    fireEvent.change(dialog.getByLabelText("Login node"), { target: { value: "nibi.alliancecan.ca" } });
+    fireEvent.change(dialog.getByLabelText("Host key to pin"), { target: { value: "nibi.alliancecan.ca ssh-ed25519 AAAA" } });
+    // The key itself is refused: only a reference to where the API keeps it.
+    fireEvent.change(dialog.getByLabelText("Credential reference"), { target: { value: "-----BEGIN OPENSSH PRIVATE KEY-----" } });
+    fireEvent.blur(dialog.getByLabelText("Credential reference"));
+    expect(send.disabled).toBe(true);
+    expect(dialog.getByText(/env:XCELSIOR_SLURM_KEY_<NAME>, or file:<name>/)).toBeTruthy();
+
+    fireEvent.change(dialog.getByLabelText("Credential reference"), { target: { value: "env:XCELSIOR_SLURM_KEY_NIBI" } });
+    expect(send.disabled).toBe(false);
+    const loads = fetchHpcClusters.mock.calls.length;
+    fireEvent.click(send);
+    await waitFor(() => expect(registerHpcCluster).toHaveBeenCalledTimes(1));
+    expect(registerHpcCluster.mock.calls[0][0]).toEqual({
+      profile_key: "nibi", enabled: false, ssh_host: "nibi.alliancecan.ca", ssh_port: 22,
+      known_hosts_line: "nibi.alliancecan.ca ssh-ed25519 AAAA", credential_ref: "env:XCELSIOR_SLURM_KEY_NIBI",
+    });
+    await waitFor(() => expect(fetchHpcClusters.mock.calls.length).toBeGreaterThan(loads));
+  });
+
   it("lists jobs with state, time used and staleness, and refetches on a filter", async () => {
     render(<HpcPage />);
     await screen.findByTestId("cluster-xcl-local");
     openTab(/dash.hpc.tab_jobs/);
-    await screen.findByText("train-a1");
-    expect(screen.getByText("running (RUNNING)")).toBeTruthy();
-    expect(screen.getByText("30m 0s of 1h 0m")).toBeTruthy();
-    expect(screen.getByText("stale")).toBeTruthy();
-    expect(screen.getByText("not started")).toBeTruthy();
+    await screen.findAllByText("train-a1");
+    expect(screen.getAllByText("30m 0s of 1h 0m").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("stale").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("not started").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Settled" }));
     await waitFor(() =>
@@ -170,33 +337,99 @@ describe("HPC operator console", () => {
 
     fireEvent.change(screen.getByLabelText("Filter loaded jobs"), { target: { value: "4243" } });
     await waitFor(() => expect(screen.queryByText("train-a1")).toBeNull());
-    expect(screen.getByText("queued-b2")).toBeTruthy();
+    expect(screen.getAllByText("queued-b2").length).toBeGreaterThan(0);
   });
 
-  it("opens a job with its cached output and the job's own progress", async () => {
+  it("a cluster's View jobs opens the job list filtered to that cluster", async () => {
+    render(<HpcPage />);
+    const card = within(await screen.findByTestId("cluster-nibi"));
+    fireEvent.click(card.getByRole("button", { name: /View jobs/ }));
+    await waitFor(() => expect(fetchHpcJobs).toHaveBeenCalledWith({ state: "open", clusterId: "nibi" }));
+    expect(nav.search).toBe("tab=jobs");
+    expect((screen.getByLabelText("Cluster") as HTMLSelectElement).value).toBe("nibi");
+  });
+
+  it("opens a job with its cached output and the job's own progress, and puts it in the address", async () => {
     render(<HpcPage />);
     await screen.findByTestId("cluster-xcl-local");
     openTab(/dash.hpc.tab_jobs/);
-    fireEvent.click(await screen.findByRole("button", { name: "View job train-a1" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "View job train-a1" }))[0]);
+    expect(nav.search).toBe("tab=jobs&job=a1b2c3d4");
     await waitFor(() => expect(fetchHpcJobOutput).toHaveBeenCalledWith("a1b2c3d4", "out"));
     await waitFor(() => expect(screen.getByTestId("hpc-job-output").textContent).toContain("step 1 ok"));
     await screen.findByText(/42% · epoch 3/);
     expect(screen.getByText(/A fresh copy is queued; reload after 1m 0s/)).toBeTruthy();
+    const timeline = within(screen.getByRole("list", { name: "Job timeline" }));
+    expect(timeline.getByText("queued 3m 20s")).toBeTruthy();
+    expect(timeline.getByText("running 30m 0s")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "stderr" }));
     await waitFor(() => expect(fetchHpcJobOutput).toHaveBeenCalledWith("a1b2c3d4", "err"));
+
+    // Closing it takes it out of the address and leaves the job list.
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(nav.search).toBe("tab=jobs"));
+    expect(screen.queryByTestId("hpc-job-output")).toBeNull();
+  });
+
+  it("opens the job named in a link, even one the list has not loaded", async () => {
+    nav.search = "job=zz99";
+    fetchHpcJob.mockResolvedValue({ ok: true, job: job({ xcelsior_job_id: "zz99", mapping_id: "m-zz", submission_name: "linked-job" }) });
+    render(<HpcPage />);
+    await screen.findByRole("dialog", { name: "linked-job" });
+    expect(fetchHpcJob).toHaveBeenCalledWith("zz99");
+    expect(screen.getByRole("tab", { name: /dash.hpc.tab_jobs/ }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("cancels by Slurm id on the job's cluster, after confirming", async () => {
     render(<HpcPage />);
     await screen.findByTestId("cluster-xcl-local");
     openTab(/dash.hpc.tab_jobs/);
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel job train-a1" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Cancel job train-a1" }))[0]);
     expect(cancelSlurmJob).not.toHaveBeenCalled();
     const calls = fetchHpcJobs.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "Cancel job" }));
     await waitFor(() => expect(cancelSlurmJob).toHaveBeenCalledWith("4242", "xcl-local"));
     await waitFor(() => expect(fetchHpcJobs.mock.calls.length).toBeGreaterThan(calls));
+  });
+
+  it("shows the billing ledger: shadow cost, drift against accounting, and each run's rule", async () => {
+    render(<HpcPage />);
+    await screen.findByTestId("cluster-xcl-local");
+    openTab(/dash.hpc.tab_ledger/);
+    await screen.findByText("Shadow mode: nothing has been charged");
+    expect(fetchHpcBilling).toHaveBeenCalledWith({ days: 14, clusterId: undefined });
+    expect(screen.getByText("2.00")).toBeTruthy(); // 7200 GPU seconds
+    expect(screen.getByText("$0.7000")).toBeTruthy();
+    expect(screen.getByText("1 of 2 day(s) over 1%")).toBeTruthy();
+    // The day over tolerance says what did not match.
+    expect(screen.getByText("Over tolerance")).toBeTruthy();
+    expect(screen.getByText("only sacct: 77@1")).toBeTruthy();
+    expect(screen.getByText("Agrees")).toBeTruthy();
+    // A requeued job is two rows, each with the rule that billed it.
+    expect(screen.getByText("Ran to its end, suspended time billed (GPUs held)")).toBeTruthy();
+    expect(screen.getByText("Requeued run")).toBeTruthy();
+    expect(screen.getByText("+1m 30s suspended")).toBeTruthy();
+    expect(screen.getAllByText("not charged").length).toBe(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "30 days" }));
+    await waitFor(() => expect(fetchHpcBilling).toHaveBeenCalledWith({ days: 30, clusterId: undefined }));
+  });
+
+  it("shows the submit log with what never became a job, and filters by state", async () => {
+    render(<HpcPage />);
+    await screen.findByTestId("cluster-xcl-local");
+    openTab(/dash.hpc.tab_submissions/);
+    await screen.findByText("bad-partition-a1");
+    expect(fetchHpcSubmissions).toHaveBeenCalledWith({ state: "all", clusterId: undefined });
+    expect(screen.getByText("invalid_partition")).toBeTruthy();
+    expect(screen.getByText("sbatch: error: invalid partition")).toBeTruthy();
+    // A refused submission has no job to open; an accepted one does.
+    expect((screen.getByRole("button", { name: "dead0001" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /^Rejected/ }));
+    await waitFor(() => expect(fetchHpcSubmissions).toHaveBeenCalledWith({ state: "rejected", clusterId: undefined }));
+    fireEvent.click(screen.getByRole("button", { name: "a1b2c3d4" }));
+    expect(nav.search).toBe("tab=jobs&job=a1b2c3d4");
   });
 
   it("submits the payload the API accepts", async () => {
@@ -215,23 +448,35 @@ describe("HPC operator console", () => {
     expect(body).not.toHaveProperty("vram_needed_gb");
   });
 
+  it("previews the batch script as a dry run", async () => {
+    render(<HpcPage />);
+    await screen.findByTestId("cluster-xcl-local");
+    openTab(/dash.hpc.tab_submit/);
+    fireEvent.change(await screen.findByPlaceholderText("my-training-run"), { target: { value: "train-1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Preview script/ }));
+    await waitFor(() => expect(screen.getByTestId("hpc-script-preview").textContent).toContain("#SBATCH --gpus-per-node=h100:2"));
+    expect(submitSlurmInstance.mock.calls[0][0].dry_run).toBe(true);
+  });
+
   it("shows real profile specs and keeps retired clusters out of the picker", async () => {
     render(<HpcPage />);
     await screen.findByTestId("cluster-xcl-local");
     openTab(/dash.hpc.tab_submit/);
     await screen.findByText("h100 × 8/node");
-    expect(screen.getAllByText("Partition: assigned by cluster").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Partition: assigned by cluster/).length).toBeGreaterThan(0);
     expect(screen.getByText("retired")).toBeTruthy();
-    const options = Array.from(document.querySelectorAll("#hpc-profile option")).map((o) => o.textContent);
-    expect(options).toEqual(["SHARCNET Nibi"]);
+    const picker = within(screen.getByRole("radiogroup", { name: "Cluster profile" }));
+    expect((picker.getByRole("radio", { name: /SHARCNET Nibi/ }) as HTMLButtonElement).getAttribute("aria-checked")).toBe("true");
+    expect((picker.getByRole("radio", { name: /Graham/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("keeps the page up when the cluster read fails", async () => {
     fetchHpcClusters.mockRejectedValue(new Error("platform admin or a scoped machine principal is required"));
     render(<HpcPage />);
     await screen.findByText("platform admin or a scoped machine principal is required");
+    expect(screen.getByText("Could not reach the API")).toBeTruthy();
     openTab(/dash.hpc.tab_jobs/);
-    await screen.findByText("train-a1");
+    await screen.findAllByText("train-a1");
   });
 
   it("ignores a delayed older page after the job filter changes", async () => {
@@ -246,17 +491,17 @@ describe("HPC operator console", () => {
     openTab(/dash.hpc.tab_jobs/);
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     fireEvent.click(screen.getByRole("button", { name: /^All$/ }));
-    await screen.findByText("all-filter-job");
+    await screen.findAllByText("all-filter-job");
     await act(async () => { resolveOlder({ ok: true, jobs: [job({ mapping_id: "old", submission_name: "old-filter-job" })], next_cursor: null }); });
     expect(screen.queryByText("old-filter-job")).not.toBeInTheDocument();
-    expect(screen.getByText("all-filter-job")).toBeInTheDocument();
+    expect(screen.getAllByText("all-filter-job").length).toBeGreaterThan(0);
   });
 
   it("is admin-only, like the routes behind it", async () => {
     currentUser = { role: "provider" };
     const { container } = render(<HpcPage />);
     expect(container.innerHTML).toBe("");
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith("/dashboard"));
     expect(fetchHpcClusters).not.toHaveBeenCalled();
   });
 });
@@ -284,8 +529,25 @@ describe("HPC console helpers", () => {
   it("summarises only enabled clusters and counts what needs attention", () => {
     const disabled = cluster({ cluster_id: "off", enabled: false });
     const summary = summarise([cluster(), sick, disabled], [job(), job({ stale: true, observed_state: "pending" })], NOW);
-    expect(summary).toMatchObject({ clustersEnabled: 2, clustersHealthy: 1, open: 2, running: 1, pending: 1, stale: 1, orphans: 1 });
+    expect(summary).toMatchObject({ clustersEnabled: 2, clustersHealthy: 1, open: 2, running: 1, pending: 1, stale: 1, orphans: 1, exact: false });
     expect(attentionItems([cluster(), disabled], [job()], NOW)).toEqual([]);
+  });
+
+  it("takes exact counts from the registry over the loaded page", () => {
+    const counted = cluster({ open_jobs: { total: 250, running: 200, pending: 50, stale: 4, awaiting_accounting: 3 } });
+    expect(summarise([counted], [job()], NOW)).toMatchObject({
+      open: 250, running: 200, pending: 50, stale: 4, awaitingAccounting: 3, exact: true,
+    });
+    // One cluster without counts (an older API) falls back to the loaded page for all.
+    expect(summarise([counted, cluster({ cluster_id: "b" })], [job()], NOW)).toMatchObject({ open: 1, exact: false });
+  });
+
+  it("puts what is not being watched ahead of what can wait, and says where to act", () => {
+    const items = attentionItems([sick], [job({ stale: true }), job({ missing_since: ago(60) })], NOW);
+    expect(items.map((i) => i.severity)).toEqual(["critical", "critical", "warning", "warning"]);
+    expect(items[0]).toMatchObject({ tab: "fleet", clusterId: "nibi" });
+    expect(items[1]).toMatchObject({ tab: "jobs" });
+    expect(items[1].text).toMatch(/missing from both the controller and accounting/);
   });
 
   it("formats durations", () => {
@@ -293,5 +555,22 @@ describe("HPC console helpers", () => {
     expect(formatDuration(3725)).toBe("1h 2m");
     expect(formatDuration(200000)).toBe("2d 7h");
     expect(formatDuration(null)).toBe("—");
+  });
+
+  it("formats money, GPU time and billing rules", () => {
+    expect(formatMicros(389_083)).toBe("$0.3891");
+    expect(formatMicros(12_500_000)).toBe("$12.50");
+    expect(formatMicros(0)).toBe("$0.00");
+    expect(formatMicros(null)).toBe("—");
+    expect(formatGpuHours(4002)).toBe("1.11");
+    expect(formatGpuHours(72_000)).toBe("20.0");
+    expect(rateLabel(cluster({ rate_card: { gpu_hour_micros: 1_250_000 } }))).toBe("$1.25 per GPU hour");
+    expect(rateLabel(cluster({ rate_card: {} }))).toBeNull();
+    expect(rateLabel(cluster())).toBeNull();
+    expect(billingRuleLabel("timeout_capped_to_limit")).toBe("Timed out, capped at the limit");
+    // A rule this page has not heard of is still readable.
+    expect(billingRuleLabel("some_new_rule")).toBe("some new rule");
+    expect(submissionTone("unknown")).toBe("warning");
+    expect(submissionTone("lost")).toBe("failed");
   });
 });

@@ -3225,6 +3225,41 @@ export interface HpcCluster {
   transport: HpcClusterTransport;
   config_facts: Record<string, unknown> | null;
   config_captured_at: string | null;
+  /** What the cluster bills at. Empty until a rate card is set. */
+  rate_card?: { gpu_hour_micros?: number; cpu_hour_micros?: number; gpu_model?: string };
+  /** Whether a suspended job keeps its GPUs, so whether suspended time bills. */
+  suspend_holds_gres?: boolean;
+  /** Failures so far, keyed `stage:error_code`. */
+  failure_counts?: Record<string, number>;
+  /** Exact open-job counts, however many jobs are open. */
+  open_jobs?: {
+    total: number;
+    running: number;
+    pending: number;
+    stale: number;
+    awaiting_accounting: number;
+  };
+}
+
+export interface HpcClusterRegistration {
+  profile_key: string;
+  cluster_id?: string;
+  enabled?: boolean;
+  ssh_host?: string;
+  ssh_port?: number;
+  remote_user?: string;
+  /** A known_hosts or ssh-keyscan line, verified out of band. */
+  known_hosts_line?: string;
+  /** `env:XCELSIOR_SLURM_KEY_<NAME>` or `file:<name>`; never the key itself. */
+  credential_ref?: string;
+}
+
+/** Audited, platform admin only. Registering again replaces the cluster's transport. */
+export async function registerHpcCluster(data: HpcClusterRegistration) {
+  return apiFetch<{
+    ok: boolean;
+    cluster: { cluster_id: string; profile_key: string; research_only: boolean; transport: string };
+  }>("/api/v1/hpc/clusters", { method: "POST", body: JSON.stringify(data) });
 }
 
 export async function fetchHpcClusters() {
@@ -3339,6 +3374,115 @@ export async function fetchHpcJobOutput(xcelsiorJobId: string, stream: "out" | "
   return apiFetch<{ ok: boolean; output: HpcJobOutput }>(
     `/api/v1/hpc/jobs/${encodeURIComponent(xcelsiorJobId)}/output?stream=${stream}`,
   );
+}
+
+/** One accounting record of a settled job: a requeued job has one per run. */
+export interface HpcBillingSegment {
+  segment_id: string;
+  mapping_id: string;
+  run_index: number;
+  cluster_id: string;
+  slurm_job_id: string;
+  xcelsior_job_id: string;
+  slurm_state: string;
+  started_at: string | null;
+  ended_at: string | null;
+  elapsed_seconds: number;
+  suspended_seconds: number;
+  time_limit_seconds: number | null;
+  gpu_count: number;
+  cpu_count: number;
+  node_count: number;
+  billable_seconds: number;
+  /** The written rule that decided `billable_seconds`, e.g. `ran_to_end`. */
+  billing_rule: string;
+  gpu_seconds: number;
+  rate_micros_per_gpu_hour: number | null;
+  /** What the rate card would charge; null when the cluster is not priced. */
+  shadow_cost_micros: number | null;
+  charged: boolean;
+  meter_id: string | null;
+}
+
+/** One cluster's ledger against its own accounting for one day. */
+export interface HpcBillingDriftDay {
+  cluster_id: string;
+  day: string;
+  sacct_gpu_seconds: number;
+  ledger_gpu_seconds: number;
+  sacct_records: number;
+  ledger_records: number;
+  drift_pct: number | null;
+  within_tolerance: boolean;
+  unmatched: Record<string, unknown>;
+  checked_at: string | null;
+}
+
+export interface HpcBilling {
+  ok: boolean;
+  days: number;
+  tolerance_pct: number;
+  /** The whole window, not the page of segments. */
+  totals: {
+    segments: number;
+    jobs: number;
+    gpu_seconds: number;
+    billable_seconds: number;
+    shadow_cost_micros: number;
+    charged_micros: number;
+    charged_segments: number;
+    unpriced_segments: number;
+  };
+  drift: HpcBillingDriftDay[];
+  segments: HpcBillingSegment[];
+  next_cursor: string | null;
+}
+
+export async function fetchHpcBilling(
+  opts: { clusterId?: string; days?: number; cursor?: string | null; limit?: number } = {},
+) {
+  const query = new URLSearchParams({ days: String(opts.days ?? 14) });
+  if (opts.clusterId) query.set("cluster_id", opts.clusterId);
+  if (opts.cursor) query.set("cursor", opts.cursor);
+  if (opts.limit) query.set("limit", String(opts.limit));
+  return apiFetch<HpcBilling>(`/api/v1/hpc/billing?${query.toString()}`);
+}
+
+export type HpcSubmissionState = "pending" | "submitting" | "submitted" | "unknown" | "rejected" | "lost";
+export type HpcSubmissionScope = HpcSubmissionState | "open" | "all";
+
+/** One submission intent, written before any `sbatch`. */
+export interface HpcSubmission {
+  submission_name: string;
+  cluster_id: string;
+  xcelsior_job_id: string;
+  attempt_id: string;
+  state: HpcSubmissionState;
+  slurm_job_id: string | null;
+  sbatch_calls: number;
+  checks: number;
+  error_code: string | null;
+  error: string | null;
+  created_at: string | null;
+  submit_started_at: string | null;
+  submitted_at: string | null;
+  last_check_at: string | null;
+  resolved_at: string | null;
+}
+
+export async function fetchHpcSubmissions(
+  opts: { state?: HpcSubmissionScope; clusterId?: string; cursor?: string | null; limit?: number } = {},
+) {
+  const query = new URLSearchParams({ state: opts.state ?? "all" });
+  if (opts.clusterId) query.set("cluster_id", opts.clusterId);
+  if (opts.cursor) query.set("cursor", opts.cursor);
+  if (opts.limit) query.set("limit", String(opts.limit));
+  return apiFetch<{
+    ok: boolean;
+    counts: Record<HpcSubmissionState, number>;
+    submissions: HpcSubmission[];
+    next_cursor: string | null;
+  }>(`/api/v1/hpc/submissions?${query.toString()}`);
 }
 
 // ── Events SSE ────────────────────────────────────────────────────────

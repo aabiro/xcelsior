@@ -954,6 +954,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hpc/billing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Hpc Billing
+         * @description The Slurm billing ledger and its daily drift against the cluster's own
+         *     accounting, for the last `days` days.
+         *
+         *     `segments`: one entry per accounting record of a settled job, newest
+         *     first, with the seconds it bills and the rule that decided them (a
+         *     requeued job has one per run). `drift`: one entry per cluster per day,
+         *     the ledger's GPU seconds against `sacct`'s; `within_tolerance` is false
+         *     past `tolerance_pct`. `totals` covers the whole window, not the page.
+         *     `shadow_cost_micros` is what the rate card would charge; only `charged`
+         *     segments have been billed. Operators only. Read-only; never contacts a
+         *     cluster.
+         */
+        get: operations["api_v1_hpc_billing_api_v1_hpc_billing_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hpc/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Hpc Submissions
+         * @description The submit log: one entry per submission intent, newest first.
+         *
+         *     A row is written before any `sbatch`, so this shows what never became a
+         *     job as well as what did: `rejected` (sbatch refused it), `unknown` (the
+         *     call timed out and the job is being looked for by name) and `lost`
+         *     (looked for and not found). `state`: one of those, `pending`,
+         *     `submitting`, `submitted`, `open` (still to be resolved) or `all`.
+         *     Operators only. Read-only; never contacts a cluster.
+         */
+        get: operations["api_v1_hpc_submissions_api_v1_hpc_submissions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/image-sweeps/{sweep_id}/members/{member_index}/fingerprint": {
         parameters: {
             query?: never;
@@ -5316,6 +5373,74 @@ export interface operations {
             path: {
                 xcelsior_job_id: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_hpc_billing_api_v1_hpc_billing_get: {
+        parameters: {
+            query?: {
+                cluster_id?: string | null;
+                days?: number;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_hpc_submissions_api_v1_hpc_submissions_get: {
+        parameters: {
+            query?: {
+                cluster_id?: string | null;
+                state?: string;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;

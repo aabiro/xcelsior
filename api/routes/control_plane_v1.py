@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from uuid import UUID
 import base64
+import json
 
 from routes._deps import (
     _is_platform_admin,
@@ -1400,12 +1401,37 @@ def api_v1_hpc_clusters(request: Request):
                    consecutive_failures, breaker_open_until, last_error_code,
                    COALESCE(facts->'orphans', '[]'::jsonb),
                    ssh_host, ssh_port, remote_user, known_hosts_line, credential_ref,
-                   facts->'config', facts->>'config_captured_at'
+                   facts->'config', facts->>'config_captured_at',
+                   rate_card, suspend_holds_gres, failure_counts
               FROM slurm_clusters ORDER BY cluster_id
             """)
         rows = cur.fetchall()
+        # Open jobs per cluster, counted here so the console's fleet view is
+        # exact however many jobs are open (the job list pages at 200).
+        open_counts = {
+            row[0]: row[1:]
+            for row in conn.execute(
+                """
+                SELECT m.cluster_id,
+                       count(*),
+                       count(*) FILTER (WHERE m.observed_state = 'running'),
+                       count(*) FILTER (WHERE m.observed_state = 'pending'),
+                       count(*) FILTER (
+                           WHERE m.last_observed_at IS NULL
+                              OR m.last_observed_at < clock_timestamp() - make_interval(
+                                     secs => %s * COALESCE(c.poll_interval_seconds, 60))),
+                       count(*) FILTER (WHERE m.left_controller_at IS NOT NULL)
+                  FROM slurm_job_mappings m
+                  LEFT JOIN slurm_clusters c ON c.cluster_id = m.cluster_id
+                 WHERE m.terminal_at IS NULL
+                 GROUP BY m.cluster_id
+                """,
+                (HPC_STALE_INTERVALS,),
+            ).fetchall()
+        }
     clusters = []
     for r in rows:
+        opened, running, pending, stale, awaiting = open_counts.get(r[0], (0, 0, 0, 0, 0))
         clusters.append(
             {
                 "cluster_id": r[0],
@@ -1429,9 +1455,38 @@ def api_v1_hpc_clusters(request: Request):
                 "transport": _hpc_transport(r[16], r[17], r[18], r[19], r[20]),
                 "config_facts": r[21],
                 "config_captured_at": r[22],
+                # What a GPU hour on the cluster bills at; empty until priced.
+                "rate_card": _hpc_rate_card(r[23]),
+                "suspend_holds_gres": bool(r[24]),
+                # Failed passes, accounting calls and output fetches so far,
+                # keyed `stage:error_code`.
+                "failure_counts": _hpc_json(r[25]) or {},
+                "open_jobs": {
+                    "total": int(opened),
+                    "running": int(running),
+                    "pending": int(pending),
+                    "stale": int(stale),
+                    "awaiting_accounting": int(awaiting),
+                },
             }
         )
     return {"ok": True, "clusters": clusters}
+
+
+def _hpc_json(value):
+    """A JSONB column as Python, whichever way the driver handed it over."""
+    if isinstance(value, (str, bytes)):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return None
+    return value
+
+
+def _hpc_rate_card(raw) -> dict:
+    from slurm_billing import rate_card
+
+    return rate_card({"rate_card": _hpc_json(raw)})
 
 
 def _hpc_transport(host, port, user, known_hosts_line, credential_ref) -> dict:
@@ -1995,4 +2050,257 @@ def api_v1_hpc_job_output(xcelsior_job_id: str, request: Request, stream: str = 
             "poll_interval_seconds": output["poll_interval_seconds"],
             "fetch_error_code": output["fetch_error_code"],
         },
+    }
+
+
+def _hpc_operators_only(global_access: bool) -> None:
+    """The billing ledger and the submit log cross tenants: operators only."""
+    if not global_access:
+        raise ProblemException(
+            status=403,
+            code="forbidden",
+            detail="platform admin or a scoped machine principal is required",
+        )
+
+
+def _hpc_offset(cursor: str | None) -> int:
+    try:
+        raw = cursor or "MA"
+        offset = int(base64.urlsafe_b64decode(raw + "=" * ((4 - len(raw) % 4) % 4)).decode())
+    except (ValueError, TypeError):
+        raise ProblemException(status=422, code="invalid_cursor", detail="cursor is invalid")
+    if offset < 0:
+        raise ProblemException(status=422, code="invalid_cursor", detail="cursor is invalid")
+    return offset
+
+
+def _hpc_next_cursor(offset: int, limit: int, more: bool) -> str | None:
+    if not more:
+        return None
+    return base64.urlsafe_b64encode(str(offset + limit).encode()).decode().rstrip("=")
+
+
+@router.get("/api/v1/hpc/billing")
+def api_v1_hpc_billing(
+    request: Request,
+    cluster_id: str | None = None,
+    days: int = Query(14, ge=1, le=90),
+    cursor: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+):
+    """The Slurm billing ledger and its daily drift against the cluster's own
+    accounting, for the last `days` days.
+
+    `segments`: one entry per accounting record of a settled job, newest
+    first, with the seconds it bills and the rule that decided them (a
+    requeued job has one per run). `drift`: one entry per cluster per day,
+    the ledger's GPU seconds against `sacct`'s; `within_tolerance` is false
+    past `tolerance_pct`. `totals` covers the whole window, not the page.
+    `shadow_cost_micros` is what the rate card would charge; only `charged`
+    segments have been billed. Operators only. Read-only; never contacts a
+    cluster.
+    """
+    from db import _get_pg_pool
+    from slurm_billing import DRIFT_ALERT_PCT
+
+    global_access, _owners = _hpc_reader(request)
+    _hpc_operators_only(global_access)
+    offset = _hpc_offset(cursor)
+    where = ["ended_at >= clock_timestamp() - make_interval(days => %s)"]
+    params: list = [days]
+    drift_where = ["day >= (clock_timestamp() - make_interval(days => %s))::date"]
+    drift_params: list = [days]
+    if cluster_id:
+        where.append("cluster_id = %s")
+        params.append(cluster_id)
+        drift_where.append("cluster_id = %s")
+        drift_params.append(cluster_id)
+    seg_filter = " AND ".join(where)
+    with _get_pg_pool().connection() as conn:
+        segments = conn.execute(
+            """
+            SELECT segment_id::text, mapping_id::text, run_index, cluster_id, slurm_job_id,
+                   xcelsior_job_id, slurm_state, started_at, ended_at, elapsed_sec,
+                   suspended_sec, time_limit_sec, gpu_count, cpu_count, node_count,
+                   billable_sec, billing_rule, gpu_seconds, rate_micros_per_gpu_hour,
+                   shadow_cost_micros, charged, meter_id
+              FROM slurm_billing_segments
+             WHERE """
+            + seg_filter
+            + """
+             ORDER BY ended_at DESC NULLS LAST, segment_id
+             LIMIT %s OFFSET %s
+            """,
+            (*params, limit + 1, offset),
+        ).fetchall()
+        totals = conn.execute(
+            """
+            SELECT count(*), count(DISTINCT mapping_id),
+                   COALESCE(sum(gpu_seconds), 0), COALESCE(sum(billable_sec), 0),
+                   COALESCE(sum(shadow_cost_micros), 0),
+                   COALESCE(sum(shadow_cost_micros) FILTER (WHERE charged), 0),
+                   count(*) FILTER (WHERE charged),
+                   count(*) FILTER (WHERE shadow_cost_micros IS NULL)
+              FROM slurm_billing_segments
+             WHERE """ + seg_filter,
+            params,
+        ).fetchone()
+        drift = conn.execute(
+            """
+            SELECT cluster_id, day, sacct_gpu_seconds, ledger_gpu_seconds, sacct_records,
+                   ledger_records, drift_pct, unmatched, checked_at
+              FROM slurm_billing_drift
+             WHERE """ + " AND ".join(drift_where) + " ORDER BY day DESC, cluster_id",
+            drift_params,
+        ).fetchall()
+    more = len(segments) > limit
+    return {
+        "ok": True,
+        "days": days,
+        "tolerance_pct": DRIFT_ALERT_PCT,
+        "totals": {
+            "segments": int(totals[0]),
+            "jobs": int(totals[1]),
+            "gpu_seconds": int(totals[2]),
+            "billable_seconds": int(totals[3]),
+            "shadow_cost_micros": int(totals[4]),
+            "charged_micros": int(totals[5]),
+            "charged_segments": int(totals[6]),
+            "unpriced_segments": int(totals[7]),
+        },
+        "drift": [
+            {
+                "cluster_id": d[0],
+                "day": _iso(d[1]),
+                "sacct_gpu_seconds": int(d[2]),
+                "ledger_gpu_seconds": int(d[3]),
+                "sacct_records": int(d[4]),
+                "ledger_records": int(d[5]),
+                "drift_pct": None if d[6] is None else float(d[6]),
+                "within_tolerance": d[6] is None or float(d[6]) <= DRIFT_ALERT_PCT,
+                "unmatched": _hpc_json(d[7]) or {},
+                "checked_at": _iso(d[8]),
+            }
+            for d in drift
+        ],
+        "segments": [
+            {
+                "segment_id": s[0],
+                "mapping_id": s[1],
+                "run_index": s[2],
+                "cluster_id": s[3],
+                "slurm_job_id": s[4],
+                "xcelsior_job_id": s[5],
+                "slurm_state": s[6],
+                "started_at": _iso(s[7]),
+                "ended_at": _iso(s[8]),
+                "elapsed_seconds": s[9],
+                "suspended_seconds": s[10],
+                "time_limit_seconds": s[11],
+                "gpu_count": s[12],
+                "cpu_count": s[13],
+                "node_count": s[14],
+                "billable_seconds": s[15],
+                "billing_rule": s[16],
+                "gpu_seconds": int(s[17]),
+                "rate_micros_per_gpu_hour": s[18],
+                "shadow_cost_micros": s[19],
+                "charged": bool(s[20]),
+                "meter_id": s[21],
+            }
+            for s in segments[:limit]
+        ],
+        "next_cursor": _hpc_next_cursor(offset, limit, more),
+    }
+
+
+#: `open` is what the submitter still has to resolve.
+_HPC_SUBMISSION_STATES = ("pending", "submitting", "submitted", "unknown", "rejected", "lost")
+_HPC_SUBMISSION_OPEN = ("pending", "submitting", "unknown")
+
+
+@router.get("/api/v1/hpc/submissions")
+def api_v1_hpc_submissions(
+    request: Request,
+    cluster_id: str | None = None,
+    state: str = "all",
+    cursor: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+):
+    """The submit log: one entry per submission intent, newest first.
+
+    A row is written before any `sbatch`, so this shows what never became a
+    job as well as what did: `rejected` (sbatch refused it), `unknown` (the
+    call timed out and the job is being looked for by name) and `lost`
+    (looked for and not found). `state`: one of those, `pending`,
+    `submitting`, `submitted`, `open` (still to be resolved) or `all`.
+    Operators only. Read-only; never contacts a cluster.
+    """
+    from db import _get_pg_pool
+
+    global_access, _owners = _hpc_reader(request)
+    _hpc_operators_only(global_access)
+    offset = _hpc_offset(cursor)
+    where, params = [], []
+    if state == "open":
+        where.append("state = ANY(%s)")
+        params.append(list(_HPC_SUBMISSION_OPEN))
+    elif state in _HPC_SUBMISSION_STATES:
+        where.append("state = %s")
+        params.append(state)
+    elif state != "all":
+        raise ProblemException(
+            status=422,
+            code="invalid_state",
+            detail="state must be all|open|" + "|".join(_HPC_SUBMISSION_STATES),
+        )
+    if cluster_id:
+        where.append("cluster_id = %s")
+        params.append(cluster_id)
+    with _get_pg_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT submission_name, cluster_id, xcelsior_job_id, attempt_id::text, state,
+                   slurm_job_id, sbatch_calls, checks, error_code, error, created_at,
+                   submit_started_at, submitted_at, last_check_at, resolved_at
+              FROM slurm_submissions
+            """
+            + (" WHERE " + " AND ".join(where) if where else "")
+            + " ORDER BY created_at DESC, submission_name LIMIT %s OFFSET %s",
+            (*params, limit + 1, offset),
+        ).fetchall()
+        counts = dict(
+            conn.execute(
+                "SELECT state, count(*) FROM slurm_submissions"
+                + (" WHERE cluster_id = %s" if cluster_id else "")
+                + " GROUP BY state",
+                ([cluster_id] if cluster_id else []),
+            ).fetchall()
+        )
+    more = len(rows) > limit
+    return {
+        "ok": True,
+        "counts": {s: int(counts.get(s, 0)) for s in _HPC_SUBMISSION_STATES},
+        "submissions": [
+            {
+                "submission_name": r[0],
+                "cluster_id": r[1],
+                "xcelsior_job_id": r[2],
+                "attempt_id": r[3],
+                "state": r[4],
+                "slurm_job_id": r[5],
+                "sbatch_calls": r[6],
+                "checks": r[7],
+                "error_code": r[8],
+                # The first line only: sbatch's stderr can run long.
+                "error": (str(r[9]).splitlines() or [""])[0][:300] if r[9] else None,
+                "created_at": _iso(r[10]),
+                "submit_started_at": _iso(r[11]),
+                "submitted_at": _iso(r[12]),
+                "last_check_at": _iso(r[13]),
+                "resolved_at": _iso(r[14]),
+            }
+            for r in rows[:limit]
+        ],
+        "next_cursor": _hpc_next_cursor(offset, limit, more),
     }
