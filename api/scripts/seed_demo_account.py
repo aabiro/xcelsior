@@ -46,6 +46,21 @@ _DESIRED = {
     "is_admin": 1,
     "role": "admin",
     "name": DEMO_NAME,
+    # The dashboard sends an account without a type and an address to
+    # onboarding, so a demo login that lacked them never reached it. A business
+    # account, so the demo also shows the business badge. The address is a
+    # placeholder, not anyone's real one.
+    "account_type": "business",
+    "business_name": "Xcelsior Demo",
+    "business_display_name": "Xcelsior Demo",
+    "business_tagline": "The live demo account",
+    "business_website": "https://xcelsior.ca",
+    "onboarding_intent": "rent",
+    "country": "CA",
+    "province": "ON",
+    "address_line1": "100 Demo Way",
+    "city": "London",
+    "postal_code": "N6A 1A1",
 }
 
 
