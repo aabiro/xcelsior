@@ -1,0 +1,8 @@
+# Commits that only reformat code, skipped by `git blame`.
+#
+# GitHub reads this file automatically. For local blame, run once per clone:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# Add a commit here only when it changes formatting and nothing else.
+
+# style: format the Python tree with black 26.10.1 (277 files)
+863c5935988f1a6074c7038a23348b228dc18349
