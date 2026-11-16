@@ -4,6 +4,12 @@ x-api-environment: &api-env
   XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
   XCELSIOR_PERSISTENT_AUTH: ${XCELSIOR_PERSISTENT_AUTH:-true}
   XCELSIOR_AUTH_RATE_LIMIT_REQUESTS: ${XCELSIOR_AUTH_RATE_LIMIT_REQUESTS:-10}
+  # One-click demo login (core/demo_account.py). The networks allowed to see it
+  # are set per deployment, so they must reach the API: unnamed here, a line in
+  # production's .env never did, and only the built-in defaults applied.
+  XCELSIOR_DEMO_ENABLED: ${XCELSIOR_DEMO_ENABLED:-1}
+  XCELSIOR_DEMO_IP_WHITELIST: ${XCELSIOR_DEMO_IP_WHITELIST:-}
+  XCELSIOR_DEMO_IP_WHITELIST_EXTRA: ${XCELSIOR_DEMO_IP_WHITELIST_EXTRA:-}
   XCELSIOR_WEBAUTHN_RP_ID: ${XCELSIOR_WEBAUTHN_RP_ID:-xcelsior.ca}
   XCELSIOR_WEBAUTHN_ORIGIN: ${XCELSIOR_WEBAUTHN_ORIGIN:-https://xcelsior.ca}
   XCELSIOR_DB_BACKEND: ${XCELSIOR_DB_BACKEND:-postgres}
