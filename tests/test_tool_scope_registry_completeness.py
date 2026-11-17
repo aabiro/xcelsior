@@ -284,7 +284,13 @@ def _registered_tool_names() -> set[str]:
 #: owner, signed in to the dashboard, can approve it. Both are customer tools
 #: open to any credential holding at least one tenant permission, so the
 #: customer profile publishes 89.
-EXPECTED_TOOL_TOTAL = 102
+#: **104** with the HPC writes (2026-11-17, blueprint 3.4): `submit_hpc_job`
+#: queues a Slurm batch job and `cancel_hpc_job` stops one, so an agent can book,
+#: poll, cancel and fetch through MCP alone. Both are operator-audience (the
+#: cluster registry is the operator's), the API refuses a research-only
+#: (Alliance) cluster before anything is written, and the customer profile still
+#: publishes 89.
+EXPECTED_TOOL_TOTAL = 104
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
@@ -303,6 +309,8 @@ OPERATOR_TOOLS = {
     "list_hpc_jobs",
     "get_hpc_job",
     "get_hpc_job_output",
+    "submit_hpc_job",
+    "cancel_hpc_job",
 }
 COMPANY_KNOWLEDGE_TOOLS = {"search", "fetch"}
 

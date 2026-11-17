@@ -184,6 +184,29 @@ _SQL_STRING = re.compile(r"'[^']*'")
 _SQL_VERB = re.compile(r"\b(SELECT|UPDATE|INSERT\s+INTO|DELETE\s+FROM|RETURNING)\b", re.I)
 # `-- total_cost_cad is derived by ...` is commentary, not a column reference.
 _SQL_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.S)
+#: `m.` immediately before the match: a qualified reference.
+_QUALIFIER = re.compile(r"\b([a-z_][a-z0-9_]*)\.$", re.I)
+
+
+def _qualified_table(sql: str, qualifier: str) -> str | None:
+    """The table a qualified reference reads, or None when it can't be told.
+
+    `m.xcelsior_job_id` in a statement that also names `slurm_job_outputs`
+    reads `slurm_job_mappings` when the statement binds `m` to that table
+    (`JOIN slurm_job_mappings m`), and that table still has the column. Only a
+    qualifier bound to the table the column was dropped from is a reference to
+    the dropped column. An unbound qualifier stays suspect.
+    """
+    binding = re.search(
+        rf"\b(?:FROM|JOIN|UPDATE)\s+([a-z_][a-z0-9_]*)\s+(?:AS\s+)?{re.escape(qualifier)}\b",
+        sql,
+        re.I,
+    )
+    if binding:
+        return binding.group(1).lower()
+    if re.search(rf"\b(?:FROM|JOIN|UPDATE)\s+{re.escape(qualifier)}\b", sql, re.I):
+        return qualifier.lower()  # qualified by the table's own name
+    return None
 
 
 def _sql_literals(text: str):
@@ -242,6 +265,11 @@ def _offending_references(extra: tuple[pathlib.Path, ...] = ()) -> list[str]:
                     continue
                 if _ALIAS.search(scanned[: match.start()]):
                     continue
+                qualified = _QUALIFIER.search(scanned[: match.start()])
+                if qualified:
+                    table = _qualified_table(scanned, qualified.group(1))
+                    if table is not None and table not in retired[column]:
+                        continue  # a live column of another table in the join
                 # Adjacent literals fold into one constant, so a statement and
                 # its table name are almost always in the same string.
                 tables = sorted(t for t in retired[column] if re.search(rf"\b{t}\b", sql))
@@ -279,6 +307,29 @@ def test_guard_detects_a_reintroduced_reference(tmp_path):
     assert any("probe.py" in o for o in offenders), (
         "the scan did not flag a planted reference to wallets.balance_cad, so "
         "a green result from the test above means nothing"
+    )
+
+
+def test_a_qualified_reference_is_judged_by_its_own_table(tmp_path):
+    """A join can name the table a column was dropped from and read the column
+    from another table. Qualified to the dropped table it is still flagged;
+    qualified to a table bound in the statement it is not."""
+    planted = tmp_path / "probe.py"
+    planted.write_text(
+        "def dropped(conn):\n"
+        '    return conn.execute("SELECT w.balance_cad FROM wallets w").fetchall()\n'
+        "def by_name(conn):\n"
+        '    return conn.execute("SELECT wallets.balance_cad FROM wallets").fetchall()\n'
+        "def other_table(conn):\n"
+        '    return conn.execute("SELECT w.customer_id, x.balance_cad FROM wallets w "\n'
+        '                        "JOIN wallet_view x ON x.customer_id = w.customer_id").fetchall()\n'
+    )
+    offenders = [o for o in _offending_references(extra=(planted,)) if "probe.py" in o]
+    assert any(":2 " in o for o in offenders), "w.balance_cad on wallets must be flagged"
+    assert any(":4 " in o for o in offenders), "wallets.balance_cad must be flagged"
+    assert not any(":6 " in o for o in offenders), (
+        "x.balance_cad reads wallet_view, bound in the statement; flagging it "
+        "is the false positive that gets a guard deleted"
     )
 
 

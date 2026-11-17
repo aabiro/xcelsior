@@ -33,6 +33,19 @@ _JOB_WRITER_ALLOWLIST: dict[str, str] = {
     "api/routes/inference.py": "inference API endpoints — request/response inference, not an interactive instance",
     "core/ai_assistant.py": "AI assistant _tool_launch_job — a thin convenience wrapper over the REST launch surface",
     "core/cli.py": "local operator/dev CLI — not a network surface",
+    "api/routes/control_plane_v1.py": (
+        "POST /api/v1/hpc/jobs (blueprint 3.4): a Slurm batch job, not an "
+        "interactive instance. It names hpc_cluster_id, takes no host quote, "
+        "wallet hold or service tier (submit_job refuses those for it), and is "
+        "placed by the Slurm submitter and charged from accounting by the "
+        "lifecycle task, none of which the launch service models. Research-only "
+        "(Alliance) clusters are refused before submit_job is called"
+    ),
+    "hpc/slurm-local/shadow_week.py": (
+        "operator driver for the Slurm shadow week on staging (plan 2.3), run "
+        "by cron through docker exec, not a network surface; it queues "
+        "ownerless xcl-local jobs, which are never charged"
+    ),
     "api/scripts/seed_reviewer_account.py": (
         "one-shot operator script that plants sample instances on the connector "
         "reviewer's own tenant — not a network surface, and deliberately does "
