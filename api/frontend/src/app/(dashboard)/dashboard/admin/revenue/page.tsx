@@ -15,7 +15,7 @@ import {
 } from "@/lib/recharts";
 
 const COLORS = ["#dc2626", "#f59e0b", "#38bdf8", "#10b981", "#8b5cf6", "#ec4899", "#6366f1", "#14b8a6"];
-const tooltipStyle = { backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" };
+const tooltipStyle = { backgroundColor: "var(--popover-solid)", border: "1px solid var(--color-border)", borderRadius: "8px", color: "var(--color-text-primary)" };
 
 const RANGE_PRESETS = [
   { label: "30d", days: 30 },

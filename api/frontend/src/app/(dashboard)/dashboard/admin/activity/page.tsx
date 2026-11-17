@@ -17,7 +17,7 @@ import {
   CartesianGrid, Legend,
 } from "@/lib/recharts";
 
-const tooltipStyle = { backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" };
+const tooltipStyle = { backgroundColor: "var(--popover-solid)", border: "1px solid var(--color-border)", borderRadius: "8px", color: "var(--color-text-primary)" };
 
 const EVENT_COLORS: Record<string, string> = {
   job_submitted: "bg-accent-cyan/10 text-accent-cyan border-accent-cyan/30",

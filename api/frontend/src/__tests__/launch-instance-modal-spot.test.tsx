@@ -276,6 +276,9 @@ describe("LaunchInstanceModal", () => {
   });
 
   it("disables Dedicated and falls back to Standard when no qualified physical hosts are available", async () => {
+    // Each step waits on a pricing-catalog fetch for the newly chosen model: the
+    // default 1 s was enough alone but not in a full run beside ~90 other files.
+    const slow = { timeout: 5000 };
     apiMocks.fetchAvailableGPUs.mockResolvedValue({
       gpus: [
         { gpu_model: "RTX 3090", vram_gb: 24, count_available: 1, price_per_hour_cad: 0.55, region: "ca-on", province: "ON" },
@@ -299,19 +302,19 @@ describe("LaunchInstanceModal", () => {
     }));
 
     render(<LaunchInstanceModal open onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.14/hr"));
+    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.14/hr"), slow);
     const dedicatedBtn = screen.getByRole("button", { name: /^dedicated/i });
     expect(dedicatedBtn).toBeDisabled();
     expect(dedicatedBtn).toHaveTextContent("No qualified physical hosts available");
     expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
 
     fireEvent.change(screen.getByLabelText("GPU Model"), { target: { value: "RTX 3090" } });
-    await waitFor(() => expect(screen.getByRole("button", { name: /^dedicated/i })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^dedicated/i })).toBeEnabled(), slow);
     fireEvent.click(screen.getByRole("button", { name: /^dedicated/i }));
     expect(screen.getByLabelText("GPUs")).toHaveValue(2);
 
     fireEvent.change(screen.getByLabelText("GPU Model"), { target: { value: "RTX 3060" } });
-    await waitFor(() => expect(screen.getByRole("button", { name: /^standard/i })).toHaveAttribute("aria-pressed", "true"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^standard/i })).toHaveAttribute("aria-pressed", "true"), slow);
     expect(screen.getByRole("button", { name: /^dedicated/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled();
   });

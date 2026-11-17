@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 
 /* ───── Constants ──────────────────────────────────────────────────── */
 
-const tooltipStyle = { backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" };
+const tooltipStyle = { backgroundColor: "var(--popover-solid)", border: "1px solid var(--color-border)", borderRadius: "8px", color: "var(--color-text-primary)" };
 
 const SOURCE_META: Record<string, { label: string; color: string; dot: string; chart: string; badge: string }> = {
   support: {

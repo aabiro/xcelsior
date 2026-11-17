@@ -18,7 +18,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "@/lib/recharts";
 
-const tooltipStyle = { backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" };
+const tooltipStyle = { backgroundColor: "var(--popover-solid)", border: "1px solid var(--color-border)", borderRadius: "8px", color: "var(--color-text-primary)" };
 
 const RANGE_PRESETS = [
   { label: "7d", days: 7 },

@@ -295,12 +295,13 @@ export default function SpotPricingPage() {
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "#0f172a",
-                      border: "1px solid #1e293b",
+                      backgroundColor: "var(--popover-solid)",
+                      border: "1px solid var(--color-border)",
+                      color: "var(--color-text-primary)",
                       borderRadius: "8px",
                       fontSize: 12,
                     }}
-                    labelStyle={{ color: "#94a3b8" }}
+                    labelStyle={{ color: "var(--color-text-secondary)" }}
                     formatter={((value: any, _name: any, item: any) => {
                       const cad = item?.payload?.priceCad ?? Number(value) / 100;
                       return [`$${cad.toFixed(2)}/hr`, "Spot Price"];

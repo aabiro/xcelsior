@@ -185,8 +185,8 @@ function TelemetryChart({ title, data, dataKey, color, unit }: {
               <XAxis dataKey="host" tick={{ fill: "#94a3b8", fontSize: 10 }} stroke="#475569" />
               <YAxis stroke="#475569" tick={{ fill: "#94a3b8", fontSize: 11 }} unit={unit} />
               <Tooltip
-                contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" }}
-                labelStyle={{ color: "#94a3b8" }}
+                contentStyle={{ backgroundColor: "var(--popover-solid)", border: "1px solid var(--color-border)", borderRadius: "8px", color: "var(--color-text-primary)" }}
+                labelStyle={{ color: "var(--color-text-secondary)" }}
                 formatter={(v: unknown) => [`${v}${unit ?? ""}`, dataKey]}
                 labelFormatter={(_label, payload) => String(payload?.[0]?.payload?.hostId ?? _label)}
                 cursor={{ fill: "rgba(148, 163, 184, 0.08)" }}

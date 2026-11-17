@@ -626,7 +626,7 @@ export default function EarningsPage() {
                         tickFormatter={(v) => `$${v}`}
                       />
                       <Tooltip
-                        contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px", color: "#e2e8f0" }}
+                        contentStyle={{ backgroundColor: "var(--popover-solid)", border: "1px solid var(--color-border)", borderRadius: "8px", color: "var(--color-text-primary)" }}
                         formatter={(value) => [`$${Number(value).toFixed(2)}`, "Earned"]}
                       />
                       <Bar dataKey="amount" fill="#10b981" radius={[4, 4, 0, 0]} />

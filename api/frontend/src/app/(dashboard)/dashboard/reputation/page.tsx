@@ -643,8 +643,9 @@ export default function ReputationPage() {
                       />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: "#1e293b",
-                          border: "1px solid #334155",
+                          backgroundColor: "var(--popover-solid)",
+                          border: "1px solid var(--color-border)",
+                          color: "var(--color-text-primary)",
                           borderRadius: 8,
                         }}
                         labelFormatter={(d) => new Date(d).toLocaleDateString("en-CA")}
