@@ -466,9 +466,11 @@ export default function InstancesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Wraps on a phone, labels on one line: unwrapped, "Launch Instance"
+          squeezed onto two lines beside the title. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">{t("dash.instances.title")}</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 whitespace-nowrap">
           <Button variant="outline" size="sm" onClick={() => load({ refresh: true })}>
             <RefreshCw className="h-3.5 w-3.5" /> {t("common.refresh")}
           </Button>

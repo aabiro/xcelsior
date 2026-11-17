@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Monitor, Rocket, X, Zap } from "lucide-react";
@@ -31,6 +31,17 @@ const DOCKLESS_PATHS = ["/dashboard/ai", "/dashboard/mcp", "/dashboard/hosts", "
 const ARM_TAP_GRACE_MS = 400;
 const ARMED_IDLE_MS = 45_000;
 const TOAST_COOLDOWN_MS = 2_500;
+/** Set once the person has switched deploy track; the switch hint then stays hidden. */
+const TRACK_HINT_SEEN_KEY = "xcelsior.mobile.track_hint_seen";
+
+function readTrackHintSeen(): boolean {
+  try {
+    return localStorage.getItem(TRACK_HINT_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+const noSubscription = () => () => {};
 
 function safeVibrate(pattern: number | number[]) {
   try {
@@ -48,6 +59,11 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
   const [selectedTrack, setSelectedTrack] = useState<DeployTrack>("instance");
   const [liveMessage, setLiveMessage] = useState("");
+  // First-use guidance only. The server snapshot is "not seen", so the server
+  // render and hydration agree; the stored flag applies right after.
+  const trackHintStored = useSyncExternalStore(noSubscription, readTrackHintSeen, () => false);
+  const [trackSwitched, setTrackSwitched] = useState(false);
+  const trackHintSeen = trackHintStored || trackSwitched;
   const blockClickUntilRef = useRef(0);
   const lastToastAtRef = useRef(0);
   const modalOpenRef = useRef(false);
@@ -120,6 +136,12 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
     setSelectedTrack(track);
     resetArmed();
     safeVibrate(6);
+    setTrackSwitched(true);
+    try {
+      localStorage.setItem(TRACK_HINT_SEEN_KEY, "1");
+    } catch {
+      /* storage unavailable: the hint returns next visit */
+    }
     announce(track === "serverless" ? t("dash.mobile.track_serverless") : t("dash.mobile.track_instance"));
   }, [announce, resetArmed, serverlessEnabled, t]);
 
@@ -302,9 +324,14 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
 
           {/* On a backdrop: bare text here floats over whatever the page has
               scrolled beneath it and the two run together. */}
-          <p className="rounded-full bg-(--bg)/85 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted shadow-sm backdrop-blur-xl">
-            {t("dash.mobile.track_switch_hint")}
-          </p>
+          {/* Only while there is a second track to switch to, and only until the
+              person has switched once: shown forever it made the panel taller
+              over every page's content. */}
+          {serverlessEnabled && !trackHintSeen && (
+            <p className="rounded-full bg-(--bg)/85 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted shadow-sm backdrop-blur-xl">
+              {t("dash.mobile.track_switch_hint")}
+            </p>
+          )}
 
           <motion.button
             type="button"

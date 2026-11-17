@@ -1654,3 +1654,13 @@ html.light .dashboard-site-modal-overlay {
     display: none;
   }
 }
+
+/* Phones: the floating deploy panel (mobile-deploy-action.tsx) sits over the
+   bottom ~14rem of the screen, and nothing reserved that space, so the end of
+   every page scrolled under it and could not be brought into view. The AI and
+   MCP pages keep their own full-height layout (padding 0 above, more specific). */
+@media (max-width: 767px) {
+  .dashboard-site-main-inner {
+    padding-bottom: calc(15rem + env(safe-area-inset-bottom));
+  }
+}
