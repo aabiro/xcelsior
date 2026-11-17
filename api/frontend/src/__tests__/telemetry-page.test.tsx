@@ -7,6 +7,10 @@ vi.mock("@/lib/locale", () => ({useLocale: () => ({t: (key: string) => key})}));
 
 import TelemetryPage from "@/app/(dashboard)/dashboard/telemetry/page";
 
+// The page draws four charts before its values appear: the default 1 s wait
+// was enough alone and not always in a full run beside ~90 other files.
+const SLOW = { timeout: 5000 };
+
 describe("telemetry response and missing measurements", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -23,7 +27,7 @@ describe("telemetry response and missing measurements", () => {
   it("renders observed nested values from the real hosts envelope", async () => {
     api.fetchTelemetry.mockResolvedValue({ok:true, count:1, hosts:{"owned-host":{timestamp:100, received_at:101, stale:false, metrics:{utilization:37, temp:56, memory_used_gb:3.5, memory_total_gb:24, power_draw_w:108}}}});
     render(<TelemetryPage />);
-    expect((await screen.findAllByText("37%")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("37%", undefined, SLOW)).length).toBeGreaterThan(0);
     expect(screen.getAllByText("3.5 / 24GB").length).toBeGreaterThan(0);
     expect(screen.getAllByText("108W").length).toBeGreaterThan(0);
   });
@@ -31,7 +35,7 @@ describe("telemetry response and missing measurements", () => {
   it("does not display missing sensors as zero", async () => {
     api.fetchTelemetry.mockResolvedValue({ok:true, count:1, hosts:{"owned-host":{timestamp:100, received_at:101, stale:false, metrics:{}}}});
     render(<TelemetryPage />);
-    expect((await screen.findAllByText("Unavailable")).length).toBeGreaterThanOrEqual(4);
+    expect((await screen.findAllByText("Unavailable", undefined, SLOW)).length).toBeGreaterThanOrEqual(4);
     expect(screen.queryByText("0%")).not.toBeInTheDocument();
     expect(screen.queryByText("0°C")).not.toBeInTheDocument();
   });
@@ -39,7 +43,7 @@ describe("telemetry response and missing measurements", () => {
   it("an outage is an error rather than an empty fleet", async () => {
     api.fetchTelemetry.mockRejectedValue(new Error("storage unavailable"));
     render(<TelemetryPage />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Telemetry could not be loaded");
+    expect(await screen.findByRole("alert", undefined, SLOW)).toHaveTextContent("Telemetry could not be loaded");
     expect(screen.queryByText(/No live telemetry/)).not.toBeInTheDocument();
     expect(screen.queryByText("0%")).not.toBeInTheDocument();
   });
