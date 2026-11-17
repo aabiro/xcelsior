@@ -324,20 +324,29 @@ export default function AdminAiInsightsPage() {
                         data={pieData}
                         cx="50%"
                         cy="50%"
-                        innerRadius={60}
-                        outerRadius={100}
+                        innerRadius={58}
+                        outerRadius={92}
                         paddingAngle={3}
                         dataKey="value"
-                        label={({ name, percent }) =>
-                          `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
-                        }
-                        labelLine={false}
                       >
                         {pieData.map((entry, i) => (
                           <Cell key={i} fill={entry.color} />
                         ))}
                       </Pie>
                       <Tooltip contentStyle={tooltipStyle} />
+                      {/* Names and shares go in a legend: labels drawn outside
+                          the ring were clipped by the card ("Support AI 3…"). */}
+                      <Legend
+                        verticalAlign="bottom"
+                        iconType="circle"
+                        iconSize={8}
+                        wrapperStyle={{ fontSize: 12 }}
+                        formatter={(name: string, entry) => {
+                          const total = pieData.reduce((sum, d) => sum + d.value, 0);
+                          const value = Number((entry.payload as { value?: number } | undefined)?.value ?? 0);
+                          return `${name} ${total ? Math.round((value / total) * 100) : 0}%`;
+                        }}
+                      />
                     </PieChart>
                   </ResponsiveContainer>
                   </div>
