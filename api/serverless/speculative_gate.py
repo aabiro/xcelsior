@@ -8,10 +8,13 @@ samples. Default: speculative decoding off until validated.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 MIN_ACCEPTANCE_RATE = float(os.environ.get("XCELSIOR_EAGLE3_MIN_ACCEPTANCE", "0.75"))
 MIN_SAMPLES = int(os.environ.get("XCELSIOR_EAGLE3_MIN_SAMPLES", "5"))
@@ -28,16 +31,27 @@ def _store_path() -> Path:
 
 
 def _load_store() -> dict[str, Any]:
+    """The store, or an empty one: nothing validated, so speculation stays off.
+
+    An unreadable store is logged rather than raised. `is_file()` itself raises
+    PermissionError when the directory can't be searched, and that used to
+    escape here and fail the endpoint request it was answering; off is this
+    module's documented default.
+    """
     path = _store_path()
-    if not path.is_file():
-        return {"models": {}, "updated_at": 0.0}
     try:
+        if not path.is_file():
+            return {"models": {}, "updated_at": 0.0}
         with path.open(encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict) and isinstance(data.get("models"), dict):
             return data
-    except (OSError, json.JSONDecodeError):
-        pass
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning(
+            "EAGLE-3 validation store %s unreadable (%s); speculative decoding stays off",
+            path,
+            type(exc).__name__,
+        )
     return {"models": {}, "updated_at": 0.0}
 
 

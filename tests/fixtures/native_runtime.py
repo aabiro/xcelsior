@@ -68,44 +68,55 @@ def running_instance(
         )
         admit_fixture_job(conn, job_id)
 
-    def reserve(conn):
-        claim = claim_next_job(conn, replica_id=job_id, scope_gpu_models=[job_id])
-        assert claim and claim.job_id == job_id
-        return reserve_and_bind(
-            conn, job_id=job_id, claim_token=claim.claim_token, replica_id=job_id, host_id=host_id
-        )
+    try:
 
-    r = run_transaction(reserve)
-    auth = dict(
-        job_id=job_id, host_id=host_id, attempt_id=r.attempt_id, fencing_token=r.fencing_token
-    )
-    run_transaction(
-        lambda conn: claim_lease(
-            conn, lease_id=r.lease_id, worker_session_id="auto-launch-test", **auth
+        def reserve(conn):
+            claim = claim_next_job(conn, replica_id=job_id, scope_gpu_models=[job_id])
+            assert claim and claim.job_id == job_id
+            return reserve_and_bind(
+                conn,
+                job_id=job_id,
+                claim_token=claim.claim_token,
+                replica_id=job_id,
+                host_id=host_id,
+            )
+
+        r = run_transaction(reserve)
+        auth = dict(
+            job_id=job_id, host_id=host_id, attempt_id=r.attempt_id, fencing_token=r.fencing_token
         )
-    )
-    run_transaction(lambda conn: report_attempt_status(conn, status="running", **auth))
-    started = time.time() - age_sec
-    with pool.connection() as conn:
-        conn.execute(
-            "UPDATE job_attempts SET started_at=to_timestamp(%s) WHERE attempt_id=%s",
-            (started, r.attempt_id),
+        run_transaction(
+            lambda conn: claim_lease(
+                conn, lease_id=r.lease_id, worker_session_id="auto-launch-test", **auth
+            )
         )
-        conn.execute("UPDATE usage_meters SET started_at=%s WHERE job_id=%s", (started, job_id))
-        conn.execute(
-            "UPDATE jobs SET payload=payload||%s WHERE job_id=%s",
-            (Jsonb({"started_at": started}), job_id),
-        )
-    yield {
-        "started_at": started,
-        "job_id": job_id,
-        "host_id": host_id,
-        "slug": job_id[:12],
-        "authority": {"attempt_id": r.attempt_id, "fencing_token": r.fencing_token},
-    }
-    with pool.connection() as conn:
-        conn.execute("DELETE FROM outbox_events WHERE aggregate_id=%s", (job_id,))
-        conn.execute("DELETE FROM agent_commands WHERE job_id=%s", (job_id,))
-        conn.execute("DELETE FROM usage_meters WHERE job_id=%s", (job_id,))
-        conn.execute("DELETE FROM jobs WHERE job_id=%s", (job_id,))
-        conn.execute("DELETE FROM hosts WHERE host_id=%s", (host_id,))
+        run_transaction(lambda conn: report_attempt_status(conn, status="running", **auth))
+        started = time.time() - age_sec
+        with pool.connection() as conn:
+            conn.execute(
+                "UPDATE job_attempts SET started_at=to_timestamp(%s) WHERE attempt_id=%s",
+                (started, r.attempt_id),
+            )
+            conn.execute("UPDATE usage_meters SET started_at=%s WHERE job_id=%s", (started, job_id))
+            conn.execute(
+                "UPDATE jobs SET payload=payload||%s WHERE job_id=%s",
+                (Jsonb({"started_at": started}), job_id),
+            )
+        yield {
+            "started_at": started,
+            "job_id": job_id,
+            "host_id": host_id,
+            "slug": job_id[:12],
+            "authority": {"attempt_id": r.attempt_id, "fencing_token": r.fencing_token},
+        }
+    finally:
+        # Cleanup runs when the test fails too. Without it a failed test left a
+        # running job and its host behind; every later billing cycle billed
+        # them, and enough of them made one sweep outlast the race window in
+        # test_billing_service_isolation, which then failed and leaked more.
+        with pool.connection() as conn:
+            conn.execute("DELETE FROM outbox_events WHERE aggregate_id=%s", (job_id,))
+            conn.execute("DELETE FROM agent_commands WHERE job_id=%s", (job_id,))
+            conn.execute("DELETE FROM usage_meters WHERE job_id=%s", (job_id,))
+            conn.execute("DELETE FROM jobs WHERE job_id=%s", (job_id,))
+            conn.execute("DELETE FROM hosts WHERE host_id=%s", (host_id,))

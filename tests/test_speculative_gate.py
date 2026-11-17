@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from serverless.service import _preset_startup_command
@@ -106,3 +108,24 @@ class TestEagle3ValidationMath:
                 baseline_tokens_per_sec=5000.0,
             )
         assert validation_status(model)["validated"] is False
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads through a mode-000 directory")
+def test_an_unreadable_store_keeps_speculation_off_without_failing(tmp_path, monkeypatch):
+    """A store whose directory this process can't search reads as empty.
+
+    `Path.is_file()` raises PermissionError there rather than returning False.
+    That used to escape and fail the serverless request it was answering:
+    every endpoint creation on a machine whose /var/lib/xcelsior belongs to the
+    service user.
+    """
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    monkeypatch.setenv("XCELSIOR_EAGLE3_VALIDATION_PATH", str(locked / "eagle3.json"))
+    monkeypatch.setenv("XCELSIOR_VLLM_EAGLE3", "1")
+    locked.chmod(0)
+    try:
+        assert speculative_startup_flags("Qwen/Qwen3-8B") == []
+        assert "eagle3" not in _preset_startup_command("vllm", "Qwen/Qwen3-8B")
+    finally:
+        locked.chmod(0o700)

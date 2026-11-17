@@ -129,6 +129,15 @@ os.environ["XCELSIOR_COMPUTE_SCORES_FILE"] = os.path.join(_TEST_STATE_DIR, "comp
 # Nor write uploaded artifacts into the source tree: unset, the local backend
 # stores them beside core/artifacts.py.
 os.environ["XCELSIOR_STORAGE_LOCAL_DIR"] = os.path.join(_TEST_STATE_DIR, "artifacts")
+# Nor read or write the EAGLE-3 validation store under XCELSIOR_DATA_DIR
+# (default /var/lib/xcelsior). A machine that runs a real Xcelsior service has
+# that directory, owned by the service: unreadable, every serverless endpoint
+# creation in the suite was a 500; writable, the suite would record test
+# samples into the real store, where they would decide whether speculative
+# decoding is turned on.
+os.environ["XCELSIOR_EAGLE3_VALIDATION_PATH"] = os.path.join(
+    _TEST_STATE_DIR, "eagle3_validation.json"
+)
 
 # Tests must not depend on a local Redis service for OAuth/device auth cache.
 os.environ["XCELSIOR_AUTH_CACHE_BACKEND"] = "memory"
