@@ -320,8 +320,10 @@ export default function AdminAiInsightsPage() {
                   <>
                   {/* A sized wrapper, as on the Revenue page: centred in a flex
                       row the container measured zero wide and never drew. */}
+                  {/* A fixed pixel height: with height="100%" the chart sized itself
+                      to its 180 px minimum and cut the top and bottom of the ring. */}
                   <div className="h-[220px]">
-                  <ResponsiveContainer width="100%" height="100%" minHeight={180} minWidth={0} debounce={1}>
+                  <ResponsiveContainer width="100%" height={220} minWidth={0} debounce={1}>
                     <PieChart>
                       <Pie
                         data={pieData}
