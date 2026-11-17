@@ -15,6 +15,7 @@
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
+    "pretest": "npm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "surface:update": "tsx scripts/update-tool-surface.ts",
