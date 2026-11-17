@@ -351,6 +351,96 @@ def persistent_auth_module():
     mp.undo()
 
 
+#: Serverless tables keyed by endpoint id with no foreign key to cascade from.
+_SERVERLESS_ENDPOINT_KEYED_TABLES = (
+    "serverless_api_keys",
+    "serverless_batches",
+    "serverless_cache_savings",
+    "serverless_prefix_affinity",
+    "serverless_semantic_cache",
+    "serverless_token_ledger",
+)
+
+
+def _purge_serverless_rows(endpoint_ids: list[str], worker_ids: list[str]) -> None:
+    """Hard-delete these endpoints and workers and everything keyed by them.
+
+    Stream events and attempt credentials go by cascade, with the serverless
+    jobs and workers they belong to.
+    """
+    import psycopg
+
+    dsn = os.environ.get("XCELSIOR_TEST_POSTGRES_DSN") or os.environ.get("XCELSIOR_POSTGRES_DSN")
+    if not dsn:
+        return
+    with psycopg.connect(dsn) as conn:  # one transaction, committed on a clean exit
+        conn.execute(
+            "DELETE FROM serverless_jobs WHERE endpoint_id = ANY(%s) OR worker_id = ANY(%s)",
+            (endpoint_ids, worker_ids),
+        )
+        for table in _SERVERLESS_ENDPOINT_KEYED_TABLES:
+            conn.execute(f"DELETE FROM {table} WHERE endpoint_id = ANY(%s)", (endpoint_ids,))
+        conn.execute(
+            "DELETE FROM serverless_prefix_affinity WHERE worker_id = ANY(%s)", (worker_ids,)
+        )
+        conn.execute(
+            "DELETE FROM serverless_workers WHERE worker_id = ANY(%s) OR endpoint_id = ANY(%s)",
+            (worker_ids, endpoint_ids),
+        )
+        conn.execute(
+            "DELETE FROM serverless_endpoints WHERE endpoint_id = ANY(%s)", (endpoint_ids,)
+        )
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _purge_serverless_rows_the_module_created():
+    """Delete, after each module, the serverless rows its tests created.
+
+    The API's endpoint delete is a soft delete (status `deleted`): the
+    endpoint, its workers and their jobs all stay. Tests that cleaned up through
+    it left every row behind. By 2026-11-17, `xcelsior_pytest` held 39,710
+    endpoints and 6.9k workers still booting, ready or idle. The serverless
+    billing sweep reads every live worker, took about 30 s, and outlasted the
+    10 s waits in test_billing_service_isolation.py.
+
+    Every endpoint and worker is created through `ServerlessRepo.create_endpoint`
+    or `create_worker`, so both are wrapped to record the ids this process
+    made. Only those ids are deleted, so another session's run against the same
+    database keeps its rows. An idempotent replay returns an existing endpoint,
+    so it is not recorded. The scope is the module, because module-scoped
+    fixtures share one endpoint across a module's tests. This fixture is set up
+    before them and torn down after them.
+    """
+    from serverless.repo import ServerlessRepo
+
+    endpoint_ids: list[str] = []
+    worker_ids: list[str] = []
+    create_endpoint = ServerlessRepo.create_endpoint
+    create_worker = ServerlessRepo.create_worker
+
+    def recording_create_endpoint(self, *args, **kwargs):
+        row = create_endpoint(self, *args, **kwargs)
+        if row and not row.get("_idempotent_replay"):
+            endpoint_ids.append(row["endpoint_id"])
+        return row
+
+    def recording_create_worker(self, *args, **kwargs):
+        row = create_worker(self, *args, **kwargs)
+        if row:
+            worker_ids.append(row["worker_id"])
+        return row
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(ServerlessRepo, "create_endpoint", recording_create_endpoint)
+    mp.setattr(ServerlessRepo, "create_worker", recording_create_worker)
+    try:
+        yield
+    finally:
+        mp.undo()
+        if endpoint_ids or worker_ids:
+            _purge_serverless_rows(endpoint_ids, worker_ids)
+
+
 @pytest.fixture
 def fake_vllm_port(monkeypatch):
     """Official test upstream seam — sets XCELSIOR_TEST_FAKE_VLLM_PORT for proxy routes."""
