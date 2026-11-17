@@ -317,8 +317,11 @@ export default function AdminAiInsightsPage() {
                   container measured zero wide and the pie never drew. */}
               <CardContent>
                 {pieData.length > 0 ? (
-                  <div className="h-[280px]">
-                  <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0} debounce={1}>
+                  <>
+                  {/* A sized wrapper, as on the Revenue page: centred in a flex
+                      row the container measured zero wide and never drew. */}
+                  <div className="h-[220px]">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={180} minWidth={0} debounce={1}>
                     <PieChart>
                       <Pie
                         data={pieData}
@@ -328,28 +331,34 @@ export default function AdminAiInsightsPage() {
                         outerRadius={92}
                         paddingAngle={3}
                         dataKey="value"
+                        stroke="none"
                       >
                         {pieData.map((entry, i) => (
                           <Cell key={i} fill={entry.color} />
                         ))}
                       </Pie>
                       <Tooltip contentStyle={tooltipStyle} />
-                      {/* Names and shares go in a legend: labels drawn outside
-                          the ring were clipped by the card ("Support AI 3…"). */}
-                      <Legend
-                        verticalAlign="bottom"
-                        iconType="circle"
-                        iconSize={8}
-                        wrapperStyle={{ fontSize: 12 }}
-                        formatter={(name: string, entry) => {
-                          const total = pieData.reduce((sum, d) => sum + d.value, 0);
-                          const value = Number((entry.payload as { value?: number } | undefined)?.value ?? 0);
-                          return `${name} ${total ? Math.round((value / total) * 100) : 0}%`;
-                        }}
-                      />
                     </PieChart>
                   </ResponsiveContainer>
                   </div>
+                  {/* Names and shares in plain markup under the ring: drawn
+                      around it they were clipped by the card, and the chart
+                      library's legend overlapped the ring and itself. */}
+                  <ul className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs">
+                    {pieData.map((d) => {
+                      const total = pieData.reduce((sum, x) => sum + x.value, 0);
+                      return (
+                        <li key={d.name} className="flex items-center gap-1.5 text-text-secondary">
+                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: d.color }} aria-hidden />
+                          {d.name}
+                          <span className="tabular-nums text-text-muted">
+                            {total ? Math.round((d.value / total) * 100) : 0}%
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  </>
                 ) : (
                   <p className="text-text-muted text-sm py-12 text-center">No data in period</p>
                 )}
