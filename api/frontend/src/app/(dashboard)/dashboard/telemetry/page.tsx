@@ -189,7 +189,6 @@ function TelemetryChart({ title, data, dataKey, color, unit }: {
                 labelStyle={{ color: "var(--color-text-secondary)" }}
                 formatter={(v: unknown) => [`${v}${unit ?? ""}`, dataKey]}
                 labelFormatter={(_label, payload) => String(payload?.[0]?.payload?.hostId ?? _label)}
-                cursor={{ fill: "rgba(148, 163, 184, 0.08)" }}
               />
               <Bar dataKey={dataKey} fill={color} fillOpacity={0.85} radius={[6, 6, 0, 0]} maxBarSize={56} />
             </BarChart>

@@ -1117,3 +1117,16 @@ html.light {
 .recharts-cartesian-grid line {
   stroke: var(--chart-grid);
 }
+
+/* The band Recharts draws behind the hovered bar. Its default is a solid
+   light grey (#ccc), a heavy slab on both themes; a faint tint marks the
+   hovered column without hiding the bars beside it. */
+:root {
+  --chart-cursor: rgba(148, 163, 184, 0.1);
+}
+html.light {
+  --chart-cursor: rgba(15, 23, 42, 0.05);
+}
+.recharts-tooltip-cursor {
+  fill: var(--chart-cursor);
+}
