@@ -13,7 +13,11 @@ import { describe, expect, it } from "vitest";
 // interactive auth flow we are avoiding.
 //
 // This drives the *built* dist/stdio.js — the artifact the VS Code config runs —
-// so a build that regresses the behaviour fails here.
+// so a build that regresses the behaviour fails here. dist/ is not committed,
+// so `npm test` builds first (the `pretest` script): without it a fresh
+// checkout had nothing to run and failed, and an old checkout ran whatever
+// stale build was lying around instead of the source under test. Running this
+// file through `npx vitest` directly skips that step; run `npm run build` first.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STDIO_ENTRY = path.resolve(__dirname, "../../dist/stdio.js");
