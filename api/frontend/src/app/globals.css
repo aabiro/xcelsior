@@ -1103,3 +1103,17 @@ html.light .oauth-secret-value { color: #0e7490; }
 .code-card .tok-keyword { color: var(--code-keyword); }
 .code-card .tok-comment { color: var(--code-comment); font-style: italic; }
 .code-card .tok-punct { color: var(--code-punct); }
+
+/* Chart grid lines. Recharts writes each line's colour as an SVG attribute,
+   fixed per chart for the dark theme, so on the light theme they were heavy
+   near-black dashes. A stylesheet rule outranks an SVG presentation
+   attribute, so this one rule themes every grid. */
+:root {
+  --chart-grid: rgba(148, 163, 184, 0.14);
+}
+html.light {
+  --chart-grid: rgba(15, 23, 42, 0.09);
+}
+.recharts-cartesian-grid line {
+  stroke: var(--chart-grid);
+}
