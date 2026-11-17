@@ -41,6 +41,14 @@ WEBHOOK_EXEMPTIONS = {
     "/api/connect/webhooks": "stripe-signature",
     "/api/billing/paypal/webhook": None,  # verified against PayPal's API, no header
     "/api/providers/webhook": None,  # shared-secret body field
+    # RSA-SHA256 over the exact body, checked against Wise's pinned public keys
+    # (never a key from the request); a bad or missing signature is a 400 and
+    # nothing is recorded. Proved in tests/test_wise_payouts.py
+    # (test_webhook_signature_must_cover_the_exact_body,
+    # test_an_unsigned_or_forged_webhook_is_refused_and_not_recorded). Even a
+    # verified delivery is only a hint: it is recorded, and state comes from
+    # Wise's API.
+    "/api/billing/wise/webhook": "x-signature-sha256",
 }
 
 
