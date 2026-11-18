@@ -111,7 +111,7 @@ def test_every_gated_generator_and_output_directory_exists() -> None:
 #: for screenshotting, which is not committed) into the directory it is given.
 #: The PNGs beside them are screenshots and are not checked here.
 SOCIAL_SOURCE = ROOT / "api" / "frontend" / "public" / "og-agent-native.svg"
-SOCIAL_SVGS = ROOT / "api" / "frontend" / "public" / "brand-system" / "assets" / "social"
+SOCIAL_SVGS = ROOT / "api" / "frontend" / "public" / "brand-system" / "assets" / "social" / "brand"
 
 
 def test_the_social_cards_match_a_fresh_generation_from_the_og_card(tmp_path: Path) -> None:
@@ -140,7 +140,7 @@ def test_the_social_cards_match_a_fresh_generation_from_the_og_card(tmp_path: Pa
         or not filecmp.cmp(tmp_path / n, SOCIAL_SVGS / n, shallow=False)
     ]
     assert not differing, (
-        f"brand-system/assets/social/ no longer matches the OG card: {differing}. Run "
+        f"brand-system/assets/social/brand/ no longer matches the OG card: {differing}. Run "
         "`python api/scripts/generate_social_cards.py api/frontend/public/og-agent-native.svg "
-        "api/frontend/public/brand-system/assets/social`, re-shoot the PNGs, and commit."
+        "api/frontend/public/brand-system/assets/social/brand`, re-shoot the PNGs, and commit."
     )

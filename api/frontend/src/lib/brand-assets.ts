@@ -42,6 +42,7 @@ export const SITE_ASSETS = {
   lockupNavyPng: `${SITE_ASSET_PNG_BASE}/lockup-navy.png`,
   lockupNavyRoundedPng: `${SITE_ASSET_PNG_BASE}/lockup-navy-rounded.png`,
   ogImage1200x630: `${SITE_ASSET_PNG_BASE}/og-image-1200x630.png`,
+  ogMcp1200x630: `${SITE_ASSET_PNG_BASE}/og-mcp-1200x630.png`,
   profileDark1000: `${SITE_ASSET_PNG_BASE}/profile-dark-1000.png`,
   profileGradient1000: `${SITE_ASSET_PNG_BASE}/profile-gradient-1000.png`,
   twitterHeader1500x500: `${SITE_ASSET_PNG_BASE}/twitter-header-1500x500.png`,
