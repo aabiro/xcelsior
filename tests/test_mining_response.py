@@ -230,6 +230,7 @@ class Host:
         self.reply = {}
         self.notes = []
         self.terminated = []
+        self.reports = []
 
     def docker(self, args, timeout):
         self.calls.append(args)
@@ -259,6 +260,7 @@ class Host:
         return {"ok": True}
 
     def report(self, ep, evidence):
+        self.reports.append(dict(evidence))
         return dict(self.reply)
 
     def notify(self, job_id, text):
@@ -393,8 +395,14 @@ def test_administrator_clear_lifts_everything_and_grants_a_day_of_grace(host, tm
     observe(r)
     host.reply = {"decision": "clear"}
     now.v = t(1)
+    reports_before = len(host.reports)
     assert observe(r) is not None
     assert not host.paused
+    # The closing report carries the resume time, so billing restarts there
+    # rather than charging the paused minutes (staging run 2026-11-18).
+    closing = host.reports[reports_before:][-1]
+    assert closing.get("closed") and closing.get("resumed_at") == t(1)
+    assert closing.get("suspended_at") is None
     assert ["update", "--cpus=8.0", "xcl-1"] in host.calls
     assert ("gpu_power_limit", {"index": 0, "action": "restore", "watts": 200}) in host.privd_calls
     assert ("tenant_rate_limit", {"ip": "172.30.243.7", "action": "clear"}) in host.privd_calls

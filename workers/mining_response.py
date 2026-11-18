@@ -842,6 +842,10 @@ class Responder:
         if ep.suspended_at:
             self.docker(["unpause", ep.container_name], 15)
             ep.suspended_at = None
+            # Billing restarts at the resume, not at the last charged period:
+            # found on the staging run of 2026-11-18, where only the 24 h
+            # auto-resume carried this and an administrator's clear did not.
+            ep.resumed_at = now
         self._undo_throttle(ep)
         ep.rung = None
         ep.decision = None
