@@ -464,6 +464,8 @@ def test_a_container_that_is_gone_is_forgotten(host, tmp_path):
     # when the disk guard ended a throttled container).
     assert ("tenant_rate_limit", {"ip": "172.30.243.7", "action": "clear"}) in host.privd_calls
     assert ("gpu_power_limit", {"index": 0, "action": "restore", "watts": 200}) in host.privd_calls
+    # ...and the control plane hears that the episode is over.
+    assert host.reports[-1].get("closed") == "container gone"
 
 
 def test_a_restart_lifts_the_limits_of_a_container_that_left_meanwhile(host, tmp_path):

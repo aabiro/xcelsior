@@ -649,8 +649,12 @@ class Responder:
             # host state keyed by an address and a device the next tenant will
             # inherit. Lift them before forgetting (staging run 2026-11-18).
             gone = self.episodes.get(cname)
-            if gone is not None and gone.throttle:
-                self._undo_throttle(gone)
+            if gone is not None:
+                if gone.throttle:
+                    self._undo_throttle(gone)
+                # Tell the control plane, or the episode stays open in the
+                # review list after the container is long gone.
+                self.report(gone, {**self.evidence(gone), "closed": "container gone"})
             self.forget(cname)
             return None
 
