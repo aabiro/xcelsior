@@ -35,14 +35,11 @@ def _register(email: str, *, admin: bool = False) -> tuple[str, str]:
         import routes._deps as _deps_mod
         from db import auth_connection
 
-        if _deps_mod._USE_PERSISTENT_AUTH:
-            with auth_connection() as conn:
-                row = conn.execute(
-                    "SELECT email_verification_token FROM users WHERE email = %s", (email,)
-                ).fetchone()
-            verification = row["email_verification_token"] if row else None
-        else:
-            verification = _deps_mod._users_db.get(email, {}).get("email_verification_token")
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT email_verification_token FROM users WHERE email = %s", (email,)
+            ).fetchone()
+        verification = row["email_verification_token"] if row else None
         verified = client.post("/api/auth/verify-email", json={"token": verification})
         token = verified.json().get("access_token")
     if not token:
@@ -50,16 +47,12 @@ def _register(email: str, *, admin: bool = False) -> tuple[str, str]:
             "access_token"
         ]
     if admin:
-        import routes._deps as _deps_mod
         from db import UserStore
 
-        # Which store backs auth depends on `_USE_PERSISTENT_AUTH`, and this
-        # suite runs with the in-memory one. Update both, then re-login so the
-        # token carries the flag — an access token's principal is resolved from
-        # the auth cache entry written at issuance, not re-read per request.
+        # Re-login so the token carries the flag: an access token's principal is
+        # resolved from the auth cache entry written at issuance, not re-read
+        # per request.
         UserStore.update_user(email, {"is_admin": 1, "role": "admin"})
-        if email in _deps_mod._users_db:
-            _deps_mod._users_db[email].update({"is_admin": 1, "role": "admin"})
         client.cookies.clear()
         token = client.post("/api/auth/login", json={"email": email, "password": password}).json()[
             "access_token"
@@ -73,13 +66,23 @@ def _register(email: str, *, admin: bool = False) -> tuple[str, str]:
 
 
 def _grant(tenant: str, surface: str, client_id: str = "xcelsior-connector") -> None:
-    from db import ConsentStore
+    from db import ConsentStore, UserStore
 
+    # A grant belongs to a user (164): the tenant's own account, or one made
+    # for a tenant this test invents.
+    owner = UserStore.get_user_by_customer_id(tenant)
+    if owner is None:
+        owner = {
+            "user_id": f"user-{tenant}",
+            "email": f"{tenant}@example.test",
+            "customer_id": tenant,
+        }
+        UserStore.create_user(owner)
     ConsentStore.record(
         grant_id=f"cg_{uuid.uuid4().hex}",
         tenant_id=tenant,
-        user_id=f"user-{tenant}",
-        email=f"{tenant}@example.test",
+        user_id=owner["user_id"],
+        email=owner["email"],
         client_id=client_id,
         scopes=["instances:read"],
         resource="https://mcp.xcelsior.ca/mcp",
@@ -125,8 +128,6 @@ def _clean():
     client.cookies.clear()
     _deps_mod._RATE_BUCKETS.clear()
     _deps_mod._AUTH_RATE_BUCKETS.clear()
-    _deps_mod._users_db.clear()
-    _deps_mod._sessions.clear()
     yield
 
 

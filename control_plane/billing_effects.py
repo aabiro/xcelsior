@@ -133,22 +133,41 @@ def handle_wallet_notice(event: OutboxEvent):
     p = event.payload
     if p.get("kind") not in {"billing_low_balance", "billing_suspended"}:
         raise ValueError("unsupported wallet notice")
-    notification_id = "notif-billing-" + event.event_id
+    base_id = "notif-billing-" + event.event_id
+    delivered: list[str] = []
     with _get_pg_pool().connection() as conn:
-        inserted = conn.execute(
-            """INSERT INTO notifications(id,user_email,type,title,body,data,read,created_at)
-               VALUES(%s,%s,%s,%s,%s,%s,0,%s) ON CONFLICT(id) DO NOTHING RETURNING id""",
-            (
-                notification_id,
-                p["customer_id"],
-                p["kind"],
-                p["title"],
-                p["body"],
-                Jsonb(p["data"]),
-                time.time(),
-            ),
-        ).fetchone()
-    if inserted:
+        # A wallet is a billing account, not a person. The people to tell are
+        # the account's own user and, for a team wallet, the team's owner.
+        # (This used to store the customer id as the recipient's email, which
+        # matched nobody, so no low-balance or suspension notice was ever
+        # shown.) A wallet with no user has nobody to notify.
+        recipients = conn.execute(
+            """SELECT user_id FROM users WHERE customer_id = %s
+               UNION
+               SELECT owner_user_id FROM teams
+                WHERE billing_customer_id = %s AND owner_user_id IS NOT NULL
+               ORDER BY 1""",
+            (p["customer_id"], p["customer_id"]),
+        ).fetchall()
+        for index, row in enumerate(recipients):
+            user_id = row["user_id"] if isinstance(row, dict) else row[0]
+            notification_id = base_id if index == 0 else f"{base_id}-{index}"
+            inserted = conn.execute(
+                """INSERT INTO notifications(id,user_id,type,title,body,data,read,created_at)
+                   VALUES(%s,%s,%s,%s,%s,%s,0,%s) ON CONFLICT(id) DO NOTHING RETURNING id""",
+                (
+                    notification_id,
+                    user_id,
+                    p["kind"],
+                    p["title"],
+                    p["body"],
+                    Jsonb(p["data"]),
+                    time.time(),
+                ),
+            ).fetchone()
+            if inserted:
+                delivered.append(notification_id)
+    for notification_id in delivered:
         NotificationStore.deliver(notification_id)
 
 

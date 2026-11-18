@@ -289,7 +289,7 @@ def api_accept_invite_authenticated(token: str, request: Request):
     team = UserStore.get_team(invite["team_id"])
     if not team:
         raise HTTPException(404, "Team no longer exists")
-    ok = UserStore.add_team_member(invite["team_id"], invite["email"], invite["role"])
+    ok = UserStore.add_team_member(invite["team_id"], user["email"], invite["role"])
     UserStore.delete_team_invite(token)
     if not ok:
         raise HTTPException(400, "Team is at member capacity")

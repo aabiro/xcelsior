@@ -7,7 +7,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["XCELSIOR_ENV"] = "test"
-os.environ["XCELSIOR_PERSISTENT_AUTH"] = "true"
 os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
 
 from api import app
@@ -17,14 +16,9 @@ client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def persistent_auth(monkeypatch):
+def _fresh_auth_rate_limits(monkeypatch):
     import api as api_mod
-    import routes._deps as deps
-    import routes.auth as auth
 
-    monkeypatch.setattr(deps, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(auth, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
     api_mod._RATE_BUCKETS.clear()
 
 

@@ -244,20 +244,6 @@ def suspend_account(
         )
     except Exception:
         user = {}
-    if not user:
-        try:
-            from routes._deps import _users_db
-
-            user = _users_db.get(identifier) or next(
-                (
-                    u
-                    for u in _users_db.values()
-                    if u.get("customer_id") == identifier or u.get("user_id") == identifier
-                ),
-                {},
-            )
-        except Exception:
-            pass
 
     for k in ("user_id", "customer_id", "email"):
         val = str(user.get(k) or "").strip()
@@ -296,20 +282,6 @@ def unsuspend_account(
         )
     except Exception:
         user = {}
-    if not user:
-        try:
-            from routes._deps import _users_db
-
-            user = _users_db.get(identifier) or next(
-                (
-                    u
-                    for u in _users_db.values()
-                    if u.get("customer_id") == identifier or u.get("user_id") == identifier
-                ),
-                {},
-            )
-        except Exception:
-            pass
 
     for k in ("user_id", "customer_id", "email"):
         val = str(user.get(k) or "").strip()

@@ -10,7 +10,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["XCELSIOR_ENV"] = "test"
-os.environ["XCELSIOR_PERSISTENT_AUTH"] = "true"
 os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
 os.environ.setdefault("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "5000")
 os.environ["XCELSIOR_SERVERLESS_WEBHOOK_HMAC_SECRET"] = "test-webhook-secret"
@@ -45,26 +44,10 @@ def _error_code(response) -> str | None:
 
 
 @pytest.fixture(scope="module", autouse=True)
-def persistent_auth_module():
+def _fresh_rate_buckets():
     import api as api_mod
-    import routes._deps as deps
-    import routes.auth as auth
 
-    old_deps = deps._USE_PERSISTENT_AUTH
-    old_auth = auth._USE_PERSISTENT_AUTH
-    old_api = getattr(api_mod, "_USE_PERSISTENT_AUTH", None)
-
-    deps._USE_PERSISTENT_AUTH = True
-    auth._USE_PERSISTENT_AUTH = True
-    api_mod._USE_PERSISTENT_AUTH = True
     api_mod._RATE_BUCKETS.clear()
-
-    yield
-
-    deps._USE_PERSISTENT_AUTH = old_deps
-    auth._USE_PERSISTENT_AUTH = old_auth
-    if old_api is not None:
-        api_mod._USE_PERSISTENT_AUTH = old_api
 
 
 def _register_and_fund() -> dict:

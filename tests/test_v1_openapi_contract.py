@@ -41,13 +41,9 @@ _REQUIRED = {
 def _auth_env(monkeypatch):
     import api as api_mod
     import routes._deps as deps_mod
-    import routes.auth as auth_mod
 
     monkeypatch.setattr(api_mod, "AUTH_REQUIRED", False)
     monkeypatch.setattr(deps_mod, "AUTH_REQUIRED", False)
-    for mod in (api_mod, deps_mod, auth_mod):
-        if hasattr(mod, "_USE_PERSISTENT_AUTH"):
-            monkeypatch.setattr(mod, "_USE_PERSISTENT_AUTH", True)
 
 
 def _token(email: str) -> dict:

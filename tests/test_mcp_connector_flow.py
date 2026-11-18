@@ -49,17 +49,13 @@ def _register_user(email: str, password: str = "ConnectorTest123!") -> str:
     if body.get("access_token"):
         return body["access_token"]
     if body.get("email_verification_required"):
-        import routes._deps as _deps_mod
         from db import auth_connection
 
-        if _deps_mod._USE_PERSISTENT_AUTH:
-            with auth_connection() as conn:
-                row = conn.execute(
-                    "SELECT email_verification_token FROM users WHERE email = %s", (email,)
-                ).fetchone()
-            token = row["email_verification_token"] if row else None
-        else:
-            token = _deps_mod._users_db.get(email, {}).get("email_verification_token")
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT email_verification_token FROM users WHERE email = %s", (email,)
+            ).fetchone()
+        token = row["email_verification_token"] if row else None
         assert token, f"missing verification token for {email}"
         verified = client.post("/api/auth/verify-email", json={"token": token})
         assert verified.status_code == 200, verified.text
@@ -93,9 +89,6 @@ def _clean_state():
     client.cookies.clear()
     _deps_mod._RATE_BUCKETS.clear()
     _deps_mod._AUTH_RATE_BUCKETS.clear()
-    _deps_mod._users_db.clear()
-    _deps_mod._sessions.clear()
-    _deps_mod._api_keys.clear()
     yield
 
 

@@ -257,7 +257,6 @@ def test_real_gunicorn_replacement_keeps_unscraped_worker_requests(tmp_path):
         {
             "TMPDIR": str(tmp_path),
             "GUNICORN_WORKERS": "2",
-            "XCELSIOR_PERSISTENT_AUTH": "true",
             "XCELSIOR_SHARED_RUNTIME_LIMITS": "true",
         }
     )

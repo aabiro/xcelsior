@@ -172,7 +172,7 @@ from scheduler import (
 from events import get_event_store, get_state_machine, JobState, EventType
 from routes._deps import (
     _get_current_user, _require_provider_or_admin, AUTH_REQUIRED,
-    _user_lock, _sessions, _api_keys, _USE_PERSISTENT_AUTH,
+    
 )
 from db import UserStore
 """,
@@ -228,7 +228,7 @@ from routes._deps import (
     _create_session, _set_auth_cookie, _clear_auth_cookie,
     _merge_auth_user, AUTH_REQUIRED, VALID_ACCOUNT_ROLES,
     SESSION_EXPIRY, _AUTH_COOKIE_NAME,
-    _users_db, _sessions, _api_keys, _user_lock, _USE_PERSISTENT_AUTH,
+    
 )
 from db import UserStore
 from security import sanitize_input
@@ -242,7 +242,7 @@ from pydantic import BaseModel, Field
 from routes._deps import (
     _require_auth, _get_current_user, _check_auth_rate_limit,
     _create_session, _set_auth_cookie,
-    _users_db, _user_lock, _USE_PERSISTENT_AUTH,
+    
 )
 from db import UserStore, MfaStore
 """,
@@ -346,7 +346,7 @@ from scheduler import list_jobs, list_hosts, get_total_revenue
 from billing import get_billing_engine
 from routes._deps import (
     _require_admin, _get_current_user, _admin_flag,
-    _users_db, _user_lock, _USE_PERSISTENT_AUTH,
+    
 )
 from db import UserStore
 from verification import get_verification_engine

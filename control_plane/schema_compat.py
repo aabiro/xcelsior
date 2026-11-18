@@ -81,7 +81,12 @@ from psycopg import Connection
 # neither.
 # 163 records whether a Slurm placement may be charged, which placement
 # writes and the lifecycle task reads. A database at 162 refuses that insert.
-REQUIRED_MIN_REVISION = "163"
+# 164 keys users by user_id. Sessions, API keys, MFA, SSH keys, teams,
+# notifications, push subscriptions, consent grants and chats are written
+# and read by user_id, which a database at 163 does not have.
+# 165 records who owns a connector by user id (`oauth_clients.created_by_user_id`),
+# which every client lookup now filters and reads by.
+REQUIRED_MIN_REVISION = "165"
 REQUIRED_MAX_REVISION: str | None = None
 
 

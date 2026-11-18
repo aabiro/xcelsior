@@ -1,22 +1,16 @@
-"""In-memory auth with more than one worker is never correct, so it must not boot.
+"""A per-process store with more than one worker is never correct, so it must not boot.
 
-`XCELSIOR_PERSISTENT_AUTH=false` makes `routes._deps._users_db` — a plain dict
-in the worker's own memory — the user *store*, not a cache. With more than one
-gunicorn worker, registration lands on whichever worker served that request and
-the next login round-robins elsewhere, so a worker that never saw the
-registration answers 401.
-
-Measured on this repo's own test stack, default two workers:
+A flag whose "off" position swaps a shared store for a per-process one is fine
+on one worker and silently broken on several. Requests round-robin, so state
+written by one worker is missing on the next. The first such flag,
+`XCELSIOR_PERSISTENT_AUTH=false`, kept users in a module-level dict; measured on
+this repo's own test stack with two workers, logins answered
 
     401 401 401 401 200 200 401 200 401 401
 
-Nothing logged an error. Each worker was behaving correctly. The user existed in
-no database because it had never been written to one, and the register response
-carried a complete user object because the worker that served it really had
-created one. It presents as a password that works about half the time, which is
-close to the hardest thing to diagnose from the outside — the search goes to the
-database, the cache, the load balancer, and the answer is in a module-level
-dict.
+with nothing logged. That flag has since been retired outright
+(`test_in_memory_auth_is_retired.py`). The one that remains is
+`XCELSIOR_SHARED_RUNTIME_LIMITS`.
 
 Guarded at boot rather than documented, because a warning in a log nobody reads
 is how this survived in the first place.
@@ -45,20 +39,9 @@ def _load(env: dict[str, str]) -> subprocess.CompletedProcess:
     )
 
 
-@pytest.mark.parametrize("workers", ["2", "4"])
-def test_in_memory_auth_with_many_workers_refuses_to_boot(workers: str) -> None:
-    result = _load({"XCELSIOR_PERSISTENT_AUTH": "false", "GUNICORN_WORKERS": workers})
-    assert result.returncode != 0, (
-        f"gunicorn accepted in-memory auth with {workers} workers. Logins would "
-        "fail on every worker that did not serve the registration, with nothing "
-        "logged."
-    )
-    _assert_message_is_actionable(result.stderr, "XCELSIOR_PERSISTENT_AUTH", workers)
-
-
 #: Flags whose "off" position swaps a shared store for a per-process one. Each
 #: is fine on one worker and silently broken on several, in the same way.
-PER_PROCESS_FLAGS = ("XCELSIOR_PERSISTENT_AUTH", "XCELSIOR_SHARED_RUNTIME_LIMITS")
+PER_PROCESS_FLAGS = ("XCELSIOR_SHARED_RUNTIME_LIMITS",)
 
 
 def _assert_message_is_actionable(stderr: str, flag: str, workers: str) -> None:
@@ -99,30 +82,13 @@ def test_per_process_runtime_limits_with_many_workers_refuses_to_boot(workers: s
     _assert_message_is_actionable(result.stderr, "XCELSIOR_SHARED_RUNTIME_LIMITS", workers)
 
 
-def test_both_flags_off_names_both() -> None:
-    """A refusal that mentions one of two faults sends the operator back twice."""
-    result = _load(
-        {
-            "XCELSIOR_PERSISTENT_AUTH": "false",
-            "XCELSIOR_SHARED_RUNTIME_LIMITS": "false",
-            "GUNICORN_WORKERS": "2",
-        }
-    )
-    assert result.returncode != 0
-    for flag in PER_PROCESS_FLAGS:
-        assert flag in result.stderr, (
-            f"{flag} is also off and the refusal does not mention it; fixing the "
-            f"one named would just produce the same refusal again:\n{result.stderr[-600:]}"
-        )
-
-
 @pytest.mark.parametrize("flag", PER_PROCESS_FLAGS)
 @pytest.mark.parametrize("off", ["false", "FALSE", "0", "no", "off"])
 def test_every_spelling_of_off_is_caught(flag: str, off: str) -> None:
     """`"0"` and `"no"` disable these as surely as `"false"` does.
 
-    The original check was `!= "false"`, so `XCELSIOR_PERSISTENT_AUTH=0` — which
-    every other flag in this codebase treats as off — sailed past the guard and
+    The original check was `!= "false"`, so a flag set to `0` — which every
+    other flag in this codebase treats as off — sailed past the guard and
     booted the broken configuration.
     """
     result = _load({flag: off, "GUNICORN_WORKERS": "2"})
@@ -141,26 +107,6 @@ def test_a_single_worker_is_allowed_for_either_flag(flag: str) -> None:
     )
 
 
-def test_in_memory_auth_with_one_worker_is_allowed() -> None:
-    """A single worker makes the in-memory store coherent — that is a real setup."""
-    result = _load({"XCELSIOR_PERSISTENT_AUTH": "false", "GUNICORN_WORKERS": "1"})
-    assert result.returncode == 0, (
-        f"a single-worker in-memory setup was refused, which is over-blocking: "
-        f"{result.stderr[-300:]}"
-    )
-
-
-@pytest.mark.parametrize("workers", ["1", "2", "8"])
-def test_persistent_auth_is_never_blocked(workers: str) -> None:
-    """The production posture must not be affected at any worker count."""
-    for value in ("true", "TRUE", ""):
-        result = _load({"XCELSIOR_PERSISTENT_AUTH": value, "GUNICORN_WORKERS": workers})
-        assert result.returncode == 0, (
-            f"persistent auth with {workers} workers was refused "
-            f"(XCELSIOR_PERSISTENT_AUTH={value!r}): {result.stderr[-300:]}"
-        )
-
-
 def test_the_default_posture_boots() -> None:
-    """No env at all is production's shape: persistent auth, two workers."""
+    """No env at all is production's shape: shared stores, two workers."""
     assert _load({}).returncode == 0

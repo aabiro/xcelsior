@@ -18,8 +18,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from routes._deps import (
     AUTH_REQUIRED,
     _AUTH_COOKIE_NAME,
-    _USE_PERSISTENT_AUTH,
-    _api_keys,
     _canonical_owner_id,
     _effective_billing_customer_id,
     _user_team_id,
@@ -39,11 +37,9 @@ from routes._deps import (
     _require_admin,
     _require_auth,
     _require_scope,
-    _sessions,
     _shared_state_update,
     _sse_lock,
     _sse_subscribers,
-    _user_lock,
     _user_owns_job,
     _validate_ws_origin,
     _validate_ws_auth,  # re-exported for backward compat with tests

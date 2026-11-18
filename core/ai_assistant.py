@@ -1828,19 +1828,19 @@ def _tool_get_notifications(args: dict, user: dict) -> dict:
             if unread_only:
                 rows = conn.execute(
                     "SELECT id, type, title, body, read, created_at "
-                    "FROM notifications WHERE user_email = %s AND read = false "
+                    f"FROM notifications WHERE user_id = (SELECT user_id FROM users WHERE email = %s) AND read = 0 "
                     "ORDER BY created_at DESC LIMIT %s",
                     (email, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
                     "SELECT id, type, title, body, read, created_at "
-                    "FROM notifications WHERE user_email = %s "
+                    f"FROM notifications WHERE user_id = (SELECT user_id FROM users WHERE email = %s) "
                     "ORDER BY created_at DESC LIMIT %s",
                     (email, limit),
                 ).fetchall()
             unread_count_row = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM notifications WHERE user_email = %s AND read = false",
+                "SELECT COUNT(*) AS cnt FROM notifications WHERE user_id = (SELECT user_id FROM users WHERE email = %s) AND read = 0",
                 (email,),
             ).fetchone()
         unread_count = int(unread_count_row["cnt"]) if unread_count_row else 0
@@ -1860,7 +1860,8 @@ def _tool_get_ssh_keys(_args: dict, user: dict) -> dict:
     try:
         with _ai_db() as conn:
             rows = conn.execute(
-                "SELECT id, name, fingerprint, created_at FROM user_ssh_keys WHERE email = %s ORDER BY created_at DESC",
+                "SELECT id, name, fingerprint, created_at FROM user_ssh_keys "
+                "WHERE user_id = (SELECT user_id FROM users WHERE email = %s) ORDER BY created_at DESC",
                 (email,),
             ).fetchall()
         return {"ssh_keys": [dict(r) for r in rows], "count": len(rows)}
@@ -1874,7 +1875,6 @@ def _tool_add_ssh_key(args: dict, user: dict) -> dict:
     import hashlib
 
     email = user.get("email", "")
-    user_id = user.get("user_id", email)
     name = (args.get("name") or "").strip()
     pub_key = (args.get("public_key") or "").strip()
     if not name:
@@ -1908,9 +1908,16 @@ def _tool_add_ssh_key(args: dict, user: dict) -> dict:
     try:
         with _ai_db() as conn:
             conn.execute(
-                "INSERT INTO user_ssh_keys (email, user_id, name, public_key, fingerprint, created_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
-                (email, user_id, name, pub_key, fingerprint, time.time()),
+                "INSERT INTO user_ssh_keys (id, user_id, name, public_key, fingerprint, created_at) "
+                f"VALUES (%s, (SELECT user_id FROM users WHERE email = %s), %s, %s, %s, %s)",
+                (
+                    f"sshk-{uuid.uuid4().hex[:12]}",
+                    email,
+                    name,
+                    pub_key,
+                    fingerprint,
+                    time.time(),
+                ),
             )
         return {
             "status": "added",
@@ -2041,18 +2048,22 @@ def _tool_get_team_info(_args: dict, user: dict) -> dict:
         with _ai_db() as conn:
             # Get team membership
             member_row = conn.execute(
-                "SELECT tm.team_id, tm.role FROM team_members tm WHERE tm.email = %s",
+                "SELECT tm.team_id, tm.role FROM team_members tm WHERE tm.user_id = (SELECT user_id FROM users WHERE email = %s)",
                 (email,),
             ).fetchone()
             if not member_row:
                 return {"message": "Not a member of any team.", "team": None}
             team_id = member_row["team_id"]
             team_row = conn.execute(
-                "SELECT team_id, name, owner_email, plan, max_members, created_at FROM teams WHERE team_id = %s",
+                "SELECT t.team_id, t.name, o.email AS owner_email, t.plan, t.max_members, "
+                "t.created_at FROM teams t LEFT JOIN users o ON o.user_id = t.owner_user_id "
+                "WHERE t.team_id = %s",
                 (team_id,),
             ).fetchone()
             members = conn.execute(
-                "SELECT email, role, joined_at FROM team_members WHERE team_id = %s ORDER BY joined_at ASC",
+                "SELECT u.email, tm.role, tm.joined_at FROM team_members tm "
+                "JOIN users u ON u.user_id = tm.user_id "
+                "WHERE tm.team_id = %s ORDER BY tm.joined_at ASC",
                 (team_id,),
             ).fetchall()
         team = dict(team_row) if team_row else {}

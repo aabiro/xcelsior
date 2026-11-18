@@ -317,7 +317,6 @@ async def test_job_log_stream_reauthorizes_before_replaying_another_chunk(princi
 
 
 def test_websocket_cannot_resurrect_a_permanently_disabled_api_key(monkeypatch):
-    monkeypatch.setattr(_deps, "_USE_PERSISTENT_AUTH", True)
     monkeypatch.setattr(UserStore, "get_session", lambda token: None)
     monkeypatch.setattr(UserStore, "get_api_key", lambda token: {"email": "old@example.com"})
     request = Request()

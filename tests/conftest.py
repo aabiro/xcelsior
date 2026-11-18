@@ -327,30 +327,6 @@ def _pin_test_auth_env(monkeypatch):
         monkeypatch.setenv("XCELSIOR_DB_BACKEND", "postgres")
 
 
-@pytest.fixture(scope="module")
-def persistent_auth_module():
-    """Pin ``_USE_PERSISTENT_AUTH=True`` for module-scoped register/login fixtures.
-
-    Several modules pin persistent auth per-test with a function-scoped autouse
-    monkeypatch, but their *module-scoped* user fixtures (register + login +
-    fund) run outside that pin. They used to work only because one module
-    leaked a raw un-restored ``_USE_PERSISTENT_AUTH = True`` into the rest of
-    the run. Depend on this fixture from any module-scoped fixture that needs
-    users written to the persistent (PostgreSQL) store; it undoes itself at
-    module teardown.
-    """
-    import api as api_mod
-    import routes._deps as deps
-    import routes.auth as auth_mod
-
-    mp = pytest.MonkeyPatch()
-    mp.setattr(deps, "_USE_PERSISTENT_AUTH", True)
-    mp.setattr(auth_mod, "_USE_PERSISTENT_AUTH", True)
-    mp.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
-    yield
-    mp.undo()
-
-
 #: Serverless tables keyed by endpoint id with no foreign key to cascade from.
 _SERVERLESS_ENDPOINT_KEYED_TABLES = (
     "serverless_api_keys",

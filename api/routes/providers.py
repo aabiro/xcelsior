@@ -6,14 +6,11 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from routes._deps import (
-    _USE_PERSISTENT_AUTH,
     _canonical_owner_id,
     _get_current_user,
     _is_platform_admin,
     _require_auth,
     _require_scope,
-    _user_lock,
-    _users_db,
     broadcast_sse,
     log,
     otel_span,
@@ -238,21 +235,11 @@ def _redact_seller_profile(profile: dict) -> dict:
 
 
 def _link_provider(email: str, provider_id: str, *, role: str | None = None) -> None:
-    """Point the signed-in account at its provider id.
-
-    Persistent auth writes Postgres. The test process keeps accounts in memory,
-    and `/api/auth/me` reads whichever store is active.
-    """
+    """Point the signed-in account at its provider id."""
     updates = {"provider_id": provider_id}
     if role is not None:
         updates["role"] = role
-    if _USE_PERSISTENT_AUTH:
-        UserStore.update_user(email, updates)
-        return
-    with _user_lock:
-        record = _users_db.get(email)
-        if record is not None:
-            record.update(updates)
+    UserStore.update_user(email, updates)
 
 
 def _own_provider_id(user: dict) -> str:

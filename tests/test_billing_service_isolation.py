@@ -16,10 +16,29 @@ from tests.test_db_service_roles import provisioned_roles  # noqa: F401
 from tests.fixtures.native_runtime import running_instance
 
 
+def _wallet_account(owner: str) -> None:
+    """A wallet notice goes to the wallet's account (164), so it has one."""
+    from db import auth_connection
+
+    with auth_connection() as conn:
+        conn.execute(
+            "INSERT INTO users (email, user_id, customer_id, name, password_hash, salt, created_at) "
+            "VALUES (%s, %s, %s, '', '', '', 0) ON CONFLICT (email) DO NOTHING",
+            (f"{owner}@example.test", f"user-{owner}", owner),
+        )
+
+
+_NOTICES_FOR = (
+    "SELECT count(*) FROM notifications n JOIN users u ON u.user_id = n.user_id "
+    "WHERE u.customer_id=%s"
+)
+
+
 def test_billing_login_runs_native_periodic_and_terminal_settlement(restricted_logins):
     from tests.test_data_layer_readiness import finish_compute
 
     owner = "billing-login-" + uuid.uuid4().hex
+    _wallet_account(owner)
     billing = get_billing_engine()
     billing.deposit(owner, 4)
     with running_instance(owner=owner, cost_per_hour=3.6, age_sec=120) as native:
@@ -33,9 +52,7 @@ def test_billing_login_runs_native_periodic_and_terminal_settlement(restricted_l
                     "xcelsior_billing",
                     "xcelsior_billing",
                 )
-                assert conn.execute(
-                    "SELECT count(*) FROM notifications WHERE user_email=%s", (owner,)
-                ).fetchone() == (0,)
+                assert conn.execute(_NOTICES_FOR, (owner,)).fetchone() == (0,)
                 event_id = conn.execute(
                     "SELECT event_id FROM outbox_events WHERE aggregate_id=%s AND destination_class='billing_notice'",
                     (owner,),
@@ -44,9 +61,7 @@ def test_billing_login_runs_native_periodic_and_terminal_settlement(restricted_l
         publish_committed_effects(notice_ids=["notif-billing-" + str(event_id)])
         publish_committed_effects(notice_ids=["notif-billing-" + str(event_id)])
         with _get_pg_pool().connection() as conn:
-            assert conn.execute(
-                "SELECT count(*) FROM notifications WHERE user_email=%s", (owner,)
-            ).fetchone() == (1,)
+            assert conn.execute(_NOTICES_FOR, (owner,)).fetchone() == (1,)
 
         finish_compute(native)
         with service_scope("billing"):
@@ -98,6 +113,7 @@ def test_committed_notice_is_recovered_by_the_real_api_dispatcher(restricted_log
     from control_plane.outbox_runtime import default_handlers
 
     owner = "billing-delivery-" + uuid.uuid4().hex
+    _wallet_account(owner)
     billing = get_billing_engine()
     billing.deposit(owner, 4)
     with running_instance(owner=owner, cost_per_hour=3.6, age_sec=120):
@@ -112,9 +128,7 @@ def test_committed_notice_is_recovered_by_the_real_api_dispatcher(restricted_log
                     (owner,),
                 ).fetchone()
                 if delivered and delivered[0]:
-                    assert conn.execute(
-                        "SELECT count(*) FROM notifications WHERE user_email=%s", (owner,)
-                    ).fetchone() == (1,)
+                    assert conn.execute(_NOTICES_FOR, (owner,)).fetchone() == (1,)
                     break
         else:
             pytest.fail("committed wallet notice did not recover through outbox")

@@ -146,21 +146,10 @@ class TestPasswordReset:
             "/api/auth/password-reset", json={"email": "pwexpire@xcelsior.ca"}
         ).json()
         token = reset["reset_token"]
-        # Manually expire the token by modifying the store
-        import routes._deps as _deps_mod
+        # Expire the token in the store
+        from db import UserStore
 
-        with _deps_mod._user_lock:
-            for email, data in _deps_mod._users_db.items():
-                if data.get("reset_token") == token:
-                    data["reset_token_expires"] = time.time() - 100  # expired
-                    break
-        # Also expire in persistent store if active
-        if _deps_mod._USE_PERSISTENT_AUTH:
-            from db import UserStore
-
-            UserStore.update_user(
-                "pwexpire@xcelsior.ca", {"reset_token_expires": time.time() - 100}
-            )
+        UserStore.update_user("pwexpire@xcelsior.ca", {"reset_token_expires": time.time() - 100})
         r = client.post(
             "/api/auth/password-reset/confirm",
             json={"token": token, "new_password": "newpass12345"},

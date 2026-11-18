@@ -30,9 +30,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("XCELSIOR_API_TOKEN", "testtoken")
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
-import api as _api_mod
 import routes._deps as _deps_mod
-import routes.auth as _auth_mod
 
 from api import app
 from db import MfaStore, auth_connection
@@ -41,11 +39,8 @@ PASSWORD = "MfaSurface123!"
 
 
 @pytest.fixture(autouse=True)
-def persistent_auth(monkeypatch):
+def _fresh_auth_rate_limits(monkeypatch):
     """MFA is DB-backed; the unit-test default stores users in a process dict."""
-    monkeypatch.setattr(_api_mod, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(_deps_mod, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(_auth_mod, "_USE_PERSISTENT_AUTH", True)
     _deps_mod._AUTH_RATE_BUCKETS.clear()
     monkeypatch.setattr(_deps_mod, "_AUTH_RATE_LIMIT_REQUESTS", 5000)
     yield

@@ -149,9 +149,11 @@ class TestPrefixRouting:
 
     def test_record_affinity(self, repo: ServerlessRepo, preset_ep: dict):
         ep_id = preset_ep["endpoint_id"]
-        repo.record_prefix_affinity(ep_id, "hash1", "w-affinity")
+        # Affinity names a worker that exists (165).
+        worker_id = str(repo.create_worker(ep_id, scheduler_job_id="s-affinity")["worker_id"])
+        repo.record_prefix_affinity(ep_id, "hash1", worker_id)
         aff = repo.get_prefix_affinities(ep_id)
-        assert aff.get("hash1") == "w-affinity"
+        assert aff.get("hash1") == worker_id
 
 
 class TestHedgedRequests:

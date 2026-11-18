@@ -4,7 +4,6 @@ import os
 import uuid
 
 os.environ["XCELSIOR_ENV"] = "test"
-os.environ["XCELSIOR_PERSISTENT_AUTH"] = "true"
 os.environ["XCELSIOR_RATE_LIMIT_REQUESTS"] = "5000"
 
 import pytest
@@ -14,18 +13,6 @@ from api import app
 from db import UserStore
 
 client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def persistent_auth(monkeypatch):
-    """Teams and billing use UserStore (Postgres); auth must match."""
-    import api as api_mod
-    import routes._deps as deps
-    import routes.auth as auth
-
-    monkeypatch.setattr(deps, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(auth, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
 
 
 def _register_and_login(label: str) -> dict:
@@ -60,7 +47,7 @@ def _fund_wallet(customer_id: str, headers: dict) -> None:
 
 
 @pytest.fixture(scope="module")
-def team_setup(persistent_auth_module):
+def team_setup():
     admin = _register_and_login("admin")
     member = _register_and_login("member")
 

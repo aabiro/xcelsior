@@ -22,11 +22,27 @@ CLIENT = "test-mcp-client"
 
 
 def _user(suffix: str = "") -> dict:
-    return {
+    """A key belongs to an account (164), so the account is created too."""
+    from db import auth_connection
+
+    u = {
         "user_id": f"agentkey-user{suffix}",
         "email": f"agentkey{suffix}@xcelsior.ca",
         "role": "submitter",
     }
+    with auth_connection() as conn:
+        conn.execute(
+            "INSERT INTO users (email, user_id, name, password_hash, salt, created_at) "
+            "VALUES (%s, %s, '', '', '', 0) ON CONFLICT (email) DO NOTHING",
+            (u["email"], u["user_id"]),
+        )
+        # A key is issued to a client too (165), so that exists as well.
+        conn.execute(
+            "INSERT INTO oauth_clients (client_id, client_name, client_type, created_at, updated_at) "
+            "VALUES (%s, 'Agent key tests', 'public', 0, 0) ON CONFLICT (client_id) DO NOTHING",
+            (CLIENT,),
+        )
+    return u
 
 
 @pytest.fixture

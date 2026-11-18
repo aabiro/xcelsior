@@ -3,6 +3,7 @@
 import os
 import time
 import tempfile
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -108,12 +109,24 @@ class TestChatRateLimit:
 # ── Conversation Persistence ──────────────────────────────────────────
 
 
+def _ensure_chat_users(*emails: str) -> None:
+    """A conversation belongs to an account (164), so its owner must exist."""
+    with _chat_db() as conn:
+        for email in emails:
+            conn.execute(
+                "INSERT INTO users (email, user_id, name, password_hash, salt, created_at) "
+                "VALUES (%s, %s, '', '', '', 0) ON CONFLICT (email) DO NOTHING",
+                (email, "user-chat-" + email.split("@")[0]),
+            )
+
+
 class TestConversationPersistence:
     def setup_method(self):
         """Clean chat DB before each test."""
         with _chat_db() as conn:
             conn.execute("DELETE FROM chat_messages")
             conn.execute("DELETE FROM chat_conversations")
+        _ensure_chat_users("test@xcelsior.ca", "other@xcelsior.ca")
 
     def test_create_new_conversation(self):
         cid, history = get_or_create_conversation(user_email="test@xcelsior.ca")
@@ -263,6 +276,7 @@ class TestConversationHistory:
         with _chat_db() as conn:
             conn.execute("DELETE FROM chat_messages")
             conn.execute("DELETE FROM chat_conversations")
+        _ensure_chat_users("test@xcelsior.ca", "other@xcelsior.ca")
 
     def test_get_conversation_messages(self):
         cid, _ = get_or_create_conversation(ip="10.0.0.1", user_email="test@xcelsior.ca")
@@ -284,15 +298,17 @@ class TestConversationHistory:
         from fastapi.testclient import TestClient
         from api import app
 
-        cid, _ = get_or_create_conversation(ip="10.0.0.1", user_email="chat-history@xcelsior.ca")
-        append_message(cid, "user", "what are trust tiers?")
-        append_message(cid, "assistant", "Trust tiers are...")
-
+        # The owner registers first: a conversation belongs to an account.
+        email = f"chat-history-{uuid.uuid4().hex[:8]}@xcelsior.ca"
         client = TestClient(app)
         token = client.post(
             "/api/auth/register",
-            json={"email": "chat-history@xcelsior.ca", "password": "testpass123"},
+            json={"email": email, "password": "testpass123"},
         ).json()["access_token"]
+        cid, _ = get_or_create_conversation(ip="10.0.0.1", user_email=email)
+        append_message(cid, "user", "what are trust tiers?")
+        append_message(cid, "assistant", "Trust tiers are...")
+
         resp = client.get(f"/api/chat/history/{cid}", headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 200
         data = resp.json()
@@ -307,7 +323,10 @@ class TestConversationHistory:
         client = TestClient(app)
         token = client.post(
             "/api/auth/register",
-            json={"email": "chat-missing@xcelsior.ca", "password": "testpass123"},
+            json={
+                "email": f"chat-missing-{uuid.uuid4().hex[:8]}@xcelsior.ca",
+                "password": "testpass123",
+            },
         ).json()["access_token"]
         resp = client.get(
             "/api/chat/history/does-not-exist",
@@ -319,12 +338,13 @@ class TestConversationHistory:
         from fastapi.testclient import TestClient
         from api import app
 
-        cid, _ = get_or_create_conversation(ip="10.0.0.1", user_email="chat-empty@xcelsior.ca")
+        email = f"chat-empty-{uuid.uuid4().hex[:8]}@xcelsior.ca"
         client = TestClient(app)
         token = client.post(
             "/api/auth/register",
-            json={"email": "chat-empty@xcelsior.ca", "password": "testpass123"},
+            json={"email": email, "password": "testpass123"},
         ).json()["access_token"]
+        cid, _ = get_or_create_conversation(ip="10.0.0.1", user_email=email)
         resp = client.get(f"/api/chat/history/{cid}", headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 200
         data = resp.json()

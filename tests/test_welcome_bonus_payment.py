@@ -160,8 +160,11 @@ def claim(account, monkeypatch):
     engine, cid, _, _ = account
     user = {"email": "bonus@example.test", "customer_id": cid}
     monkeypatch.setattr(routes, "_get_current_user", lambda _: user)
-    monkeypatch.setattr(routes, "_USE_PERSISTENT_AUTH", False)
-    monkeypatch.setattr(routes, "_users_db", {user["email"]: user})
+    monkeypatch.setattr(
+        routes.UserStore,
+        "get_user",
+        staticmethod(lambda email: user if email == user["email"] else None),
+    )
     monkeypatch.setattr(routes, "get_billing_engine", lambda: engine)
     return lambda owner=cid: routes.api_claim_free_credits(
         owner, Request({"type": "http", "headers": []})

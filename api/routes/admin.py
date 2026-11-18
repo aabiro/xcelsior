@@ -7,11 +7,9 @@ from typing import Any, cast
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from routes._deps import (
-    _USE_PERSISTENT_AUTH,
     _admin_flag,
     _is_platform_admin,
     _require_admin,
-    _users_db,
     log,
 )
 from scheduler import (
@@ -36,10 +34,7 @@ def api_admin_stats(request: Request):
     active_hosts = [h for h in hosts if h.get("status") == "active"]
     jobs = list_jobs()
     running = [j for j in jobs if j.get("status") in ("running", "assigned")]
-    if _USE_PERSISTENT_AUTH:
-        users = UserStore.list_users()
-    else:
-        users = list(_users_db.values())
+    users = UserStore.list_users()
 
     # Real revenue MTD from billing engine
     revenue_mtd = 0.0
@@ -71,10 +66,7 @@ def api_admin_stats(request: Request):
 def api_admin_users(request: Request):
     """List all users for admin panel."""
     _require_admin(request)
-    if _USE_PERSISTENT_AUTH:
-        users = UserStore.list_users()
-    else:
-        users = list(_users_db.values())
+    users = UserStore.list_users()
 
     # Gather wallet balances, job counts, and last-activity timestamps in bulk
     wallet_map: dict[str, float] = {}
@@ -161,10 +153,7 @@ def api_admin_overview(request: Request, days: int = 30):
     jobs = list_jobs()
     running = [j for j in jobs if j.get("status") in ("running", "assigned")]
 
-    if _USE_PERSISTENT_AUTH:
-        users = UserStore.list_users()
-    else:
-        users = list(_users_db.values())
+    users = UserStore.list_users()
 
     # Revenue + billing data
     revenue_mtd = 0.0
@@ -561,16 +550,10 @@ def api_admin_set_user_role(email: str, request: Request, role: str = "submitter
     allowed_roles = {"submitter", "provider", "admin"}
     if role not in allowed_roles:
         raise HTTPException(400, f"Invalid role. Allowed: {', '.join(sorted(allowed_roles))}")
-    if _USE_PERSISTENT_AUTH:
-        user = UserStore.get_user(email)
-    else:
-        user = _users_db.get(email)
+    user = UserStore.get_user(email)
     if not user:
         raise HTTPException(404, "User not found")
-    if _USE_PERSISTENT_AUTH:
-        UserStore.update_user(email, {"role": role})
-    else:
-        _users_db[email]["role"] = role
+    UserStore.update_user(email, {"role": role})
     emit_event("user_role_changed", {"email": email, "role": role})
     return {"ok": True, "email": email, "role": role}
 
@@ -579,18 +562,12 @@ def api_admin_set_user_role(email: str, request: Request, role: str = "submitter
 def api_admin_toggle_admin(email: str, request: Request):
     """Admin toggles another user's admin flag."""
     _require_admin(request)
-    if _USE_PERSISTENT_AUTH:
-        user = UserStore.get_user(email)
-    else:
-        user = _users_db.get(email)
+    user = UserStore.get_user(email)
     if not user:
         raise HTTPException(404, "User not found")
     current = _admin_flag(user.get("is_admin")) == 1
     new_val = 0 if current else 1
-    if _USE_PERSISTENT_AUTH:
-        UserStore.set_admin(email, new_val)
-    else:
-        _users_db[email]["is_admin"] = new_val
+    UserStore.set_admin(email, new_val)
     emit_event("user_admin_toggled", {"email": email, "is_admin": new_val})
     return {"ok": True, "email": email, "is_admin": new_val}
 
@@ -616,10 +593,7 @@ async def api_admin_suspend_user(email: str, request: Request):
     if request.query_params.get("reason"):
         reason = str(request.query_params["reason"]).strip()
 
-    if _USE_PERSISTENT_AUTH:
-        user = UserStore.get_user(email)
-    else:
-        user = _users_db.get(email)
+    user = UserStore.get_user(email)
     if not user:
         raise HTTPException(404, "User not found")
 
@@ -627,8 +601,7 @@ async def api_admin_suspend_user(email: str, request: Request):
 
     suspended_ids = suspend_account(identifier=email, actor=actor, reason=reason)
     try:
-        if _USE_PERSISTENT_AUTH:
-            UserStore.delete_user_sessions(email)
+        UserStore.delete_user_sessions(email)
     except Exception as e:
         log.warning("Failed to delete sessions for %s upon suspension: %s", email, e)
 
@@ -663,10 +636,7 @@ async def api_admin_unsuspend_user(email: str, request: Request):
     if request.query_params.get("reason"):
         reason = str(request.query_params["reason"]).strip()
 
-    if _USE_PERSISTENT_AUTH:
-        user = UserStore.get_user(email)
-    else:
-        user = _users_db.get(email)
+    user = UserStore.get_user(email)
     if not user:
         raise HTTPException(404, "User not found")
 
@@ -706,7 +676,7 @@ async def api_admin_delete_user(email: str, request: Request):
     if email == str(admin.get("email") or "").strip().lower():
         raise HTTPException(400, "Cannot delete your own admin account")
 
-    user = UserStore.get_user(email) if _USE_PERSISTENT_AUTH else _users_db.get(email)
+    user = UserStore.get_user(email)
     if not user:
         raise HTTPException(404, "User not found")
     if _is_platform_admin(user):
@@ -717,8 +687,7 @@ async def api_admin_delete_user(email: str, request: Request):
 
     suspend_account(identifier=email, actor=actor, reason="admin_account_deletion")
     try:
-        if _USE_PERSISTENT_AUTH:
-            UserStore.delete_user_sessions(email)
+        UserStore.delete_user_sessions(email)
     except Exception as e:
         log.warning("Failed to delete sessions for %s before deletion: %s", email, e)
 
@@ -759,7 +728,12 @@ def api_admin_teams(request: Request):
 
     teams = []
     with auth_connection() as conn:
-        rows = conn.execute("SELECT * FROM teams ORDER BY created_at DESC").fetchall()
+        rows = conn.execute(
+            "SELECT t.team_id, t.name, o.email AS owner_email, t.owner_user_id, t.created_at, "
+            "t.plan, t.max_members, t.billing_customer_id "
+            "FROM teams t LEFT JOIN users o ON o.user_id = t.owner_user_id "
+            "ORDER BY t.created_at DESC"
+        ).fetchall()
         for row in rows:
             team = dict(row)
             members = UserStore.list_team_members(team["team_id"])
@@ -1576,9 +1550,10 @@ def api_admin_ai_conversations(
                 sconvs = conn.execute(
                     cast(
                         Any,
-                        f"SELECT c.conversation_id, c.user_email, c.ip_hash, "
+                        f"SELECT c.conversation_id, u.email AS user_email, c.ip_hash, "
                         f"c.created_at, c.updated_at "
-                        f"FROM chat_conversations c WHERE {swhere_clause} "
+                        f"FROM chat_conversations c LEFT JOIN users u ON u.user_id = c.user_id "
+                        f"WHERE {swhere_clause} "
                         f"ORDER BY c.updated_at DESC LIMIT %s OFFSET %s",
                     ),
                     sparams + [s_limit, s_offset],

@@ -178,19 +178,11 @@ def clean_data(monkeypatch):
     import api as api_mod
     import oauth_service as oauth_mod
     import routes._deps as _deps_mod
-    import routes.auth as _auth_mod
-    import routes.billing as _billing_mod
-    import routes.admin as _admin_mod
 
     monkeypatch.setenv("XCELSIOR_AUTH_CACHE_BACKEND", "memory")
     monkeypatch.setattr(oauth_mod, "AUTH_CACHE_BACKEND", "memory")
     monkeypatch.setattr(api_mod, "AUTH_REQUIRED", False)
     monkeypatch.setattr(_deps_mod, "AUTH_REQUIRED", False)
-    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(_deps_mod, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(_auth_mod, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(_billing_mod, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(_admin_mod, "_USE_PERSISTENT_AUTH", True)
 
     # Clean PostgreSQL tables
     with scheduler._atomic_mutation() as conn:
@@ -229,14 +221,11 @@ def clean_data(monkeypatch):
 
     # Clear in-memory telemetry and rate limit buckets
     from routes.agent import _host_telemetry
-    from routes._deps import _RATE_BUCKETS, _AUTH_RATE_BUCKETS, _api_keys, _sessions, _users_db
+    from routes._deps import _RATE_BUCKETS, _AUTH_RATE_BUCKETS
 
     _host_telemetry.clear()
     _RATE_BUCKETS.clear()
     _AUTH_RATE_BUCKETS.clear()
-    _users_db.clear()
-    _sessions.clear()
-    _api_keys.clear()
     # Seed wallet for anonymous test user so wallet pre-flight checks pass
     from billing import get_billing_engine
 

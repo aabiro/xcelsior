@@ -2,7 +2,6 @@
 x-api-environment: &api-env
   XCELSIOR_ENV: ${XCELSIOR_ENV:-production}
   XCELSIOR_API_TOKEN: ${XCELSIOR_API_TOKEN}
-  XCELSIOR_PERSISTENT_AUTH: ${XCELSIOR_PERSISTENT_AUTH:-true}
   XCELSIOR_AUTH_RATE_LIMIT_REQUESTS: ${XCELSIOR_AUTH_RATE_LIMIT_REQUESTS:-10}
   # One-click demo login (core/demo_account.py). The networks allowed to see it
   # are set per deployment, so they must reach the API: unnamed here, a line in

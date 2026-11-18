@@ -90,43 +90,6 @@ def test_an_existing_account_is_also_recorded_as_verified():
     )
 
 
-def test_both_storage_paths_are_covered():
-    """`_USE_PERSISTENT_AUTH` splits every write into two, and both must set it.
-
-    Covering only the persistent path would leave the in-memory path — the one
-    tests themselves run on — disagreeing with production about a security flag.
-    """
-    _, existing_account = _callback_branches()
-    body = ast.parse(existing_account).body
-
-    def sets_it(node: ast.AST) -> bool:
-        return any(
-            isinstance(n, ast.Constant) and n.value == "email_verified" for n in ast.walk(node)
-        )
-
-    # Either each storage arm sets it, or it is built once (an `updates` dict)
-    # before the split and that one name is what both arms write.
-    shared = {
-        target.id
-        for stmt in body
-        if isinstance(stmt, ast.Assign) and sets_it(stmt.value)
-        for target in stmt.targets
-        if isinstance(target, ast.Name)
-    }
-    branches_setting_it = 0
-    for stmt in body:
-        if isinstance(stmt, ast.If) and "_USE_PERSISTENT_AUTH" in ast.unparse(stmt.test):
-            for arm in (stmt.body, stmt.orelse):
-                module = ast.Module(body=arm, type_ignores=[])
-                names = {n.id for n in ast.walk(module) if isinstance(n, ast.Name)}
-                if sets_it(module) or shared & names:
-                    branches_setting_it += 1
-    assert branches_setting_it >= 2, (
-        f"email_verified is set on only {branches_setting_it} of the two storage "
-        "paths in the existing-account branch"
-    )
-
-
 def test_the_password_door_still_checks_it():
     """The other half of issue #25: the flag has to mean something.
 

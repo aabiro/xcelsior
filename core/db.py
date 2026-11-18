@@ -694,6 +694,11 @@ class DatabaseOps:
 
         Indexed ``status`` and ``host_id`` columns are authoritative when they
         diverge from the JSONB payload (legacy reaper SQL, partial migrations).
+        So is ``wallet_hold_id``: billing and settlement set and clear the
+        column alone, so the payload's copy is whatever the job held when it
+        was last saved. ``updated_at`` is not overlaid: the payload's is the
+        last status transition (the reaper's clock), the column's the last
+        write of any kind, which are different facts.
         """
         ph = "%s" if backend == "postgres" else "?"
         if backend == "postgres":
@@ -702,7 +707,8 @@ class DatabaseOps:
                 "'job_id',job_id,'owner',owner_id,'owner_id',owner_id,"
                 "'tenant_id',tenant_id,'team_id',team_id,'status',status,'host_id',host_id,"
                 "'phase',phase,'desired_state',desired_state,'error_message',error_message,"
-                "'exit_code',exit_code) AS payload FROM jobs WHERE job_id=%s",
+                "'exit_code',exit_code,'wallet_hold_id',wallet_hold_id) AS payload "
+                "FROM jobs WHERE job_id=%s",
                 (job_id,),
             ).fetchone()
             if row is None:
@@ -771,7 +777,7 @@ class DatabaseOps:
                 "'job_id',job_id,'owner',owner_id,'owner_id',owner_id,"
                 "'tenant_id',tenant_id,'team_id',team_id,'status',status,'host_id',host_id,"
                 "'phase',phase,'desired_state',desired_state,'error_message',error_message,"
-                "'exit_code',exit_code) AS payload FROM jobs"
+                "'exit_code',exit_code,'wallet_hold_id',wallet_hold_id) AS payload FROM jobs"
             )
             if status:
                 query += " WHERE status=%s"
@@ -1366,6 +1372,60 @@ class BusinessLogoStore:
             return bool(cur.rowcount)
 
 
+# ── Who a row belongs to (migration 164) ───────────────────────────────
+#
+# A table that belongs to a user refers to it by `user_id` and holds no copy
+# of the user's email, role or name; those are read from `users`, the one
+# place they live. Store methods keep taking an email, since that is what
+# their callers hold, and resolve it here. The legacy email columns are filled
+# by a database trigger for the release still serving during a deploy and are
+# dropped by the contract step, so nothing in this module reads or writes them.
+
+#: The user id of the account with this email. One bind parameter.
+_USER_ID_OF = "(SELECT user_id FROM users WHERE email = %s)"
+
+_SESSION_COLUMNS = (
+    "s.token, u.email, s.user_id, u.role, u.name, u.is_admin, s.created_at, "
+    "s.expires_at, s.session_type, s.client_id, s.ip_address, s.user_agent, s.last_active"
+)
+_SESSION_FROM = "FROM sessions s JOIN users u ON u.user_id = s.user_id"
+
+_API_KEY_COLUMNS = (
+    "k.key, k.name, u.email, k.user_id, u.role, u.is_admin, k.scope, k.created_at, k.last_used"
+)
+_API_KEY_FROM = "FROM api_keys k JOIN users u ON u.user_id = k.user_id"
+
+_TEAM_COLUMNS = (
+    "t.team_id, t.name, o.email AS owner_email, t.owner_user_id, t.created_at, t.plan, "
+    "t.max_members, t.billing_customer_id"
+)
+_TEAM_FROM = "FROM teams t LEFT JOIN users o ON o.user_id = t.owner_user_id"
+
+_SSH_KEY_COLUMNS = (
+    "k.id, u.email, k.user_id, k.name, k.public_key, k.fingerprint, k.created_at, "
+    "k.registered_by_client_id, k.registered_by_auth_type"
+)
+_SSH_KEY_FROM = "FROM user_ssh_keys k JOIN users u ON u.user_id = k.user_id"
+
+_NOTIFICATION_COLUMNS = (
+    "n.id, u.email AS user_email, n.user_id, n.type, n.title, n.body, n.data, n.read, "
+    "n.created_at, n.action_url, n.entity_type, n.entity_id, n.priority"
+)
+_NOTIFICATION_FROM = "FROM notifications n JOIN users u ON u.user_id = n.user_id"
+
+_MFA_METHOD_COLUMNS = (
+    "m.id, u.email, m.user_id, m.method_type, m.secret, m.phone_number, m.credential_id, "
+    "m.public_key, m.sign_count, m.device_name, m.enabled, m.created_at"
+)
+_MFA_METHOD_FROM = "FROM mfa_methods m JOIN users u ON u.user_id = m.user_id"
+
+_GRANT_COLUMNS = (
+    "g.grant_id, g.tenant_id, g.user_id, u.email, g.client_id, g.resource, g.scopes, "
+    "g.surface, g.granted_at, g.last_used_at, g.revoked_at"
+)
+_GRANT_FROM = "FROM oauth_consent_grants g JOIN users u ON u.user_id = g.user_id"
+
+
 class UserStore:
     """Persistent user/session/API key storage backed by PostgreSQL."""
 
@@ -1556,35 +1616,18 @@ class UserStore:
 
     @staticmethod
     def change_email(old_email: str, new_email: str) -> None:
-        """Re-key a user's email across every email-referencing auth table.
+        """Change a user's email: one row, because nothing else holds it.
 
-        Email is the cross-table identifier (sessions, api_keys, tokens,
-        notifications, team membership), so a verified email change must cascade
-        atomically. Marks the new address verified and clears the pending-change
-        fields. Raises if new_email already belongs to another account.
+        Every table that belongs to a user refers to it by ``user_id`` (164),
+        so sessions, keys, MFA methods, SSH keys, grants and memberships follow
+        without being touched. Marks the new address verified and clears the
+        pending-change fields. Raises if new_email already belongs to another
+        account.
         """
         with auth_connection() as conn:
             taken = conn.execute("SELECT 1 FROM users WHERE email = %s", (new_email,)).fetchone()
             if taken:
                 raise ValueError("Email already in use")
-            # Re-point every table keyed by the old address, then the user row.
-            conn.execute("UPDATE sessions SET email = %s WHERE email = %s", (new_email, old_email))
-            conn.execute("UPDATE api_keys SET email = %s WHERE email = %s", (new_email, old_email))
-            conn.execute(
-                "UPDATE oauth_refresh_tokens SET email = %s WHERE email = %s",
-                (new_email, old_email),
-            )
-            conn.execute(
-                "UPDATE web_push_subscriptions SET user_email = %s WHERE user_email = %s",
-                (new_email, old_email),
-            )
-            conn.execute(
-                "UPDATE notifications SET user_email = %s WHERE user_email = %s",
-                (new_email, old_email),
-            )
-            conn.execute(
-                "UPDATE team_members SET email = %s WHERE email = %s", (new_email, old_email)
-            )
             conn.execute(
                 "UPDATE users SET email = %s, email_verified = 1, pending_email = NULL, "
                 "email_change_token = NULL, email_change_expires = NULL WHERE email = %s",
@@ -1593,12 +1636,9 @@ class UserStore:
 
     @staticmethod
     def delete_user(email: str) -> None:
+        """Hard-delete a user; everything keyed to it cascades (164)."""
         with auth_connection() as conn:
             conn.execute("DELETE FROM users WHERE email = %s", (email,))
-            conn.execute("DELETE FROM sessions WHERE email = %s", (email,))
-            conn.execute("DELETE FROM api_keys WHERE email = %s", (email,))
-            conn.execute("DELETE FROM oauth_refresh_tokens WHERE email = %s", (email,))
-            conn.execute("DELETE FROM web_push_subscriptions WHERE user_email = %s", (email,))
 
     @staticmethod
     def user_exists(email: str) -> bool:
@@ -1616,6 +1656,11 @@ class UserStore:
             return [dict(r) for r in rows]
 
     # ── Sessions ──
+    #
+    # A session row holds what belongs to the session (token, lifetime,
+    # device); who it belongs to is `user_id`, and the user's email, role,
+    # name and admin flag are read from `users` (164). A session therefore
+    # cannot outlive its user or carry a stale role.
 
     @staticmethod
     def create_session(session: dict) -> None:
@@ -1623,18 +1668,14 @@ class UserStore:
             conn.execute(
                 """
                 INSERT INTO sessions (
-                    token, email, user_id, role, is_admin, name, created_at, expires_at,
+                    token, user_id, created_at, expires_at,
                     ip_address, user_agent, last_active, session_type, client_id
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
                 (
                     session["token"],
-                    session["email"],
                     session["user_id"],
-                    session.get("role", "submitter"),
-                    int(session.get("is_admin", 0)),
-                    session.get("name", ""),
                     session.get("created_at", time.time()),
                     session["expires_at"],
                     session.get("ip_address"),
@@ -1649,7 +1690,8 @@ class UserStore:
     def get_session(token: str) -> dict | None:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM sessions WHERE token = %s AND expires_at > %s",
+                f"SELECT {_SESSION_COLUMNS} {_SESSION_FROM} "
+                "WHERE s.token = %s AND s.expires_at > %s",
                 (token, time.time()),
             ).fetchone()
             return dict(row) if row else None
@@ -1663,8 +1705,10 @@ class UserStore:
     @staticmethod
     def delete_user_sessions(email: str) -> None:
         with auth_connection() as conn:
-            conn.execute("DELETE FROM sessions WHERE email = %s", (email,))
-            conn.execute("DELETE FROM oauth_refresh_tokens WHERE email = %s", (email,))
+            conn.execute(f"DELETE FROM sessions WHERE user_id = {_USER_ID_OF}", (email,))
+            conn.execute(
+                f"DELETE FROM oauth_refresh_tokens WHERE user_id = {_USER_ID_OF}", (email,)
+            )
 
     @staticmethod
     def cleanup_expired_sessions() -> int:
@@ -1690,12 +1734,11 @@ class UserStore:
         max_lifetime = 86400 * 30  # Must match MAX_SESSION_LIFETIME in routes/_deps.py
         with auth_connection() as conn:
             rows = conn.execute(
-                "SELECT token, email, user_id, role, name, created_at, expires_at, ip_address, user_agent, last_active, session_type, client_id "
-                "FROM sessions "
-                "WHERE email = %s AND expires_at > %s AND created_at > %s "
-                "  AND session_type IN ('browser', 'legacy') "
-                "  AND (client_id IS NULL OR client_id = 'xcelsior-web') "
-                "ORDER BY last_active DESC "
+                f"SELECT {_SESSION_COLUMNS} {_SESSION_FROM} "
+                "WHERE u.email = %s AND s.expires_at > %s AND s.created_at > %s "
+                "  AND s.session_type IN ('browser', 'legacy') "
+                "  AND (s.client_id IS NULL OR s.client_id = 'xcelsior-web') "
+                "ORDER BY s.last_active DESC "
                 "LIMIT 20",
                 (email, now, now - max_lifetime),
             ).fetchall()
@@ -1716,18 +1759,14 @@ class UserStore:
             conn.execute(
                 """
                 INSERT INTO sessions (
-                    token, email, user_id, role, is_admin, name, created_at, expires_at,
+                    token, user_id, created_at, expires_at,
                     ip_address, user_agent, last_active, session_type, client_id
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     new_session["token"],
-                    new_session["email"],
                     new_session["user_id"],
-                    new_session.get("role", "submitter"),
-                    int(new_session.get("is_admin", 0)),
-                    new_session.get("name", ""),
                     new_session.get("created_at", time.time()),
                     new_session["expires_at"],
                     new_session.get("ip_address"),
@@ -1745,16 +1784,13 @@ class UserStore:
         with auth_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO api_keys (key, name, email, user_id, role, is_admin, scope, created_at, last_used)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO api_keys (key, name, user_id, scope, created_at, last_used)
+                VALUES (%s, %s, %s, %s, %s, %s)
             """,
                 (
                     key_data["key"],
                     key_data.get("name", "default"),
-                    key_data["email"],
                     key_data["user_id"],
-                    key_data.get("role", "submitter"),
-                    int(key_data.get("is_admin", 0)),
                     key_data.get("scope", "full-access"),
                     key_data.get("created_at", time.time()),
                     key_data.get("last_used"),
@@ -1764,7 +1800,9 @@ class UserStore:
     @staticmethod
     def get_api_key(key: str) -> dict | None:
         with auth_connection() as conn:
-            row = conn.execute("SELECT * FROM api_keys WHERE key = %s", (key,)).fetchone()
+            row = conn.execute(
+                f"SELECT {_API_KEY_COLUMNS} {_API_KEY_FROM} WHERE k.key = %s", (key,)
+            ).fetchone()
             if row:
                 d = dict(row)
                 conn.execute(
@@ -1776,13 +1814,17 @@ class UserStore:
     @staticmethod
     def list_api_keys(email: str) -> list[dict]:
         with auth_connection() as conn:
-            rows = conn.execute("SELECT * FROM api_keys WHERE email = %s", (email,)).fetchall()
+            rows = conn.execute(
+                f"SELECT {_API_KEY_COLUMNS} {_API_KEY_FROM} WHERE u.email = %s", (email,)
+            ).fetchall()
             return [dict(r) for r in rows]
 
     @staticmethod
     def delete_api_key_by_preview(email: str, preview: str) -> bool:
         with auth_connection() as conn:
-            rows = conn.execute("SELECT key FROM api_keys WHERE email = %s", (email,)).fetchall()
+            rows = conn.execute(
+                f"SELECT key FROM api_keys WHERE user_id = {_USER_ID_OF}", (email,)
+            ).fetchall()
             for row in rows:
                 k = row["key"]
                 if (k[:12] + "..." + k[-4:]) == preview:
@@ -1793,7 +1835,7 @@ class UserStore:
     @staticmethod
     def delete_user_api_keys(email: str) -> None:
         with auth_connection() as conn:
-            conn.execute("DELETE FROM api_keys WHERE email = %s", (email,))
+            conn.execute(f"DELETE FROM api_keys WHERE user_id = {_USER_ID_OF}", (email,))
 
     # ── Teams ──
 
@@ -1801,11 +1843,11 @@ class UserStore:
     def create_team(team: dict) -> None:
         with auth_connection() as conn:
             conn.execute(
-                """
+                f"""
                 INSERT INTO teams (
-                    team_id, name, owner_email, created_at, plan, max_members, billing_customer_id
+                    team_id, name, owner_user_id, created_at, plan, max_members, billing_customer_id
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, {_USER_ID_OF}, %s, %s, %s, %s)
             """,
                 (
                     team["team_id"],
@@ -1819,9 +1861,9 @@ class UserStore:
             )
             # Add owner as admin member
             conn.execute(
-                """
-                INSERT INTO team_members (team_id, email, role, joined_at)
-                VALUES (%s, %s, 'admin', %s)
+                f"""
+                INSERT INTO team_members (team_id, user_id, role, joined_at)
+                VALUES (%s, {_USER_ID_OF}, 'admin', %s)
             """,
                 (team["team_id"], team["owner_email"], time.time()),
             )
@@ -1829,7 +1871,9 @@ class UserStore:
     @staticmethod
     def get_team(team_id: str) -> dict | None:
         with auth_connection() as conn:
-            row = conn.execute("SELECT * FROM teams WHERE team_id = %s", (team_id,)).fetchone()
+            row = conn.execute(
+                f"SELECT {_TEAM_COLUMNS} {_TEAM_FROM} WHERE t.team_id = %s", (team_id,)
+            ).fetchone()
             return dict(row) if row else None
 
     @staticmethod
@@ -1837,8 +1881,8 @@ class UserStore:
         with auth_connection() as conn:
             rows = conn.execute(
                 """
-                SELECT tm.email, tm.role, tm.joined_at, u.name, u.user_id
-                FROM team_members tm LEFT JOIN users u ON tm.email = u.email
+                SELECT u.email, tm.role, tm.joined_at, u.name, u.user_id
+                FROM team_members tm JOIN users u ON u.user_id = tm.user_id
                 WHERE tm.team_id = %s
             """,
                 (team_id,),
@@ -1858,13 +1902,18 @@ class UserStore:
             ).fetchone()["c"]
             if count >= team["max_members"]:
                 return False
+            member = conn.execute("SELECT user_id FROM users WHERE email = %s", (email,)).fetchone()
+            if not member:
+                # A membership is a user's; an address without an account is an
+                # invite (team_invites), not a member.
+                return False
             conn.execute(
                 """
-                INSERT INTO team_members (team_id, email, role, joined_at)
+                INSERT INTO team_members (team_id, user_id, role, joined_at)
                 VALUES (%s, %s, %s, %s)
-                ON CONFLICT (team_id, email) DO UPDATE SET role = EXCLUDED.role, joined_at = EXCLUDED.joined_at
+                ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role, joined_at = EXCLUDED.joined_at
             """,
-                (team_id, email, role, time.time()),
+                (team_id, member["user_id"], role, time.time()),
             )
             conn.execute("UPDATE users SET team_id = %s WHERE email = %s", (team_id, email))
             return True
@@ -1873,7 +1922,8 @@ class UserStore:
     def remove_team_member(team_id: str, email: str) -> None:
         with auth_connection() as conn:
             conn.execute(
-                "DELETE FROM team_members WHERE team_id = %s AND email = %s", (team_id, email)
+                f"DELETE FROM team_members WHERE team_id = %s AND user_id = {_USER_ID_OF}",
+                (team_id, email),
             )
             conn.execute(
                 "UPDATE users SET team_id = NULL WHERE email = %s AND team_id = %s",
@@ -1885,7 +1935,7 @@ class UserStore:
         """Update a team member's role. Returns False if member not found."""
         with auth_connection() as conn:
             cur = conn.execute(
-                "UPDATE team_members SET role = %s WHERE team_id = %s AND email = %s",
+                f"UPDATE team_members SET role = %s WHERE team_id = %s AND user_id = {_USER_ID_OF}",
                 (role, team_id, email),
             )
             return cur.rowcount > 0
@@ -1901,10 +1951,10 @@ class UserStore:
     def get_user_teams(email: str) -> list[dict]:
         with auth_connection() as conn:
             rows = conn.execute(
-                """
-                SELECT t.*, tm.role as member_role
-                FROM teams t JOIN team_members tm ON t.team_id = tm.team_id
-                WHERE tm.email = %s
+                f"""
+                SELECT {_TEAM_COLUMNS}, tm.role as member_role
+                {_TEAM_FROM} JOIN team_members tm ON t.team_id = tm.team_id
+                WHERE tm.user_id = {_USER_ID_OF}
             """,
                 (email,),
             ).fetchall()
@@ -1965,12 +2015,11 @@ class UserStore:
         # as a claim about provenance.
         with auth_connection() as conn:
             conn.execute(
-                "INSERT INTO user_ssh_keys (id, email, user_id, name, public_key, fingerprint, "
+                "INSERT INTO user_ssh_keys (id, user_id, name, public_key, fingerprint, "
                 "created_at, registered_by_client_id, registered_by_auth_type) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                 (
                     key_data["id"],
-                    key_data["email"],
                     key_data["user_id"],
                     key_data.get("name", "default"),
                     key_data["public_key"],
@@ -1985,7 +2034,8 @@ class UserStore:
     def list_ssh_keys(email: str) -> list[dict]:
         with auth_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM user_ssh_keys WHERE email = %s ORDER BY created_at DESC",
+                f"SELECT {_SSH_KEY_COLUMNS} {_SSH_KEY_FROM} "
+                "WHERE u.email = %s ORDER BY k.created_at DESC",
                 (email,),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -1994,7 +2044,7 @@ class UserStore:
     def delete_ssh_key(email: str, key_id: str) -> bool:
         with auth_connection() as conn:
             cur = conn.execute(
-                "DELETE FROM user_ssh_keys WHERE id = %s AND email = %s",
+                f"DELETE FROM user_ssh_keys WHERE id = %s AND user_id = {_USER_ID_OF}",
                 (key_id, email),
             )
             return cur.rowcount > 0
@@ -2002,7 +2052,7 @@ class UserStore:
     @staticmethod
     def delete_user_ssh_keys(email: str) -> None:
         with auth_connection() as conn:
-            conn.execute("DELETE FROM user_ssh_keys WHERE email = %s", (email,))
+            conn.execute(f"DELETE FROM user_ssh_keys WHERE user_id = {_USER_ID_OF}", (email,))
 
 
 class NotificationStore:
@@ -2030,11 +2080,20 @@ class NotificationStore:
         from contextlib import nullcontext
 
         with nullcontext(conn) if conn is not None else auth_connection() as write_conn:
+            recipient = write_conn.execute(
+                "SELECT user_id FROM users WHERE email = %s", (user_email,)
+            ).fetchone()
+            if recipient is None:
+                # A notice is a user's; an address with no account has nobody
+                # to read it, and storing it anyway only grows the table.
+                log.debug("notification %s for %r has no recipient account", notif_type, user_email)
+                return ""
+            user_id = recipient["user_id"] if isinstance(recipient, dict) else recipient[0]
             write_conn.execute(
                 """
                 INSERT INTO notifications (
                     id,
-                    user_email,
+                    user_id,
                     type,
                     title,
                     body,
@@ -2050,7 +2109,7 @@ class NotificationStore:
                 """,
                 (
                     nid,
-                    user_email,
+                    user_id,
                     notif_type,
                     title,
                     body,
@@ -2073,7 +2132,8 @@ class NotificationStore:
         try:
             with auth_connection() as conn:
                 row = conn.execute(
-                    "SELECT * FROM notifications WHERE id=%s", (notification_id,)
+                    f"SELECT {_NOTIFICATION_COLUMNS} {_NOTIFICATION_FROM} WHERE n.id=%s",
+                    (notification_id,),
                 ).fetchone()
             if row is None:
                 return
@@ -2102,11 +2162,14 @@ class NotificationStore:
     @staticmethod
     def list_for_user(user_email: str, unread_only: bool = False, limit: int = 50) -> list[dict]:
         with auth_connection() as conn:
-            sql = "SELECT * FROM notifications WHERE user_email = %s"
+            sql = (
+                f"SELECT {_NOTIFICATION_COLUMNS} {_NOTIFICATION_FROM} "
+                f"WHERE n.user_id = {_USER_ID_OF}"
+            )
             params: list = [user_email]
             if unread_only:
-                sql += " AND read = 0"
-            sql += " ORDER BY created_at DESC LIMIT %s"
+                sql += " AND n.read = 0"
+            sql += " ORDER BY n.created_at DESC LIMIT %s"
             params.append(limit)
             rows = conn.execute(sql, params).fetchall()
             return [dict(r) for r in rows]
@@ -2115,7 +2178,7 @@ class NotificationStore:
     def unread_count(user_email: str) -> int:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) as c FROM notifications WHERE user_email = %s AND read = 0",
+                f"SELECT COUNT(*) as c FROM notifications WHERE user_id = {_USER_ID_OF} AND read = 0",
                 (user_email,),
             ).fetchone()
             return row["c"] if row else 0
@@ -2130,7 +2193,7 @@ class NotificationStore:
     def mark_read(notification_id: str, user_email: str) -> bool:
         with auth_connection() as conn:
             cur = conn.execute(
-                "UPDATE notifications SET read = 1 WHERE id = %s AND user_email = %s",
+                f"UPDATE notifications SET read = 1 WHERE id = %s AND user_id = {_USER_ID_OF}",
                 (notification_id, user_email),
             )
             return cur.rowcount > 0
@@ -2139,7 +2202,7 @@ class NotificationStore:
     def mark_all_read(user_email: str) -> int:
         with auth_connection() as conn:
             cur = conn.execute(
-                "UPDATE notifications SET read = 1 WHERE user_email = %s AND read = 0",
+                f"UPDATE notifications SET read = 1 WHERE user_id = {_USER_ID_OF} AND read = 0",
                 (user_email,),
             )
             return cur.rowcount
@@ -2155,7 +2218,7 @@ class NotificationStore:
     def delete(notification_id: str, user_email: str) -> bool:
         with auth_connection() as conn:
             cur = conn.execute(
-                "DELETE FROM notifications WHERE id = %s AND user_email = %s",
+                f"DELETE FROM notifications WHERE id = %s AND user_id = {_USER_ID_OF}",
                 (notification_id, user_email),
             )
             return cur.rowcount > 0
@@ -2180,10 +2243,10 @@ class WebPushSubscriptionStore:
 
         with auth_connection() as conn:
             row = conn.execute(
-                """
+                f"""
                 INSERT INTO web_push_subscriptions (
                     id,
-                    user_email,
+                    user_id,
                     endpoint,
                     p256dh,
                     auth,
@@ -2192,9 +2255,9 @@ class WebPushSubscriptionStore:
                     last_used_at,
                     revoked_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)
+                VALUES (%s, {_USER_ID_OF}, %s, %s, %s, %s, %s, %s, NULL)
                 ON CONFLICT (endpoint) DO UPDATE
-                SET user_email = EXCLUDED.user_email,
+                SET user_id = EXCLUDED.user_id,
                     p256dh = EXCLUDED.p256dh,
                     auth = EXCLUDED.auth,
                     user_agent = EXCLUDED.user_agent,
@@ -2210,11 +2273,12 @@ class WebPushSubscriptionStore:
     def list_active_for_user(user_email: str) -> list[dict]:
         with auth_connection() as conn:
             rows = conn.execute(
-                """
-                SELECT *
-                FROM web_push_subscriptions
-                WHERE user_email = %s AND revoked_at IS NULL
-                ORDER BY last_used_at DESC, created_at DESC
+                f"""
+                SELECT w.id, u.email AS user_email, w.user_id, w.endpoint, w.p256dh, w.auth,
+                       w.user_agent, w.created_at, w.last_used_at, w.revoked_at
+                FROM web_push_subscriptions w JOIN users u ON u.user_id = w.user_id
+                WHERE w.user_id = {_USER_ID_OF} AND w.revoked_at IS NULL
+                ORDER BY w.last_used_at DESC, w.created_at DESC
                 """,
                 (user_email,),
             ).fetchall()
@@ -2224,10 +2288,10 @@ class WebPushSubscriptionStore:
     def count_active_for_user(user_email: str) -> int:
         with auth_connection() as conn:
             row = conn.execute(
-                """
+                f"""
                 SELECT COUNT(*) AS count
                 FROM web_push_subscriptions
-                WHERE user_email = %s AND revoked_at IS NULL
+                WHERE user_id = {_USER_ID_OF} AND revoked_at IS NULL
                 """,
                 (user_email,),
             ).fetchone()
@@ -2272,10 +2336,10 @@ class WebPushSubscriptionStore:
     def revoke(user_email: str, endpoint: str) -> bool:
         with auth_connection() as conn:
             cur = conn.execute(
-                """
+                f"""
                 UPDATE web_push_subscriptions
                 SET revoked_at = %s
-                WHERE user_email = %s AND endpoint = %s AND revoked_at IS NULL
+                WHERE user_id = {_USER_ID_OF} AND endpoint = %s AND revoked_at IS NULL
                 """,
                 (time.time(), user_email, endpoint),
             )
@@ -2437,7 +2501,8 @@ class MfaStore:
     def list_methods(email: str) -> list[dict]:
         with auth_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM mfa_methods WHERE email = %s ORDER BY created_at",
+                f"SELECT {_MFA_METHOD_COLUMNS} {_MFA_METHOD_FROM} "
+                f"WHERE m.user_id = {_USER_ID_OF} ORDER BY m.created_at",
                 (email,),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -2446,7 +2511,7 @@ class MfaStore:
     def get_method(method_id: int) -> dict | None:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM mfa_methods WHERE id = %s",
+                f"SELECT {_MFA_METHOD_COLUMNS} {_MFA_METHOD_FROM} WHERE m.id = %s",
                 (method_id,),
             ).fetchone()
             return dict(row) if row else None
@@ -2455,7 +2520,8 @@ class MfaStore:
     def get_method_by_type(email: str, method_type: str) -> dict | None:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM mfa_methods WHERE email = %s AND method_type = %s AND enabled = 1",
+                f"SELECT {_MFA_METHOD_COLUMNS} {_MFA_METHOD_FROM} "
+                f"WHERE m.user_id = {_USER_ID_OF} AND m.method_type = %s AND m.enabled = 1",
                 (email, method_type),
             ).fetchone()
             return dict(row) if row else None
@@ -2464,10 +2530,10 @@ class MfaStore:
     def create_method(data: dict) -> int:
         with auth_connection() as conn:
             row = conn.execute(
-                """
-                INSERT INTO mfa_methods (email, method_type, secret, phone_number,
+                f"""
+                INSERT INTO mfa_methods (user_id, method_type, secret, phone_number,
                     credential_id, public_key, sign_count, device_name, enabled, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES ({_USER_ID_OF}, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -2489,7 +2555,7 @@ class MfaStore:
     def delete_method(method_id: int, email: str) -> None:
         with auth_connection() as conn:
             conn.execute(
-                "DELETE FROM mfa_methods WHERE id = %s AND email = %s",
+                f"DELETE FROM mfa_methods WHERE id = %s AND user_id = {_USER_ID_OF}",
                 (method_id, email),
             )
 
@@ -2497,7 +2563,7 @@ class MfaStore:
     def delete_methods_by_type(email: str, method_type: str) -> None:
         with auth_connection() as conn:
             conn.execute(
-                "DELETE FROM mfa_methods WHERE email = %s AND method_type = %s",
+                f"DELETE FROM mfa_methods WHERE user_id = {_USER_ID_OF} AND method_type = %s",
                 (email, method_type),
             )
 
@@ -2507,7 +2573,8 @@ class MfaStore:
     def get_passkey_by_credential(credential_id: str) -> dict | None:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM mfa_methods WHERE credential_id = %s AND method_type = 'passkey' AND enabled = 1",
+                f"SELECT {_MFA_METHOD_COLUMNS} {_MFA_METHOD_FROM} "
+                "WHERE m.credential_id = %s AND m.method_type = 'passkey' AND m.enabled = 1",
                 (credential_id,),
             ).fetchone()
             return dict(row) if row else None
@@ -2526,7 +2593,9 @@ class MfaStore:
     def list_backup_codes(email: str) -> list[dict]:
         with auth_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM mfa_backup_codes WHERE email = %s ORDER BY id",
+                "SELECT b.id, u.email, b.user_id, b.code_hash, b.used, b.created_at "
+                "FROM mfa_backup_codes b JOIN users u ON u.user_id = b.user_id "
+                f"WHERE b.user_id = {_USER_ID_OF} ORDER BY b.id",
                 (email,),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -2536,10 +2605,11 @@ class MfaStore:
         now = time.time()
         with auth_connection() as conn:
             # Delete old codes
-            conn.execute("DELETE FROM mfa_backup_codes WHERE email = %s", (email,))
+            conn.execute(f"DELETE FROM mfa_backup_codes WHERE user_id = {_USER_ID_OF}", (email,))
             for h in code_hashes:
                 conn.execute(
-                    "INSERT INTO mfa_backup_codes (email, code_hash, used, created_at) VALUES (%s, %s, 0, %s)",
+                    "INSERT INTO mfa_backup_codes (user_id, code_hash, used, created_at) "
+                    f"VALUES ({_USER_ID_OF}, %s, 0, %s)",
                     (email, h, now),
                 )
 
@@ -2548,7 +2618,8 @@ class MfaStore:
         """Mark a backup code as used. Returns True if a valid unused code was found."""
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT id FROM mfa_backup_codes WHERE email = %s AND code_hash = %s AND used = 0",
+                f"SELECT id FROM mfa_backup_codes WHERE user_id = {_USER_ID_OF} "
+                "AND code_hash = %s AND used = 0",
                 (email, code_hash),
             ).fetchone()
             if not row:
@@ -2562,9 +2633,9 @@ class MfaStore:
     def create_challenge(data: dict) -> None:
         with auth_connection() as conn:
             conn.execute(
-                """
-                INSERT INTO mfa_challenges (challenge_id, email, session_token, challenge_data, created_at, expires_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                f"""
+                INSERT INTO mfa_challenges (challenge_id, user_id, session_token, challenge_data, created_at, expires_at)
+                VALUES (%s, {_USER_ID_OF}, %s, %s, %s, %s)
                 """,
                 (
                     data["challenge_id"],
@@ -2580,7 +2651,10 @@ class MfaStore:
     def get_challenge(challenge_id: str) -> dict | None:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM mfa_challenges WHERE challenge_id = %s",
+                "SELECT c.challenge_id, u.email, c.user_id, c.session_token, c.challenge_data, "
+                "c.created_at, c.expires_at "
+                "FROM mfa_challenges c JOIN users u ON u.user_id = c.user_id "
+                "WHERE c.challenge_id = %s",
                 (challenge_id,),
             ).fetchone()
             return dict(row) if row else None
@@ -2594,6 +2668,21 @@ class MfaStore:
     def cleanup_expired_challenges() -> None:
         with auth_connection() as conn:
             conn.execute("DELETE FROM mfa_challenges WHERE expires_at < %s", (time.time(),))
+
+
+#: Every client column except the creator's address, which is read from the
+#: creator's account (164/165): a connector belongs to a user id, and the address
+#: is whatever that user's is now. NULL when no account created it.
+_CLIENT_COLUMNS = (
+    "client_id, client_name, client_type, redirect_uris, grant_types, scopes, "
+    "client_secret_hash, client_secret_salt, client_secret_preview, is_first_party, "
+    "status, last_used, created_at, updated_at, workspace_customer_id, team_id, "
+    "is_system_managed, registration_source, resource_audience, registration_expires_at, "
+    "client_uri, logo_uri, policy_uri, tos_uri, software_id, software_version, contacts, "
+    "permission_preset, created_by_user_id, "
+    "(SELECT u.email FROM users u WHERE u.user_id = oauth_clients.created_by_user_id) "
+    "AS created_by_email"
+)
 
 
 class OAuthStore:
@@ -2635,7 +2724,7 @@ class OAuthStore:
         set_clause += ", updated_at = %s"
         if created_by_email:
             values.extend([client_id, created_by_email])
-            where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+            where = "client_id = %s AND created_by_user_id = (SELECT user_id FROM users WHERE email = %s) AND is_first_party = 0"
         else:
             values.append(client_id)
             where = "client_id = %s"
@@ -2656,7 +2745,7 @@ class OAuthStore:
     ) -> tuple[str, list]:
         if workspace_customer_id == personal_customer_id:
             return (
-                "client_id = %s AND created_by_email = %s AND is_first_party = 0 "
+                "client_id = %s AND created_by_user_id = (SELECT user_id FROM users WHERE email = %s) AND is_first_party = 0 "
                 "AND (workspace_customer_id = %s OR workspace_customer_id IS NULL)",
                 [client_id, user_email, workspace_customer_id],
             )
@@ -2754,7 +2843,7 @@ class OAuthStore:
         values = [new_secret_hash, new_secret_salt, new_secret_preview, time.time()]
         if created_by_email:
             values.extend([client_id, created_by_email])
-            where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+            where = "client_id = %s AND created_by_user_id = (SELECT user_id FROM users WHERE email = %s) AND is_first_party = 0"
         else:
             values.append(client_id)
             where = "client_id = %s"
@@ -2767,7 +2856,7 @@ class OAuthStore:
         values = [status, time.time()]
         if created_by_email:
             values.extend([client_id, created_by_email])
-            where = "client_id = %s AND created_by_email = %s AND is_first_party = 0"
+            where = "client_id = %s AND created_by_user_id = (SELECT user_id FROM users WHERE email = %s) AND is_first_party = 0"
         else:
             values.append(client_id)
             where = "client_id = %s"
@@ -2809,7 +2898,7 @@ class OAuthStore:
                     client_secret_hash,
                     client_secret_salt,
                     client_secret_preview,
-                    created_by_email,
+                    created_by_user_id,
                     is_first_party,
                     workspace_customer_id,
                     team_id,
@@ -2827,8 +2916,9 @@ class OAuthStore:
                     software_version,
                     contacts
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        (SELECT user_id FROM users WHERE email = %s),
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (client_id) DO UPDATE SET
                     client_name = EXCLUDED.client_name,
                     client_type = EXCLUDED.client_type,
@@ -2838,7 +2928,7 @@ class OAuthStore:
                     client_secret_hash = EXCLUDED.client_secret_hash,
                     client_secret_salt = EXCLUDED.client_secret_salt,
                     client_secret_preview = EXCLUDED.client_secret_preview,
-                    created_by_email = EXCLUDED.created_by_email,
+                    created_by_user_id = EXCLUDED.created_by_user_id,
                     is_first_party = EXCLUDED.is_first_party,
                     is_system_managed = EXCLUDED.is_system_managed,
                     updated_at = EXCLUDED.updated_at,
@@ -2887,7 +2977,7 @@ class OAuthStore:
     def get_client(client_id: str) -> dict | None:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM oauth_clients WHERE client_id = %s",
+                f"SELECT {_CLIENT_COLUMNS} FROM oauth_clients WHERE client_id = %s",
                 (client_id,),
             ).fetchone()
             return dict(row) if row else None
@@ -2934,14 +3024,14 @@ class OAuthStore:
         with auth_connection() as conn:
             if created_by_email is None:
                 rows = conn.execute(
-                    "SELECT * FROM oauth_clients ORDER BY created_at DESC"
+                    f"SELECT {_CLIENT_COLUMNS} FROM oauth_clients ORDER BY created_at DESC"
                 ).fetchall()
             elif workspace_customer_id:
                 if personal_customer_id and workspace_customer_id == personal_customer_id:
                     rows = conn.execute(
-                        """
-                        SELECT * FROM oauth_clients
-                         WHERE created_by_email = %s
+                        f"""
+                        SELECT {_CLIENT_COLUMNS} FROM oauth_clients
+                         WHERE created_by_user_id = (SELECT user_id FROM users WHERE email = %s)
                            AND is_first_party = 0
                            AND (
                                 workspace_customer_id = %s
@@ -2953,8 +3043,8 @@ class OAuthStore:
                     ).fetchall()
                 else:
                     rows = conn.execute(
-                        """
-                        SELECT * FROM oauth_clients
+                        f"""
+                        SELECT {_CLIENT_COLUMNS} FROM oauth_clients
                          WHERE is_first_party = 0
                            AND workspace_customer_id = %s
                          ORDER BY created_at DESC
@@ -2963,9 +3053,9 @@ class OAuthStore:
                     ).fetchall()
             else:
                 rows = conn.execute(
-                    """
-                    SELECT * FROM oauth_clients
-                     WHERE created_by_email = %s OR is_first_party = 1
+                    f"""
+                    SELECT {_CLIENT_COLUMNS} FROM oauth_clients
+                     WHERE created_by_user_id = (SELECT user_id FROM users WHERE email = %s) OR is_first_party = 1
                      ORDER BY created_at DESC
                     """,
                     (created_by_email,),
@@ -2978,9 +3068,9 @@ class OAuthStore:
         client) — these are excluded from the user-facing OAuth client list."""
         with auth_connection() as conn:
             row = conn.execute(
-                """
-                SELECT * FROM oauth_clients
-                 WHERE created_by_email = %s AND client_name = %s AND is_system_managed = 1
+                f"""
+                SELECT {_CLIENT_COLUMNS} FROM oauth_clients
+                 WHERE created_by_user_id = (SELECT user_id FROM users WHERE email = %s) AND client_name = %s AND is_system_managed = 1
                  ORDER BY created_at DESC
                  LIMIT 1
                 """,
@@ -2993,7 +3083,7 @@ class OAuthStore:
         with auth_connection() as conn:
             if created_by_email:
                 cur = conn.execute(
-                    "DELETE FROM oauth_clients WHERE client_id = %s AND created_by_email = %s AND is_first_party = 0",
+                    "DELETE FROM oauth_clients WHERE client_id = %s AND created_by_user_id = (SELECT user_id FROM users WHERE email = %s) AND is_first_party = 0",
                     (client_id, created_by_email),
                 )
             else:
@@ -3014,7 +3104,7 @@ class OAuthStore:
                     """
                     DELETE FROM oauth_clients
                      WHERE client_id = %s
-                       AND created_by_email = %s
+                       AND created_by_user_id = (SELECT user_id FROM users WHERE email = %s)
                        AND is_first_party = 0
                        AND (workspace_customer_id = %s OR workspace_customer_id IS NULL)
                     """,
@@ -3046,7 +3136,6 @@ class OAuthStore:
                     parent_token_id,
                     session_token,
                     client_id,
-                    email,
                     user_id,
                     session_type,
                     scopes,
@@ -3058,7 +3147,9 @@ class OAuthStore:
                     replaced_by_token_id,
                     reuse_detected_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s,
+                        COALESCE(%s, (SELECT user_id FROM users WHERE email = %s)),
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     token_data["token_id"],
@@ -3067,8 +3158,8 @@ class OAuthStore:
                     token_data.get("parent_token_id"),
                     token_data.get("session_token"),
                     token_data["client_id"],
+                    token_data.get("user_id") or None,
                     token_data.get("email"),
-                    token_data.get("user_id"),
                     token_data.get("session_type", "browser"),
                     Jsonb(list(token_data.get("scopes") or [])),
                     token_data.get("audience", "xcelsior-api"),
@@ -3085,7 +3176,12 @@ class OAuthStore:
     def get_refresh_token(token_hash: str) -> dict | None:
         with auth_connection() as conn:
             row = conn.execute(
-                "SELECT * FROM oauth_refresh_tokens WHERE token_hash = %s",
+                "SELECT r.token_id, r.token_hash, r.family_id, r.parent_token_id, "
+                "r.session_token, r.client_id, u.email, r.user_id, r.session_type, r.scopes, "
+                "r.audience, r.created_at, r.expires_at, r.consumed_at, r.revoked_at, "
+                "r.replaced_by_token_id, r.reuse_detected_at "
+                "FROM oauth_refresh_tokens r LEFT JOIN users u ON u.user_id = r.user_id "
+                "WHERE r.token_hash = %s",
                 (token_hash,),
             ).fetchone()
             return dict(row) if row else None
@@ -3188,10 +3284,10 @@ class ConsentStore:
     def get(user_id: str, client_id: str, resource: str = "") -> dict | None:
         with auth_connection() as conn:
             row = conn.execute(
-                """
-                SELECT * FROM oauth_consent_grants
-                 WHERE user_id = %s AND client_id = %s AND resource = %s
-                   AND revoked_at IS NULL
+                f"""
+                SELECT {_GRANT_COLUMNS} {_GRANT_FROM}
+                 WHERE g.user_id = %s AND g.client_id = %s AND g.resource = %s
+                   AND g.revoked_at IS NULL
                 """,
                 (user_id, client_id, resource or ""),
             ).fetchone()
@@ -3215,13 +3311,12 @@ class ConsentStore:
             conn.execute(
                 """
                 INSERT INTO oauth_consent_grants (
-                    grant_id, tenant_id, user_id, email, client_id, resource,
+                    grant_id, tenant_id, user_id, client_id, resource,
                     scopes, surface
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (user_id, client_id, resource) DO UPDATE SET
                     scopes = EXCLUDED.scopes,
                     tenant_id = EXCLUDED.tenant_id,
-                    email = EXCLUDED.email,
                     surface = EXCLUDED.surface,
                     granted_at = now(),
                     revoked_at = NULL
@@ -3230,7 +3325,6 @@ class ConsentStore:
                     grant_id,
                     tenant_id,
                     user_id,
-                    email,
                     client_id,
                     resource or "",
                     Jsonb(sorted(set(scopes))),
@@ -3253,10 +3347,10 @@ class ConsentStore:
     def list_for_user(user_id: str) -> list[dict]:
         with auth_connection() as conn:
             rows = conn.execute(
-                """
-                SELECT * FROM oauth_consent_grants
-                 WHERE user_id = %s AND revoked_at IS NULL
-                 ORDER BY granted_at DESC
+                f"""
+                SELECT {_GRANT_COLUMNS} {_GRANT_FROM}
+                 WHERE g.user_id = %s AND g.revoked_at IS NULL
+                 ORDER BY g.granted_at DESC
                 """,
                 (user_id,),
             ).fetchall()

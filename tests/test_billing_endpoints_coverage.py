@@ -47,7 +47,7 @@ def stripe_payment_intents_are_isolated(monkeypatch):
 
 
 @pytest.fixture(scope="module")
-def auth(persistent_auth_module):
+def auth():
     # Billing reads the account from PostgreSQL, as production does, so the user
     # must be written there; without the pin it landed in the in-memory store.
     email = f"billcov-{uuid.uuid4().hex[:10]}@xcelsior.ca"
@@ -246,15 +246,8 @@ def test_topup_minimum_exempt_for_admin(auth):
     from routes import _deps
 
     email, _headers = auth
-    if _deps._USE_PERSISTENT_AUTH:
-        UserStore.set_admin(email, 1)
-        UserStore.update_user(email, {"role": "admin"})
-    else:
-        with _deps._user_lock:
-            user = _deps._users_db.get(email)
-            if user:
-                user["is_admin"] = True
-                user["role"] = "admin"
+    UserStore.set_admin(email, 1)
+    UserStore.update_user(email, {"role": "admin"})
     login = client.post("/api/auth/login", json={"email": email, "password": "StrongPass123!"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     user = UserStore.get_user(email) or {}

@@ -10,7 +10,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["XCELSIOR_ENV"] = "test"
-os.environ["XCELSIOR_PERSISTENT_AUTH"] = "true"
 os.environ["XCELSIOR_SKIP_CUDA_CHECK"] = "1"
 
 from api import app
@@ -30,17 +29,6 @@ from serverless.worker_sdk.handler import invoke_handler, normalize_handler_resu
 from tests.test_serverless_native_lifecycle import native  # noqa: F401
 
 client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def persistent_auth(monkeypatch):
-    import api as api_mod
-    import routes._deps as deps
-    import routes.auth as auth
-
-    monkeypatch.setattr(deps, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(auth, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
 
 
 def _fund_and_create_endpoint() -> tuple[str, str]:

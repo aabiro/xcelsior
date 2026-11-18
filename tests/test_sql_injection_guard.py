@@ -102,6 +102,13 @@ KNOWN_SAFE = {
     "api/migrations/versions/142_durable_host_observation_sessions.py",
     "api/migrations/versions/149_drop_tier_multiplier.py",
     "api/migrations/versions/151_clear_stamped_regions.py",
+    #   164: table, email and user-id column names from the module-level
+    #        CHILDREN, USER_ID_TABLES and INDEXES tuples; nothing else reaches
+    #        the DDL, the backfill or the generated trigger body
+    #   165: table, column and parent names from the module-level REFERENCES
+    #        tuple and INDEXES dict
+    "api/migrations/versions/164_user_identity_by_user_id.py",
+    "api/migrations/versions/165_live_reference_foreign_keys.py",
 }
 
 # SQL keywords must be UPPERCASE — this is the codebase convention for all real

@@ -10,11 +10,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["XCELSIOR_ENV"] = "test"
-os.environ["XCELSIOR_PERSISTENT_AUTH"] = "true"
 os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
 
 from api import app
-from db import UserStore
+from db import UserStore, auth_connection
 from serverless.env_secrets import (
     decrypt_env_for_worker,
     encrypt_env_for_storage,
@@ -30,14 +29,9 @@ client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def persistent_auth(monkeypatch):
+def _fresh_auth_rate_limits(monkeypatch):
     import api as api_mod
-    import routes._deps as deps
-    import routes.auth as auth
 
-    monkeypatch.setattr(deps, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(auth, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
     api_mod._RATE_BUCKETS.clear()
 
 
@@ -63,7 +57,7 @@ def _register_and_fund() -> dict:
 
 
 @pytest.fixture(scope="module")
-def user_headers(persistent_auth_module):
+def user_headers():
     return _register_and_fund()
 
 
@@ -268,9 +262,18 @@ class TestAgentKeyPrefixCollision:
         me = client.get("/api/auth/me", headers=user_headers).json()
         user = me.get("user") or me
         full_user = UserStore.get_user(str(user["email"])) or user
+        # A key is issued to a client that exists (165).
+        agent_client_id = f"cli-{uuid.uuid4().hex[:8]}"
+        with auth_connection() as conn:
+            conn.execute(
+                "INSERT INTO oauth_clients "
+                "(client_id, client_name, client_type, created_at, updated_at) "
+                "VALUES (%s, 'Prefix probe', 'public', 0, 0)",
+                (agent_client_id,),
+            )
         bundle = issue_agent_api_key(
             user=dict(full_user),
-            client_id=f"cli-{uuid.uuid4().hex[:8]}",
+            client_id=agent_client_id,
             scopes=["inference:read", "inference:write"],
             name="prefix collision probe",
         )
@@ -282,6 +285,8 @@ class TestAgentKeyPrefixCollision:
             )
         finally:
             AgentKeyStore.revoke(bundle["key_id"], str(full_user["user_id"]))
+            with auth_connection() as conn:
+                conn.execute("DELETE FROM oauth_clients WHERE client_id = %s", (agent_client_id,))
 
         # The assertion is narrow on purpose: the run may legitimately fail for
         # business reasons (no workers, no funds). What must never happen is

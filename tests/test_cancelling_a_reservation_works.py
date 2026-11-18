@@ -28,24 +28,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("XCELSIOR_ENV", "test")
-os.environ.setdefault("XCELSIOR_PERSISTENT_AUTH", "true")
 
 from api import app
 from db import _get_pg_pool
 from marketplace import get_marketplace_engine
 
 client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def persistent_auth(monkeypatch):
-    import api as api_mod
-    import routes._deps as deps
-    import routes.auth as auth
-
-    monkeypatch.setattr(deps, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(auth, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
 
 
 @pytest.fixture

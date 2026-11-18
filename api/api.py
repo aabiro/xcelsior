@@ -51,12 +51,8 @@ from routes._deps import (
     XCELSIOR_ENV,
     _AUTH_COOKIE_NAME,
     _RATE_BUCKETS,
-    _USE_PERSISTENT_AUTH,
-    _api_keys,
     _get_current_user,
     _get_real_client_ip,
-    _sessions,
-    _user_lock,
     broadcast_sse,
     AGENT_RATE_LIMIT_EXEMPT_PREFIXES,
     PUBLIC_PATHS,
@@ -879,11 +875,7 @@ class ReadOnlyScopeMiddleware(BaseHTTPMiddleware):
         if auth.startswith("Bearer "):
             token = auth[7:]
             key_data = None
-            if _USE_PERSISTENT_AUTH:
-                key_data = UserStore.get_api_key(token)
-            else:
-                with _user_lock:
-                    key_data = _api_keys.get(token)
+            key_data = UserStore.get_api_key(token)
             if key_data and key_data.get("scope") == "read-only":
                 return JSONResponse(
                     status_code=403,

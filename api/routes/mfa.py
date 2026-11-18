@@ -1024,8 +1024,15 @@ def api_mfa_disable_all(request: Request):
     from db import auth_connection
 
     with auth_connection() as conn:
-        conn.execute("DELETE FROM mfa_methods WHERE email = %s", (user["email"],))
-        conn.execute("DELETE FROM mfa_backup_codes WHERE email = %s", (user["email"],))
+        conn.execute(
+            "DELETE FROM mfa_methods WHERE user_id = (SELECT user_id FROM users WHERE email = %s)",
+            (user["email"],),
+        )
+        conn.execute(
+            "DELETE FROM mfa_backup_codes "
+            "WHERE user_id = (SELECT user_id FROM users WHERE email = %s)",
+            (user["email"],),
+        )
 
     UserStore.update_user(user["email"], {"mfa_enabled": 0})
     return {"ok": True, "message": "All MFA methods disabled"}

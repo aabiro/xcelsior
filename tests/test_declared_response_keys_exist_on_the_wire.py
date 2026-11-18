@@ -145,13 +145,9 @@ PROBEABLE = sorted(
 @pytest.fixture
 def wire_identity(monkeypatch):
     """Real persisted identities for the lifecycle a protected route requires."""
-    import api as api_module
     import routes._deps as deps
-    import routes.auth as auth
     from db import MfaStore, UserStore
 
-    for module in (api_module, deps, auth):
-        monkeypatch.setattr(module, "_USE_PERSISTENT_AUTH", True)
     opened = []
 
     def create(kind="user"):

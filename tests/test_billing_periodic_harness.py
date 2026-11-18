@@ -12,7 +12,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("XCELSIOR_ENV", "test")
-os.environ.setdefault("XCELSIOR_PERSISTENT_AUTH", "true")
 os.environ.setdefault("XCELSIOR_SERVERLESS_MIN_BILLING_INTERVAL_SEC", "1")
 
 from api import app
@@ -39,17 +38,6 @@ def priced_worker():
 
     with ExitStack() as stack:
         yield lambda repo, endpoint_id: stack.enter_context(running_serverless(repo, endpoint_id))
-
-
-@pytest.fixture(autouse=True)
-def persistent_auth(monkeypatch):
-    import api as api_mod
-    import routes._deps as deps
-    import routes.auth as auth
-
-    monkeypatch.setattr(deps, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(auth, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
 
 
 @pytest.fixture(autouse=True)

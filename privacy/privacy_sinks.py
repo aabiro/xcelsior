@@ -263,15 +263,15 @@ def delete_authoritative_subject(
         owned_teams = conn.execute(
             """
             SELECT t.team_id,
-                   count(tm.email) FILTER (
-                       WHERE lower(tm.email) <> %s
+                   count(tm.user_id) FILTER (
+                       WHERE tm.user_id <> %s
                    ) AS other_members
               FROM teams t
               LEFT JOIN team_members tm ON tm.team_id = t.team_id
-             WHERE lower(t.owner_email) = %s
+             WHERE t.owner_user_id = %s
              GROUP BY t.team_id
             """,
-            (stored_email, stored_email),
+            (stored_user_id, stored_user_id),
         ).fetchall()
         blocked_teams = [
             str(_value(row, "team_id", 0))
@@ -300,52 +300,50 @@ def delete_authoritative_subject(
             (
                 "oauth_refresh_tokens",
                 """
-                DELETE FROM oauth_refresh_tokens
-                 WHERE user_id = %s OR lower(email) = %s
+                DELETE FROM oauth_refresh_tokens WHERE user_id = %s
                 """,
-                (stored_user_id, stored_email),
+                (stored_user_id,),
             ),
             (
                 "sessions",
-                "DELETE FROM sessions WHERE user_id = %s OR lower(email) = %s",
-                (stored_user_id, stored_email),
+                "DELETE FROM sessions WHERE user_id = %s",
+                (stored_user_id,),
             ),
             (
                 "api_keys",
-                "DELETE FROM api_keys WHERE user_id = %s OR lower(email) = %s",
-                (stored_user_id, stored_email),
+                "DELETE FROM api_keys WHERE user_id = %s",
+                (stored_user_id,),
             ),
             (
                 "oauth_clients",
                 """
                 DELETE FROM oauth_clients
-                 WHERE lower(created_by_email) = %s
+                 WHERE created_by_user_id = %s
                    AND COALESCE(is_system_managed, 0) = 0
                 """,
-                (stored_email,),
+                (stored_user_id,),
             ),
             (
                 "mfa_backup_codes",
-                "DELETE FROM mfa_backup_codes WHERE lower(email) = %s",
-                (stored_email,),
+                "DELETE FROM mfa_backup_codes WHERE user_id = %s",
+                (stored_user_id,),
             ),
             (
                 "mfa_challenges",
-                "DELETE FROM mfa_challenges WHERE lower(email) = %s",
-                (stored_email,),
+                "DELETE FROM mfa_challenges WHERE user_id = %s",
+                (stored_user_id,),
             ),
             (
                 "mfa_methods",
-                "DELETE FROM mfa_methods WHERE lower(email) = %s",
-                (stored_email,),
+                "DELETE FROM mfa_methods WHERE user_id = %s",
+                (stored_user_id,),
             ),
             (
                 "ssh_keys",
                 """
-                DELETE FROM user_ssh_keys
-                 WHERE user_id = %s OR lower(email) = %s
+                DELETE FROM user_ssh_keys WHERE user_id = %s
                 """,
-                (stored_user_id, stored_email),
+                (stored_user_id,),
             ),
             (
                 "avatars",
@@ -360,15 +358,14 @@ def delete_authoritative_subject(
             (
                 "push_subscriptions",
                 """
-                DELETE FROM web_push_subscriptions
-                 WHERE lower(user_email) = %s
+                DELETE FROM web_push_subscriptions WHERE user_id = %s
                 """,
-                (stored_email,),
+                (stored_user_id,),
             ),
             (
                 "notifications",
-                "DELETE FROM notifications WHERE lower(user_email) = %s",
-                (stored_email,),
+                "DELETE FROM notifications WHERE user_id = %s",
+                (stored_user_id,),
             ),
             (
                 "casl_consents",
@@ -545,23 +542,15 @@ def delete_authoritative_subject(
             (stored_user_id,),
         ).rowcount
 
-        # Solo teams may remain as finance workspaces; remove the old address.
+        # Solo teams may remain as finance workspaces. They refer to the user
+        # by id (164), so anonymising the `users` row below is what removes
+        # the address from them; these counts record what it covers.
         counts["team_members_anonymized"] = conn.execute(
-            """
-            UPDATE team_members
-               SET email = %s
-             WHERE lower(email) = %s
-            """,
-            (anonymous_email, stored_email),
-        ).rowcount
+            "SELECT count(*) FROM team_members WHERE user_id = %s", (stored_user_id,)
+        ).fetchone()[0]
         counts["teams_anonymized"] = conn.execute(
-            """
-            UPDATE teams
-               SET owner_email = %s
-             WHERE lower(owner_email) = %s
-            """,
-            (anonymous_email, stored_email),
-        ).rowcount
+            "SELECT count(*) FROM teams WHERE owner_user_id = %s", (stored_user_id,)
+        ).fetchone()[0]
 
         password_tombstone = hashlib.sha256(f"{reference}:{time.time_ns()}".encode()).hexdigest()
         counts["users_anonymized"] = conn.execute(
@@ -831,9 +820,9 @@ def delete_retrieval_subject(request: Mapping[str, Any], _sink: Mapping[str, Any
                 """
                 SELECT conversation_id
                   FROM chat_conversations
-                 WHERE lower(user_email) = %s
+                 WHERE user_id = %s
                 """,
-                (email,),
+                (user_id,),
             ).fetchall()
         ]
         if chat_ids:
@@ -1176,32 +1165,29 @@ def verify_subject_absence(request: Mapping[str, Any], _sink: Mapping[str, Any])
             ).fetchone(),
             "sessions": conn.execute(
                 """
-                SELECT count(*) FROM sessions
-                 WHERE user_id = %s OR lower(email) = %s
+                SELECT count(*) FROM sessions WHERE user_id = %s
                 """,
-                (user_id, email),
+                (user_id,),
             ).fetchone(),
             "oauth_refresh_tokens": conn.execute(
                 """
-                SELECT count(*) FROM oauth_refresh_tokens
-                 WHERE user_id = %s OR lower(email) = %s
+                SELECT count(*) FROM oauth_refresh_tokens WHERE user_id = %s
                 """,
-                (user_id, email),
+                (user_id,),
             ).fetchone(),
             "mfa_methods": conn.execute(
-                "SELECT count(*) FROM mfa_methods WHERE lower(email) = %s",
-                (email,),
+                "SELECT count(*) FROM mfa_methods WHERE user_id = %s",
+                (user_id,),
             ).fetchone(),
             "ssh_keys": conn.execute(
                 """
-                SELECT count(*) FROM user_ssh_keys
-                 WHERE user_id = %s OR lower(email) = %s
+                SELECT count(*) FROM user_ssh_keys WHERE user_id = %s
                 """,
-                (user_id, email),
+                (user_id,),
             ).fetchone(),
             "notifications": conn.execute(
-                "SELECT count(*) FROM notifications WHERE lower(user_email) = %s",
-                (email,),
+                "SELECT count(*) FROM notifications WHERE user_id = %s",
+                (user_id,),
             ).fetchone(),
             "ai_conversations": conn.execute(
                 "SELECT count(*) FROM ai_conversations WHERE user_id = %s",
@@ -1209,19 +1195,13 @@ def verify_subject_absence(request: Mapping[str, Any], _sink: Mapping[str, Any])
             ).fetchone(),
             "chat_conversations": conn.execute(
                 """
-                SELECT count(*) FROM chat_conversations
-                 WHERE lower(user_email) = %s
+                SELECT count(*) FROM chat_conversations WHERE user_id = %s
                 """,
-                (email,),
+                (user_id,),
             ).fetchone(),
-            "team_members": conn.execute(
-                "SELECT count(*) FROM team_members WHERE lower(email) = %s",
-                (email,),
-            ).fetchone(),
-            "team_owners": conn.execute(
-                "SELECT count(*) FROM teams WHERE lower(owner_email) = %s",
-                (email,),
-            ).fetchone(),
+            # Since 164 no table but `users` holds the address (memberships
+            # and team ownership refer to the user by id), so
+            # `live_login_email` above is the whole check for it.
         }
         if customer_ids:
             checks["active_jobs"] = conn.execute(

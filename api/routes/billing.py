@@ -21,7 +21,6 @@ from pydantic import BaseModel, Field, field_validator
 
 from routes._deps import (
     XCELSIOR_ENV,
-    _USE_PERSISTENT_AUTH,
     _canonical_owner_id,
     _effective_billing_customer_id,
     _get_current_user,
@@ -35,7 +34,6 @@ from routes._deps import (
     _require_customer_access,
     _require_scope,
     _check_billing_payment_rate_limit,
-    _users_db,
     broadcast_sse,
     log,
     otel_span,
@@ -890,11 +888,7 @@ def api_claim_free_credits(customer_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Authentication required")
     # Resolve customer_id from full user profile (session may lack it)
-    full_user = (
-        UserStore.get_user(user["email"])
-        if _USE_PERSISTENT_AUTH
-        else _users_db.get(user["email"], {})
-    )
+    full_user = UserStore.get_user(user["email"])
     uid = (
         (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
     )
@@ -952,11 +946,7 @@ def api_free_credits_status(customer_id: str, request: Request):
     if not user:
         raise HTTPException(401, "Authentication required")
     # Resolve customer_id from full user profile (session may lack it)
-    full_user = (
-        UserStore.get_user(user["email"])
-        if _USE_PERSISTENT_AUTH
-        else _users_db.get(user["email"], {})
-    )
+    full_user = UserStore.get_user(user["email"])
     uid = (
         (full_user or {}).get("customer_id") or user.get("customer_id") or user.get("user_id") or ""
     )
@@ -2042,11 +2032,7 @@ def api_analytics_enhanced(
     if not user:
         raise HTTPException(401, "Not authenticated")
     if user.get("email"):
-        full_user = (
-            UserStore.get_user(user["email"])
-            if _USE_PERSISTENT_AUTH
-            else _users_db.get(user["email"], {})
-        )
+        full_user = UserStore.get_user(user["email"])
         user = _merge_auth_user(user, full_user)
 
     is_admin = bool(user.get("is_admin"))

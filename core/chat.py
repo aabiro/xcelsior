@@ -194,7 +194,7 @@ def get_or_create_conversation(
         if conversation_id:
             row = conn.execute(
                 "SELECT conversation_id FROM chat_conversations "
-                "WHERE conversation_id = %s AND user_email = %s AND updated_at >= %s",
+                "WHERE conversation_id = %s AND user_id = (SELECT user_id FROM users WHERE email = %s) AND updated_at >= %s",
                 (conversation_id, user_email, time.time() - CONVERSATION_TTL_SEC),
             ).fetchone()
             if not row:
@@ -210,13 +210,19 @@ def get_or_create_conversation(
             history = [{"role": m["role"], "content": m["content"]} for m in msgs]
             return conversation_id, history[-MAX_HISTORY_MESSAGES:]
 
-        # Create new conversation
+        # Create new conversation, owned by the account with this email.
+        owner = conn.execute("SELECT user_id FROM users WHERE email = %s", (user_email,)).fetchone()
+        if owner is None:
+            # Without an account the conversation could never be found again
+            # (ownership is checked by user id), so refuse rather than store it.
+            raise ValueError("A conversation owner is required")
         cid = str(uuid.uuid4())
         now = time.time()
         ip_hash = _hash_ip(ip) if ip else None
         conn.execute(
-            "INSERT INTO chat_conversations (conversation_id, ip_hash, user_email, created_at, updated_at) VALUES (%s, %s, %s, %s, %s)",
-            (cid, ip_hash, user_email, now, now),
+            "INSERT INTO chat_conversations (conversation_id, ip_hash, user_id, created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (cid, ip_hash, owner["user_id"], now, now),
         )
         return cid, []
 
@@ -242,7 +248,7 @@ def get_conversation_messages(conversation_id: str, *, user_email: str) -> Optio
     with _chat_db() as conn:
         row = conn.execute(
             "SELECT conversation_id FROM chat_conversations "
-            "WHERE conversation_id = %s AND user_email = %s",
+            "WHERE conversation_id = %s AND user_id = (SELECT user_id FROM users WHERE email = %s)",
             (conversation_id, user_email),
         ).fetchone()
         if not row:
@@ -269,7 +275,7 @@ def get_user_conversations(user_email: str, limit: int = 20) -> list[dict]:
     with _chat_db() as conn:
         rows = conn.execute(
             "SELECT conversation_id, updated_at FROM chat_conversations "
-            "WHERE user_email = %s ORDER BY updated_at DESC LIMIT %s",
+            "WHERE user_id = (SELECT user_id FROM users WHERE email = %s) ORDER BY updated_at DESC LIMIT %s",
             (user_email, limit),
         ).fetchall()
         result = []
@@ -295,7 +301,7 @@ def record_feedback(message_id: str, vote: str, *, user_email: str) -> bool:
             "INSERT INTO chat_feedback (message_id, vote, created_at) "
             "SELECT m.id::text, %s, %s FROM chat_messages m "
             "JOIN chat_conversations c ON c.conversation_id = m.conversation_id "
-            "WHERE m.id::text = %s AND m.role = 'assistant' AND c.user_email = %s "
+            "WHERE m.id::text = %s AND m.role = 'assistant' AND c.user_id = (SELECT user_id FROM users WHERE email = %s) "
             "AND c.updated_at >= %s",
             (vote, time.time(), message_id, user_email, time.time() - CONVERSATION_TTL_SEC),
         )

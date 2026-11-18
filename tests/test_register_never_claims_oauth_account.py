@@ -19,18 +19,13 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-import api as _api_mod
 import routes._deps as _deps_mod
-import routes.auth as _auth_mod
 from api import app
 from db import UserStore
 
 
 @pytest.fixture(autouse=True)
-def persistent_auth(monkeypatch):
-    monkeypatch.setattr(_api_mod, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(_deps_mod, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(_auth_mod, "_USE_PERSISTENT_AUTH", True)
+def _fresh_auth_rate_limits(monkeypatch):
     _deps_mod._AUTH_RATE_BUCKETS.clear()
 
 

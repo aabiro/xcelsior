@@ -19,7 +19,6 @@ import pytest
 
 os.environ.setdefault("XCELSIOR_API_TOKEN", "")
 os.environ.setdefault("XCELSIOR_ENV", "test")
-os.environ["XCELSIOR_PERSISTENT_AUTH"] = "true"
 os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
 os.environ.setdefault("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "5000")
 
@@ -32,17 +31,10 @@ from db import UserStore, auth_connection
 @pytest.fixture(autouse=True)
 def isolated_auth_db(tmp_path, monkeypatch):
     """Clean auth-related tables before each test for isolation."""
-    import api as api_mod
     from oauth_service import reset_auth_cache_for_tests
 
-    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
-    # Patch _USE_PERSISTENT_AUTH in all modules that import it
     import routes._deps as _deps_mod
 
-    monkeypatch.setattr(_deps_mod, "_USE_PERSISTENT_AUTH", True)
-    import routes.auth as _auth_mod
-
-    monkeypatch.setattr(_auth_mod, "_USE_PERSISTENT_AUTH", True)
     # Reset auth rate limiter and increase limit for tests
     _deps_mod._AUTH_RATE_BUCKETS.clear()
     monkeypatch.setattr(_deps_mod, "_AUTH_RATE_LIMIT_REQUESTS", 5000)

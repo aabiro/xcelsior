@@ -34,21 +34,12 @@ bind = [f"{_host}:{_port}" for _host in _hosts]
 # ---------- Worker processes ----------
 workers = int(os.getenv("GUNICORN_WORKERS", "2"))
 
-# In-memory auth and more than one worker are silently incompatible, and the
-# symptom is the worst kind: authentication that works about half the time.
-#
-# `XCELSIOR_PERSISTENT_AUTH=false` makes `routes._deps._users_db` — a plain dict
-# in the worker's own memory — the *user store*, not a cache. Registration lands
-# on whichever worker served that request; the next login round-robins, and a
-# worker that never saw the registration answers 401. Measured on this repo's
-# test stack with the default two workers:
-#
-#     401 401 401 401 200 200 401 200 401 401
-#
-# Nothing reported an error. Each worker was behaving correctly, the user row
-# existed in no database because it had never been written to one, and the
-# register response carried a complete user object because the worker that
-# served it genuinely had created one. It reads as a flaky password.
+# A flag whose "off" position swaps a shared store for a per-process one is
+# fine on one worker and silently broken on several: requests round-robin, so
+# state written by one worker is missing on the next, and nothing logs an error.
+# `XCELSIOR_PERSISTENT_AUTH=false` was the first of these (logins answered
+# 401 401 401 401 200 200 401 200 401 401 on two workers); it has since been
+# retired outright, and `routes._deps` refuses to import with it set.
 #
 # Refusing to boot rather than quietly setting `workers = 1`: a developer who
 # asked for four workers and got one would debug the wrong thing later, and the
@@ -57,11 +48,6 @@ workers = int(os.getenv("GUNICORN_WORKERS", "2"))
 #: Each is fine on a single worker and silently broken on several, in the same
 #: way and for the same reason.
 _PER_PROCESS_WHEN_OFF = {
-    "XCELSIOR_PERSISTENT_AUTH": (
-        "users live in `routes._deps._users_db`, a dict in the worker's own "
-        "memory, so a login served by a worker that did not handle the "
-        "registration answers 401"
-    ),
     # `_shared_state_update` returns False without logging when this is off, and
     # WebSocket tickets then fall back to `routes._deps._WS_TICKETS` — also
     # per-process. A terminal ticket issued by one worker cannot be redeemed by

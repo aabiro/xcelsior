@@ -26,9 +26,7 @@ from routes._deps import (
     VALID_ACCOUNT_ROLES,
     XCELSIOR_ENV,
     _AUTH_COOKIE_NAME,
-    _USE_PERSISTENT_AUTH,
     _admin_flag,
-    _api_keys,
     _check_auth_rate_limit as _deps_check_auth_rate_limit,
     _clear_auth_cookie as _deps_clear_auth_cookie,
     _create_session as _deps_create_session,
@@ -49,12 +47,9 @@ from routes._deps import (
     _require_oauth_client_write,
     _user_can_access_oauth_client,
     _require_team_instance_write,
-    _sessions,
     _set_auth_cookie as _deps_set_auth_cookie,
     _set_mfa_challenge_cookie,
     _set_session_cookies,
-    _user_lock,
-    _users_db,
     broadcast_sse,
     log,
 )
@@ -467,11 +462,7 @@ def _validate_profile_values(body: ProfileUpdateRequest, user: dict) -> None:
         body.name = body.name.strip()
         if not body.name:
             raise HTTPException(422, "Name is required")
-    current = (
-        (UserStore.get_user(user["email"]) or {})
-        if _USE_PERSISTENT_AUTH
-        else _users_db.get(user["email"], {})
-    )
+    current = UserStore.get_user(user["email"]) or {}
     if body.account_type is not None and body.account_type not in {"individual", "business"}:
         raise HTTPException(422, "Choose a personal or business account")
     if body.onboarding_intent is not None and body.onboarding_intent not in {
@@ -2479,11 +2470,7 @@ def api_auth_register(body: RegisterRequest, request: Request):
 
     # Check for existing accounts
     existing_user = None
-    if _USE_PERSISTENT_AUTH:
-        existing_user = UserStore.get_user(email)
-    else:
-        with _user_lock:
-            existing_user = _users_db.get(email)
+    existing_user = UserStore.get_user(email)
 
     # If account exists with a password already set, reject
     if existing_user and existing_user.get("password_hash"):
@@ -2532,23 +2519,16 @@ def api_auth_register(body: RegisterRequest, request: Request):
         "created_at": time.time(),
     }
 
-    if _USE_PERSISTENT_AUTH:
-        UserStore.create_user(user)
-        # Set verification fields
-        UserStore.update_user(
-            email,
-            {
-                "email_verified": 0,
-                "email_verification_token": verification_token,
-                "email_verification_expires": verification_expires,
-            },
-        )
-    else:
-        user["email_verified"] = 0
-        user["email_verification_token"] = verification_token
-        user["email_verification_expires"] = verification_expires
-        with _user_lock:
-            _users_db[email] = user
+    UserStore.create_user(user)
+    # Set verification fields
+    UserStore.update_user(
+        email,
+        {
+            "email_verified": 0,
+            "email_verification_token": verification_token,
+            "email_verification_expires": verification_expires,
+        },
+    )
 
     # Create initial wallet
     try:
@@ -2627,19 +2607,14 @@ def api_auth_register(body: RegisterRequest, request: Request):
 
     # In test mode, auto-verify and return session (no email service)
     if XCELSIOR_ENV == "test":
-        if _USE_PERSISTENT_AUTH:
-            UserStore.update_user(
-                email,
-                {
-                    "email_verified": 1,
-                    "email_verification_token": None,
-                    "email_verification_expires": None,
-                },
-            )
-        else:
-            with _user_lock:
-                if email in _users_db:
-                    _users_db[email]["email_verified"] = 1
+        UserStore.update_user(
+            email,
+            {
+                "email_verified": 1,
+                "email_verification_token": None,
+                "email_verification_expires": None,
+            },
+        )
         token_bundle = issue_user_tokens(
             user, request, client_id="xcelsior-web", session_type="browser"
         )
@@ -2689,11 +2664,7 @@ def api_auth_login(body: LoginRequest, request: Request):
     _check_auth_rate_limit(request)
     email = body.email.strip().lower()
 
-    if _USE_PERSISTENT_AUTH:
-        user = UserStore.get_user(email)
-    else:
-        with _user_lock:
-            user = _users_db.get(email)
+    user = UserStore.get_user(email)
 
     if not user:
         raise HTTPException(401, "Invalid email or password")
@@ -2734,22 +2705,18 @@ def api_auth_login(body: LoginRequest, request: Request):
         )
 
     # ── MFA check ──
-    enabled_methods: list[dict] = []
-    if _USE_PERSISTENT_AUTH:
-        all_methods = MfaStore.list_methods(email)
-        enabled_methods = [m for m in all_methods if m.get("enabled")]
-        log.info(
-            f"MFA check for {email}: {len(all_methods)} total methods, {len(enabled_methods)} enabled methods"
-        )
-        if enabled_methods:
-            log.info(
-                f"Enabled MFA methods for {email}: {[m['method_type'] for m in enabled_methods]}"
-            )
-        live_mfa_enabled = bool(enabled_methods)
-        if live_mfa_enabled != bool(user.get("mfa_enabled")):
-            log.info(f"Syncing mfa_enabled flag for {email}: {live_mfa_enabled}")
-            UserStore.update_user(email, {"mfa_enabled": 1 if live_mfa_enabled else 0})
-            user["mfa_enabled"] = 1 if live_mfa_enabled else 0
+    all_methods = MfaStore.list_methods(email)
+    enabled_methods = [m for m in all_methods if m.get("enabled")]
+    log.info(
+        f"MFA check for {email}: {len(all_methods)} total methods, {len(enabled_methods)} enabled methods"
+    )
+    if enabled_methods:
+        log.info(f"Enabled MFA methods for {email}: {[m['method_type'] for m in enabled_methods]}")
+    live_mfa_enabled = bool(enabled_methods)
+    if live_mfa_enabled != bool(user.get("mfa_enabled")):
+        log.info(f"Syncing mfa_enabled flag for {email}: {live_mfa_enabled}")
+        UserStore.update_user(email, {"mfa_enabled": 1 if live_mfa_enabled else 0})
+        user["mfa_enabled"] = 1 if live_mfa_enabled else 0
 
     if enabled_methods:
         challenge_id = secrets.token_urlsafe(32)
@@ -2780,7 +2747,7 @@ def api_auth_login(body: LoginRequest, request: Request):
     # Ensure a welcome notification exists (checks ALL notifications, not just unread,
     # so marking-all-read won't re-trigger on next login)
     try:
-        if _USE_PERSISTENT_AUTH and not NotificationStore.list_for_user(email, limit=1):
+        if not NotificationStore.list_for_user(email, limit=1):
             NotificationStore.create(
                 email,
                 "system",
@@ -2976,11 +2943,7 @@ def api_auth_oauth_callback(provider: str, request: Request):
         return RedirectResponse("/dashboard?error=oauth_no_email")
 
     # Find or create user
-    if _USE_PERSISTENT_AUTH:
-        user = UserStore.get_user(email)
-    else:
-        with _user_lock:
-            user = _users_db.get(email)
+    user = UserStore.get_user(email)
 
     if not user:
         user_id = f"user-{uuid.uuid4().hex[:12]}"
@@ -3001,17 +2964,12 @@ def api_auth_oauth_callback(provider: str, request: Request):
             "oauth_subject": facebook_subject,
             "created_at": time.time(),
         }
-        if _USE_PERSISTENT_AUTH:
-            UserStore.create_user(user)
-            # OAuth users are auto-verified (provider verified their email)
-            verified: dict[str, Any] = {"email_verified": 1}
-            if facebook_subject:
-                verified["oauth_subject"] = facebook_subject
-            UserStore.update_user(email, verified)
-        else:
-            user["email_verified"] = 1
-            with _user_lock:
-                _users_db[email] = user
+        UserStore.create_user(user)
+        # OAuth users are auto-verified (provider verified their email)
+        verified: dict[str, Any] = {"email_verified": 1}
+        if facebook_subject:
+            verified["oauth_subject"] = facebook_subject
+        UserStore.update_user(email, verified)
     else:
         # Update name if it was empty
         if not user.get("name") and name:
@@ -3027,31 +2985,25 @@ def api_auth_oauth_callback(provider: str, request: Request):
         updates = {"oauth_provider": provider, "email_verified": 1}
         if facebook_subject:
             updates["oauth_subject"] = facebook_subject
-        if _USE_PERSISTENT_AUTH:
-            UserStore.update_user(email, updates)
-        else:
-            user.update(updates)
-            with _user_lock:
-                _users_db[email] = user
+        UserStore.update_user(email, updates)
 
     mfa_challenge_id = ""
-    if _USE_PERSISTENT_AUTH:
-        try:
-            enabled_methods = [m for m in MfaStore.list_methods(email) if m.get("enabled")]
-        except Exception:
-            log.exception("OAuth MFA lookup failed for provider %s", provider)
-            return RedirectResponse("/login?error=oauth_mfa_unavailable")
-        if enabled_methods:
-            mfa_challenge_id = secrets.token_urlsafe(32)
-            MfaStore.create_challenge(
-                {
-                    "challenge_id": mfa_challenge_id,
-                    "email": email,
-                    "session_token": secrets.token_urlsafe(48),
-                    "created_at": time.time(),
-                    "expires_at": time.time() + 300,
-                }
-            )
+    try:
+        enabled_methods = [m for m in MfaStore.list_methods(email) if m.get("enabled")]
+    except Exception:
+        log.exception("OAuth MFA lookup failed for provider %s", provider)
+        return RedirectResponse("/login?error=oauth_mfa_unavailable")
+    if enabled_methods:
+        mfa_challenge_id = secrets.token_urlsafe(32)
+        MfaStore.create_challenge(
+            {
+                "challenge_id": mfa_challenge_id,
+                "email": email,
+                "session_token": secrets.token_urlsafe(48),
+                "created_at": time.time(),
+                "expires_at": time.time() + 300,
+            }
+        )
 
     if mfa_challenge_id:
         # Do not issue a browser session until the enrolled second factor passes.
@@ -3070,7 +3022,7 @@ def api_auth_oauth_callback(provider: str, request: Request):
             return RedirectResponse("/dashboard?error=oauth_token_failed")
 
         try:
-            if _USE_PERSISTENT_AUTH and not NotificationStore.list_for_user(email, limit=1):
+            if not NotificationStore.list_for_user(email, limit=1):
                 NotificationStore.create(
                     email,
                     "system",
@@ -3230,46 +3182,23 @@ def _user_for_facebook(fb_user_id: str) -> dict | None:
     fb_user_id = str(fb_user_id or "").strip()
     if not fb_user_id:
         return None
-    if _USE_PERSISTENT_AUTH:
-        return UserStore.find_by_oauth_subject(fb_user_id)
-    with _user_lock:
-        for user in _users_db.values():
-            if str(user.get("oauth_subject") or "") == fb_user_id:
-                return user
-    return None
+    return UserStore.find_by_oauth_subject(fb_user_id)
 
 
 def _unlink_facebook_user(fb_user_id: str) -> None:
     fb_user_id = str(fb_user_id or "").strip()
     if not fb_user_id:
         return
-    if _USE_PERSISTENT_AUTH:
-        UserStore.clear_oauth_subject(fb_user_id)
-        return
-    with _user_lock:
-        for user in _users_db.values():
-            if str(user.get("oauth_subject") or "") != fb_user_id:
-                continue
-            user["oauth_subject"] = ""
-            if user.get("oauth_provider") == "facebook":
-                user["oauth_provider"] = ""
+    UserStore.clear_oauth_subject(fb_user_id)
 
 
 def _remember_confirmation(code: str, request_id: str | None, outcome: str) -> None:
     digest = _deletion_code_hash(code)
-    if not _USE_PERSISTENT_AUTH:
-        _memory_deletion_confirmations[digest] = {
-            "request_id": request_id,
-            "outcome": outcome,
-        }
-        return
     UserStore.save_facebook_deletion_confirmation(digest, request_id, outcome)
 
 
 def _confirmation_for_code(code: str) -> dict | None:
     digest = _deletion_code_hash(code)
-    if not _USE_PERSISTENT_AUTH:
-        return _memory_deletion_confirmations.get(digest)
     return UserStore.get_facebook_deletion_confirmation(digest)
 
 
@@ -3360,11 +3289,6 @@ def _public_deletion_body(request_id: str, code: str) -> dict[str, Any]:
         "deadline_at": _iso(status.get("deadline_at")),
         "completed_at": _iso(status.get("completed_at")),
     }
-
-
-# In-memory receipts for tests and the non-persistent auth mode. Production
-# writes facebook_deletion_confirmations instead.
-_memory_deletion_confirmations: dict[str, dict[str, Any]] = {}
 
 
 @router.post("/api/auth/oauth/facebook/deauthorize", tags=["Auth"])
@@ -3486,11 +3410,7 @@ def api_auth_me(request: Request):
         raise HTTPException(403, "Profile access requires the profile permission")
 
     email = user["email"]
-    if _USE_PERSISTENT_AUTH:
-        full_user = UserStore.get_user(email) or {}
-    else:
-        with _user_lock:
-            full_user = _users_db.get(email, {})
+    full_user = UserStore.get_user(email) or {}
 
     merged_user = {
         "user_id": user["user_id"],
@@ -3578,11 +3498,7 @@ def _sync_seller_address_from_account(email: str, body: ProfileUpdateRequest) ->
     watched = {"address_line1", "address_line2", "city", "postal_code", "country", "province"}
     if not (watched & body.model_fields_set):
         return
-    if _USE_PERSISTENT_AUTH:
-        record = UserStore.get_user(email) or {}
-    else:
-        with _user_lock:
-            record = dict(_users_db.get(email) or {})
+    record = UserStore.get_user(email) or {}
     provider_id = str(record.get("provider_id") or "").strip()
     line1 = str(record.get("address_line1") or "").strip()
     if not provider_id or not line1:
@@ -3615,36 +3531,20 @@ def api_auth_update_profile(body: ProfileUpdateRequest, request: Request):
         if requested_role not in VALID_ACCOUNT_ROLES:
             raise HTTPException(400, "Role must be submitter or provider")
 
-    if _USE_PERSISTENT_AUTH:
-        updates = {}
-        if body.name is not None:
-            updates["name"] = body.name
-        if requested_role is not None:
-            updates["role"] = requested_role
-        if body.country is not None:
-            updates["country"] = body.country
-        if body.province is not None:
-            updates["province"] = body.province
-        updates.update(_business_profile_updates(body))
-        updates.update(_account_profile_updates(body))
-        if not updates:
-            return {"ok": True, "message": "No changes"}
-        UserStore.update_user(user["email"], updates)
-    else:
-        with _user_lock:
-            full_user = _users_db.get(user["email"])
-            if not full_user:
-                raise HTTPException(404, "User not found")
-            if body.name is not None:
-                full_user["name"] = body.name
-            if requested_role is not None:
-                full_user["role"] = requested_role
-            if body.country is not None:
-                full_user["country"] = body.country
-            if body.province is not None:
-                full_user["province"] = body.province
-            full_user.update(_business_profile_updates(body))
-            full_user.update(_account_profile_updates(body))
+    updates = {}
+    if body.name is not None:
+        updates["name"] = body.name
+    if requested_role is not None:
+        updates["role"] = requested_role
+    if body.country is not None:
+        updates["country"] = body.country
+    if body.province is not None:
+        updates["province"] = body.province
+    updates.update(_business_profile_updates(body))
+    updates.update(_account_profile_updates(body))
+    if not updates:
+        return {"ok": True, "message": "No changes"}
+    UserStore.update_user(user["email"], updates)
 
     _sync_seller_address_from_account(user["email"], body)
     return {"ok": True, "message": "Profile updated"}
@@ -3672,14 +3572,7 @@ async def api_auth_upload_avatar(request: Request, file: UploadFile = File(...))
 
     now = time.time()
     pref_patch = {"avatar_key": avatar_key, "avatar_updated_at": now}
-    if _USE_PERSISTENT_AUTH:
-        _merge_user_preferences(user["email"], pref_patch)
-    else:
-        with _user_lock:
-            full_user = _users_db.get(user["email"])
-            if full_user is not None:
-                merged = {**_parse_user_preferences(full_user), **pref_patch}
-                full_user["preferences"] = merged
+    _merge_user_preferences(user["email"], pref_patch)
     return {
         "ok": True,
         "avatar_url": f"/api/auth/me/avatar?v={int(now)}",
@@ -3705,9 +3598,7 @@ def api_auth_get_avatar(request: Request):
     from artifacts import StorageBackend, get_artifact_manager
     from user_avatars import legacy_avatar_file_for_user, local_avatar_path_for_key
 
-    full_user = (
-        UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"])
-    )
+    full_user = UserStore.get_user(user["email"])
     prefs = _parse_user_preferences(full_user or {})
     avatar_key = (prefs.get("avatar_key") or "").strip()
 
@@ -3750,9 +3641,7 @@ def api_auth_get_avatar(request: Request):
 
 
 def _business_account_or_409(user: dict) -> None:
-    full_user = (
-        UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"])
-    ) or {}
+    full_user = (UserStore.get_user(user["email"])) or {}
     if full_user.get("account_type") != "business":
         raise HTTPException(
             409,
@@ -3823,9 +3712,7 @@ def api_auth_delete_avatar(request: Request):
     user = _require_user_grant(request)
     from user_avatars import delete_avatar_objects, delete_legacy_avatar_files
 
-    full_user = (
-        UserStore.get_user(user["email"]) if _USE_PERSISTENT_AUTH else _users_db.get(user["email"])
-    )
+    full_user = UserStore.get_user(user["email"])
     prefs = _parse_user_preferences(full_user or {})
     avatar_key = (prefs.get("avatar_key") or "").strip() or None
     from db import AvatarStore
@@ -3835,13 +3722,7 @@ def api_auth_delete_avatar(request: Request):
     delete_legacy_avatar_files(user["user_id"])
     prefs.pop("avatar_key", None)
     prefs.pop("avatar_updated_at", None)
-    if _USE_PERSISTENT_AUTH:
-        UserStore.update_user(user["email"], {"preferences": prefs})
-    else:
-        with _user_lock:
-            mem_user = _users_db.get(user["email"])
-            if mem_user is not None:
-                mem_user["preferences"] = prefs
+    UserStore.update_user(user["email"], {"preferences": prefs})
     return {"ok": True}
 
 
@@ -3867,9 +3748,7 @@ def api_auth_refresh(request: Request):
         refreshed_user = None
         email = str((user or {}).get("email", "")).strip()
         if email:
-            refreshed_user = (
-                UserStore.get_user(email) if _USE_PERSISTENT_AUTH else _users_db.get(email)
-            )
+            refreshed_user = UserStore.get_user(email)
         refreshed_user = refreshed_user or user or {}
         return _build_auth_response(
             token_bundle,
@@ -3880,22 +3759,14 @@ def api_auth_refresh(request: Request):
     if not user:
         raise HTTPException(401, "Session expired or invalid")
 
-    if _USE_PERSISTENT_AUTH:
-        full_user = UserStore.get_user(user["email"]) or user
-    else:
-        with _user_lock:
-            full_user = _users_db.get(user["email"], user)
+    full_user = UserStore.get_user(user["email"]) or user
 
     # Invalidate old token (check header first, then cookie — same as logout)
     auth = request.headers.get("authorization", "")
     old_token = auth[7:] if auth.startswith("Bearer ") else ""
     if not old_token:
         old_token = request.cookies.get(_AUTH_COOKIE_NAME, "")
-    if _USE_PERSISTENT_AUTH:
-        UserStore.delete_session(old_token)
-    else:
-        with _user_lock:
-            _sessions.pop(old_token, None)
+    UserStore.delete_session(old_token)
 
     session = _create_session(user["email"], full_user)
     body = {
@@ -3928,15 +3799,11 @@ def api_auth_logout(request: Request):
             if not token:
                 token = request.cookies.get(_AUTH_COOKIE_NAME, "")
             if token:
-                if _USE_PERSISTENT_AUTH:
-                    UserStore.delete_session(token)
-                    # The bearer that was presented, revoked exactly. Deleting the
-                    # session row does not reach it: an opaque access token resolves
-                    # from the auth cache alone.
-                    revoke_access_token(token)
-                else:
-                    with _user_lock:
-                        _sessions.pop(token, None)
+                UserStore.delete_session(token)
+                # The bearer that was presented, revoked exactly. Deleting the
+                # session row does not reach it: an opaque access token resolves
+                # from the auth cache alone.
+                revoke_access_token(token)
     resp = JSONResponse(content={"ok": True})
     _clear_auth_cookie(resp)
     return resp
@@ -4019,34 +3886,21 @@ def api_auth_password_reset(req: PasswordResetRequest, request: Request):
     """Initiate a password reset. Sends email with reset link."""
     _check_auth_rate_limit(request)
     reset_token = None
-    if _USE_PERSISTENT_AUTH:
-        user = UserStore.get_user(req.email)
-        if not user:
-            return {
-                "ok": False,
-                "account_exists": False,
-                "message": "No account found for this email address.",
-            }
-        reset_token = secrets.token_urlsafe(32)
-        UserStore.update_user(
-            req.email,
-            {
-                "reset_token": reset_token,
-                "reset_token_expires": time.time() + 3600,
-            },
-        )
-    else:
-        with _user_lock:
-            user = _users_db.get(req.email)
-            if not user:
-                return {
-                    "ok": False,
-                    "account_exists": False,
-                    "message": "No account found for this email address.",
-                }
-            reset_token = secrets.token_urlsafe(32)
-            user["reset_token"] = reset_token
-            user["reset_token_expires"] = time.time() + 3600
+    user = UserStore.get_user(req.email)
+    if not user:
+        return {
+            "ok": False,
+            "account_exists": False,
+            "message": "No account found for this email address.",
+        }
+    reset_token = secrets.token_urlsafe(32)
+    UserStore.update_user(
+        req.email,
+        {
+            "reset_token": reset_token,
+            "reset_token_expires": time.time() + 3600,
+        },
+    )
 
     # Send password reset email (best-effort)
     if reset_token:
@@ -4088,41 +3942,24 @@ def api_auth_password_reset_confirm(req: PasswordResetConfirm, request: Request)
     if len(req.new_password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
 
-    if _USE_PERSISTENT_AUTH:
-        from db import auth_connection
+    from db import auth_connection
 
-        with auth_connection() as conn:
-            row = conn.execute(
-                "SELECT email, reset_token_expires FROM users WHERE reset_token = %s", (req.token,)
-            ).fetchone()
-            if not row:
-                raise HTTPException(400, "Invalid or expired reset token")
-            if time.time() > (row["reset_token_expires"] or 0):
-                raise HTTPException(400, "Reset token has expired")
-            salt = secrets.token_hex(16)
-            new_hash, _ = _hash_password(req.new_password, salt)
-            conn.execute(
-                "UPDATE users SET password_hash=%s, salt=%s, reset_token=NULL, reset_token_expires=NULL WHERE email=%s",
-                (new_hash, salt, row["email"]),
-            )
-            UserStore.delete_user_sessions(row["email"])
-        return {"ok": True, "message": "Password updated. Please log in again."}
-    else:
-        with _user_lock:
-            for email, user in _users_db.items():
-                if user.get("reset_token") == req.token:
-                    if time.time() > user.get("reset_token_expires", 0):
-                        raise HTTPException(400, "Reset token has expired")
-                    salt = secrets.token_hex(16)
-                    user["password_hash"], _ = _hash_password(req.new_password, salt)
-                    user["salt"] = salt
-                    user.pop("reset_token", None)
-                    user.pop("reset_token_expires", None)
-                    to_remove_s = [k for k, v in _sessions.items() if v.get("email") == email]
-                    for k in to_remove_s:
-                        del _sessions[k]
-                    return {"ok": True, "message": "Password updated. Please log in again."}
-        raise HTTPException(400, "Invalid or expired reset token")
+    with auth_connection() as conn:
+        row = conn.execute(
+            "SELECT email, reset_token_expires FROM users WHERE reset_token = %s", (req.token,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(400, "Invalid or expired reset token")
+        if time.time() > (row["reset_token_expires"] or 0):
+            raise HTTPException(400, "Reset token has expired")
+        salt = secrets.token_hex(16)
+        new_hash, _ = _hash_password(req.new_password, salt)
+        conn.execute(
+            "UPDATE users SET password_hash=%s, salt=%s, reset_token=NULL, reset_token_expires=NULL WHERE email=%s",
+            (new_hash, salt, row["email"]),
+        )
+        UserStore.delete_user_sessions(row["email"])
+    return {"ok": True, "message": "Password updated. Please log in again."}
 
 
 # ── Model: ChangePasswordRequest ──
@@ -4140,27 +3977,15 @@ def api_auth_change_password(request: Request, req: ChangePasswordRequest):
     if len(req.new_password) < 8:
         raise HTTPException(400, "New password must be at least 8 characters")
 
-    if _USE_PERSISTENT_AUTH:
-        stored = UserStore.get_user(user["email"])
-        if not stored:
-            raise HTTPException(404, "User not found")
-        expected, _ = _hash_password(req.current_password, stored.get("salt", ""))
-        if not hmac.compare_digest(expected, stored.get("password_hash", "")):
-            raise HTTPException(400, "Current password is incorrect")
-        salt = secrets.token_hex(16)
-        new_hash, _ = _hash_password(req.new_password, salt)
-        UserStore.update_user(user["email"], {"password_hash": new_hash, "salt": salt})
-    else:
-        with _user_lock:
-            stored = _users_db.get(user["email"])
-            if not stored:
-                raise HTTPException(404, "User not found")
-            expected, _ = _hash_password(req.current_password, stored.get("salt", ""))
-            if not hmac.compare_digest(expected, stored.get("password_hash", "")):
-                raise HTTPException(400, "Current password is incorrect")
-            salt = secrets.token_hex(16)
-            stored["password_hash"], _ = _hash_password(req.new_password, salt)
-            stored["salt"] = salt
+    stored = UserStore.get_user(user["email"])
+    if not stored:
+        raise HTTPException(404, "User not found")
+    expected, _ = _hash_password(req.current_password, stored.get("salt", ""))
+    if not hmac.compare_digest(expected, stored.get("password_hash", "")):
+        raise HTTPException(400, "Current password is incorrect")
+    salt = secrets.token_hex(16)
+    new_hash, _ = _hash_password(req.new_password, salt)
+    UserStore.update_user(user["email"], {"password_hash": new_hash, "salt": salt})
 
     return {"ok": True, "message": "Password changed successfully"}
 
@@ -4183,45 +4008,25 @@ class ResendVerificationRequest(BaseModel):
 def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
     """Verify a user's email address with the token sent during registration."""
     _check_auth_rate_limit(request)
-    if _USE_PERSISTENT_AUTH:
-        from db import auth_connection
+    from db import auth_connection
 
-        with auth_connection() as conn:
-            row = conn.execute(
-                "SELECT email, email_verification_expires FROM users WHERE email_verification_token = %s",
-                (req.token,),
-            ).fetchone()
-            if not row:
-                raise HTTPException(400, "Invalid verification token")
-            if time.time() > (row["email_verification_expires"] or 0):
-                raise HTTPException(400, "Verification link has expired. Please request a new one.")
-            conn.execute(
-                "UPDATE users SET email_verified = 1, email_verification_token = NULL, email_verification_expires = NULL WHERE email = %s",
-                (row["email"],),
-            )
-        email = row["email"]
-    else:
-        with _user_lock:
-            for em, u in _users_db.items():
-                if u.get("email_verification_token") == req.token:
-                    if time.time() > u.get("email_verification_expires", 0):
-                        raise HTTPException(
-                            400, "Verification link has expired. Please request a new one."
-                        )
-                    u["email_verified"] = 1
-                    u.pop("email_verification_token", None)
-                    u.pop("email_verification_expires", None)
-                    email = em
-                    break
-            else:
-                raise HTTPException(400, "Invalid verification token")
+    with auth_connection() as conn:
+        row = conn.execute(
+            "SELECT email, email_verification_expires FROM users WHERE email_verification_token = %s",
+            (req.token,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(400, "Invalid verification token")
+        if time.time() > (row["email_verification_expires"] or 0):
+            raise HTTPException(400, "Verification link has expired. Please request a new one.")
+        conn.execute(
+            "UPDATE users SET email_verified = 1, email_verification_token = NULL, email_verification_expires = NULL WHERE email = %s",
+            (row["email"],),
+        )
+    email = row["email"]
 
     # Auto-login after verification
-    if _USE_PERSISTENT_AUTH:
-        user = UserStore.get_user(email)
-    else:
-        with _user_lock:
-            user = _users_db.get(email)
+    user = UserStore.get_user(email)
 
     if not user:
         raise HTTPException(400, "User not found")
@@ -4272,11 +4077,7 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
     _check_auth_rate_limit(request)
     email = req.email.strip().lower()
 
-    if _USE_PERSISTENT_AUTH:
-        user = UserStore.get_user(email)
-    else:
-        with _user_lock:
-            user = _users_db.get(email)
+    user = UserStore.get_user(email)
 
     if not user:
         # Don't reveal whether the email exists
@@ -4291,20 +4092,13 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
     verification_token = secrets.token_urlsafe(32)
     verification_expires = time.time() + 86400
 
-    if _USE_PERSISTENT_AUTH:
-        UserStore.update_user(
-            email,
-            {
-                "email_verification_token": verification_token,
-                "email_verification_expires": verification_expires,
-            },
-        )
-    else:
-        with _user_lock:
-            u = _users_db.get(email)
-            if u:
-                u["email_verification_token"] = verification_token
-                u["email_verification_expires"] = verification_expires
+    UserStore.update_user(
+        email,
+        {
+            "email_verification_token": verification_token,
+            "email_verification_expires": verification_expires,
+        },
+    )
 
     base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     verify_url = f"{base_url}/verify-email?token={verification_token}"
@@ -4382,12 +4176,7 @@ def api_auth_put_profile(body: ProfileUpdateRequest, request: Request):
     updates.update(_account_profile_updates(body))
     if not updates:
         return {"ok": True}
-    if _USE_PERSISTENT_AUTH:
-        UserStore.update_user(email, updates)
-    else:
-        with _user_lock:
-            if email in _users_db:
-                _users_db[email].update(updates)
+    UserStore.update_user(email, updates)
     return {"ok": True, **updates}
 
 
@@ -4404,11 +4193,7 @@ def api_auth_email_change(body: EmailChangeRequest, request: Request):
     if new_email == current_email.lower():
         raise HTTPException(400, "That is already your email address")
 
-    if _USE_PERSISTENT_AUTH:
-        existing = UserStore.get_user(new_email)
-    else:
-        with _user_lock:
-            existing = _users_db.get(new_email)
+    existing = UserStore.get_user(new_email)
     if existing:
         raise HTTPException(409, "That email is already registered to another account")
 
@@ -4419,12 +4204,7 @@ def api_auth_email_change(body: EmailChangeRequest, request: Request):
         "email_change_token": token,
         "email_change_expires": expires,
     }
-    if _USE_PERSISTENT_AUTH:
-        UserStore.update_user(current_email, change_fields)
-    else:
-        with _user_lock:
-            if current_email in _users_db:
-                _users_db[current_email].update(change_fields)
+    UserStore.update_user(current_email, change_fields)
 
     base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     confirm_url = f"{base_url}/verify-email-change?token={token}"
@@ -4461,52 +4241,26 @@ def api_auth_email_change_confirm(body: EmailChangeConfirmRequest, request: Requ
     if not token:
         raise HTTPException(400, "Invalid confirmation link")
 
-    if _USE_PERSISTENT_AUTH:
-        from db import auth_connection
+    from db import auth_connection
 
-        with auth_connection() as conn:
-            row = conn.execute(
-                "SELECT email, pending_email, email_change_expires FROM users "
-                "WHERE email_change_token = %s",
-                (token,),
-            ).fetchone()
-        if not row or not row.get("pending_email"):
-            raise HTTPException(400, "This confirmation link is invalid or has already been used")
-        if time.time() > (row["email_change_expires"] or 0):
-            raise HTTPException(
-                400, "This confirmation link has expired. Please request a new email change."
-            )
-        old_email = row["email"]
-        new_email = row["pending_email"]
-        try:
-            UserStore.change_email(old_email, new_email)
-        except ValueError:
-            raise HTTPException(409, "That email is now registered to another account")
-    else:
-        old_email = None
-        new_email = None
-        with _user_lock:
-            for em, u in list(_users_db.items()):
-                if u.get("email_change_token") == token and u.get("pending_email"):
-                    if time.time() > u.get("email_change_expires", 0):
-                        raise HTTPException(
-                            400,
-                            "This confirmation link has expired. Please request a new email change.",
-                        )
-                    new_email = u["pending_email"]
-                    if new_email in _users_db:
-                        raise HTTPException(409, "That email is now registered to another account")
-                    updated = {**u, "email": new_email, "email_verified": 1}
-                    for k in ("pending_email", "email_change_token", "email_change_expires"):
-                        updated.pop(k, None)
-                    del _users_db[em]
-                    _users_db[new_email] = updated
-                    old_email = em
-                    break
-            else:
-                raise HTTPException(
-                    400, "This confirmation link is invalid or has already been used"
-                )
+    with auth_connection() as conn:
+        row = conn.execute(
+            "SELECT email, pending_email, email_change_expires FROM users "
+            "WHERE email_change_token = %s",
+            (token,),
+        ).fetchone()
+    if not row or not row.get("pending_email"):
+        raise HTTPException(400, "This confirmation link is invalid or has already been used")
+    if time.time() > (row["email_change_expires"] or 0):
+        raise HTTPException(
+            400, "This confirmation link has expired. Please request a new email change."
+        )
+    old_email = row["email"]
+    new_email = row["pending_email"]
+    try:
+        UserStore.change_email(old_email, new_email)
+    except ValueError:
+        raise HTTPException(409, "That email is now registered to another account")
 
     # In-app notification + confirmation email to the new address
     try:
@@ -4540,15 +4294,7 @@ def api_auth_list_sessions(request: Request):
     user = _require_user_grant(request)
     current_token = _current_refresh_token(request, user)
 
-    if _USE_PERSISTENT_AUTH:
-        sessions = UserStore.list_user_sessions(user["email"])
-    else:
-        with _user_lock:
-            sessions = [
-                s
-                for s in _sessions.values()
-                if s.get("email") == user["email"] and s["expires_at"] > time.time()
-            ]
+    sessions = UserStore.list_user_sessions(user["email"])
 
     result = []
     for s in sessions:
@@ -4573,18 +4319,11 @@ def api_auth_revoke_session(token_prefix: str, request: Request):
     """Revoke a specific session by its token prefix."""
     user = _require_user_grant(request)
 
-    if _USE_PERSISTENT_AUTH:
-        sessions = UserStore.list_user_sessions(user["email"])
-        for s in sessions:
-            if s["token"][:8] == token_prefix:
-                revoke_refresh_session(s["token"])
-                return {"ok": True, "message": "Session revoked"}
-    else:
-        with _user_lock:
-            for tok, s in list(_sessions.items()):
-                if s.get("email") == user["email"] and tok[:8] == token_prefix:
-                    del _sessions[tok]
-                    return {"ok": True, "message": "Session revoked"}
+    sessions = UserStore.list_user_sessions(user["email"])
+    for s in sessions:
+        if s["token"][:8] == token_prefix:
+            revoke_refresh_session(s["token"])
+            return {"ok": True, "message": "Session revoked"}
 
     raise HTTPException(404, "Session not found")
 
@@ -4601,11 +4340,7 @@ def api_data_export(request: Request):
     customer_id = ""
 
     # Gather profile
-    if _USE_PERSISTENT_AUTH:
-        profile = UserStore.get_user(email) or {}
-    else:
-        with _user_lock:
-            profile = _users_db.get(email, {})
+    profile = UserStore.get_user(email) or {}
     customer_id = profile.get("customer_id", "")
     safe_profile = {k: v for k, v in profile.items() if k not in ("hashed_password", "password")}
 
@@ -4648,10 +4383,7 @@ def api_data_export(request: Request):
 def api_get_user_preferences(request: Request):
     """Get user preferences."""
     user = _require_user_grant(request)
-    if _USE_PERSISTENT_AUTH:
-        full_user = UserStore.get_user(user["email"]) or {}
-    else:
-        full_user = _users_db.get(user["email"], {})
+    full_user = UserStore.get_user(user["email"]) or {}
     # Parse preferences JSONB (may be dict or JSON string)
     raw_prefs = full_user.get("preferences", {})
     if isinstance(raw_prefs, str):
@@ -4681,7 +4413,7 @@ def api_set_user_preferences(request: Request, body: dict):
         allowed_pref_keys = {"onboarding", "ai_panel_open"}
         incoming = body["preferences"]
         safe_prefs = {k: v for k, v in incoming.items() if k in allowed_pref_keys}
-        if safe_prefs and _USE_PERSISTENT_AUTH:
+        if safe_prefs:
             # Merge with existing preferences
             existing_user = UserStore.get_user(user["email"]) or {}
             existing_prefs = existing_user.get("preferences", {})
@@ -4696,7 +4428,7 @@ def api_set_user_preferences(request: Request, body: dict):
                 existing_prefs = {}
             merged = {**existing_prefs, **safe_prefs}
             updates["preferences"] = merged
-    if updates and _USE_PERSISTENT_AUTH:
+    if updates:
         UserStore.update_user(user["email"], updates)
     return {"ok": True}
 
@@ -4715,11 +4447,7 @@ def api_set_ad_consent(request: Request, body: dict):
     if not isinstance(marketing, bool) or source not in ("banner", "settings"):
         raise HTTPException(422, "marketing must be true or false; source is banner or settings")
     email = user["email"]
-    if _USE_PERSISTENT_AUTH:
-        full_user = UserStore.get_user(email) or {}
-    else:
-        with _user_lock:
-            full_user = dict(_users_db.get(email) or {})
+    full_user = UserStore.get_user(email) or {}
     prefs = dict(_parse_user_preferences(full_user))
     current = prefs.get("ad_consent")
     unchanged = (
@@ -4736,12 +4464,7 @@ def api_set_ad_consent(request: Request, body: dict):
     }
     if not marketing:
         prefs.pop("meta_ads", None)
-    if _USE_PERSISTENT_AUTH:
-        UserStore.update_user(email, {"preferences": prefs})
-    else:
-        with _user_lock:
-            if email in _users_db:
-                _users_db[email]["preferences"] = prefs
+    UserStore.update_user(email, {"preferences": prefs})
     try:
         from meta_capi import forget_attribution
 

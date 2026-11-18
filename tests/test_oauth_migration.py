@@ -28,16 +28,13 @@ def _register_and_get_token(email: str, password: str = "testpass123") -> str:
         from db import auth_connection
 
         verification_token = None
-        if _deps_mod._USE_PERSISTENT_AUTH:
-            with auth_connection() as conn:
-                row = conn.execute(
-                    "SELECT email_verification_token FROM users WHERE email = %s",
-                    (email,),
-                ).fetchone()
-            if row:
-                verification_token = row["email_verification_token"]
-        else:
-            verification_token = _deps_mod._users_db.get(email, {}).get("email_verification_token")
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT email_verification_token FROM users WHERE email = %s",
+                (email,),
+            ).fetchone()
+        if row:
+            verification_token = row["email_verification_token"]
 
         assert verification_token, f"missing verification token for {email}"
         verified = client.post("/api/auth/verify-email", json={"token": verification_token})
@@ -77,9 +74,6 @@ def clean_oauth_migration_state():
     _host_telemetry.clear()
     _deps_mod._RATE_BUCKETS.clear()
     _deps_mod._AUTH_RATE_BUCKETS.clear()
-    _deps_mod._users_db.clear()
-    _deps_mod._sessions.clear()
-    _deps_mod._api_keys.clear()
     yield
 
 

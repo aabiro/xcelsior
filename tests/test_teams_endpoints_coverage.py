@@ -18,17 +18,6 @@ from db import UserStore
 client = TestClient(app)
 
 
-@pytest.fixture(autouse=True)
-def persistent_auth(monkeypatch):
-    import api as api_mod
-    import routes._deps as _deps_mod
-    import routes.auth as _auth_mod
-
-    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(_deps_mod, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(_auth_mod, "_USE_PERSISTENT_AUTH", True)
-
-
 def _login(email: str, password: str = "StrongPass123!") -> dict:
     client.post(
         "/api/auth/register",
@@ -41,7 +30,7 @@ def _login(email: str, password: str = "StrongPass123!") -> dict:
 
 
 @pytest.fixture
-def team_ctx(persistent_auth):
+def team_ctx():
     leader_email = f"teamlead-{uuid.uuid4().hex[:10]}@xcelsior.ca".lower()
     leader_headers = _login(leader_email)
     cr = client.post(

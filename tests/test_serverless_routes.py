@@ -8,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["XCELSIOR_ENV"] = "test"
-os.environ["XCELSIOR_PERSISTENT_AUTH"] = "true"
 os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
 os.environ.setdefault("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "5000")
 
@@ -17,17 +16,6 @@ from db import UserStore
 from serverless.repo import ServerlessRepo, WORKER_STATE_READY
 
 client = TestClient(app)
-
-
-@pytest.fixture(autouse=True)
-def persistent_auth(monkeypatch):
-    import api as api_mod
-    import routes._deps as deps
-    import routes.auth as auth
-
-    monkeypatch.setattr(deps, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(auth, "_USE_PERSISTENT_AUTH", True)
-    monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
 
 
 def _register_and_fund() -> dict:
@@ -55,10 +43,7 @@ def _register_and_fund() -> dict:
 
 
 @pytest.fixture(scope="module")
-def user_headers(persistent_auth_module):
-    # persistent_auth_module (conftest): module-scoped fixtures run outside the
-    # function-scoped autouse pin above; a raw un-restored assignment here
-    # previously leaked _USE_PERSISTENT_AUTH=True into all later modules.
+def user_headers():
     return _register_and_fund()
 
 

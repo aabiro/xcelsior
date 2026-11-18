@@ -64,6 +64,12 @@ def allocation():
     allocation_id = f"alloc-{tag}"
     now = time.time()
     with _pool.connection() as conn:
+        # An offer is for a host that exists (165).
+        conn.execute(
+            "INSERT INTO hosts (host_id, status, registered_at, payload) "
+            "VALUES (%s, 'active', %s, '{}')",
+            (f"host-{tag}", now),
+        )
         conn.execute(
             "INSERT INTO gpu_offers (offer_id, provider_id, host_id, gpu_model, vram_gb, "
             "gpu_count_total, gpu_count_available, ask_cents_per_hour, available, "
@@ -82,6 +88,7 @@ def allocation():
     with _pool.connection() as conn:
         conn.execute("DELETE FROM gpu_allocations WHERE allocation_id = %s", (allocation_id,))
         conn.execute("DELETE FROM gpu_offers WHERE offer_id = %s", (offer_id,))
+        conn.execute("DELETE FROM hosts WHERE host_id = %s", (f"host-{tag}",))
         conn.commit()
 
 

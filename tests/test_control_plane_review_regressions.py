@@ -153,10 +153,28 @@ def test_callback_mint_miss_rolls_back_claim_and_can_retry_same_offer(native, mo
         assert response.json()["callback_token"].startswith("xsw_")
 
 
+@pytest.fixture(autouse=True)
+def _wallet_has_an_account(request):
+    """A wallet notice goes to the wallet's account (164), so it has one."""
+    if "native" not in request.fixturenames:
+        return
+    owner = request.getfixturevalue("native").owner
+    from db import auth_connection
+
+    with auth_connection() as conn:
+        conn.execute(
+            "INSERT INTO users (email, user_id, customer_id, name, password_hash, salt, created_at) "
+            "VALUES (%s, %s, %s, '', '', '', 0) ON CONFLICT (email) DO NOTHING",
+            (f"{owner}@example.test", f"user-{owner}", owner),
+        )
+
+
 def notices(native):
     with native.pool.connection() as conn:
         return conn.execute(
-            "SELECT type FROM notifications WHERE user_email=%s ORDER BY type", (native.owner,)
+            "SELECT n.type FROM notifications n JOIN users u ON u.user_id = n.user_id "
+            "WHERE u.customer_id=%s ORDER BY n.type",
+            (native.owner,),
         ).fetchall()
 
 

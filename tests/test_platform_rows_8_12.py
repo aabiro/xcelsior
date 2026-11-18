@@ -10,7 +10,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 os.environ["XCELSIOR_ENV"] = "test"
-os.environ["XCELSIOR_PERSISTENT_AUTH"] = "true"
 
 from api import app
 from host_attestation import (
@@ -87,13 +86,6 @@ class TestCapacityPlanner:
 
 class TestPelGuardrail:
     def test_should_i_run_endpoint(self, monkeypatch):
-        import routes._deps as deps
-        import routes.auth as auth
-        import api as api_mod
-
-        monkeypatch.setattr(deps, "_USE_PERSISTENT_AUTH", True)
-        monkeypatch.setattr(auth, "_USE_PERSISTENT_AUTH", True)
-        monkeypatch.setattr(api_mod, "_USE_PERSISTENT_AUTH", True)
 
         from serverless.repo import EndpointCreate, ServerlessRepo
         from tests.fixtures.token_billing_evidence import register_funded_headers

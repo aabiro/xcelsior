@@ -52,14 +52,8 @@ def refresh_stream_principal(user: dict) -> dict:
     if session and _cache_get_json("revoked_session", session):
         raise HTTPException(401, "Stream session revoked")
     if current.get("auth_type") == "legacy_session":
-        from routes._deps import _USE_PERSISTENT_AUTH, _sessions, _user_lock
-
         token = str(current.get("token") or "")
-        if _USE_PERSISTENT_AUTH:
-            live = UserStore.get_session(token)
-        else:
-            with _user_lock:
-                live = dict(_sessions.get(token) or {})
+        live = UserStore.get_session(token)
         if not live or float(live.get("expires_at") or 0) <= time.time():
             raise HTTPException(401, "Stream session revoked")
     if current.get("auth_type") == "agent_api_key":

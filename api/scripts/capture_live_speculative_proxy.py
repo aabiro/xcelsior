@@ -11,7 +11,6 @@ import uuid
 from pathlib import Path
 
 os.environ.setdefault("XCELSIOR_ENV", "test")
-os.environ.setdefault("XCELSIOR_PERSISTENT_AUTH", "true")
 os.environ.setdefault("XCELSIOR_BG_TASKS", "false")
 os.environ.pop("XCELSIOR_TEST_FAKE_VLLM_PORT", None)
 os.environ.setdefault("XCELSIOR_LIVE_VLLM_PORT", "8199")

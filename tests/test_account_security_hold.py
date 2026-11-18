@@ -236,7 +236,6 @@ def test_validate_ws_auth_rejects_suspended_account(suspended, monkeypatch):
     ws.query_params = {"token": "xoa_susp_ws"}
 
     # Mock UserStore
-    monkeypatch.setattr("routes._deps._USE_PERSISTENT_AUTH", True)
     monkeypatch.setattr("routes._deps.AUTH_REQUIRED", True)
     monkeypatch.setattr(
         "routes._deps.UserStore.get_session",

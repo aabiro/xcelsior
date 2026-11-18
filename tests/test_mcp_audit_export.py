@@ -30,17 +30,13 @@ def _register(email: str, password: str = "AuditExport123!") -> tuple[str, str]:
     body = reg.json()
     token = body.get("access_token")
     if not token and body.get("email_verification_required"):
-        import routes._deps as _deps_mod
         from db import auth_connection
 
-        if _deps_mod._USE_PERSISTENT_AUTH:
-            with auth_connection() as conn:
-                row = conn.execute(
-                    "SELECT email_verification_token FROM users WHERE email = %s", (email,)
-                ).fetchone()
-            verification = row["email_verification_token"] if row else None
-        else:
-            verification = _deps_mod._users_db.get(email, {}).get("email_verification_token")
+        with auth_connection() as conn:
+            row = conn.execute(
+                "SELECT email_verification_token FROM users WHERE email = %s", (email,)
+            ).fetchone()
+        verification = row["email_verification_token"] if row else None
         assert verification
         verified = client.post("/api/auth/verify-email", json={"token": verification})
         assert verified.status_code == 200, verified.text
@@ -94,8 +90,6 @@ def _clean():
     client.cookies.clear()
     _deps_mod._RATE_BUCKETS.clear()
     _deps_mod._AUTH_RATE_BUCKETS.clear()
-    _deps_mod._users_db.clear()
-    _deps_mod._sessions.clear()
     yield
 
 

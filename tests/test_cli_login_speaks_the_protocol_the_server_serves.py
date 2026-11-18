@@ -51,6 +51,19 @@ APPROVER = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _approver_has_an_account():
+    """The session a login mints belongs to the approving account (164)."""
+    from db import auth_connection
+
+    with auth_connection() as conn:
+        conn.execute(
+            "INSERT INTO users (email, user_id, name, password_hash, salt, role, created_at) "
+            "VALUES (%s, %s, %s, '', '', %s, 0) ON CONFLICT (email) DO NOTHING",
+            (APPROVER["email"], APPROVER["user_id"], APPROVER["name"], APPROVER["role"]),
+        )
+
+
 class _ForwardToApp:
     """Stands in for `requests.post`, forwarding to the app under test.
 

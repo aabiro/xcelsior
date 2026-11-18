@@ -2168,7 +2168,6 @@ deploy_test_local() {
     XCELSIOR_POSTGRES_DSN="$stack_dsn" \
     XCELSIOR_REDIS_PORT="$stack_redis_port" \
     XCELSIOR_AUTH_REDIS_URL="$stack_redis_url" \
-    XCELSIOR_PERSISTENT_AUTH=true \
     XCELSIOR_SCHEDULER_MODE="${XCELSIOR_STACK_SCHEDULER_MODE:-active}" \
         docker compose --env-file .env.test -p xcelsior-test up -d --build
 

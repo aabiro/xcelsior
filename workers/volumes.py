@@ -1931,7 +1931,7 @@ class VolumeEngine:
             return None
         with self._conn() as conn:
             row = conn.execute(
-                """SELECT COALESCE(h.payload->>'region', h.payload->>'province', '') AS region
+                """SELECT COALESCE(NULLIF(h.region, ''), NULLIF(h.province, ''), '') AS region
                    FROM jobs j
                    JOIN hosts h ON j.host_id = h.host_id
                    WHERE j.job_id = %s AND j.host_id IS NOT NULL""",

@@ -128,7 +128,17 @@ _WS_TICKET_TTL_SEC = int(os.environ.get("XCELSIOR_WS_TICKET_TTL_SEC", "60"))
 _WS_TICKETS: dict[str, dict] = {}
 _WS_TICKET_LOCK = _threading.Lock()
 
-_USE_PERSISTENT_AUTH = os.environ.get("XCELSIOR_PERSISTENT_AUTH", "true").lower() != "false"
+# Users, sessions and everything they own are rows in PostgreSQL, tied to
+# `users.user_id` by foreign keys (164). The in-memory mode this flag used to
+# select kept users in a per-process dict that nothing else could reference, so
+# it cannot satisfy those keys; it was retired rather than left to fail on the
+# first insert that names a user. Refuse to start instead of ignoring the flag.
+if os.environ.get("XCELSIOR_PERSISTENT_AUTH", "").strip().lower() in {"0", "false", "no", "off"}:
+    raise RuntimeError(
+        "XCELSIOR_PERSISTENT_AUTH=false selected in-memory users, which was retired: "
+        "users live in PostgreSQL and other tables reference them by foreign key. "
+        "Remove XCELSIOR_PERSISTENT_AUTH from the environment."
+    )
 
 SESSION_EXPIRY = 86400 * 30  # 30 days
 MAX_SESSION_LIFETIME = 86400 * 30  # 30 days (must match SESSION_EXPIRY)
@@ -211,14 +221,6 @@ PUBLIC_PATHS = {
 }
 PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/", "/static/")
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")
-
-
-# ── In-Memory Auth Stores ─────────────────────────────────────────────
-
-_users_db: dict[str, dict] = {}
-_sessions: dict[str, dict] = {}
-_api_keys: dict[str, dict] = {}
-_user_lock = _threading.Lock()
 
 
 # ── SSE Infrastructure ───────────────────────────────────────────────
@@ -349,31 +351,30 @@ def _deliver_notifications(event_type: str, data: dict):
     if not notification:
         return
     try:
-        if _USE_PERSISTENT_AUTH:
-            if event_type in (
-                "job_submitted",
-                "job_status",
-                "job_completed",
-                "job_failed",
-                "preemption_scheduled",
-            ):
-                job_id = data.get("job_id", "")
-                jobs = list_jobs()
-                job = next((j for j in jobs if j.get("job_id") == job_id), None)
-                owner_email = job.get("owner_email", job.get("user_email", "")) if job else ""
-                if owner_email:
-                    user = UserStore.get_user(owner_email)
-                    if user and user.get("notifications_enabled", 1):
-                        NotificationStore.create(owner_email, **notification)
-                if event_type == "job_failed":
-                    for u in UserStore.list_users():
-                        if u.get("role") == "admin" and u["email"] != owner_email:
-                            if u.get("notifications_enabled", 1):
-                                NotificationStore.create(u["email"], **notification)
-            else:
+        if event_type in (
+            "job_submitted",
+            "job_status",
+            "job_completed",
+            "job_failed",
+            "preemption_scheduled",
+        ):
+            job_id = data.get("job_id", "")
+            jobs = list_jobs()
+            job = next((j for j in jobs if j.get("job_id") == job_id), None)
+            owner_email = job.get("owner_email", job.get("user_email", "")) if job else ""
+            if owner_email:
+                user = UserStore.get_user(owner_email)
+                if user and user.get("notifications_enabled", 1):
+                    NotificationStore.create(owner_email, **notification)
+            if event_type == "job_failed":
                 for u in UserStore.list_users():
-                    if u.get("role") == "admin" and u.get("notifications_enabled", 1):
-                        NotificationStore.create(u["email"], **notification)
+                    if u.get("role") == "admin" and u["email"] != owner_email:
+                        if u.get("notifications_enabled", 1):
+                            NotificationStore.create(u["email"], **notification)
+        else:
+            for u in UserStore.list_users():
+                if u.get("role") == "admin" and u.get("notifications_enabled", 1):
+                    NotificationStore.create(u["email"], **notification)
     except Exception as e:
         log.debug("Notification delivery error: %s", e)
 
@@ -617,16 +618,11 @@ def _is_platform_admin(user: dict | None) -> bool:
 
 
 def _lookup_user_by_email(email: str) -> dict | None:
-    """Resolve a user record by email from persistent or in-memory auth stores."""
+    """Resolve a user record by email."""
     normalized = str(email or "").strip().lower()
     if not normalized:
         return None
-    if _USE_PERSISTENT_AUTH:
-        user = UserStore.get_user(normalized)
-        if user:
-            return user
-    with _user_lock:
-        return _users_db.get(normalized)
+    return UserStore.get_user(normalized)
 
 
 def _caller_owner_ids(user: dict) -> set[str]:
@@ -657,7 +653,7 @@ def _user_team_id(user: dict) -> str | None:
     if team_id:
         return team_id
     email = str(user.get("email") or "").strip()
-    if _USE_PERSISTENT_AUTH and email:
+    if email:
         full_user = UserStore.get_user(email)
         if full_user is not None:
             stored = full_user.get("team_id")
@@ -729,7 +725,7 @@ def _customer_ids_accessible_by_user(user: dict) -> set[str]:
     if active_team:
         team_ids.add(active_team)
     email = str(user.get("email") or "").strip()
-    if _USE_PERSISTENT_AUTH and email:
+    if email:
         for team in UserStore.get_user_teams(email):
             tid = str(team.get("team_id") or "").strip()
             if tid:
@@ -803,7 +799,7 @@ def _require_volume_write_role(user: dict, vol: dict | None = None) -> None:
         return
     email = str(user.get("email") or "").strip().lower()
     owner = str((vol or {}).get("owner_id") or "").strip()
-    if _USE_PERSISTENT_AUTH and email:
+    if email:
         for team in UserStore.get_user_teams(email):
             tid = str(team.get("team_id") or "").strip()
             if not tid:
@@ -1416,11 +1412,7 @@ def _create_session(email: str, user: dict, request: Request | None = None) -> d
         "user_agent": request.headers.get("user-agent", "")[:512] if request else None,
         "last_active": now,
     }
-    if _USE_PERSISTENT_AUTH:
-        UserStore.create_session(session)
-    else:
-        with _user_lock:
-            _sessions[token] = session
+    UserStore.create_session(session)
     return session
 
 
@@ -1481,58 +1473,35 @@ def _resolve_current_user(request: Request) -> dict | None:
     if machine_principal:
         return machine_principal
 
-    if _USE_PERSISTENT_AUTH:
-        session = UserStore.get_session(token)
-        if session:
-            created = session.get("created_at") or 0
-            if time.time() - created > MAX_SESSION_LIFETIME:
-                UserStore.delete_session(token)
-                return None
-            try:
-                last = session.get("last_active") or 0
-                if time.time() - last > 300:
-                    UserStore.update_session_last_active(token)
-            except Exception as e:
-                log.debug("session last_active update failed: %s", e)
-            full_user = UserStore.get_user(session["email"])
-            merged = _merge_auth_user(dict(session), full_user)
-            merged["auth_type"] = "legacy_session"
-            return merged
-        api_key = UserStore.get_api_key(token)
-        if api_key:
-            _deprecated_api_key_requests.labels("legacy_api_key").inc()
-            log.warning(
-                "rejected.api_key.used email=%s key_name=%s — API keys are permanently disabled, use OAuth 2.0",
-                api_key["email"],
-                api_key.get("name", "unknown"),
-            )
-            raise HTTPException(
-                401,
-                "API keys have been permanently disabled. Migrate to OAuth 2.0: "
-                "POST /oauth/clients to create a client, then use client_credentials grant.",
-            )
-    else:
-        with _user_lock:
-            session = _sessions.get(token)
-            full_user = _users_db.get(session["email"]) if session else None
-        if session and session["expires_at"] > time.time():
-            merged = _merge_auth_user(session, full_user)
-            merged["auth_type"] = "legacy_session"
-            return merged
-        with _user_lock:
-            api_key = _api_keys.get(token)
-        if api_key:
-            _deprecated_api_key_requests.labels("legacy_api_key").inc()
-            log.warning(
-                "rejected.api_key.used email=%s key_name=%s — API keys are permanently disabled, use OAuth 2.0",
-                api_key["email"],
-                api_key.get("name", "unknown"),
-            )
-            raise HTTPException(
-                401,
-                "API keys have been permanently disabled. Migrate to OAuth 2.0: "
-                "POST /oauth/clients to create a client, then use client_credentials grant.",
-            )
+    session = UserStore.get_session(token)
+    if session:
+        created = session.get("created_at") or 0
+        if time.time() - created > MAX_SESSION_LIFETIME:
+            UserStore.delete_session(token)
+            return None
+        try:
+            last = session.get("last_active") or 0
+            if time.time() - last > 300:
+                UserStore.update_session_last_active(token)
+        except Exception as e:
+            log.debug("session last_active update failed: %s", e)
+        full_user = UserStore.get_user(session["email"])
+        merged = _merge_auth_user(dict(session), full_user)
+        merged["auth_type"] = "legacy_session"
+        return merged
+    api_key = UserStore.get_api_key(token)
+    if api_key:
+        _deprecated_api_key_requests.labels("legacy_api_key").inc()
+        log.warning(
+            "rejected.api_key.used email=%s key_name=%s — API keys are permanently disabled, use OAuth 2.0",
+            api_key["email"],
+            api_key.get("name", "unknown"),
+        )
+        raise HTTPException(
+            401,
+            "API keys have been permanently disabled. Migrate to OAuth 2.0: "
+            "POST /oauth/clients to create a client, then use client_credentials grant.",
+        )
     return None
 
 
