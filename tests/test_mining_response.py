@@ -377,6 +377,10 @@ def test_a_second_incident_on_the_account_terminates(host, tmp_path):
     observe(r)
     assert host.terminated == [("job-1", "xcl-1")]
     assert r.episodes == {}
+    # Terminating lifts the host-side limits too; they are keyed by the
+    # address and the device, which the next tenant inherits (2026-11-18).
+    assert ("tenant_rate_limit", {"ip": "172.30.243.7", "action": "clear"}) in host.privd_calls
+    assert ("gpu_power_limit", {"index": 0, "action": "restore", "watts": 200}) in host.privd_calls
 
 
 def test_administrator_terminate_decision_ends_it(host, tmp_path):
@@ -456,6 +460,24 @@ def test_a_container_that_is_gone_is_forgotten(host, tmp_path):
     host.exists = False
     assert observe(r) is None
     assert r.episodes == {}
+    # ...and so are the limits it held on the host (found on the staging run
+    # when the disk guard ended a throttled container).
+    assert ("tenant_rate_limit", {"ip": "172.30.243.7", "action": "clear"}) in host.privd_calls
+    assert ("gpu_power_limit", {"index": 0, "action": "restore", "watts": 200}) in host.privd_calls
+
+
+def test_a_restart_lifts_the_limits_of_a_container_that_left_meanwhile(host, tmp_path):
+    host.top = TOP + "18 1024 x x -o stratum+tcp://h:3333\n"
+    r = responder(host, tmp_path, lambda: t(0))
+    observe(r)  # throttled (then suspended) with net + gpu_power held
+    again = responder(host, tmp_path, lambda: t(5))
+    n = len(host.privd_calls)
+    again.restore_after_restart(live=set())
+    assert again.episodes == {}
+    assert ("tenant_rate_limit", {"ip": "172.30.243.7", "action": "clear"}) in host.privd_calls[n:]
+    assert ("gpu_power_limit", {"index": 0, "action": "restore", "watts": 200}) in host.privd_calls[
+        n:
+    ]
 
 
 def test_state_survives_a_restart_for_containers_that_still_exist(host, tmp_path):

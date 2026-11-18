@@ -645,6 +645,12 @@ class Responder:
             return None
         facts = self.container_facts(cname)
         if facts is None:
+            # The container is gone, but its upload rule and GPU power cap are
+            # host state keyed by an address and a device the next tenant will
+            # inherit. Lift them before forgetting (staging run 2026-11-18).
+            gone = self.episodes.get(cname)
+            if gone is not None and gone.throttle:
+                self._undo_throttle(gone)
             self.forget(cname)
             return None
 
@@ -835,6 +841,9 @@ class Responder:
     def _terminate(self, ep: Episode, now: float) -> None:
         self._set_rung(ep, TERMINATE, now)
         self.report(ep, self.evidence(ep))
+        # The rule and the power cap outlive the container; the next tenant on
+        # that address or device must not inherit them.
+        self._undo_throttle(ep)
         self.terminate(ep.job_id, ep.container_name)
         self.forget(ep.container_name)
 
@@ -863,8 +872,15 @@ class Responder:
         self._save()
 
     def restore_after_restart(self, live: set[str]) -> None:
-        """A worker restart keeps every episode whose container still exists."""
+        """A worker restart keeps every episode whose container still exists.
+
+        An episode whose container left while the worker was down still owns
+        host state (upload rule, GPU power cap); that is lifted, not leaked.
+        """
         for cname in list(self.episodes):
             if cname not in live:
+                ep = self.episodes[cname]
+                if ep.throttle:
+                    self._undo_throttle(ep)
                 self.episodes.pop(cname, None)
         self._save()
