@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { PACKAGE_VERSION } from "./version.js";
 
 const endpoint = process.argv[2];
 const token = readFileSync(0, "utf8").trim();
@@ -15,7 +16,7 @@ if (!endpoint || !token) {
   throw new Error("usage: token-on-stdin | node dist/protocol-smoke.js <mcp-url>");
 }
 
-const client = new Client({ name: "xcelsior-deploy-smoke", version: "2.0.0" });
+const client = new Client({ name: "xcelsior-deploy-smoke", version: PACKAGE_VERSION });
 const transport = new StreamableHTTPClientTransport(new URL(endpoint), {
   requestInit: { headers: { Authorization: `Bearer ${token}` } },
 });

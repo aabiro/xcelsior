@@ -1724,7 +1724,11 @@ def api_llms_txt():
     if llms_path.exists():
         from fastapi.responses import PlainTextResponse
 
-        return PlainTextResponse(content=llms_path.read_text(), media_type="text/plain")
+        from release_facts import render
+
+        # Counts and pins are placeholders filled from the files that decide
+        # them (core/release_facts.py), so this page cannot quote a stale one.
+        return PlainTextResponse(content=render(llms_path.read_text()), media_type="text/plain")
     raise HTTPException(404, "llms.txt not found")
 
 

@@ -167,10 +167,11 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # The eval grades the PUBLISHED surface — 34 tools — while the plan's
-      # baseline is labelled 43 total. Both numbers are real and they measure
-      # different things; a later phase comparing them would read a description
-      # change as a count change.
+      # The eval grades the PUBLISHED surface (api/mcp/tool-surface.json; the
+      # summary below prints its size) while the plan's baseline counts a
+      # different total. Both are real and they measure different things; a
+      # later phase comparing them would read a description change as a count
+      # change.
       #
       # Was 30/39 until `tests/test_tool_scope_registry_completeness.py` was
       # recovered from the closed branch and refused to let the count drift

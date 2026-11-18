@@ -1,20 +1,22 @@
 # syntax=docker/dockerfile:1
+# One base image for every stage. api/mcp/Dockerfile uses the same pin, and
+# tests/test_release_facts.py fails if the two differ.
+ARG NODE_IMAGE=node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a
 # ── Stage 1: Dependencies ────────────────────────────────────────────
-FROM node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS deps
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts
 
 # ── Stage 2: Build ───────────────────────────────────────────────────
-FROM node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS builder
+FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ARG NEXT_PUBLIC_API_URL=https://xcelsior.ca
 ARG NEXT_PUBLIC_APP_URL=https://xcelsior.ca
-ARG NEXT_PUBLIC_MCP_TOOL_COUNT=
 ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
 ARG NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=
 ARG NEXT_PUBLIC_GA_MEASUREMENT_ID=
@@ -24,7 +26,6 @@ ARG NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=
 ARG NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
-ENV NEXT_PUBLIC_MCP_TOOL_COUNT=${NEXT_PUBLIC_MCP_TOOL_COUNT}
 ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
 ENV NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION}
 ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=${NEXT_PUBLIC_GA_MEASUREMENT_ID}
@@ -39,7 +40,7 @@ RUN --mount=type=cache,target=/app/.next/cache \
     npm run build
 
 # ── Stage 3: Production ─────────────────────────────────────────────
-FROM node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a AS runner
+FROM ${NODE_IMAGE} AS runner
 
 LABEL org.opencontainers.image.title="Xcelsior Frontend" \
       org.opencontainers.image.description="Next.js frontend for Xcelsior — global GPU marketplace" \

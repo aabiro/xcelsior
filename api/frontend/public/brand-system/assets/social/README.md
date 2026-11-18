@@ -38,8 +38,10 @@ the SVGs drift from the generator; re-shoot the PNGs after regenerating.
 
 Designed on the "Xcelsior MCP Social Kit" canvas. Headline is tagline option 1 from
 the Product Hunt package ("Your agent rents the GPU. You approve the bill."). The
-tool count (89) appears on the X header, GitHub preview, gallery 4 and
-`screenshots/mcp-tools-list`: re-check it with `tools/list` before launch.
+MCP tool count is drawn into the X header, GitHub preview, gallery 4 and
+`screenshots/mcp-tools-list`. [`mcp-launch/baked-in.json`](mcp-launch/baked-in.json)
+records the value those images show, and `tests/test_release_facts.py` fails when the
+published surface moves away from it: re-cut the images, then update that file.
 
 These images are seen far smaller than their pixel size: X shows the 1500px header
 at about 600px wide on desktop and 390px on a phone (40% / 26%), a link preview or
@@ -71,9 +73,9 @@ appear, so they stay accurate while supply changes.
 
 | File | Shows |
 |---|---|
-| `mcp-handshake-oauth-1270x760` | `/mcp/health` (xcelsior-mcp 2.0.0, MCP protocol 2025-11-25), the 401 + `WWW-Authenticate` OAuth challenge on `initialize`, and the protected-resource metadata |
+| `mcp-handshake-oauth-1270x760` | `/mcp/health` (server and protocol version as captured; see `baked-in.json`), the 401 + `WWW-Authenticate` OAuth challenge on `initialize`, and the protected-resource metadata |
 | `mcp-registry-listing-1270x760` | The official MCP registry entry `io.github.aabiro/xcelsior`: streamable-http remote, status active |
-| `mcp-tools-list-1270x760` | All 89 tools from the live `tools/list`: 55 read-only, 10 that preview and need a confirm, 24 other actions |
+| `mcp-tools-list-1270x760` | Every tool from the live `tools/list`, split into read-only, preview-then-confirm and other actions (counts in `baked-in.json`) |
 
 ## Runtime copy
 

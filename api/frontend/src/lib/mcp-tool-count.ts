@@ -1,14 +1,9 @@
-// The advertised customer-profile total. NEXT_PUBLIC_* is inlined at build time.
-// Keep the fallback aligned with api/mcp/tool-surface.json.
-export const DEFAULT_MCP_TOOL_COUNT = 89;
+import releaseFacts from "./release-facts.json";
 
-const configuredCount = process.env.NEXT_PUBLIC_MCP_TOOL_COUNT?.trim();
-const count = configuredCount ? Number(configuredCount) : DEFAULT_MCP_TOOL_COUNT;
-if (!Number.isSafeInteger(count) || count <= 0) {
-  throw new Error("NEXT_PUBLIC_MCP_TOOL_COUNT must be a positive integer");
-}
-
-export const MCP_TOOL_COUNT = count;
+// The tools the hosted MCP server publishes to a customer. Not typed here and
+// not configurable: release-facts.json is written from api/mcp/tool-surface.json
+// by api/scripts/generate_release_facts.py, and a test fails when it is stale.
+export const MCP_TOOL_COUNT: number = releaseFacts.mcpToolCount;
 
 export function withMcpToolCount(text: string): string {
   return text.replaceAll("{mcpToolCount}", String(MCP_TOOL_COUNT));

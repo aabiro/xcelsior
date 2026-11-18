@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Xcelsior CLI v2.3.0
+# Xcelsior CLI
 # argparse + Rich tables. No npm. No node. Just Python.
 
 import argparse

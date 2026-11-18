@@ -1,8 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { context, propagation, trace, SpanStatusCode } from "@opentelemetry/api";
+import { PACKAGE_VERSION } from "../version.js";
 
-const tracer = trace.getTracer("xcelsior-mcp", "2.0.0");
+const tracer = trace.getTracer("xcelsior-mcp", PACKAGE_VERSION);
 const toolTrace = new AsyncLocalStorage<string>();
 
 export function currentToolTraceparent(): string | undefined {

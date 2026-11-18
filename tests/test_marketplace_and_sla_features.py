@@ -457,14 +457,13 @@ class TestCLIRichTables:
         assert table.row_count == 1
 
     def test_cli_version_updated(self):
-        """CLI version header is updated."""
-        import cli
-
-        # Verify source has been updated
+        """The CLI's header names no version: pyproject.toml holds the one copy."""
         import inspect
 
-        source = inspect.getsource(cli)
-        assert "2.3.0" in source
+        import cli
+
+        header = inspect.getsource(cli).splitlines()[1]
+        assert header == "# Xcelsior CLI"
 
     def test_console_object(self):
         """CLI has console object when Rich is available."""

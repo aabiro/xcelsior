@@ -24,7 +24,9 @@ NGINX_BUNDLE=/etc/nginx/certs/agent-client-ca.pem
 MESH_ADDRESS=${SPIRE_BIND_ADDRESS:-100.64.0.1}
 SPIRE_UID=10002
 API_GID=10001 # the API container runs as 10001:10001
-IMAGE=ghcr.io/spiffe/spire-server:1.11.2
+# The release install.sh gives every host agent, so server and agents match.
+SPIRE_VERSION=$(sed -n 's/^SPIRE_VERSION="\([^"]*\)"$/\1/p' scripts/install.sh)
+IMAGE=ghcr.io/spiffe/spire-server:${SPIRE_VERSION:?scripts/install.sh no longer sets SPIRE_VERSION}
 COMPOSE="docker compose --env-file $ETC/datastore.env -f infra/spire/docker-compose.spire-server.yml"
 
 say() { printf '\n== %s\n' "$*"; }

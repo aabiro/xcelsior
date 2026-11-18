@@ -32,6 +32,19 @@ def test_llms_txt_served_or_missing():
         assert "text/plain" in (r.headers.get("content-type") or "")
 
 
+def test_llms_txt_is_served_with_its_counts_and_pins_filled_in():
+    import re
+
+    import release_facts
+
+    r = client.get("/llms.txt")
+    assert r.status_code == 200
+    assert not re.search(r"\{(?:mcpToolCount|xcelAiToolCount|wizardPackage|apiVersion)\}", r.text)
+    assert f"{release_facts.mcp_tool_count()} customer tools" in r.text
+    assert f"npx {release_facts.wizard_package()}" in r.text
+    assert app.version == release_facts.api_version()
+
+
 def test_alerts_config_requires_admin_when_auth_enforced(monkeypatch):
     import routes._deps as deps
     import routes.health as health_mod

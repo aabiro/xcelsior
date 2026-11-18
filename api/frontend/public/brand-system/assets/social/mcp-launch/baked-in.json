@@ -1,0 +1,31 @@
+{
+  "$comment": "What these images show, recorded once because pixels cannot read a file. tests/test_release_facts.py fails when a value here no longer matches its source, which means the images listed under it need re-cutting from the design canvas, then this file updating.",
+  "mcpToolCount": {
+    "value": 89,
+    "source": "api/mcp/tool-surface.json",
+    "images": [
+      "x/header-1500x500",
+      "github/social-preview-1280x640",
+      "producthunt/gallery-4-capabilities-1270x760",
+      "screenshots/mcp-tools-list-1270x760"
+    ]
+  },
+  "toolsListSplit": {
+    "readOnly": 55,
+    "previewThenConfirm": 10,
+    "otherActions": 24,
+    "source": "the annotations in api/mcp/tool-surface.json",
+    "images": [
+      "screenshots/mcp-tools-list-1270x760"
+    ]
+  },
+  "capturedOnly": {
+    "$comment": "A verbatim capture of the live service on the date given. It is dated, not a claim about now, so no test holds it to the current version.",
+    "captured": "2026-11-18",
+    "serverVersion": "2.0.0",
+    "protocol": "2025-11-25",
+    "images": [
+      "screenshots/mcp-handshake-oauth-1270x760"
+    ]
+  }
+}

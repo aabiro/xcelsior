@@ -7,6 +7,7 @@ import { registerPlaybooks } from "./prompts/playbooks.js";
 import { installToolAudit } from "./audit/context.js";
 import type { ToolProfile } from "./tools/profiles.js";
 import type { Icon } from "@modelcontextprotocol/sdk/types.js";
+import { PACKAGE_VERSION } from "./version.js";
 
 // Everything a client can show about the server before a tool is called.
 // VS Code builds its tool prefix from `title` (else `name`), lowercased, unsafe
@@ -16,7 +17,7 @@ const SERVER_INFO = {
   name: "xcelsior-mcp",
   title: "Xcelsior MCP",
   description: "Rent GPUs, launch spot instances and run serverless inference on the Xcelsior marketplace.",
-  version: "2.0.0",
+  version: PACKAGE_VERSION,
   websiteUrl: "https://xcelsior.ca/mcp",
 };
 

@@ -86,7 +86,9 @@ def _load_llms_txt() -> str:
         return _llms_txt_cache
     llms_path = Path(__file__).resolve().parent.parent / "llms.txt"
     if llms_path.exists():
-        _llms_txt_cache = llms_path.read_text()
+        from release_facts import render
+
+        _llms_txt_cache = render(llms_path.read_text())
     else:
         _llms_txt_cache = ""
     return _llms_txt_cache

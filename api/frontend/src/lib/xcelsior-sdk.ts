@@ -15,7 +15,7 @@ import { XcelsiorApiClient, XcelsiorApiEnvironment } from "@xcelsior-gpu/sdk";
  *   const { hosts } = await xcelsior.hosts.list();
  *
  * For end-user installs prefer the CLI wizard instead of a global npm install:
- *   npx @xcelsior-gpu/wizard@0.1.9
+ *   npx <the release install.sh pins; see src/lib/release-facts.json>
  */
 export function createXcelsiorClient(token = process.env.XCELSIOR_API_TOKEN): XcelsiorApiClient {
   if (!token) {

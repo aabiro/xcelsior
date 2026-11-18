@@ -28,6 +28,7 @@ from log_pii_filter import install as _install_pii_scrub  # noqa: E402
 _install_pii_scrub()
 
 from db import start_pg_listen, UserStore
+from release_facts import api_version
 
 # Module scope, deliberately. This import used to sit inside the `try` in
 # `lifespan`, where an ImportError — a syntax error, a circular import
@@ -488,7 +489,7 @@ async def lifespan(app):
 
 app = FastAPI(
     title="Xcelsior",
-    version="2.3.0",
+    version=api_version(),
     description=(
         "Distributed GPU marketplace for AI/ML workloads. Rent capacity from independent "
         "hosts worldwide, or supply your own. Spot and on-demand pricing, automated trust "
@@ -629,7 +630,7 @@ try:
     FastAPIInstrumentor.instrument_app(app)
 
     _OTEL_ENABLED = True
-    _otel_tracer = trace.get_tracer("xcelsior.api", "2.3.0")
+    _otel_tracer = trace.get_tracer("xcelsior.api", api_version())
     # Inject tracer into _deps so route modules can use otel_span()
     from routes import _deps as _route_deps
 

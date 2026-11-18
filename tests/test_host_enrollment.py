@@ -13,6 +13,7 @@ import pytest
 from fastapi import HTTPException
 
 from control_plane import host_enrollment as he
+from release_facts import spire_version
 
 ROOT = Path(__file__).resolve().parent.parent
 REGISTER_HOST_SH = ROOT / "api" / "infra" / "spire" / "register-host.sh"
@@ -231,7 +232,7 @@ def test_real_spire_server_issues_a_usable_enrollment(tmp_path, monkeypatch):
             "host",
             "-v",
             f"{conf}:/s.conf:ro",
-            "ghcr.io/spiffe/spire-server:1.11.2",
+            f"ghcr.io/spiffe/spire-server:{spire_version()}",
             "-config",
             "/s.conf",
         ],

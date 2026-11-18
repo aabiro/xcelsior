@@ -1,6 +1,8 @@
 import "./observability/setup.js";
 import http from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import { PACKAGE_VERSION } from "./version.js";
 import { acceptedAudiences, loadConfig } from "./config.js";
 import { createMcpServer } from "./server.js";
 import { createApiClient, extractBearer, validateBearer } from "./auth/bearer.js";
@@ -237,9 +239,9 @@ const httpServer = http.createServer(async (req, res) => {
     json(res, 200, {
       status: "healthy",
       service: "xcelsior-mcp",
-      version: "2.0.0",
+      version: PACKAGE_VERSION,
       api_url: config.apiUrl,
-      protocol: "2025-11-25",
+      protocol: LATEST_PROTOCOL_VERSION,
       resource_audience: config.resourceAudience,
       tool_profile: config.toolProfile,
     });

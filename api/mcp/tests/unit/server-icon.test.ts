@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { XcelsiorApiClient } from "../../src/client/api.js";
 import { createMcpServer } from "../../src/server.js";
 import { ICON_PATH, httpIcons, readIcon, stdioIcons } from "../../src/icon.js";
+import { PACKAGE_VERSION } from "../../src/version.js";
 
 /**
  * VS Code accepts an HTTP server's icon only from that server's own authority
@@ -46,6 +48,12 @@ describe("server icon", () => {
     const info = client.getServerVersion()!;
     expect(info).toMatchObject({ name: "xcelsior-mcp", title: "Xcelsior MCP", websiteUrl: "https://xcelsior.ca/mcp" });
     expect(info.description).toBeTruthy();
+    // The version is package.json's, not a copy: server.json and the registry
+    // listing are written from the same file.
+    expect(info.version).toBe(PACKAGE_VERSION);
+    expect(PACKAGE_VERSION).toBe(
+      (JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version,
+    );
     // VS Code: "mcp_" + title lowercased, cut to 13 chars, + "_" (MaxPrefixLen 18).
     expect(info.title!.toLowerCase().replace(/[^a-z0-9_.-]+/g, "_").length).toBeLessThanOrEqual(13);
     await client.close();

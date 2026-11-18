@@ -178,10 +178,13 @@ tests/            1400+ backend tests (pytest) + 17 frontend tests (vitest)
 
 ## Deployment
 
-The website's advertised MCP total comes from `NEXT_PUBLIC_MCP_TOOL_COUNT` in
-`.env` (see [`.env.example`](.env.example)). Update it when the customer tool
-surface changes, then rebuild the frontend; both languages and the MCP release
-post use that value. The server reports its actual registered tool count.
+Counts and versions the product quotes in more than one place (the MCP tool
+count, the wizard release, package versions) each come from the one file that
+decides them; [`core/release_facts.py`](core/release_facts.py) names each. After
+changing one, run `python3 api/scripts/generate_release_facts.py` to rewrite the
+copies that cannot read it at run time (the frontend's
+`src/lib/release-facts.json`, the registry's `api/mcp/server.json`);
+`tests/test_release_facts.py` fails until you do.
 
 ### Docker Compose (production)
 
