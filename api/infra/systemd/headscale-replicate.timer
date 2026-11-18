@@ -2,7 +2,9 @@
 Description=Refresh the Headscale replica while the primary is reachable
 
 [Timer]
+# OnActiveSec: see headscale-failover-watchdog.timer.
 OnBootSec=3min
+OnActiveSec=3min
 OnUnitActiveSec=15min
 RandomizedDelaySec=1min
 Persistent=true

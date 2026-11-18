@@ -230,6 +230,11 @@ Node IPs are the ones in sqlite. They do not change.
 - `headscale-failover-watchdog.timer` — every 2 minutes, health check.
 - Confirm: `sudo headscale-failover status --json` shows `promotable: true`
   and a recent `replicated_at`.
+- After pausing the timers (e.g. around a VPS reboot), start them again and
+  check `systemctl list-timers 'headscale-*'`: NEXT must be a time, not `-`.
+  The units carry `OnActiveSec` so a restart schedules a run. Hosts installed
+  before 2026-11-18 have units without it: reinstall the two `.timer` files and
+  `systemctl daemon-reload`, or run each `.service` once after the restart.
 
 ## First install on a standby host
 
