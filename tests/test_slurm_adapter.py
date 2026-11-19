@@ -1021,6 +1021,61 @@ class TestAccountingV3:
         assert a["error_code"] == "accounting_disabled"
 
 
+def _since(argv):
+    assert "-S" in argv, f"sacct sent without -S: {argv}"
+    return argv[argv.index("-S") + 1]
+
+
+class TestSingleJobSacctIsBounded:
+    """`sacct -j` with no -S searches from Unix epoch 0, the whole history.
+
+    The batched reads were bounded from the start. These two single-job reads
+    were not: the accounting lookup a cancel makes when scancel says the job
+    already ended, and the status read's fallback. The gate now admits only
+    the bounded shapes (tests/test_slurm_gate.py).
+    """
+
+    DEFAULT = f"now-{_sa.SINGLE_JOB_LOOKBACK_MINUTES}minutes"
+
+    def test_the_accounting_read_is_bounded(self, local_profile, monkeypatch):
+        rec = _Recorder((0, "", ""), (0, "", ""))
+        monkeypatch.setattr(subprocess, "run", rec)
+        _sa.get_slurm_job_accounting("12", profile_name=local_profile)
+        _sa.get_slurm_job_accounting("12", profile_name=local_profile, since_minutes=95)
+        assert [_since(c["argv"]) for c in rec.calls] == [self.DEFAULT, "now-95minutes"]
+
+    def test_the_status_fallback_is_bounded(self, local_profile, monkeypatch):
+        monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda *a: True)
+        rec = _Recorder((0, "", ""), (0, "", ""), (0, "", ""), (0, "", ""))
+        monkeypatch.setattr(subprocess, "run", rec)
+        _sa.get_slurm_job_status("12", profile_name=local_profile)
+        _sa.get_slurm_job_status("12", profile_name=local_profile, since_minutes=30)
+        sent = [c["argv"] for c in rec.calls if c["argv"][0] == "sacct"]
+        assert [_since(argv) for argv in sent] == [self.DEFAULT, "now-30minutes"]
+
+    def test_a_cancel_of_an_ended_job_looks_back_as_far_as_it_is_told(
+        self, local_profile, monkeypatch
+    ):
+        monkeypatch.setattr("slurm_adapter.is_slurm_available", lambda *a: True)
+        gone = "scancel: error: Kill job error on job id 8: Invalid job id specified"
+        rec = _Recorder((0, "", gone), (0, "", ""), (0, "", gone), (0, "", ""))
+        monkeypatch.setattr(subprocess, "run", rec)
+        cancel_slurm_job("8", profile_name=local_profile, since_minutes=4000)
+        cancel_slurm_job("8", profile_name=local_profile)
+        sent = [c["argv"] for c in rec.calls if c["argv"][0] == "sacct"]
+        assert [_since(argv) for argv in sent] == ["now-4000minutes", self.DEFAULT]
+
+    def test_the_window_reaches_past_the_submission(self):
+        now = 1_794_000_000.0
+        assert _sa.lookback_minutes(now - 3 * 3600, now=now, margin=60) == 240
+        assert _sa.lookback_minutes(None) == _sa.SINGLE_JOB_LOOKBACK_MINUTES
+        assert _sa.lookback_minutes(0) == _sa.SINGLE_JOB_LOOKBACK_MINUTES
+
+    def test_the_window_stays_inside_what_the_gate_admits(self):
+        assert _sa._sacct_since(0) == "now-1minutes"
+        assert _sa._sacct_since(10**9) == "now-999999minutes"
+
+
 class TestCancelV3:
     def test_unknown_id_is_not_found_even_though_scancel_exits_zero(
         self, local_profile, monkeypatch

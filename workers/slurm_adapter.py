@@ -1270,11 +1270,12 @@ def xcelsior_state_for(raw: str) -> str:
     return SLURM_STATE_MAP.get(normalize_slurm_state(raw), "unknown")
 
 
-def get_slurm_job_status(slurm_job_id, *, profile_name=None, runner=None):
+def get_slurm_job_status(slurm_job_id, *, profile_name=None, runner=None, since_minutes=None):
     """Get the current status of a Slurm job.
 
     squeue answers while the controller still holds the job (until
-    MinJobAge after it ends); sacct answers after that.
+    MinJobAge after it ends); sacct answers after that, searching back
+    ``since_minutes`` (default ``SINGLE_JOB_LOOKBACK_MINUTES``).
 
     Returns:
         dict with slurm_state, xcelsior_state, job_info
@@ -1325,6 +1326,10 @@ def get_slurm_job_status(slurm_job_id, *, profile_name=None, runner=None):
                 str(slurm_job_id),
                 "--noheader",
                 "--parsable2",
+                "-S",
+                _sacct_since(
+                    SINGLE_JOB_LOOKBACK_MINUTES if since_minutes is None else since_minutes
+                ),
                 "-o",
                 "JobID,State,Elapsed,ExitCode,MaxRSS,MaxVMSize",
             ],
@@ -1404,6 +1409,32 @@ _WINDOW_FIELDS = (
 MAX_IDS_PER_SACCT = 200
 _WINDOW_ARGV = ("sacct", "-D", "-X", "-n", "--parsable2", "--noconvert")
 _STAMP_FORMAT = "%Y-%m-%dT%H:%M:%S"
+
+#: How far back a single-job sacct looks when the caller cannot say when the
+#: job was submitted. Every sacct the adapter sends carries -S. Without it,
+#: `sacct -j` searches from Unix epoch 0, the whole accounting history, and
+#: after job ids wrap it can return another job's record. A caller that knows
+#: the submission time passes `lookback_minutes(submitted_epoch)` instead.
+SINGLE_JOB_LOOKBACK_MINUTES = 30 * 24 * 60
+#: The gate admits at most six digits of minutes.
+_MAX_SINCE_MINUTES = 999_999
+
+
+def _sacct_since(minutes) -> str:
+    """sacct's -S value for a window reaching back ``minutes`` from now."""
+    return f"now-{min(max(1, int(minutes)), _MAX_SINCE_MINUTES)}minutes"
+
+
+def lookback_minutes(submitted_epoch, *, now: float | None = None, margin: int = 60) -> int:
+    """Minutes back to a little before ``submitted_epoch``.
+
+    A window that starts there holds every run of a job submitted then. With
+    no submission time it is ``SINGLE_JOB_LOOKBACK_MINUTES``.
+    """
+    if not submitted_epoch:
+        return SINGLE_JOB_LOOKBACK_MINUTES
+    now = time.time() if now is None else now
+    return max(1, int((now - float(submitted_epoch)) / 60) + margin)
 
 
 def poll_cluster_jobs(*, profile_name=None, runner=None) -> dict:
@@ -1566,11 +1597,10 @@ def accounting_window(job_ids, *, since_minutes: int, profile_name=None, runner=
     bad = [j for j in ids if not _SLURM_JOB_ID_RE.match(j)]
     if bad:
         return _error("invalid_job_id", f"invalid Slurm job ids: {bad!r}")
-    since = max(1, int(since_minutes))
     argv = [
         *_WINDOW_ARGV,
         "-S",
-        f"now-{since}minutes",
+        _sacct_since(since_minutes),
         "-j",
         ",".join(ids),
         "-o",
@@ -1603,12 +1633,11 @@ def accounting_by_name(names, *, since_minutes: int, profile_name=None, runner=N
     bad = [n for n in wanted if not _JOB_ID_RE.match(n)]
     if bad:
         return _error("invalid_job_id", f"invalid submission names: {bad!r}")
-    since = max(1, int(since_minutes))
     job_names = {f"xcl-{n}" for n in wanted}
     argv = [
         *_WINDOW_ARGV,
         "-S",
-        f"now-{since}minutes",
+        _sacct_since(since_minutes),
         "--name",
         ",".join(sorted(job_names)),
         "-o",
@@ -1727,13 +1756,15 @@ def parse_alloc_tres(tres: str) -> dict:
     return out
 
 
-def get_slurm_job_accounting(slurm_job_id, *, profile_name=None, runner=None):
+def get_slurm_job_accounting(slurm_job_id, *, profile_name=None, runner=None, since_minutes=None):
     """Accounting record for one job, in the shape per-second billing needs.
 
     Timestamps come from slurmdbd as Unix epoch seconds (SLURM_TIME_FORMAT
     =%s), so there is no timezone parsing. ``duration_sec`` is Slurm's own
     ElapsedRaw. ``gpu_seconds`` = duration × allocated GPUs (AllocTRES
-    gres/gpu), which is what billing.UsageMeter.gpu_seconds records.
+    gres/gpu), which is what billing.UsageMeter.gpu_seconds records. The
+    search reaches back ``since_minutes`` (default
+    ``SINGLE_JOB_LOOKBACK_MINUTES``).
 
     Requires AccountingStorageType=accounting_storage/slurmdbd.
     """
@@ -1751,6 +1782,8 @@ def get_slurm_job_accounting(slurm_job_id, *, profile_name=None, runner=None):
         "--noheader",
         "--parsable2",
         "--noconvert",
+        "-S",
+        _sacct_since(SINGLE_JOB_LOOKBACK_MINUTES if since_minutes is None else since_minutes),
         "-o",
         ",".join(_ACCT_FIELDS),
     ]
@@ -1958,13 +1991,15 @@ def get_slurm_job_output(
     return {"slurm_job_id": str(slurm_job_id), "path": path, "stream": stream, "content": content}
 
 
-def cancel_slurm_job(slurm_job_id, *, profile_name=None, runner=None):
+def cancel_slurm_job(slurm_job_id, *, profile_name=None, runner=None, since_minutes=None):
     """Cancel a Slurm job.
 
     Runs ``scancel -v``: at normal verbosity Slurm 25.11 exits 0 and prints
     nothing for a job that already ended (past MinJobAge) or never
     existed, so a plain scancel "succeeds" on any id. Verbose output names
-    the failure, and accounting tells an ended job from an unknown one.
+    the failure, and accounting tells an ended job from an unknown one. That
+    lookup reaches back ``since_minutes``; pass
+    ``lookback_minutes(submitted_epoch)`` when the submission time is known.
 
     Returns {"cancelled": True, ...} or an error with error_code
     ``already_terminal`` (with the final state) or ``not_found``.
@@ -1989,7 +2024,12 @@ def cancel_slurm_job(slurm_job_id, *, profile_name=None, runner=None):
             return {"cancelled": True, "slurm_job_id": slurm_job_id}
         detail = "; ".join(errors) or stderr
         if "already completing or completed" in stderr or "Invalid job id" in stderr:
-            acct = get_slurm_job_accounting(slurm_job_id, profile_name=profile_name, runner=runner)
+            acct = get_slurm_job_accounting(
+                slurm_job_id,
+                profile_name=profile_name,
+                runner=runner,
+                since_minutes=since_minutes,
+            )
             if "error" not in acct and acct.get("terminal"):
                 return _error(
                     "already_terminal",
@@ -2565,18 +2605,20 @@ def slurm_status_cli(xcelsior_job_id=None, slurm_job_id=None):
 
         with pg_connection() as conn:
             row = conn.execute(
-                "SELECT slurm_job_id, cluster_id FROM slurm_job_mappings "
-                "WHERE xcelsior_job_id = %s "
+                "SELECT slurm_job_id, cluster_id, "
+                "EXTRACT(EPOCH FROM COALESCE(submitted_at, to_timestamp(created_at))) "
+                "FROM slurm_job_mappings WHERE xcelsior_job_id = %s "
                 "ORDER BY terminal_at IS NULL DESC, submitted_at DESC NULLS LAST LIMIT 1",
                 (xcelsior_job_id,),
             ).fetchone()
         if not row or not row[0]:
             return f"No Slurm job found for Xcelsior job {xcelsior_job_id}"
         profile_key = _profile_key_for_cluster(row[1])
-        if profile_key:
-            status = get_slurm_job_status(row[0], profile_name=profile_key)
-        else:
-            status = get_slurm_job_status(row[0])
+        status = get_slurm_job_status(
+            row[0],
+            profile_name=profile_key or None,
+            since_minutes=lookback_minutes(row[2]),
+        )
     else:
         return "Provide either --job-id or --slurm-id"
 

@@ -342,7 +342,12 @@ def _stop_submitted(row: dict, slurm_job_id: str, runner, profile_key: str) -> N
     """The job landed and the customer no longer wants it. Ask Slurm to stop it."""
     sa.set_slurm_desired_state(row["xcelsior_job_id"], "cancelled")
     try:
-        sa.cancel_slurm_job(slurm_job_id, profile_name=profile_key, runner=runner)
+        sa.cancel_slurm_job(
+            slurm_job_id,
+            profile_name=profile_key,
+            runner=runner,
+            since_minutes=sa.lookback_minutes(row.get("created_epoch")),
+        )
     except Exception:
         log.exception("scancel failed for %s; the reconciler will retry", slurm_job_id)
 

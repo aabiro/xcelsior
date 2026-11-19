@@ -729,7 +729,12 @@ def reconcile_cluster(
                         cancel_callback(row["slurm_job_id"])
                     else:
                         sa.cancel_slurm_job(
-                            row["slurm_job_id"], profile_name=profile_key, runner=runner
+                            row["slurm_job_id"],
+                            profile_name=profile_key,
+                            runner=runner,
+                            since_minutes=sa.lookback_minutes(
+                                row["submitted_epoch"], now=now, margin=WINDOW_MARGIN_MIN
+                            ),
                         )
                     result.cancel_requested.append(row["slurm_job_id"])
                 except Exception as e:  # one bad cancel must not end the pass

@@ -197,8 +197,15 @@ class TestRefusedCommands:
             "sinfo -i 1",
             "sinfo -N --noheader -o %N -i 1",
             "sacct -a",
-            "sacct -j 1 --noheader --parsable2 -o JobID -a",
-            "sacct -j 1 --noheader --parsable2 -o JobID,User,Comment%999",
+            "sacct -j 1 --noheader --parsable2 -S now-5minutes -o JobID -a",
+            "sacct -j 1 --noheader --parsable2 -S now-5minutes -o JobID,User,Comment%999",
+            # single-job reads: bounded by -S, relative minutes only. Without
+            # -S, `sacct -j` searches from Unix epoch 0.
+            "sacct -j 1 --noheader --parsable2 -o JobID",
+            "sacct -j 1 -X --noheader --parsable2 --noconvert -o JobID",
+            "sacct -j 1 --noheader --parsable2 -S 1970-01-01 -o JobID",
+            "sacct -j 1 -X --noheader --parsable2 --noconvert -S now-1000000minutes -o JobID",
+            "sacct -j 1,2 -X --noheader --parsable2 --noconvert -S now-5minutes -o JobID",
             # the reconciler's batched shapes: exactly as sent, and bounded
             "squeue --me -h -t all -o %i -a",
             "squeue -u root -h -t all -o %i",
@@ -221,9 +228,9 @@ class TestRefusedCommands:
             "sacct -D -X -n --parsable2 --noconvert -S 2026-11-08T00:00:00 -E 2026-11-09T01:00:00 -a -o JobIDRaw",
             # env prefix: one variable, one program
             "env SLURM_TIME_FORMAT=%s sbatch --parsable",
-            "env FOO=1 sacct -j 1 --noheader --parsable2 -o JobID",
-            "env SLURM_TIME_FORMAT=%s env X=1 sacct -j 1 --noheader --parsable2 -o JobID",
-            "env SLURM_TIME_FORMAT=evil sacct -j 1 --noheader --parsable2 -o JobID",
+            "env FOO=1 sacct -j 1 --noheader --parsable2 -S now-5minutes -o JobID",
+            "env SLURM_TIME_FORMAT=%s env X=1 sacct -j 1 --noheader --parsable2 -S now-5minutes -o JobID",
+            "env SLURM_TIME_FORMAT=evil sacct -j 1 --noheader --parsable2 -S now-5minutes -o JobID",
             "env -i sinfo --version",
             "env LD_PRELOAD=/tmp/x.so sinfo --version",
             # writes
