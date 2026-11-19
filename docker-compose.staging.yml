@@ -15,6 +15,7 @@ services:
       - .env.staging
     environment:
       XCELSIOR_ENV: staging
+      XCELSIOR_SLURM_PLACEMENT: "admin"
       XCELSIOR_AGENT_HOST_TOKENS: ${XCELSIOR_AGENT_HOST_TOKENS:-allow}
       # Fixed here, not taken from .env.staging. With a bind allowlist that
       # includes a tailnet address, this is all that keeps `/agent/*` and
@@ -40,12 +41,13 @@ services:
     env_file:
       - .env.staging
     # The full worker registers billing_cycle and mail. Staging runs only the
-    # Slurm shadow loop here (blueprint 2.3): place jobs that name a cluster,
-    # submit them, poll, and once an hour record yesterday's drift between the
-    # shadow ledger and the cluster's accounting. It never charges and never
-    # sends mail. The placement is the narrow tick: it claims only jobs that
-    # name hpc_cluster_id, because this database is shared with the dev pool,
-    # whose host jobs staging must neither place nor delay.
+    # Slurm loop here (blueprint 2.3 and 2.4): place jobs that name a cluster,
+    # submit them, poll, advance their attempts (running, then closed or
+    # settled and charged, per the placement mode), and once an hour record
+    # yesterday's drift between the ledger and the cluster's accounting. It
+    # never sends mail. The placement is the narrow tick: it claims only jobs
+    # that name hpc_cluster_id, because this database is shared with the dev
+    # pool, whose host jobs staging must neither place nor delay.
     command:
       - python
       - -c
@@ -59,6 +61,7 @@ services:
         )
         from control_plane.scheduler.config import SchedulerConfig
         from control_plane.scheduler.service import SchedulerService
+        from slurm_lifecycle import advance_attempts
         from slurm_reconciler import reconcile_due_clusters, report_shadow_drift
         from slurm_submitter import submit_due
 
@@ -69,6 +72,7 @@ services:
                 ("place", placer.tick_slurm_only),
                 ("submit", submit_due),
                 ("poll", reconcile_due_clusters),
+                ("lifecycle", advance_attempts),
             ):
                 try:
                     fn()
@@ -83,9 +87,12 @@ services:
             time.sleep(30)
     environment:
       XCELSIOR_ENV: staging
-      # Places jobs that name a cluster, through tick_slurm_only only. The
-      # API and every other staging service leave it unset.
-      XCELSIOR_SLURM_PLACEMENT: "1"
+      # The placement mode (plan P2.9). The shadow week ran as "1" (shadow:
+      # place, never charge). "admin" is the 2.4 exit: a platform admin's jobs
+      # are placed and charged from the ledger; everyone else's stay queued.
+      # The API reads the same variable to admit submissions, so it is set on
+      # the api service too. Production stays off.
+      XCELSIOR_SLURM_PLACEMENT: "admin"
       # Alliance names are built in. xcl-local is this file, already in the image.
       # Without it the poll records unknown_profile and writes no shadow row.
       XCELSIOR_SLURM_PROFILES_FILE: /app/hpc/slurm-local/conf/xcelsior-profiles.json
