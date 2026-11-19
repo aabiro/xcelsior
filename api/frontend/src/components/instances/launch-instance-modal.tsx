@@ -856,14 +856,15 @@ export function LaunchInstanceModal({
                   {tierPricingError && <div className="flex items-center justify-between gap-2 text-xs text-accent-red"><span>{tierPricingError}</span><Button variant="outline" size="sm" onClick={reloadSpotQuote}>Retry pricing</Button></div>}
                 </div>
 
-                <div className="space-y-1.5 rounded-lg border border-border p-3">
+                {/* Queue bidding is off server-side (QUEUE_BIDS_ENABLED); the catalog then has no bid unit and the field is not shown. */}
+                {bidUnit && <div className="space-y-1.5 rounded-lg border border-border p-3">
                   <Label htmlFor="launch-queue-bid" className="text-xs">Additional queue bid (CAD / GPU-hour)</Label>
-                  <Input id="launch-queue-bid" type="number" min="0" step={bidUnit ? bidUnit.unit_amount_micros / 1_000_000 : 0.01} value={queueBid} onChange={(event) => setQueueBid(event.target.value)} disabled={!bidUnit} />
+                  <Input id="launch-queue-bid" type="number" min="0" step={bidUnit.unit_amount_micros / 1_000_000} value={queueBid} onChange={(event) => setQueueBid(event.target.value)} />
                   <p className="text-[11px] text-text-muted">Optional. Moves your job ahead within its service tier. Added to the running compute rate; no charge while waiting.</p>
                   <details className="text-[11px] text-text-muted"><summary className="cursor-pointer">How queue aging works</summary><p className="mt-1">Every 15 minutes adds free scheduling credit equal to 10% of your original bid. Your bid plus that credit can promote queue position by one tier. Promoted jobs join a FIFO section behind customers who purchased that tier. Your price and hardware isolation stay unchanged.</p></details>
                   {promotionMinutes != null && <p className="text-[11px] text-text-secondary">{promotionMinutes === 0 ? `Qualifies for the back of the ${nextQueueTier?.label} queue.` : `Can join the back of the ${nextQueueTier?.label} queue after ${promotionMinutes} minutes waiting.`} Starting still depends on available capacity.</p>}
-                  {!bidReady && <p className="text-xs text-accent-red">Enter a nonnegative amount in {bidUnit ? hourlyPrice(bidUnit.unit_amount_micros / 1_000_000) : "$0.01/hr"} increments.</p>}
-                </div>
+                  {!bidReady && <p className="text-xs text-accent-red">Enter a nonnegative amount in {hourlyPrice(bidUnit.unit_amount_micros / 1_000_000)} increments.</p>}
+                </div>}
 
                 {tier === "dedicated" ? (
                   <div className="space-y-1.5">

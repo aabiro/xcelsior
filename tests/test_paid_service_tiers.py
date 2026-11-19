@@ -34,6 +34,11 @@ from control_plane.scheduler.reservation import CapacityConflict, HostNotEligibl
 @pytest.fixture
 def paid_fleet(monkeypatch):
     monkeypatch.setenv("XCELSIOR_SCHEDULER_MODE", "active")
+    # Queue bidding is off in product; these tests keep its machinery honest
+    # for the day it is deliberately turned back on.
+    import service_tier_pricing
+
+    monkeypatch.setattr(service_tier_pricing, "QUEUE_BIDS_ENABLED", True)
     marker = uuid.uuid4().hex[:12]
     model = f"Tier GPU {marker}"
     owner = f"tier-{marker}"
@@ -745,6 +750,29 @@ def test_bid_admission_releases_money_if_audit_cannot_commit(paid_fleet, monkeyp
             ).fetchone()[0]
             == 0
         )
+
+
+def test_queue_bidding_off_hides_bid_unit_and_refuses_bids(paid_fleet, monkeypatch):
+    import service_tier_pricing
+    from service_tier_pricing import tier_catalog
+
+    monkeypatch.setattr(service_tier_pricing, "QUEUE_BIDS_ENABLED", False)
+    catalog = tier_catalog(paid_fleet["model"])
+    assert catalog["queue_bid_unit"] is None
+    assert catalog["queue_bid_policy"] is None
+    assert quote_tier(paid_fleet["model"])["queue_bid_units"] == 0
+    with pytest.raises(TierPricingUnavailable, match="not offered"):
+        quote_tier(paid_fleet["model"], queue_bid_units=10)
+    with pytest.raises(TierPricingUnavailable, match="not offered"):
+        quote_tier(paid_fleet["model"], queue_bid_price_id="price_anything")
+    with pytest.raises(TierPricingUnavailable, match="not offered"):
+        submit(paid_fleet, queue_bid_units=10)
+
+
+def test_queue_bidding_is_off_in_product():
+    import service_tier_pricing
+
+    assert service_tier_pricing.QUEUE_BIDS_ENABLED is False
 
 
 @pytest.mark.parametrize("units", [-1, True, 1.5, 1000001])

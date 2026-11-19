@@ -121,7 +121,7 @@ describe("LaunchInstanceModal", () => {
         expect(screen.getByText(/Interruptible spot instance/i)).toBeInTheDocument();
       });
 
-      expect(screen.getByLabelText(/additional queue bid/i)).toHaveValue(0);
+      expect(await screen.findByLabelText(/additional queue bid/i)).toHaveValue(0);
       expect(screen.queryByPlaceholderText(/bid/i)).not.toBeInTheDocument();
 
       expect(screen.getByPlaceholderText("docker.io/my-org/my-image:latest")).toHaveValue("nvcr.io/nvidia/pytorch:24.12-py3");
@@ -228,6 +228,20 @@ describe("LaunchInstanceModal", () => {
     expect(screen.getByTestId("launch-total")).toHaveTextContent("$2.16/hr");
     fireEvent.click(screen.getByRole("button",{name:/launch instance/i}));
     await waitFor(()=>expect(apiMocks.launchInstance).toHaveBeenCalledWith(expect.objectContaining({queue_bid_units:20,queue_bid_price_id:"price_queue_bid",tier:"premium",num_gpus:2})));
+  });
+
+  it("shows no queue bid field and sends no bid when the catalog offers no bid unit", async () => {
+    const base = apiMocks.fetchServiceTierCatalog.getMockImplementation()!;
+    apiMocks.fetchServiceTierCatalog.mockImplementation(async (...args: unknown[]) => ({...(await base(...args)), queue_bid_unit: null, queue_bid_policy: null}));
+    render(<LaunchInstanceModal open onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByTestId("launch-total")).toHaveTextContent("$0.55/hr"));
+    expect(screen.queryByLabelText(/additional queue bid/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name:"Continue"}));
+    fireEvent.click(screen.getByRole("button",{name:/launch instance/i}));
+    await waitFor(()=>expect(apiMocks.launchInstance).toHaveBeenCalled());
+    const body = apiMocks.launchInstance.mock.calls[0][0];
+    expect(body.queue_bid_units).toBe(0);
+    expect(body.queue_bid_price_id).toBeUndefined();
   });
 
   it("refuses fractional Stripe bid units and negative bids", async () => {

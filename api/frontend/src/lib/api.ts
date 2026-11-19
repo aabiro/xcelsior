@@ -1970,7 +1970,7 @@ export interface ServiceTierCatalog {
   tiers: ServiceTierPrice[];
   gpu_exclusive_addon: { stripe_price_id: string; unit_amount_micros: number; rate_per_gpu_cad: number } | null;
   queue_bid_unit: { stripe_price_id: string; unit_amount_micros: number } | null;
-  queue_bid_policy: { version: string; aging_interval_seconds: number; aging_fraction_bps: number; max_tier_promotion: number };
+  queue_bid_policy: { version: string; aging_interval_seconds: number; aging_fraction_bps: number; max_tier_promotion: number } | null;
   physical_hosts: { host_id: string; num_gpus: number; region: string; available: boolean }[];
 }
 

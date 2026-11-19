@@ -14,6 +14,12 @@ from money import micros_to_cad
 
 POLICY_VERSION = "service-tiers-v1"
 QUEUE_BID_POLICY_VERSION = "tier-bid-aging-v1"
+# Queue bidding is not offered. The machinery (Stripe unit Prices, aging,
+# ledger) stays so it can be turned back on deliberately, but while this is
+# False the catalog publishes no bid unit and every quote refuses a bid, so no
+# client (launch form, REST, MCP) can buy queue position. Already-queued jobs
+# keep the bid they were quoted. Changing this is a product decision.
+QUEUE_BIDS_ENABLED = False
 SERVICE_TIERS = {
     "standard": {"label": "Standard", "priority": 1, "scope": "allocated_gpus"},
     "premium": {"label": "Premium", "priority": 2, "scope": "allocated_gpus"},
@@ -159,13 +165,17 @@ def tier_catalog(
             if addon
             else None
         ),
-        "queue_bid_unit": by_tier.get("queue-bid"),
-        "queue_bid_policy": {
-            "version": QUEUE_BID_POLICY_VERSION,
-            "aging_interval_seconds": 900,
-            "aging_fraction_bps": 1000,
-            "max_tier_promotion": 1,
-        },
+        "queue_bid_unit": by_tier.get("queue-bid") if QUEUE_BIDS_ENABLED else None,
+        "queue_bid_policy": (
+            {
+                "version": QUEUE_BID_POLICY_VERSION,
+                "aging_interval_seconds": 900,
+                "aging_fraction_bps": 1000,
+                "max_tier_promotion": 1,
+            }
+            if QUEUE_BIDS_ENABLED
+            else None
+        ),
     }
 
 
@@ -211,6 +221,8 @@ def quote_tier(
             "The GPU exclusivity Stripe Price changed; refresh the launch quote"
         )
     addon_micros = int(addon["unit_amount_micros"]) if addon else 0
+    if (queue_bid_units or queue_bid_price_id) and not QUEUE_BIDS_ENABLED:
+        raise TierPricingUnavailable("Queue bidding is not offered")
     bid_unit = catalog["queue_bid_unit"] if queue_bid_units else None
     if queue_bid_units and not bid_unit:
         raise TierPricingUnavailable("Queue bidding has no active Stripe unit Price")

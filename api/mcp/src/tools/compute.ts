@@ -124,8 +124,6 @@ export function registerComputeTools(
         service_tier_price_id: z.string().max(128).optional(),
         exclusive_gpu: z.boolean().optional().describe("Optional paid GPU-only exclusivity for Standard or Premium. Included in Dedicated."),
         gpu_exclusive_price_id: z.string().max(128).optional(),
-        queue_bid_units: z.number().int().min(0).max(1000000).optional().describe("Optional bid unit quantity from list_tiers. Added to running GPU-hour price. Aging can promote one queue tier behind customers who purchased it."),
-        queue_bid_price_id: z.string().max(128).optional(),
         interactive: z.boolean().default(true),
         confirm: z.boolean().default(false),
         plan_id: z.string().min(1).max(160).optional(),

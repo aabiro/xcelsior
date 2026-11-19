@@ -27,25 +27,25 @@ function harness() {
   return {calls,call};
 }
 
-describe("paid queue bid contracts",()=>{
+describe("paid tier contracts (queue bidding off)",()=>{
   it("lists exact Stripe prices for the requested GPU and pricing mode",async()=>{
     const h=harness();
     await h.call("list_tiers",{gpu_model:"RTX 4090",pricing_mode:"spot"});
     expect(h.calls).toEqual([{path:"/api/pricing/service-tiers",query:{gpu_model:"RTX 4090",mode:"spot"}}]);
   });
 
-  it("forwards both paid add-on identities into a launch preview",async()=>{
+  it("forwards the paid tier and exclusivity identities into a launch preview",async()=>{
     const h=harness();
-    await h.call("create_instance",{name:"paid-bid",gpu_model:"RTX 4090",tier:"premium",service_tier_price_id:"price_premium",exclusive_gpu:true,gpu_exclusive_price_id:"price_exclusive",queue_bid_units:20,queue_bid_price_id:"price_bid",priority:999});
-    expect(h.calls).toEqual([expect.objectContaining({path:"/api/v1/launch-plans",body:expect.objectContaining({tier:"premium",queue_bid_units:20,queue_bid_price_id:"price_bid",gpu_exclusive_price_id:"price_exclusive"})})]);
+    await h.call("create_instance",{name:"paid-tier",gpu_model:"RTX 4090",tier:"premium",service_tier_price_id:"price_premium",exclusive_gpu:true,gpu_exclusive_price_id:"price_exclusive",priority:999});
+    expect(h.calls).toEqual([expect.objectContaining({path:"/api/v1/launch-plans",body:expect.objectContaining({tier:"premium",gpu_exclusive_price_id:"price_exclusive"})})]);
     expect((h.calls[0] as {body:Record<string,unknown>}).body).not.toHaveProperty("priority");
   });
 
-  it("refuses invalid bid quantities before making an API call",async()=>{
+  it("queue bidding is not offered: bid fields are not forwarded",async()=>{
     const h=harness();
-    for(const queue_bid_units of [-1,0.2,1000001]){
-      await expect(h.call("create_instance",{name:"invalid-bid",queue_bid_units})).rejects.toThrow();
-    }
-    expect(h.calls).toEqual([]);
+    await h.call("create_instance",{name:"no-bid",gpu_model:"RTX 4090",queue_bid_units:20,queue_bid_price_id:"price_bid"});
+    const body=(h.calls[0] as {body:Record<string,unknown>}).body;
+    expect(body).not.toHaveProperty("queue_bid_units");
+    expect(body).not.toHaveProperty("queue_bid_price_id");
   });
 });

@@ -350,14 +350,6 @@
           "type": "string",
           "optional": true
         },
-        "queue_bid_units": {
-          "type": "number",
-          "optional": true
-        },
-        "queue_bid_price_id": {
-          "type": "string",
-          "optional": true
-        },
         "interactive": {
           "type": "boolean",
           "optional": true
