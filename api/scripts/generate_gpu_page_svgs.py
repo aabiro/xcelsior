@@ -107,63 +107,10 @@ SLIDES = {
   {gpu_card(240, 160, 1.18)}
   <rect width="480" height="320" rx="28" fill="url(#brandSoft)"/>
 </svg>""",
-    # LLM training — a smooth loss curve descending over a faint net, gradient area fill
-    "workload-training.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none">
-  <defs>{DEFS}
-    <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#22e0ff" stop-opacity="0.32"/>
-      <stop offset="100%" stop-color="#22e0ff" stop-opacity="0"/>
-    </linearGradient>
-  </defs>
-  <rect width="200" height="120" rx="16" fill="url(#spot)" stroke="#22324d" stroke-width="0.75"/>
-  <rect width="200" height="120" rx="16" fill="url(#grid)"/>
-  <g stroke="#22e0ff" stroke-opacity="0.18" stroke-width="0.75">
-    <path d="M24,30 H176 M24,58 H176 M24,86 H176"/>
-  </g>
-  <path d="M24,40 C60,42 64,80 96,84 C128,88 140,96 176,98 L176,104 L24,104 Z" fill="url(#area)"/>
-  <path d="M24,40 C60,42 64,80 96,84 C128,88 140,96 176,98" stroke="url(#brand)" stroke-width="2.6" stroke-linecap="round" fill="none" filter="url(#glow)"/>
-  <circle cx="176" cy="98" r="4.5" fill="#34d399" filter="url(#glow)"/>
-  <g fill="#7cf2ff" opacity="0.5">
-    <circle cx="46" cy="34" r="2"/><circle cx="92" cy="30" r="2"/><circle cx="138" cy="36" r="2"/>
-  </g>
-</svg>""",
-    # LLM inference — chip emitting a token stream + latency arc
-    "workload-inference.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" fill="none">
-  <defs>{DEFS}</defs>
-  <rect width="200" height="120" rx="16" fill="url(#spot)" stroke="#22324d" stroke-width="0.75"/>
-  <rect width="200" height="120" rx="16" fill="url(#grid)"/>
-  <g transform="translate(58,60)">
-    <rect x="-26" y="-26" width="52" height="52" rx="10" fill="#0a1322" stroke="url(#brand)" stroke-width="1.5"/>
-    <rect x="-26" y="-26" width="52" height="52" rx="10" fill="url(#core)" opacity="0.55"/>
-    <g stroke="#0a1322" stroke-opacity="0.5" stroke-width="1"><path d="M-13,-26 V26 M0,-26 V26 M13,-26 V26 M-26,-13 H26 M-26,0 H26 M-26,13 H26"/></g>
-    <g stroke="url(#brand)" stroke-width="1.5" stroke-linecap="round" opacity="0.7">
-      <path d="M-26,-14 H-36 M-26,0 H-38 M-26,14 H-36 M26,-14 H36 M26,0 H38 M26,14 H36"/>
-    </g>
-  </g>
-  <g fill="url(#brand)">
-    <rect x="104" y="46" width="18" height="7" rx="3.5" opacity="0.9"/>
-    <rect x="128" y="56" width="26" height="7" rx="3.5" opacity="0.7"/>
-    <rect x="104" y="66" width="20" height="7" rx="3.5" opacity="0.5"/>
-    <rect x="130" y="76" width="14" height="7" rx="3.5" opacity="0.35"/>
-  </g>
-  <path d="M150,30 A40,40 0 0,1 150,90" stroke="#34d399" stroke-width="1.5" stroke-dasharray="3 6" fill="none" opacity="0.6"/>
-</svg>""",
-    # The Pick -> Provision -> Pulse pipeline was redrawn by hand on 2026-10-14 and
-    # renamed deploy-pipeline-v2.svg for cache busting (49d48fa3, 289f531d). That
-    # file is the source of truth now; regenerating the old drawing would revert it.
-    "spot-pulse.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 120" fill="none">
-  <defs>{DEFS}
-    <linearGradient id="save" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#10b981" stop-opacity="0.22"/>
-      <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
-    </linearGradient>
-  </defs>
-  <rect width="480" height="120" rx="20" fill="url(#spot)" stroke="#22324d" stroke-width="0.75"/>
-  <rect width="480" height="120" rx="20" fill="url(#grid)"/>
-  <path d="M40,80 L80,64 L120,70 L160,46 L200,54 L240,38 L280,50 L320,34 L360,42 L400,30 L440,36 L440,96 L40,96 Z" fill="url(#save)"/>
-  <path d="M40,80 L80,64 L120,70 L160,46 L200,54 L240,38 L280,50 L320,34 L360,42 L400,30 L440,36" stroke="url(#brand)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none" filter="url(#glow)"/>
-  <circle cx="440" cy="36" r="5" fill="#34d399" filter="url(#glow)"/>
-</svg>""",
+    # workload-training, workload-inference and spot-pulse were retired on
+    # 2026-11-11 (99969cfa): generate_site_illustrations.py draws their
+    # replacements (training/inference/pipeline.{dark,light}.svg) into this
+    # same directory, and nothing references the old names.
     "accent-flare.svg": f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
   <defs>{DEFS}</defs>
   <circle cx="60" cy="60" r="48" fill="#22e0ff" filter="url(#bloom)" opacity="0.18"/>

@@ -11,6 +11,8 @@ Measured 2026-09-19 by running each against a clean tree:
     generate_ai_onboarding_svgs 1 modified               -> diverged (rewritten and gated 2026-11-09)
     generate_mcp_page_svgs      1 modified, 1 untracked  -> diverged
     generate_dashboard_svgs     2 modified, 4 untracked  -> diverged
+    generate_site_illustrations 0 modified, 0 untracked  -> matches (16 files across
+                                mcp/ and gpu-fleet/; measured and gated 2026-11-19)
 
 The two that match are ordinary generated artifacts and are gated here. The
 three that diverged are **not** stale output to be regenerated: `/gpu.svg` is
@@ -20,8 +22,8 @@ Regenerating those would overwrite live artwork with a superseded design, which
 is the damage a currency gate is supposed to prevent — so they stay listed as
 what they are, design scaffolds whose output has been hand-evolved.
 
-The generators write to a fixed `OUT` with no `--output`, so each is run with
-its assets copied aside and restored in a `finally`. Editing the tree as a side
+The generators write to fixed directories with no `--output`, so each is run
+with every directory it writes copied aside and restored in a `finally`. Editing the tree as a side
 effect of *checking* it would be its own kind of drift.
 """
 
@@ -38,21 +40,27 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-#: generator -> the directory it writes. Only generators whose output currently
+PUBLIC = ROOT / "api" / "frontend" / "public"
+
+#: generator -> the directories it writes. Only generators whose output currently
 #: matches their committed assets belong here; adding a diverged one would
-#: demand regeneration that destroys hand-evolved artwork.
-GATED = {
-    "generate_ai_onboarding_svgs.py": ROOT / "api" / "frontend" / "public" / "ai-onboarding",
-    "generate_features_svgs.py": ROOT / "api" / "frontend" / "public" / "features",
-    "generate_gpu_page_svgs.py": ROOT / "api" / "frontend" / "public" / "gpu-fleet",
+#: demand regeneration that destroys hand-evolved artwork. Two generators may
+#: share a directory (gpu-fleet/): each run compares the whole directory, and
+#: the other generator's files are untouched, so they compare equal.
+GATED: dict[str, tuple[Path, ...]] = {
+    "generate_ai_onboarding_svgs.py": (PUBLIC / "ai-onboarding",),
+    "generate_features_svgs.py": (PUBLIC / "features",),
+    "generate_gpu_page_svgs.py": (PUBLIC / "gpu-fleet",),
+    "generate_site_illustrations.py": (PUBLIC / "mcp", PUBLIC / "gpu-fleet"),
 }
 
 
-def _regenerate_and_compare(generator: str, out_dir: Path) -> list[str]:
-    """Run the generator over a saved copy of its outputs; return differing names."""
+def _regenerate_and_compare(generator: str, out_dirs: tuple[Path, ...]) -> list[str]:
+    """Run the generator over saved copies of its outputs; return differing paths."""
     with tempfile.TemporaryDirectory() as tmp:
-        backup = Path(tmp) / "before"
-        shutil.copytree(out_dir, backup)
+        backups = {out_dir: Path(tmp) / str(i) for i, out_dir in enumerate(out_dirs)}
+        for out_dir, backup in backups.items():
+            shutil.copytree(out_dir, backup)
         try:
             result = subprocess.run(
                 [sys.executable, str(ROOT / "api" / "scripts" / generator)],
@@ -66,27 +74,36 @@ def _regenerate_and_compare(generator: str, out_dir: Path) -> list[str]:
                 # skip — the hole closed in tests/test_generated_artifacts_are_current.py.
                 raise AssertionError(
                     f"{generator} could not run, so nothing is checking "
-                    f"{out_dir.name}: rc={result.returncode} {result.stderr[-300:]}"
+                    f"{[d.name for d in out_dirs]}: rc={result.returncode} {result.stderr[-300:]}"
                 )
-            names = sorted({p.name for p in backup.iterdir()} | {p.name for p in out_dir.iterdir()})
-            return [
-                n
-                for n in names
-                if not (backup / n).is_file()
-                or not (out_dir / n).is_file()
-                or not filecmp.cmp(backup / n, out_dir / n, shallow=False)
-            ]
+            differing: list[str] = []
+            for out_dir, backup in backups.items():
+                names = sorted(
+                    {p.name for p in backup.iterdir()} | {p.name for p in out_dir.iterdir()}
+                )
+                differing += [
+                    f"{out_dir.name}/{n}"
+                    for n in names
+                    if not (backup / n).is_file()
+                    or not (out_dir / n).is_file()
+                    or not filecmp.cmp(backup / n, out_dir / n, shallow=False)
+                ]
+            return differing
         finally:
-            shutil.rmtree(out_dir)
-            shutil.copytree(backup, out_dir)
+            for out_dir, backup in backups.items():
+                shutil.rmtree(out_dir)
+                shutil.copytree(backup, out_dir)
 
 
-@pytest.mark.parametrize("generator,out_dir", sorted(GATED.items()))
-def test_the_committed_svgs_match_a_fresh_generation(generator: str, out_dir: Path) -> None:
-    assert out_dir.is_dir(), f"{out_dir} is gone; {generator} has nowhere to write"
-    differing = _regenerate_and_compare(generator, out_dir)
+@pytest.mark.parametrize("generator,out_dirs", sorted(GATED.items()))
+def test_the_committed_svgs_match_a_fresh_generation(
+    generator: str, out_dirs: tuple[Path, ...]
+) -> None:
+    for out_dir in out_dirs:
+        assert out_dir.is_dir(), f"{out_dir} is gone; {generator} has nowhere to write"
+    differing = _regenerate_and_compare(generator, out_dirs)
     assert not differing, (
-        f"{out_dir.name}/ no longer matches what {generator} produces: {differing}. "
+        f"the committed SVGs no longer match what {generator} produces: {differing}. "
         f"Either run `python scripts/{generator}` and commit, or — if these assets "
         f"have been hand-evolved on purpose — move this generator to "
         f"UNGATED_BACKLOG in tests/test_every_generator_has_a_currency_gate.py with "
@@ -101,9 +118,10 @@ def test_the_gated_set_is_not_empty() -> None:
 
 def test_every_gated_generator_and_output_directory_exists() -> None:
     """A renamed generator would silently stop being checked."""
-    for generator, out_dir in GATED.items():
+    for generator, out_dirs in GATED.items():
         assert (ROOT / "api" / "scripts" / generator).is_file(), f"{generator} no longer exists"
-        assert out_dir.is_dir(), f"{out_dir} no longer exists"
+        for out_dir in out_dirs:
+            assert out_dir.is_dir(), f"{out_dir} no longer exists"
 
 
 #: The social cards are derived from the OG card: the generator reads
