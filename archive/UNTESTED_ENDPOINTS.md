@@ -1,8 +1,8 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-11-14 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-11-18 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**13 of 574 routes (2%)** and **0 of 46 CLI commands** (0%) have no test signal.
+**12 of 580 routes (2%)** and **0 of 46 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -14,7 +14,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 
 > Re-measure with `scripts/measure_route_execution.py` after a coverage run. Prefer it to the count above whenever the two are used to decide whether something is covered.
 
-## Routes (13 untested)
+## Routes (12 untested)
 
 ### `routes/action_plans.py` (0 untested)
 - [x] `POST /api/v1/launch-plans` — `api_create_launch_plan`
@@ -268,12 +268,16 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/v1/hosts/{host_id}/evictions` — `api_v1_evict_host_workloads`
 - [x] `GET /api/v1/hosts/{host_id}/observations` — `api_v1_host_observations`
 - [x] `POST /api/v1/hosts/{host_id}/undrain` — `api_v1_undrain_host`
+- [x] `GET /api/v1/hpc/billing` — `api_v1_hpc_billing`
 - [x] `GET /api/v1/hpc/clusters` — `api_v1_hpc_clusters`
 - [x] `POST /api/v1/hpc/clusters` — `api_v1_register_hpc_cluster`
 - [x] `POST /api/v1/hpc/clusters/{cluster_id}/connection-check` — `api_v1_check_hpc_cluster`
 - [x] `GET /api/v1/hpc/jobs` — `api_v1_hpc_jobs`
+- [x] `POST /api/v1/hpc/jobs` — `api_v1_submit_hpc_job`
 - [x] `GET /api/v1/hpc/jobs/{xcelsior_job_id}` — `api_v1_hpc_job`
+- [x] `DELETE /api/v1/hpc/jobs/{xcelsior_job_id}` — `api_v1_cancel_hpc_job`
 - [x] `GET /api/v1/hpc/jobs/{xcelsior_job_id}/output` — `api_v1_hpc_job_output`
+- [x] `GET /api/v1/hpc/submissions` — `api_v1_hpc_submissions`
 - [x] `GET /api/v1/instances/{job_id}` — `api_v1_instance`
 - [x] `GET /api/v1/instances/{job_id}/active-lease` — `api_v1_instance_active_lease`
 - [x] `GET /api/v1/instances/{job_id}/attempts` — `api_v1_instance_attempts`
@@ -348,6 +352,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/hosts/register` — `api_register_host_web`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /api/hosts/{host_id}` — `api_get_host`  ✓ test_hosts_endpoints_coverage.py
 - [x] `DELETE /api/hosts/{host_id}` — `api_list_compute_scores`  ✓ test_hosts_endpoints_coverage.py
+- [x] `PATCH /api/hosts/{host_id}/availability` — `api_update_host_availability`  ✓ test_hosts_endpoints_coverage.py
 - [x] `POST /api/hosts/{host_id}/drain` — `machine_credential_may_not_delete`  ✓ test_hosts_endpoints_coverage.py
 - [x] `POST /api/hosts/{host_id}/enrollment` — `api_undrain_host`  ✓ test_hosts_endpoints_coverage.py
 - [x] `PATCH /api/hosts/{host_id}/location` — `api_update_host_location`  ✓ test_hosts_endpoints_coverage.py
@@ -357,6 +362,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/hosts/{host_id}/undrain` — `api_check_hosts`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /api/locations` — `api_location_catalog`  ✓ test_hosts_endpoints_coverage.py
 - [x] `POST /api/locations/check` — `api_address_check`  ✓ test_hosts_endpoints_coverage.py
+- [x] `POST /api/locations/resolve` — `api_address_resolve`  ✓ test_hosts_endpoints_coverage.py
 - [x] `POST /api/locations/search` — `api_address_search`  ✓ test_hosts_endpoints_coverage.py
 - [x] `PUT /host` — `api_register_host`  ✓ test_hosts_endpoints_coverage.py
 - [x] `GET /host/{host_id}` — `api_list_hosts`  ✓ test_hosts_endpoints_coverage.py
@@ -650,7 +656,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `DELETE /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}` — `api_volume_snapshot_delete`  ✓ test_volumes_endpoints_coverage.py
 - [x] `POST /api/v2/volumes/{volume_id}/snapshots/{snapshot_id}/restore` — `api_volume_snapshot_restore`  ✓ test_volumes_endpoints_coverage.py
 
-### `routes/wise.py` (9 untested)
+### `routes/wise.py` (8 untested)
 - [ ] `GET /api/admin/wise/payouts` — `api_admin_wise_payouts`
 - [ ] `POST /api/admin/wise/payouts/batch` — `api_admin_wise_batch`
 - [ ] `POST /api/admin/wise/payouts/{payout_id}/approve` — `api_admin_wise_approve`
@@ -659,7 +665,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [ ] `POST /api/admin/wise/payouts/{payout_id}/sync` — `api_admin_wise_sync`
 - [ ] `POST /api/admin/wise/providers/{provider_id}/recipient` — `api_admin_wise_link_recipient`
 - [ ] `GET /api/admin/wise/status` — `api_admin_wise_status`
-- [ ] `POST /api/billing/wise/webhook` — `api_wise_webhook`
+- [x] `POST /api/billing/wise/webhook` — `api_wise_webhook`
 - [x] `GET /api/providers/{provider_id}/wise` — `api_provider_wise_status`  ✓ test_compliance_endpoints_coverage.py
 - [x] `POST /api/providers/{provider_id}/wise/disconnect` — `api_provider_wise_disconnect`  ✓ test_compliance_endpoints_coverage.py
 - [x] `POST /api/providers/{provider_id}/wise/recipient` — `api_provider_wise_set_recipient`  ✓ test_compliance_endpoints_coverage.py
