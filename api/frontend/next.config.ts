@@ -8,6 +8,7 @@ const withBundleAnalyzer = bundleAnalyzer({
 // INTERNAL_API_URL: server-side only (rewrites/SSR), never shipped to browser.
 // Falls back to NEXT_PUBLIC_API_URL (baked into client JS at build time).
 const BACKEND = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "https://xcelsior.ca";
+const PUBLIC_ASSET_CACHE = "public, max-age=3600, stale-while-revalidate=86400";
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://js.stripe.com https://connect-js.stripe.com https://static.cloudflareinsights.com https://connect.facebook.net 'unsafe-inline'" +
@@ -51,13 +52,16 @@ const nextConfig: NextConfig = {
         source: "/manifest.webmanifest",
         headers: [{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" }],
       },
+      // Files in /public keep their names when they are redrawn, so they must not be
+      // `immutable`: a browser (and the CDN) would keep the old art for a year. An hour
+      // fresh, then revalidate in the background. Hashed build output is below.
       {
         source: "/:path*.svg",
-        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+        headers: [{ key: "Cache-Control", value: PUBLIC_ASSET_CACHE }],
       },
       {
         source: "/:path*.png",
-        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+        headers: [{ key: "Cache-Control", value: PUBLIC_ASSET_CACHE }],
       },
       {
         source: "/:path*.woff2",

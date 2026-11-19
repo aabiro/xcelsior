@@ -309,7 +309,12 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
     <div className="relative">
       <Input id={`${id}-search`} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-busy={loading}
         aria-controls={`${id}-results`} aria-activedescendant={activeIndex >= 0 ? `${id}-result-${activeIndex}` : undefined}
-        autoComplete="off" value={query} placeholder="Start typing your address"
+        // Chrome ignores autocomplete="off" for address autofill and pops its saved-address
+        // picker over our own results. An unrecognized token suppresses its suggestions;
+        // the data-* opt-outs do the same for 1Password, LastPass and Dashlane.
+        autoComplete="xcl-address-lookup" name="xcl-address-lookup" spellCheck={false}
+        data-1p-ignore="" data-lpignore="true" data-form-type="other"
+        value={query} placeholder="Start typing your address"
         onChange={(event) => { requestVersion.current++; setQuery(event.target.value); setDismissed(false); }}
         onBlur={() => { requestVersion.current++; setDismissed(true); setLoading(false); }}
         onFocus={() => setDismissed(false)}

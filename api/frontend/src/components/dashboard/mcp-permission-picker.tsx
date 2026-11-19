@@ -163,7 +163,7 @@ export function McpPermissionPicker({
             <div
               key={row.resource}
               className={cn(
-                "flex flex-col gap-2 px-3 py-2",
+                "flex flex-col gap-1 px-3 py-2",
                 !stacked && "sm:flex-row sm:items-center sm:justify-between sm:gap-4",
               )}
             >
@@ -176,7 +176,7 @@ export function McpPermissionPicker({
                 <RowIcon aria-hidden className={cn("h-3.5 w-3.5 shrink-0", held ? "text-accent-cyan" : "text-text-muted")} />
                 {name}
               </span>
-              <div className={cn("flex flex-wrap gap-1.5", !stacked && "sm:justify-end")}>
+              <div className={cn("flex flex-wrap gap-x-4 gap-y-1 pl-5.5", !stacked && "sm:justify-end sm:pl-0")}>
                 {row.scopes.map((scope) => {
                   const verb = scope.split(":")[1] ?? scope;
                   const checked = selected.has(scope);
@@ -188,11 +188,8 @@ export function McpPermissionPicker({
                       key={scope}
                       title={extra ? t("dash.mcp.perm.extra_hint") : scope}
                       className={cn(
-                        "inline-flex cursor-pointer select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-cyan/60",
-                        checked && read && "border-accent-cyan/40 bg-accent-cyan/10 text-accent-cyan",
-                        checked && !read && !extra && "border-accent-violet/40 bg-accent-violet/10 text-accent-violet",
-                        checked && extra && "border-accent-gold/50 bg-accent-gold/10 text-accent-gold",
-                        !checked && "border-border/60 text-text-muted hover:border-border hover:text-text-secondary",
+                        "inline-flex cursor-pointer select-none items-center gap-1.5 rounded text-[13px] transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent-cyan/60",
+                        checked ? "text-text-primary" : "text-text-muted hover:text-text-secondary",
                         disabled && "pointer-events-none opacity-50",
                       )}
                     >
@@ -209,7 +206,7 @@ export function McpPermissionPicker({
                       <span
                         aria-hidden
                         className={cn(
-                          "flex h-3.5 w-3.5 items-center justify-center rounded-full border transition-colors",
+                          "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
                           checked && read && "border-accent-cyan bg-accent-cyan text-white",
                           checked && !read && !extra && "border-accent-violet bg-accent-violet text-white",
                           checked && extra && "border-accent-gold bg-accent-gold text-white",

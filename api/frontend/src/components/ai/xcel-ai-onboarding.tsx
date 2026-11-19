@@ -11,11 +11,17 @@ import { useTheme } from "@/lib/theme";
 
 const STORAGE_KEY = "xcelsior-ai-onboarding-v1";
 
+/** Bump when api/scripts/generate_ai_onboarding_svgs.py redraws the slides. Their
+ * URLs used to be served `immutable`, so a browser holding an old copy only asks
+ * again for a new URL. */
+const ASSET_VERSION = "2026-11-18";
+
 /** Each slide has a light twin, `<name>-light.svg` (api/scripts/generate_ai_onboarding_svgs.py).
  * The modal is portalled to <body>, outside `.dashboard-shell[data-theme]`, so the
  * `site-theme-*` classes can't swap it; the theme context still reaches it. */
 function slideImage(image: string, theme: "dark" | "light") {
-  return theme === "light" ? image.replace(/\.svg$/, "-light.svg") : image;
+  const file = theme === "light" ? image.replace(/\.svg$/, "-light.svg") : image;
+  return `${file}?v=${ASSET_VERSION}`;
 }
 
 type Slide = {
