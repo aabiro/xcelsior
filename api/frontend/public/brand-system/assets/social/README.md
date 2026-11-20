@@ -33,6 +33,7 @@ the SVGs drift from the generator; re-shoot the PNGs after regenerating.
 | `instagram-portrait-1080x1350` | 1080×1350 | Instagram portrait post |
 | `og-image-1200x630` | 1200×630 | Site-wide link preview |
 | `profile-dark-1000`, `profile-gradient-1000` | 1000×1000 | Profile pictures |
+| `profile-bot-1000` | 1000×1000 | Profile picture for the automated Xcelsior Compute account on X. `icon-gradient.svg` unchanged at 60% width on solid `#060a13`, with a white robot-head badge lower-right inside the circular crop |
 
 ## mcp-launch/
 
