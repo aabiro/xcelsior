@@ -55,7 +55,11 @@ async function main(): Promise<void> {
   }
 
   const client = createApiClient(config.apiUrl, token);
-  const server = createMcpServer(client, user, "stdio", undefined, undefined, stdioIcons());
+  // The profile decides which tools are registered (customer, or operator
+  // with the control-plane and HPC tools). It was passed only to the
+  // analytics below, so XCELSIOR_MCP_TOOL_PROFILE=operator on stdio still
+  // served the customer surface; the HTTP entry has always passed it.
+  const server = createMcpServer(client, user, "stdio", config.toolProfile, undefined, stdioIcons());
   instrumentMcpAnalytics(server, config.posthogAnalytics, {
     user,
     transport: "stdio",
