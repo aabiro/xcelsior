@@ -8,8 +8,8 @@ import { cn } from "@/lib/utils";
 
 export function WorkspaceSwitch({ collapsed = false }: { collapsed?: boolean }) {
   const { mode, enabled, selectMode } = useWorkspaceMode();
-  if (!enabled) return <div className="px-3 py-3"><StartHostingButton compact={collapsed} className={collapsed ? "w-full px-2" : "w-full"} /></div>;
-  return <nav aria-label="Rent or host" className={cn("mx-3 my-3 flex gap-1 rounded-xl border border-border bg-navy/40 p-1", collapsed && "flex-col")}>
+  if (!enabled) return <div className="shrink-0 px-3 py-3"><StartHostingButton compact={collapsed} className={collapsed ? "w-full px-2" : "w-full"} /></div>;
+  return <nav aria-label="Rent or host" className={cn("mx-3 my-3 flex shrink-0 gap-1 rounded-xl border border-border bg-navy/40 p-1", collapsed && "flex-col")}>
     {([
       { id: "rent", title: "Rent", href: "/dashboard/instances", Icon: Monitor },
       { id: "host", title: "Host", href: "/dashboard/hosting", Icon: Server },

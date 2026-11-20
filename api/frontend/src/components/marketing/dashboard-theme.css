@@ -400,7 +400,12 @@
   z-index: 1;
   display: flex;
   align-items: center;
-  height: 72px;
+  /* Never shrink: as a flex item it gave up height whenever the nav below
+     overflowed, more in Rent (longer nav) than in Host, so its line and the
+     logo moved. 73px = the app bar's 72px plus its 1px bottom border, which
+     puts both lines on the same pixel row. */
+  flex-shrink: 0;
+  height: 73px;
   padding: 0 16px;
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
