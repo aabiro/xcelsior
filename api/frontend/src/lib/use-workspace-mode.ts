@@ -4,6 +4,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { hostingEnabled, routeWorkspaceMode, type WorkspaceMode } from "@/lib/hosting";
+import { WORKSPACE_MODE_KEY_PREFIX } from "@/lib/sidebar-state";
 
 const CHANGE_EVENT = "xcelsior-workspace-mode";
 function subscribe(onChange: () => void) {
@@ -28,7 +29,7 @@ const serverSnapshot = (): WorkspaceMode => "rent";
 export function useWorkspaceMode() {
   const { user } = useAuth();
   const pathname = usePathname();
-  const key = `xcelsior-workspace-mode:${user?.user_id || "signed-out"}`;
+  const key = `${WORKSPACE_MODE_KEY_PREFIX}${user?.user_id || "signed-out"}`;
   const getSnapshot = useCallback(() => read(key), [key]);
   const stored = useSyncExternalStore(subscribe, getSnapshot, serverSnapshot);
   const enabled = hostingEnabled(user);

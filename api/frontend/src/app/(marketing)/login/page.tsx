@@ -22,6 +22,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import { useOAuthProviders } from "@/lib/use-oauth-providers";
+import { resetSidebarState } from "@/lib/sidebar-state";
 import posthog from "posthog-js";
 
 
@@ -122,6 +123,12 @@ function LoginPageContent() {
     setError("");
     posthog.capture("demo_account_prefill");
   }
+
+  // Every sign-out (the menu, idle timeout, an expired session) ends up here.
+  // A signed-out visitor's next session starts with a clean sidebar.
+  useEffect(() => {
+    if (!authLoading && !user) resetSidebarState();
+  }, [authLoading, user]);
 
   useEffect(() => {
     if (mfaBootstrapping || authLoading || mfaRequired || !user) return;

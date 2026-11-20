@@ -31,8 +31,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import type { WorkspaceMode } from "@/lib/hosting";
-
-const GROUPS_STORAGE_KEY = "xcelsior-nav-groups-open";
+import { NAV_GROUPS_KEY } from "@/lib/sidebar-state";
 
 type NavItemDef = {
   href: string;
@@ -124,7 +123,7 @@ const NAV_GROUPS: NavGroupDef[] = [
 function readGroupsOpen(): Record<string, boolean> {
   if (typeof window === "undefined") return {};
   try {
-    const raw = localStorage.getItem(GROUPS_STORAGE_KEY);
+    const raw = localStorage.getItem(NAV_GROUPS_KEY);
     return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
   } catch {
     return {};
@@ -221,6 +220,9 @@ export function DashboardNav({
 }) {
   const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(readGroupsOpen);
+  // The group that holds the page you arrived at, opened for you once on
+  // arrival. After that it closes and opens like any other group.
+  const [arrivedIn, setArrivedIn] = useState<string | null>(null);
 
   const visibleGroups = useMemo(
     () =>
@@ -241,21 +243,20 @@ export function DashboardNav({
     return null;
   }, [pathname, visibleGroups]);
 
-  const resolvedOpenGroups = useMemo(() => {
-    const next: Record<string, boolean> = { ...openGroups };
-    for (const g of visibleGroups) {
-      if (activeGroupId === g.id) next[g.id] = true;
-      if (next[g.id] === undefined) next[g.id] = false;
+  // Previously the current page's group was forced open at render time, so its
+  // header could not close it, and it shut by itself once you left the page.
+  if (activeGroupId !== arrivedIn) {
+    setArrivedIn(activeGroupId);
+    if (activeGroupId && !openGroups[activeGroupId]) {
+      setOpenGroups((prev) => ({ ...prev, [activeGroupId]: true }));
     }
-    return next;
-  }, [activeGroupId, openGroups, visibleGroups]);
+  }
 
   const toggleGroup = useCallback((id: string) => {
     setOpenGroups((prev) => {
-      const current = prev[id] ?? false;
-      const next = { ...prev, [id]: !current };
+      const next = { ...prev, [id]: !prev[id] };
       try {
-        localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(next));
+        localStorage.setItem(NAV_GROUPS_KEY, JSON.stringify(next));
       } catch {
         /* noop */
       }
@@ -285,16 +286,17 @@ export function DashboardNav({
 
       {expanded ? (
         visibleGroups.map((group) => {
-          const isOpen = !!resolvedOpenGroups[group.id];
-          const groupActive = group.items.some((item) => isItemActive(pathname, item.href));
+          const isOpen = !!openGroups[group.id];
           return (
             <div key={group.id} className="pt-1">
               <button
                 type="button"
+                aria-expanded={isOpen}
                 onClick={() => toggleGroup(group.id)}
                 className={cn(
                   "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[11px] font-semibold uppercase tracking-widest transition-colors",
-                  groupActive ? "text-accent-cyan/80" : "text-text-muted hover:text-text-secondary",
+                  // Highlighted exactly when open, so every click shows.
+                  isOpen ? "text-accent-cyan/80" : "text-text-muted hover:text-text-secondary",
                 )}
               >
                 <span className="flex-1 text-left">{t(group.labelKey)}</span>
