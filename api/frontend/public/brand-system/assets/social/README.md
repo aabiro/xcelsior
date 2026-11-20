@@ -7,6 +7,7 @@ resolution for platforms that accept larger uploads.
 ```
 social/
 ├── brand/            Evergreen "Agent-Native Compute" card set
+├── bot/x/            The automated Xcelsior Compute account on X (release notes)
 └── mcp-launch/       Xcelsior MCP launch kit (Product Hunt, Nov 2026)
     ├── x/
     ├── linkedin/
@@ -33,7 +34,36 @@ the SVGs drift from the generator; re-shoot the PNGs after regenerating.
 | `instagram-portrait-1080x1350` | 1080×1350 | Instagram portrait post |
 | `og-image-1200x630` | 1200×630 | Site-wide link preview |
 | `profile-dark-1000`, `profile-gradient-1000` | 1000×1000 | Profile pictures |
-| `profile-bot-1000` | 1000×1000 | Profile picture for the automated Xcelsior Compute account on X. `icon-gradient.svg` unchanged at 60% width on solid `#060a13`, with a white robot-head badge lower-right inside the circular crop |
+
+## bot/x/
+
+The automated Xcelsior Compute account on X, which posts release notes. Everything
+but the profile picture is drawn by `api/frontend/scripts/build-bot-social-assets.mjs`
+(run it from `api/frontend`). Each image has an `@2x` copy.
+
+| File | Size | Use |
+|---|---|---|
+| `profile-1000` | 1000×1000 | Profile picture. `icon-gradient.svg` unchanged at 60% width on solid `#060a13`, with a white robot-head badge lower-right inside the circular crop |
+| `header-1500x500` | 1500×500 | Header. Text starts at x 440, clear of the avatar (bottom-left). |
+| `post-intro-1600x900` | 1600×900 | Pinned first post |
+| `post-release-1600x900` | 1600×900 | Sample release post (itemized usage statements) |
+
+The script draws a release card from `{ "area", "title", "body", "url" }`:
+
+```bash
+node scripts/build-bot-social-assets.mjs --release release.json --out <dir>
+```
+
+It fails when the title runs past 2 lines, the body past 3, or the post text past
+X's 280 characters (a link counts as 23). It also prints the post text.
+
+Pinned post text:
+
+> This is Xcelsior's automated account. It posts release notes: new features and fixes, once customers can use them, each with a link to where to find it.
+>
+> For help, write to support@xcelsior.ca.
+
+Release post text is the title, the body and the link, separated by blank lines.
 
 ## mcp-launch/
 
