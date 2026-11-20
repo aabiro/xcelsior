@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
@@ -13,8 +13,6 @@ import { siteIcon } from "@/lib/brand-assets";
 import { MCP_CONNECTOR_URL, oneClickInstalls } from "@/lib/mcp";
 import { MCP_TOOL_COUNT } from "@/lib/mcp-tool-count";
 import { useLocale } from "@/lib/locale";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -85,16 +83,18 @@ function SectionMarker({ code, label }: { code: string; label: string }) {
 
 // MCP client config formats differ by agent: Cursor uses `mcpServers`+`url`,
 // Claude Code adds `type: "http"`, and VS Code uses `servers`+`type: "http"`.
+// No `headers`: like the one-click installs, the client runs OAuth on first
+// connect, so there is no key to create or paste. Token auth for headless use
+// is set up in the dashboard, where the token can be shown once.
 function mcpConfigSnippet(agentId: string): string {
   const url = MCP_CONNECTOR_URL;
-  const headers = { Authorization: "******" };
   if (agentId === "vscode") {
-    return JSON.stringify({ servers: { xcelsior: { type: "http", url, headers } } }, null, 2);
+    return JSON.stringify({ servers: { xcelsior: { type: "http", url } } }, null, 2);
   }
   if (agentId === "claude") {
-    return JSON.stringify({ mcpServers: { xcelsior: { type: "http", url, headers } } }, null, 2);
+    return JSON.stringify({ mcpServers: { xcelsior: { type: "http", url } } }, null, 2);
   }
-  return JSON.stringify({ mcpServers: { xcelsior: { url, headers } } }, null, 2);
+  return JSON.stringify({ mcpServers: { xcelsior: { url } } }, null, 2);
 }
 
 function mcpConfigPath(agentId: string): string {
@@ -105,20 +105,7 @@ function mcpConfigPath(agentId: string): string {
 
 export function McpLandingContent() {
   const { t } = useLocale();
-  const [gpuCount, setGpuCount] = useState<number | null>(null);
   const [agentTab, setAgentTab] = useState<(typeof AGENT_TABS)[number]["id"]>("cursor");
-
-  useEffect(() => {
-    fetch(`${API}/api/v2/gpu/available`, { credentials: "omit" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body) => {
-        const gpus = body?.gpus as Array<{ count_available?: number }> | undefined;
-        if (!gpus) return;
-        const total = gpus.reduce((s, g) => s + (Number(g.count_available) || 0), 0);
-        setGpuCount(total);
-      })
-      .catch(() => {});
-  }, []);
 
   const configSnippet = mcpConfigSnippet(agentTab);
 
@@ -167,9 +154,12 @@ export function McpLandingContent() {
                   className="site-hero-illustration site-theme-light"
                 />
                 <div className="site-hero-stat-grid">
+                  {/* A fixed fact, not a live count: free GPUs swing between
+                      zero and a handful as rentals start and end, and the
+                      live view is one click away at /gpu-availability. */}
                   <div className="site-hero-stat-card">
-                    <div className="site-kpi-value">{gpuCount ?? "-"}</div>
-                    <div className="site-kpi-label">{t("mcp.landing.stat_gpus")}</div>
+                    <div className="site-kpi-value">{t("mcp.landing.stat_connect_value")}</div>
+                    <div className="site-kpi-label">{t("mcp.landing.stat_connect")}</div>
                   </div>
                   <div className="site-hero-stat-card site-hero-stat-card-accent">
                     <div className="site-kpi-value">{MCP_TOOL_COUNT}</div>
@@ -297,6 +287,13 @@ export function McpLandingContent() {
           <SectionMarker code="05" label={t("mcp.landing.setup_title")} />
           <p className="site-section-copy">{t("mcp.landing.setup_desc")}</p>
           <div className="site-setup-shell">
+            <CodeBlock
+              filename={t("mcp.landing.setup_url_label")}
+              code={MCP_CONNECTOR_URL}
+              language="text"
+              className="site-marketing-code"
+            />
+            <p className="site-setup-note">{t("mcp.landing.setup_config_note")}</p>
             <div className="site-tab-list" role="tablist" aria-label={t("mcp.landing.setup_title")}>
               {AGENT_TABS.map((tab) => (
                 <button
@@ -314,7 +311,8 @@ export function McpLandingContent() {
               ))}
             </div>
             <CodeBlock filename={mcpConfigPath(agentTab)} code={configSnippet} className="site-marketing-code" />
-            <div className="site-hero-actions" style={{ marginTop: 24 }}>
+            <p className="site-setup-note">{t("mcp.landing.setup_token_note")}</p>
+            <div className="site-hero-actions" style={{ marginTop: 4 }}>
               <AuthAwareLink intent="mcp" className="site-button site-button-primary">
                 {t("mcp.landing.setup_cta")}
               </AuthAwareLink>

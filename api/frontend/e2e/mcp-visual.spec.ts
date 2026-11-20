@@ -89,9 +89,31 @@ async function installEventSourceMock(ctx: BrowserContext) {
 test.describe("MCP marketing page", () => {
   test("renders hero and key sections", async ({ page }) => {
     await page.goto("/mcp", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(/AI agents control real GPUs/i);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/GPUs for your AI agents/i);
     await expect(page.getByText(/missing backend for agentic AI/i)).toBeVisible();
-    await expect(page.getByText(/Cost guardrails built in/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Cost guardrails built in/i })).toBeVisible();
+  });
+
+  test("hero shows a fixed stat, not a live free-GPU count", async ({ page }) => {
+    // Free GPUs swing to zero whenever the fleet is fully rented, and a
+    // launch-day visitor reading "0 GPUs online" leaves.
+    await page.goto("/mcp", { waitUntil: "domcontentloaded" });
+    const hero = page.locator("section").first();
+    await expect(hero.getByText("To connect")).toBeVisible();
+    await expect(hero.getByText(/GPUs online/i)).toHaveCount(0);
+  });
+
+  test("setup leads with the URL and its config carries no credential", async ({ page }) => {
+    // OAuth runs on first connect, as with the one-click installs, so a
+    // header in the snippet would send people off to make a key they don't need.
+    await page.goto("/mcp", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("button", { name: "Copy Connector URL" })).toBeVisible();
+    for (const tab of ["Cursor", "Claude", "VS Code"]) {
+      await page.getByRole("tab", { name: tab }).click();
+      const config = page.locator(".site-setup-shell .site-marketing-code").nth(1);
+      await expect(config).toContainText("https://mcp.xcelsior.ca/mcp");
+      await expect(config).not.toContainText("Authorization");
+    }
   });
 
   test("marketing page visual snapshot", async ({ page }) => {

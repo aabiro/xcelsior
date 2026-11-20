@@ -2873,6 +2873,16 @@ html:has(.site-nav) {
   margin-bottom: 22px;
 }
 
+/* A line of guidance between the setup shell's code blocks: card-copy size,
+   so it reads as a caption to the block above it, not a new section. */
+.site-setup-note {
+  max-width: 660px;
+  margin: 16px 0 20px;
+  color: var(--text-3);
+  font-size: 15px;
+  line-height: 1.62;
+}
+
 .site-tab {
   display: inline-flex;
   align-items: center;
