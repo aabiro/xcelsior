@@ -138,10 +138,17 @@ def _parse_provider_list(raw: str) -> list[str]:
     return providers
 
 
+_PROVIDER_COOLDOWN_SEC = 300.0
+_provider_cooldown_until: dict[str, float] = {}
+
+
 def _get_provider_order() -> list[str]:
     primary = AI_PROVIDER if AI_PROVIDER in SUPPORTED_AI_PROVIDERS else "anthropic"
     order = [primary]
     order.extend(p for p in _parse_provider_list(AI_FALLBACK_PROVIDERS) if p != primary)
+    for p in ("gemini", "anthropic", "openai", "xai"):
+        if p in SUPPORTED_AI_PROVIDERS and p not in order and _get_provider_api_key(p):
+            order.append(p)
     return order
 
 
@@ -4709,7 +4716,12 @@ END OF ANALYTICS DATA
         return
 
     last_error: Exception | None = None
-    for provider in _get_provider_order():
+    now_mono = time.monotonic()
+    candidates = sorted(
+        _get_provider_order(),
+        key=lambda p: _provider_cooldown_until.get(p, 0.0) > now_mono,
+    )
+    for provider in candidates:
         if not _get_provider_api_key(provider):
             continue
         try:
@@ -4743,9 +4755,12 @@ END OF ANALYTICS DATA
                     clean_message,
                 ):
                     yield event
+            _provider_cooldown_until.pop(provider, None)
             return
         except Exception as e:
             last_error = e
+            if not os.environ.get("PYTEST_CURRENT_TEST"):
+                _provider_cooldown_until[provider] = time.monotonic() + _PROVIDER_COOLDOWN_SEC
             log.error("AI provider %s failed", provider, exc_info=True)
 
     if last_error:

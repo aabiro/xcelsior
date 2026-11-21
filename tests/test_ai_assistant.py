@@ -3058,6 +3058,39 @@ class TestGeminiToolProvider:
             == "https://generativelanguage.googleapis.com/v1beta/openai"
         )
 
+    def test_provider_order_includes_keyed_gemini_even_when_legacy_env_omits_it(self):
+        from ai_assistant import _get_provider_order
+
+        with (
+            patch("ai_assistant.AI_PROVIDER", "xai"),
+            patch("ai_assistant.AI_FALLBACK_PROVIDERS", "anthropic,openai"),
+            patch(
+                "ai_assistant.TEXT_PROVIDERS",
+                {
+                    "xai": {
+                        "base_url": "https://api.x.ai/v1",
+                        "default_model": "grok-4",
+                        "api_key": "",
+                        "model": "",
+                    },
+                    "openai": {
+                        "base_url": "https://api.openai.com/v1",
+                        "default_model": "gpt-4o-mini",
+                        "api_key": "",
+                        "model": "",
+                    },
+                    "gemini": {
+                        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+                        "default_model": "gemini-4-carbon",
+                        "api_key": "gem-live-key",
+                        "model": "",
+                    },
+                },
+            ),
+        ):
+            order = _get_provider_order()
+            assert order[-1] == "gemini"
+
     @pytest.mark.asyncio
     async def test_openai_tool_provider_preserves_gemini_thought_signature_and_missing_index(self):
         from ai_assistant import _stream_with_openai_tool_provider

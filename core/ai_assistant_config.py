@@ -104,7 +104,7 @@ TEXT_PROVIDERS = {
             "AI_ASSISTANT_GEMINI_BASE_URL",
             "https://generativelanguage.googleapis.com/v1beta/openai",
         ),
-        "default_model": "gemini-3.6-flash",
+        "default_model": "gemini-4-carbon",
         "api_key": os.environ.get("AI_ASSISTANT_GEMINI_API_KEY")
         or os.environ.get("GEMINI_API_KEY", ""),
         "model": os.environ.get("AI_ASSISTANT_GEMINI_MODEL", ""),
