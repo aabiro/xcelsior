@@ -108,7 +108,7 @@ alone does not prove activation or receiver delivery.
 Native alert noise and replica handoffs:
 
 - `configure_native_alerts.py` adds both loopback API targets, merges managed
-  control-plane and Tower capacity rules into the installed inventory, and
+  control-plane, production disk, and Tower capacity rules into the installed inventory, and
   preserves receiver credentials and unrelated rules. Run it on prod-hetzner
   with `python3 api/scripts/configure_native_alerts.py` to validate, then add
   `--apply` to back up changed files and reload the two services.

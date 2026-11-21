@@ -260,12 +260,25 @@ groups:
       summary: prod-hetzner / will fill within 24 hours at the current rate
       description: Usage over the last 6 hours projects / to run out within a day. A sparse volume backing file or a log may be growing.
       runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#prod-host-disk
-  - alert: XcelsiorProdVolumeFull
+  - alert: XcelsiorProdVolumeHigh
     expr: (1 - node_filesystem_avail_bytes{job="prod-hetzner-host",mountpoint=~"/exports/volumes/.+"} / node_filesystem_size_bytes{job="prod-hetzner-host",mountpoint=~"/exports/volumes/.+"})
-      * 100 > 90
+      * 100 > 80
     for: 10m
     labels:
       severity: warning
+      owner: platform
+      platform: xcelsior
+      component: control-plane
+    annotations:
+      summary: Customer volume {{ $labels.mountpoint }} is over 80% full
+      description: '{{ $value | printf "%.1f" }}% used on a volume exported from prod-hetzner.'
+      runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#prod-host-disk
+  - alert: XcelsiorProdVolumeFull
+    expr: (1 - node_filesystem_avail_bytes{job="prod-hetzner-host",mountpoint=~"/exports/volumes/.+"} / node_filesystem_size_bytes{job="prod-hetzner-host",mountpoint=~"/exports/volumes/.+"})
+      * 100 > 90
+    for: 5m
+    labels:
+      severity: critical
       owner: platform
       platform: xcelsior
       component: control-plane

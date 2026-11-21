@@ -321,14 +321,32 @@ Telegram notifications.
 
 ## Prod host disk
 
-Alerts: `XcelsiorProdDiskHigh` (>80% for 10 min), `XcelsiorProdDiskCritical` (>90% for 5 min), `XcelsiorProdDiskFillsWithin24h` and `XcelsiorProdVolumeFull` (an exported volume >90%), in `prometheus/native-control-plane-rules.yml`.
+Native Prometheus warns above 80% for 10 minutes and fires a critical alert
+above 90% for 5 minutes. For `/`, the alerts are `XcelsiorProdDiskHigh` and
+`XcelsiorProdDiskCritical`. For each mounted export under `/exports/volumes/`,
+they are `XcelsiorProdVolumeHigh` and `XcelsiorProdVolumeFull`.
+`XcelsiorProdDiskFillsWithin24h` also checks the root filesystem trend.
+Alertmanager inhibits the warning while the same filesystem has a critical alert.
+
+On the monitoring host, validate with
+`python3 api/scripts/configure_native_alerts.py` from the release checkout.
+Apply with `--apply` and check that native Prometheus lists all five rules
+with healthy evaluations. Verify that `node_filesystem_size_bytes{job="prod-hetzner-host"}`
+includes `/` and the currently mounted exports. Check
+`findmnt -T /exports/volumes` on the host to confirm where the sparse backing
+files consume space. If the backing directory is moved to its own filesystem,
+include that mount in the host capacity alerts.
 
 What keeps `/` in check without anyone cleaning by hand:
 - `prod-docker-gc.timer` (Sunday 04:00) runs `/usr/local/sbin/prod-docker-gc` (`api/scripts/prod_docker_gc.sh`). It removes unused images older than 14 days, dangling layers and build cache older than 7 days. It keeps rollback tags (`cutover-*`, `rollout-backup*`, `*preserved-live*`, `before-security-hold*`, `*-blue`), never touches volumes, and skips while a deploy or build runs. Preview with `prod-docker-gc --dry-run`.
 - journald is capped at 200 MB (`api/infra/systemd/journald-90-xcelsior.conf`, matching `/etc/systemd/journald.conf`).
-- `api/infra/docker/daemon.json` caps container logs (`local` driver, 5 × 20 MB) and turns on BuildKit GC. It takes effect only when dockerd restarts, which restarts every container, so install it in a maintenance window: validate with `dockerd --validate --config-file=...` first, then `systemctl restart docker`.
+- `api/infra/docker/daemon.json` sets bounded defaults for new container logs
+  and BuildKit cache. Follow the [Docker maintenance procedure](../../runbooks/prod-hetzner.md#docker-maintenance).
 
-When an alert fires: `docker system df`, `du -xh / --max-depth=2 | sort -h | tail`, and `du -h --apparent-size /exports/volumes/*.img` for the sparse volume backing files.
+When an alert fires, check `docker system df`, `du -xh / --max-depth=2 | sort -h | tail`,
+and `du -h /exports/volumes/*.img`. Compare that last result with
+`du -h --apparent-size /exports/volumes/*.img` to see the capacity configured
+for each sparse file.
 
 ## Slurm reconciler
 

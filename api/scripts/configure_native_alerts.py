@@ -22,10 +22,15 @@ import urllib.request
 import yaml
 
 
-def merge_rules(installed: dict, source: dict, group_name: str) -> dict:
+def merge_rules(
+    installed: dict, source: dict, group_name: str, *, allow_new_group: bool = False
+) -> dict:
     result = deepcopy(installed)
     groups = [g for g in result["groups"] if g["name"] == group_name]
     incoming = [g for g in source["groups"] if g["name"] == group_name]
+    if len(incoming) == 1 and not groups and allow_new_group:
+        result["groups"].append(deepcopy(incoming[0]))
+        return result
     if len(groups) != 1 or len(incoming) != 1:
         raise ValueError("Expected exactly one installed and source rule group")
     replacements = {r["alert"]: r for r in incoming[0]["rules"]}
@@ -103,6 +108,16 @@ def prepare_alertmanager(config: dict) -> dict:
             "target_matchers": [
                 'alertname=~"TowerDiskHigh|TowerSrvDiskHigh|TowerDiskFillsWithin24h"'
             ],
+            "equal": ["instance", "mountpoint"],
+        },
+        {
+            "source_matchers": ['alertname="XcelsiorProdDiskCritical"'],
+            "target_matchers": ['alertname=~"XcelsiorProdDiskHigh|XcelsiorProdDiskFillsWithin24h"'],
+            "equal": ["instance", "mountpoint"],
+        },
+        {
+            "source_matchers": ['alertname="XcelsiorProdVolumeFull"'],
+            "target_matchers": ['alertname="XcelsiorProdVolumeHigh"'],
             "equal": ["instance", "mountpoint"],
         },
         {
@@ -205,13 +220,13 @@ def main() -> int:
         paths.append(integrity_path)
     originals = {p: p.read_bytes() for p in paths}
     docs = {p: yaml.safe_load(data) for p, data in originals.items()}
+    control_plane_source = yaml.safe_load((sources / "native-control-plane-rules.yml").read_text())
+    control_plane = merge_rules(docs[paths[2]], control_plane_source, "xcelsior.control-plane")
     updated = {
         paths[0]: prepare_prometheus(docs[paths[0]]),
         paths[1]: prepare_alertmanager(docs[paths[1]]),
         paths[2]: merge_rules(
-            docs[paths[2]],
-            yaml.safe_load((sources / "native-control-plane-rules.yml").read_text()),
-            "xcelsior.control-plane",
+            control_plane, control_plane_source, "xcelsior.prod-host-disk", allow_new_group=True
         ),
         paths[3]: merge_rules(
             docs[paths[3]],

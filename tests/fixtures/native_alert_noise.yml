@@ -3,6 +3,65 @@ rule_files:
 - ../../api/infra/observability/prometheus/native-tower-capacity-rules.yml
 evaluation_interval: 1m
 tests:
+- name: disk alerts distinguish a crowded volume from a critical volume
+  interval: 1m
+  input_series:
+  - series: node_filesystem_size_bytes{job="prod-hetzner-host",mountpoint="/"}
+    values: '100x12'
+  - series: node_filesystem_avail_bytes{job="prod-hetzner-host",mountpoint="/"}
+    values: '18x12'
+  - series: node_filesystem_size_bytes{job="prod-hetzner-host",mountpoint="/exports/volumes/warning"}
+    values: '100x12'
+  - series: node_filesystem_avail_bytes{job="prod-hetzner-host",mountpoint="/exports/volumes/warning"}
+    values: '15x12'
+  - series: node_filesystem_size_bytes{job="prod-hetzner-host",mountpoint="/exports/volumes/critical"}
+    values: '100x12'
+  - series: node_filesystem_avail_bytes{job="prod-hetzner-host",mountpoint="/exports/volumes/critical"}
+    values: '5x12'
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: XcelsiorProdVolumeFull
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: XcelsiorProdVolumeHigh
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: XcelsiorProdVolumeFull
+    exp_alerts:
+    - exp_labels:
+        <<: &disk_labels
+          owner: platform
+          platform: xcelsior
+          component: control-plane
+          job: prod-hetzner-host
+        severity: critical
+        mountpoint: /exports/volumes/critical
+      exp_annotations:
+        summary: Customer volume /exports/volumes/critical is over 90% full
+        description: 95.0% used on a volume exported from prod-hetzner.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#prod-host-disk
+  - eval_time: 11m
+    alertname: XcelsiorProdVolumeHigh
+    exp_alerts:
+    - exp_labels:
+        <<: *disk_labels
+        severity: warning
+        mountpoint: /exports/volumes/critical
+      exp_annotations:
+        summary: Customer volume /exports/volumes/critical is over 80% full
+        description: 95.0% used on a volume exported from prod-hetzner.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#prod-host-disk
+    - exp_labels:
+        <<: *disk_labels
+        severity: warning
+        mountpoint: /exports/volumes/warning
+      exp_annotations:
+        summary: Customer volume /exports/volumes/warning is over 80% full
+        description: 85.0% used on a volume exported from prod-hetzner.
+        runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#prod-host-disk
+  - eval_time: 11m
+    alertname: XcelsiorProdDiskCritical
+    exp_alerts: []
 - name: planned inactive green replica does not page
   interval: 1m
   input_series:

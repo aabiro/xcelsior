@@ -90,6 +90,20 @@ def test_rule_merge_preserves_unrelated_groups_and_host_safety_rules():
     assert configuration.merge_rules(result, source, "tower") == result
 
 
+def test_disk_group_can_be_installed_then_updated():
+    old = {"alert": "XcelsiorProdVolumeFull", "expr": "old"}
+    new = {**old, "expr": "new"}
+    group = "xcelsior.prod-host-disk"
+    installed = {"groups": [{"name": "other", "rules": []}]}
+    source = {"groups": [{"name": group, "rules": [old]}]}
+    result = configuration.merge_rules(installed, source, group, allow_new_group=True)
+    assert result["groups"] == installed["groups"] + source["groups"]
+    updated = {"groups": [{"name": group, "rules": [new]}]}
+    assert configuration.merge_rules(result, updated, group, allow_new_group=True)["groups"] == (
+        installed["groups"] + updated["groups"]
+    )
+
+
 def test_routing_retains_every_destination_and_secret_and_deduplicates_replicas():
     original = {
         "route": {
@@ -124,6 +138,11 @@ def test_routing_retains_every_destination_and_secret_and_deduplicates_replicas(
     assert route["group_by"] == ["alertname", "job", "service"]
     assert route["routes"][0] == original["route"]["routes"][0]["routes"][0]
     assert result["inhibit_rules"][0] == original["inhibit_rules"][0]
+    assert {
+        "source_matchers": ['alertname="XcelsiorProdVolumeFull"'],
+        "target_matchers": ['alertname="XcelsiorProdVolumeHigh"'],
+        "equal": ["instance", "mountpoint"],
+    } in result["inhibit_rules"]
     assert configuration.prepare_alertmanager(result) == result
 
 
