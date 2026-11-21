@@ -3039,3 +3039,112 @@ class TestTsqueryTerms:
         from ai_assistant import tsquery_terms
 
         assert tsquery_terms("RTX4090 spot rate") == ["RTX4090", "spot", "rate"]
+
+
+class TestGeminiToolProvider:
+    """Verify Gemini OpenAI-compatible provider config and thought_signature round-tripping."""
+
+    def test_gemini_registered_as_tool_capable_provider(self):
+        from ai_assistant_config import (
+            SUPPORTED_AI_PROVIDERS,
+            TEXT_PROVIDERS,
+            TOOL_CAPABLE_PROVIDERS,
+        )
+
+        assert "gemini" in SUPPORTED_AI_PROVIDERS
+        assert "gemini" in TOOL_CAPABLE_PROVIDERS
+        assert (
+            TEXT_PROVIDERS["gemini"]["base_url"]
+            == "https://generativelanguage.googleapis.com/v1beta/openai"
+        )
+
+    @pytest.mark.asyncio
+    async def test_openai_tool_provider_preserves_gemini_thought_signature_and_missing_index(self):
+        from ai_assistant import _stream_with_openai_tool_provider
+
+        captured_payloads: list[dict] = []
+
+        class FakeStreamResponse:
+            def __init__(self, lines: list[str]):
+                self.status_code = 200
+                self._lines = lines
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def aiter_lines(self):
+                for line in self._lines:
+                    yield line
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            def stream(self, method: str, url: str, json: dict, headers: dict):
+                captured_payloads.append(json)
+                if len(captured_payloads) == 1:
+                    chunk = {
+                        "choices": [
+                            {
+                                "delta": {
+                                    "role": "assistant",
+                                    "tool_calls": [
+                                        {
+                                            "id": "call_1",
+                                            "function": {
+                                                "name": "get_account_info",
+                                                "arguments": "{}",
+                                            },
+                                            "extra_content": {
+                                                "google": {"thought_signature": "sig_abc123"}
+                                            },
+                                        }
+                                    ],
+                                }
+                            }
+                        ]
+                    }
+                    return FakeStreamResponse([f"data: {json_mod.dumps(chunk)}", "data: [DONE]"])
+                chunk2 = {"choices": [{"delta": {"content": "Balance is $42.50 CAD."}}]}
+                return FakeStreamResponse([f"data: {json_mod.dumps(chunk2)}", "data: [DONE]"])
+
+        json_mod = json
+        with (
+            patch("ai_assistant.httpx.AsyncClient", FakeAsyncClient),
+            patch("ai_assistant._get_provider_api_key", return_value="gem-test-key"),
+            patch("ai_assistant._get_provider_model", return_value="gemini-4-carbon"),
+            patch(
+                "ai_assistant._exec_tool_cached",
+                new=AsyncMock(return_value={"balance_cad": 42.5}),
+            ),
+            patch("ai_assistant._flush_messages"),
+        ):
+            events = []
+            async for raw in _stream_with_openai_tool_provider(
+                "gemini",
+                "conv-gem-1",
+                [],
+                "system prompt",
+                "check my balance",
+                _user(),
+            ):
+                if raw.startswith("data: "):
+                    events.append(json.loads(raw[6:].strip()))
+
+        assert len(captured_payloads) == 2
+        assistant_msg = next(
+            m for m in captured_payloads[1]["messages"] if m.get("role") == "assistant"
+        )
+        assert assistant_msg["tool_calls"][0]["extra_content"] == {
+            "google": {"thought_signature": "sig_abc123"}
+        }
+        assert any(e.get("type") == "token" and "42.50" in e.get("content", "") for e in events)

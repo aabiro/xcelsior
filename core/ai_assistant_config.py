@@ -30,7 +30,7 @@ AI_ENABLE_LIVE_CALLS = os.environ.get("AI_ASSISTANT_ENABLE_LIVE_CALLS", "false")
     "yes",
 )
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-AI_MODEL = os.environ.get("AI_ASSISTANT_MODEL", "claude-haiku-4-20250414")
+AI_MODEL = os.environ.get("AI_ASSISTANT_MODEL", "claude-haiku-4-5-20251001")
 AI_MAX_TOKENS = int(os.environ.get("AI_ASSISTANT_MAX_TOKENS") or "4096")
 AI_RATE_LIMIT = int(os.environ.get("AI_ASSISTANT_RATE_LIMIT", "20"))
 CONFIRMATION_TTL_SEC = 300
@@ -99,9 +99,19 @@ TEXT_PROVIDERS = {
         "api_key": os.environ.get("AI_ASSISTANT_OPENAI_API_KEY", ""),
         "model": os.environ.get("AI_ASSISTANT_OPENAI_MODEL", ""),
     },
+    "gemini": {
+        "base_url": os.environ.get(
+            "AI_ASSISTANT_GEMINI_BASE_URL",
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+        ),
+        "default_model": "gemini-3.6-flash",
+        "api_key": os.environ.get("AI_ASSISTANT_GEMINI_API_KEY")
+        or os.environ.get("GEMINI_API_KEY", ""),
+        "model": os.environ.get("AI_ASSISTANT_GEMINI_MODEL", ""),
+    },
 }
 SUPPORTED_AI_PROVIDERS = {"anthropic", *TEXT_PROVIDERS.keys()}
-TOOL_CAPABLE_PROVIDERS = {"anthropic", "openai"}
+TOOL_CAPABLE_PROVIDERS = {"anthropic", "openai", "gemini"}
 WRITE_TOOLS = {"launch_job", "stop_job", "create_api_key", "revoke_api_key", "add_ssh_key"}
 
 

@@ -4381,16 +4381,19 @@ async def _stream_with_openai_tool_provider(
                         yield _sse({"type": "token", "content": content})
 
                     # Tool calls (streamed incrementally)
-                    for tc in delta.get("tool_calls") or []:
-                        idx = tc.get("index", 0)
+                    for pos, tc in enumerate(delta.get("tool_calls") or []):
+                        idx = tc.get("index", pos)
                         if idx not in tool_calls_acc:
                             tool_calls_acc[idx] = {
                                 "id": tc.get("id", ""),
                                 "name": "",
                                 "arguments": "",
+                                "extra_content": None,
                             }
                         if tc.get("id"):
                             tool_calls_acc[idx]["id"] = tc["id"]
+                        if tc.get("extra_content"):
+                            tool_calls_acc[idx]["extra_content"] = tc["extra_content"]
                         fn = tc.get("function") or {}
                         if fn.get("name"):
                             tool_calls_acc[idx]["name"] = fn["name"]
@@ -4411,13 +4414,14 @@ async def _stream_with_openai_tool_provider(
         assistant_tool_calls = []
         for idx in sorted(tool_calls_acc.keys()):
             tc = tool_calls_acc[idx]
-            assistant_tool_calls.append(
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {"name": tc["name"], "arguments": tc["arguments"]},
-                }
-            )
+            tc_entry: dict[str, Any] = {
+                "id": tc["id"],
+                "type": "function",
+                "function": {"name": tc["name"], "arguments": tc["arguments"]},
+            }
+            if tc.get("extra_content"):
+                tc_entry["extra_content"] = tc["extra_content"]
+            assistant_tool_calls.append(tc_entry)
 
         assistant_msg: dict = {"role": "assistant"}
         if round_text_str.strip():

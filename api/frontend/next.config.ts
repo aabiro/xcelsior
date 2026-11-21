@@ -11,13 +11,13 @@ const BACKEND = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL 
 const PUBLIC_ASSET_CACHE = "public, max-age=3600, stale-while-revalidate=86400";
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://js.stripe.com https://connect-js.stripe.com https://static.cloudflareinsights.com https://connect.facebook.net 'unsafe-inline'" +
+  "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://js.stripe.com https://*.js.stripe.com https://connect-js.stripe.com https://hcaptcha.com https://*.hcaptcha.com https://static.cloudflareinsights.com https://connect.facebook.net 'unsafe-inline'" +
     (process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""),
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://*.googletagmanager.com https://www.google.com https://static.cloudflareinsights.com wss://xcelsior.ca https://api.web3modal.org https://*.walletconnect.org wss://relay.walletconnect.org https://pulse.walletconnect.org https://api.stripe.com https://js.stripe.com https://connect-js.stripe.com https://us.i.posthog.com https://us-assets.i.posthog.com https://connect.facebook.net https://www.facebook.com",
-  "frame-src 'self' https://js.stripe.com https://connect-js.stripe.com https://verify.walletconnect.org",
+  "connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://*.googletagmanager.com https://www.google.com https://static.cloudflareinsights.com wss://xcelsior.ca https://api.web3modal.org https://*.walletconnect.org wss://relay.walletconnect.org https://pulse.walletconnect.org https://api.stripe.com https://js.stripe.com https://*.js.stripe.com https://connect-js.stripe.com https://hooks.stripe.com https://m.stripe.network https://r.stripe.com https://q.stripe.com https://merchant-ui-api.stripe.com https://link.com https://*.link.com https://hcaptcha.com https://*.hcaptcha.com https://us.i.posthog.com https://us-assets.i.posthog.com https://connect.facebook.net https://*.facebook.net https://www.facebook.com https://*.facebook.com https://md-eecad2978f7a43f5b7838c919258e6de.ecs.us-east-2.on.aws https://cvw425zxroht.cloud.run",
+  "frame-src 'self' https://js.stripe.com https://*.js.stripe.com https://connect-js.stripe.com https://hooks.stripe.com https://m.stripe.network https://link.com https://*.link.com https://hcaptcha.com https://*.hcaptcha.com https://verify.walletconnect.org",
   "frame-ancestors 'self'",
 ].join("; ");
 

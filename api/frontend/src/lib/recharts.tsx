@@ -21,19 +21,37 @@ function hasConcreteHeight(
   return typeof aspect === "number" && aspect > 0;
 }
 
+function resolveInitialHeight(
+  rectHeight: number,
+  rectWidth: number,
+  height: ResponsiveContainerProps["height"],
+  minHeight: ResponsiveContainerProps["minHeight"],
+  aspect: ResponsiveContainerProps["aspect"],
+): number {
+  if (rectHeight > 0) return Math.round(rectHeight);
+  if (typeof height === "number" && height > 0) return height;
+  if (typeof minHeight === "number" && minHeight > 0) return minHeight;
+  if (typeof aspect === "number" && aspect > 0 && rectWidth > 0) {
+    return Math.max(1, Math.round(rectWidth / aspect));
+  }
+  return 0;
+}
+
 export function ResponsiveContainer({
   children,
   className,
   style,
   minWidth,
   minHeight,
+  maxHeight,
   width,
   height,
   aspect,
+  initialDimension,
   ...props
 }: ResponsiveContainerProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const [ready, setReady] = useState(false);
+  const [measuredSize, setMeasuredSize] = useState<{ width: number; height: number } | null>(null);
 
   useEffect(() => {
     const node = hostRef.current;
@@ -41,10 +59,23 @@ export function ResponsiveContainer({
 
     const update = () => {
       const rect = node.getBoundingClientRect();
-      setReady(rect.width > 0 && hasConcreteHeight(rect.height, height, minHeight, aspect));
+      if (rect.width <= 0 || !hasConcreteHeight(rect.height, height, minHeight, aspect)) {
+        setMeasuredSize(null);
+        return;
+      }
+      const nextWidth = Math.max(1, Math.round(rect.width));
+      const resolvedHeight = resolveInitialHeight(rect.height, nextWidth, height, minHeight, aspect);
+      const nextHeight = Math.max(1, resolvedHeight || nextWidth);
+      setMeasuredSize((prev) =>
+        prev && prev.width === nextWidth && prev.height === nextHeight
+          ? prev
+          : { width: nextWidth, height: nextHeight },
+      );
     };
 
     update();
+
+    if (typeof ResizeObserver === "undefined") return;
 
     const observer = new ResizeObserver(() => update());
     observer.observe(node);
@@ -53,21 +84,27 @@ export function ResponsiveContainer({
   }, [aspect, height, minHeight]);
 
   const wrapperStyle: CSSProperties = {
+    width: width ?? "100%",
+    height,
     minWidth: minWidth ?? 0,
+    minHeight,
+    maxHeight,
     ...style,
   };
   const wrapperClassName = typeof className === "string" ? className : undefined;
 
   return (
     <div ref={hostRef} className={wrapperClassName} style={wrapperStyle}>
-      {ready ? (
+      {measuredSize ? (
         <BaseResponsiveContainer
           {...props}
           width={width}
           height={height}
           minWidth={minWidth ?? 0}
           minHeight={minHeight}
+          maxHeight={maxHeight}
           aspect={aspect}
+          initialDimension={initialDimension ?? measuredSize}
         >
           {children}
         </BaseResponsiveContainer>
