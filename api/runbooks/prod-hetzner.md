@@ -69,6 +69,60 @@ brought both hosts' rules. Each log now has one owner: the stock `rsyslog`,
 `btmp` and `nginx` rules, with `maxsize` caps of 100M, 50M and 200M. The
 duplicate rules were archived, not deleted.
 
+## Docker maintenance
+
+Apply the [daemon configuration](../infra/docker/daemon.json) during an agreed
+maintenance window for the shared host.
+
+1. Record the running containers and their health. Check `systemctl cat docker`
+   for daemon flags and note any host-specific keys in `/etc/docker/daemon.json`.
+   Copy the existing file to an operator-only location if it exists.
+2. Merge the log-driver, log-options and builder settings into a candidate that
+   retains the host-specific keys. Preserve the current DNS configuration if
+   the host already has one. Review the daemon flags for duplicate options.
+   Run `sudo dockerd --validate --config-file=/path/to/daemon.candidate.json`
+   before installing the candidate at `/etc/docker/daemon.json`.
+3. Restart with `sudo systemctl restart docker`. Confirm that Docker is active
+   and that the affected services recover, including the public API and MCP.
+   If startup fails or services regress, restore the saved config (or remove
+   the candidate if there was no prior file), restart Docker, and recheck health.
+4. Verify `docker info --format '{{.LoggingDriver}}'` returns `local`. The
+   default applies when containers are created. Recreate running services
+   through their normal rollout and verify the driver and caps on each new
+   container with `docker inspect --format '{{json .HostConfig.LogConfig}}' CONTAINER`.
+   [Docker logging configuration](https://docs.docker.com/engine/logging/configure/)
+
+## Workstation image release
+
+Run the build on the ASUS workstation with Buildx and Compose. The API image
+also supplies the workers and SSH gateway. The frontend and MCP each have
+their own image. A local build works with `python3 api/scripts/release_images.py build`.
+
+For a release, use a clean checkout of the approved commit on `origin/main`.
+Set up GHCR push access for the workstation and pull access for the production
+Docker service account. Keep the previous release manifest for rollback. Put
+the public frontend settings matching the target host in a separate dotenv
+file and write the manifest outside the checkout.
+
+```sh
+python3 api/scripts/release_images.py build --push \
+  --frontend-env /path/to/frontend-public.env --manifest /path/to/release.json
+XCELSIOR_DEPLOY_IMAGE_MANIFEST=/path/to/release.json bash api/scripts/deploy.sh
+```
+
+The manifest binds the three image digests to the checked-out commit. The
+deploy script checks the frontend build settings against the production
+Compose settings, pulls those digests, and verifies their source revision
+before migrations. Migrations and blue-green activation use the staged
+Compose overlay with builds disabled for those services. Keep supplying the
+manifest on future releases to use this path.
+
+For a manual Compose start after a release, use the same base files and the
+versioned overlay in `/opt/xcelsior-backups/.deploy-state/`. For rollback, use
+the corresponding prior checkout and manifest after reviewing schema
+compatibility. The normal deploy script guards the active services during
+blue-green swaps.
+
 ## Vultr decommissioned (2026-10-10)
 
 1. Hetzner backups enabled on `prod-hetzner` (2026-10-08; daily, seven kept).

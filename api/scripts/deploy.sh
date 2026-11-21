@@ -408,6 +408,12 @@ open_ssh_mux_all() {
 }
 
 ssh_cmd() {
+    if [[ -n "${DEPLOY_RELEASE_COMPOSE_FILES:-}" ]]; then
+        local quoted_files
+        printf -v quoted_files '%q' "$DEPLOY_RELEASE_COMPOSE_FILES"
+        ssh_cmd_host "$REMOTE_HOST" "export COMPOSE_FILE=$quoted_files; $*"
+        return
+    fi
     ssh_cmd_host "$REMOTE_HOST" "$@"
 }
 
@@ -1393,6 +1399,14 @@ frontend_build_hash() {
     printf '%s%s' "$source_hash" "$env_hash" | sha256sum | cut -d' ' -f1
 }
 
+prepare_release_images() {
+    [[ -n "${XCELSIOR_DEPLOY_IMAGE_MANIFEST:-}" ]] || return 0
+    [[ -z "$(git -C "$PROJECT_DIR" status --porcelain)" ]] \
+        || error "A pull-only release requires a clean checkout of its source commit."
+    DEPLOY_RELEASE_CONFIG=$(python3 "$SCRIPT_DIR/release_images.py" compose "$XCELSIOR_DEPLOY_IMAGE_MANIFEST") \
+        || error "Could not validate the image manifest."
+}
+
 remote_deploy_meta_dir() {
     printf '%s' "/opt/xcelsior-backups/.deploy-meta"
 }
@@ -1594,6 +1608,13 @@ detect_deploy_inputs() {
     DEPLOY_NGINX_HASH=$(cat "$hash_dir/nginx")
     DEPLOY_RUNTIME_HASH=$(cat "$hash_dir/runtime")
     rm -rf "$hash_dir"
+    if [[ -n "${DEPLOY_RELEASE_CONFIG:-}" ]]; then
+        # A newly published digest can change even if its source commit is the same.
+        local release_hash
+        release_hash=$(printf '%s\n' "$DEPLOY_RELEASE_CONFIG" | sha256sum | cut -d' ' -f1)
+        DEPLOY_API_HASH=$(printf '%s\n%s\n' "$DEPLOY_API_HASH" "$release_hash" | sha256sum | cut -d' ' -f1)
+        DEPLOY_FRONTEND_HASH=$(printf '%s\n%s\n' "$DEPLOY_FRONTEND_HASH" "$release_hash" | sha256sum | cut -d' ' -f1)
+    fi
 
     local prev_api_hash prev_frontend_hash prev_nginx_hash prev_runtime_hash
     prev_api_hash=$(load_remote_deploy_hash api)
@@ -1700,10 +1721,28 @@ deploy_docker() {
     ssh_cmd "test -f /opt/xcelsior/.env" || error ".env file not found on server"
     ensure_remote_deploy_state_dir
 
-    local build_prefix
-    build_prefix=$(remote_docker_build_prefix)
+    # Keep the pinned configuration in scope for migrations and every
+    # blue-green command, including nested calls to ssh_cmd.
+    local DEPLOY_RELEASE_COMPOSE_FILES="" build_prefix="" mcp_build="--build "
+    if [[ -n "${DEPLOY_RELEASE_CONFIG:-}" ]]; then
+        DEPLOY_RELEASE_COMPOSE_FILES=$(ssh_cmd "cd /opt/xcelsior && python3 api/scripts/release_images.py stage-compose '$(remote_deploy_state_dir)'" <<< "$DEPLOY_RELEASE_CONFIG") \
+            || error "Could not stage the pull-only Compose configuration."
+        [[ -n "$DEPLOY_RELEASE_COMPOSE_FILES" ]] || error "No staged Compose configuration was returned."
+        log "Pulling release images by digest..."
+        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue pull --policy always api frontend mcp" \
+            || error "Release image pull failed before migration or activation."
+        local release_commit
+        release_commit=$(git -C "$PROJECT_DIR" rev-parse HEAD) || error "Could not resolve the release commit."
+        ssh_cmd "cd /opt/xcelsior && python3 api/scripts/release_images.py verify-pull '$release_commit'" \
+            || error "Pulled image source verification failed before migration or activation."
+        mcp_build=""
+    else
+        build_prefix=$(remote_docker_build_prefix)
+    fi
 
-    if [[ "$DEPLOY_BUILD_API" == true && "$DEPLOY_BUILD_FRONTEND" == true ]]; then
+    if [[ -n "$DEPLOY_RELEASE_COMPOSE_FILES" ]]; then
+        success "Pinned release images are present"
+    elif [[ "$DEPLOY_BUILD_API" == true && "$DEPLOY_BUILD_FRONTEND" == true ]]; then
         validate_build_env
         verify_frontend_desktop_runtime_on_remote
         log "Building API + frontend images in parallel on remote (BuildKit cache=${DEPLOY_BUILD_CACHE})..."
@@ -1897,7 +1936,7 @@ docker compose build $build_args frontend
     live_colour_api=$(read_remote_api_colour)
     if [[ "$live_colour_api" == "blue" ]]; then live_port_api=9501; else live_port_api=9500; fi
     log "MCP blue-green: live=$mcp_live_service:$mcp_live_port → standby=$mcp_standby_service:$mcp_standby_port"
-    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --build --no-deps $mcp_standby_service" \
+    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d ${mcp_build}--no-deps $mcp_standby_service" \
         || error "Standby MCP failed to start; previous MCP remains live"
     local mcp_standby_ok=false
     for i in {1..30}; do
@@ -2032,7 +2071,10 @@ docker compose build $build_args frontend
     # Dangling images and dangling build cache are unreferenced. Prune those
     # on every deploy. With the cache left on, keep records the next build
     # can still hit; `builder prune` without -a does not delete those.
-    if [[ "$DEPLOY_BUILD_CACHE" == "1" ]]; then
+    if [[ -n "$DEPLOY_RELEASE_COMPOSE_FILES" ]]; then
+        log "Pruning dangling Docker images..."
+        ssh_cmd "docker image prune -f >/dev/null 2>&1" || true
+    elif [[ "$DEPLOY_BUILD_CACHE" == "1" ]]; then
         log "Pruning dangling Docker images and build cache..."
         ssh_cmd "docker image prune -f >/dev/null 2>&1; docker builder prune -f >/dev/null 2>&1" || true
     else
@@ -2303,6 +2345,7 @@ ${CYAN}Environment variables:${NC}
   XCELSIOR_DEPLOY_TIMING  Set to 1 to log per-step durations
   XCELSIOR_DEPLOY_SYNC_HOSTS  Comma-separated mirror hosts (rsync-only, parallel)
   XCELSIOR_DEPLOY_BUILD_CACHE  1 (default) keep BuildKit cache between deploys; still prune dangling images and dangling build cache
+  XCELSIOR_DEPLOY_IMAGE_MANIFEST  Pull pinned GHCR images built by release_images.py, including MCP, instead of building on prod
   XCELSIOR_DOCKER_BUILD_CACHE_DIR  Remote cache dir (default: /opt/xcelsior-backups/docker-build-cache)
   XCELSIOR_SSH_CONTROL_PATH  SSH mux socket (default: ~/.ssh/cm-xcelsior-%r@%h:%p)
   XCELSIOR_DEPLOY_SLURM_PLACEMENT  1 places jobs on Slurm. Every other value leaves placement off. Charging is not a deploy switch.
@@ -2341,6 +2384,9 @@ main() {
         --help|-h)
             print_usage
             exit 0
+            ;;
+        ""|--docker|--quick|--post-merge)
+            prepare_release_images
             ;;
     esac
 
