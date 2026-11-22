@@ -470,6 +470,67 @@
         }
       }
     },
+    "/api/billing/receipts": {
+      "get": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Receipts",
+        "description": "Receipts for the caller's finished runs, newest first, one page at a time.",
+        "operationId": "api_billing_receipts_api_billing_receipts_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/billing/paypal/enabled": {
       "get": {
         "tags": [
@@ -2551,6 +2612,47 @@
         }
       }
     },
+    "/api/instances/{job_id}/receipt": {
+      "get": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Receipt",
+        "description": "The receipt for a finished run: exact seconds, locked rate, what was debited.\n\nOwner only. Anyone else gets not-found, as for a job that does not exist.\n409 while the instance has no finished run yet (use the instance's live\nestimate until then).",
+        "operationId": "api_instance_receipt_api_instances__job_id__receipt_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/instances/{job_id}/cancel": {
       "post": {
         "tags": [
@@ -3817,6 +3919,19 @@
               }
             ],
             "title": "Template Image Id"
+          },
+          "launch_template_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Launch Template Id"
           }
         },
         "type": "object",

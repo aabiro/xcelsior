@@ -1690,6 +1690,10 @@ def submit_job(
     # route sets it only for a platform admin. Only set when true, so the spec
     # and its hash are unchanged for every other job.
     verification_gate_override=False,
+    # The quick-start template the launch form started from, already checked
+    # against the published templates by the route. Only set when given. The
+    # admin query that reads it is in api/docs/first-job-workloads.md.
+    launch_template_id=None,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1789,6 +1793,7 @@ def submit_job(
                     if verification_gate_override is True
                     else {}
                 ),
+                **({"launch_template_id": launch_template_id} if launch_template_id else {}),
             },
             allow_nan=False,
         )
@@ -1949,6 +1954,8 @@ def submit_job(
         job["hpc_cluster_id"] = hpc_cluster_id
     if verification_gate_override is True:
         job["verification_gate_override"] = True
+    if launch_template_id:
+        job["launch_template_id"] = str(launch_template_id)
 
     if job["job_type"] == "serverless_worker" or serverless_config is not None:
         allowed = {

@@ -45,6 +45,10 @@ paths:
       x-fern-sdk-group-name: instances
       x-fern-sdk-method-name: update
       x-fern-ignore: true
+  /api/instances/{job_id}/receipt:
+    get:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: getReceipt
   /instance/{job_id}/requeue:
     post:
       x-fern-sdk-group-name: instances
@@ -124,6 +128,10 @@ paths:
     get:
       x-fern-sdk-group-name: billing
       x-fern-sdk-method-name: listInvoices
+  /api/billing/receipts:
+    get:
+      x-fern-sdk-group-name: billing
+      x-fern-sdk-method-name: listReceipts
   /api/billing/usage/{customer_id}:
     get:
       x-fern-sdk-group-name: billing

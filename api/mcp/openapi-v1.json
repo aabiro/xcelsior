@@ -989,6 +989,108 @@
         }
       }
     },
+    "/api/v1/instances/{job_id}/receipt": {
+      "get": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Instance Receipt",
+        "description": "Receipt for a finished run: exact billed seconds, the locked rate in\nmicros per hour, the total and the wallet debits it reconciles to.\nOwner only; anyone else gets not-found. 409 until a run has finished.",
+        "operationId": "api_v1_instance_receipt_api_v1_instances__job_id__receipt_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/billing/receipts": {
+      "get": {
+        "tags": [
+          "Control plane v1"
+        ],
+        "summary": "Api V1 Billing Receipts",
+        "description": "The caller's run receipts, newest first; pass `next_cursor` back as `cursor`.",
+        "operationId": "api_v1_billing_receipts_api_v1_billing_receipts_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/instances/{job_id}/events": {
       "get": {
         "tags": [
@@ -4762,6 +4864,19 @@
               }
             ],
             "title": "Template Image Id"
+          },
+          "launch_template_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Launch Template Id"
           }
         },
         "type": "object",

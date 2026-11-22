@@ -447,6 +447,10 @@
     "class": "covered",
     "notes": "list_funding_options. Capability probe for the no-browser funding rails, so a declined card has somewhere to go."
   },
+  "GET /api/billing/receipts": {
+    "class": "gap",
+    "notes": "Receipts list for the dashboard; no MCP tool lists receipts yet"
+  },
   "GET /api/billing/usage/{customer_id}": {
     "class": "gap",
     "notes": "Usage summary for a billing period. get_spend_envelope answers burn rate and runway from the live wallet and running instances; it does not answer what a closed period consumed."
@@ -542,6 +546,10 @@
   "GET /api/inference/{job_id}": {
     "class": "redundant",
     "notes": "Pre-v1 result read, superseded by GET /v1/inference/{job_id}."
+  },
+  "GET /api/instances/{job_id}/receipt": {
+    "class": "redundant",
+    "notes": "Dashboard twin of GET /api/v1/instances/{job_id}/receipt; same builder"
   },
   "GET /api/instances/{job_id}/telemetry": {
     "class": "covered",
@@ -767,6 +775,10 @@
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
   },
+  "GET /api/v1/billing/receipts": {
+    "class": "gap",
+    "notes": "v1 receipts list; get_instance_receipt reads one receipt, nothing lists them yet"
+  },
   "GET /api/v1/control-plane/health": {
     "class": "covered",
     "notes": "MCP server calls this path"
@@ -840,6 +852,10 @@
     "notes": "MCP server calls this path"
   },
   "GET /api/v1/instances/{job_id}/placement-explanation": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
+  "GET /api/v1/instances/{job_id}/receipt": {
     "class": "covered",
     "notes": "MCP server calls this path"
   },

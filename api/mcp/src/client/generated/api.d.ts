@@ -503,6 +503,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/instances/{job_id}/receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Instance Receipt
+         * @description Receipt for a finished run: exact billed seconds, the locked rate in
+         *     micros per hour, the total and the wallet debits it reconciles to.
+         *     Owner only; anyone else gets not-found. 409 until a run has finished.
+         */
+        get: operations["api_v1_instance_receipt_api_v1_instances__job_id__receipt_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api V1 Billing Receipts
+         * @description The caller's run receipts, newest first; pass `next_cursor` back as `cursor`.
+         */
+        get: operations["api_v1_billing_receipts_api_v1_billing_receipts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/instances/{job_id}/events": {
         parameters: {
             query?: never;
@@ -2226,6 +2268,8 @@ export interface components {
             exposed_ports?: number[] | null;
             /** Template Image Id */
             template_image_id?: string | null;
+            /** Launch Template Id */
+            launch_template_id?: string | null;
         };
         /** LeaseAuthorityRequest */
         LeaseAuthorityRequest: {
@@ -4738,6 +4782,69 @@ export interface operations {
             path: {
                 job_id: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_instance_receipt_api_v1_instances__job_id__receipt_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_v1_billing_receipts_api_v1_billing_receipts_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;

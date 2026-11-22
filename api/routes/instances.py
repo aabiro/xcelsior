@@ -408,6 +408,12 @@ class JobIn(BaseModel):
     auto_launch: list[str] | None = Field(default=None, max_length=4)
     exposed_ports: list[int] | None = Field(default=None, max_length=8)
     template_image_id: str | None = None
+    #: The quick-start template the launch form started from (an `id` from
+    #: GET /api/images/templates). Recorded on the job so "which workload do
+    #: first jobs run?" has an answer; it must name the image being launched.
+    launch_template_id: str | None = Field(
+        default=None, max_length=64, pattern=r"^[a-z0-9][a-z0-9_.-]{0,63}$"
+    )
     #: Platform admins only: allow placement on a host that is not currently
     #: verified while verified-only placement is on (operator testing). Left
     #: out of the published schema: it is an operator control, not API surface.
@@ -769,6 +775,24 @@ def api_submit_instance(j: JobIn, request: Request):
         j = j.model_copy(update={"image": trow[0]})
         source_template_id = j.template_image_id
 
+    # ── The quick-start template, if the form started from one ───────
+    # Recorded only when it is true: the id must be a published template and
+    # the image being launched must be that template's image.
+    launch_template_id: str | None = None
+    if j.launch_template_id:
+        from security import get_image_templates
+
+        template = next(
+            (t for t in get_image_templates() if t.get("id") == j.launch_template_id), None
+        )
+        if template is None:
+            raise HTTPException(status_code=422, detail="Unknown launch_template_id")
+        if (j.image or "").strip().lower() != str(template.get("image", "")).lower():
+            raise HTTPException(
+                status_code=422, detail="launch_template_id does not match the image"
+            )
+        launch_template_id = j.launch_template_id
+
     # ── A private snapshot belongs to its owner ───────────────────────
     # `template_image_id` is ownership-checked above; the same reference typed
     # into `image` must be too. submit_job enforces it for every caller, this
@@ -955,6 +979,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 auto_launch=j.auto_launch,
                 exposed_ports=j.exposed_ports,
                 source_template_id=source_template_id,
+                launch_template_id=launch_template_id,
                 pricing_mode=j.pricing_mode,
                 preferred_host_id=target_host_id,
                 placement_preference=(
