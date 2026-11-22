@@ -38,3 +38,13 @@ describe("curatePricingGpus", () => {
     expect(curatePricingGpus(rows, 10)).toHaveLength(2);
   });
 });
+
+describe("formatHourlyRate", () => {
+  it("keeps a cheap card's third decimal and drops a trailing zero", async () => {
+    const { formatHourlyRate } = await import("@/lib/hourly-rate");
+    expect(formatHourlyRate(0.044)).toBe("$0.044");
+    expect(formatHourlyRate(0.08)).toBe("$0.08");
+    expect(formatHourlyRate(0.6)).toBe("$0.60");
+    expect(formatHourlyRate(3.5)).toBe("$3.50");
+  });
+});

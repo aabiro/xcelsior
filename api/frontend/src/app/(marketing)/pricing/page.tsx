@@ -89,9 +89,10 @@ export default async function PricingPage() {
             model: p.gpu_model,
             vram: p.vram_gb ?? (p.gpu_model.includes("A100 80") ? 80 : p.gpu_model.includes("A100") ? 40 : p.gpu_model.includes("H100") ? 80 : p.gpu_model.includes("L40") ? 48 : 24),
             onDemand: p.base_rate_cad,
-            spot: +(liveSpot[p.gpu_model] ?? p.spot_cad ?? p.min_rate_cad ?? p.base_rate_cad * 0.4).toFixed(2),
-            reserved1m: +(p.reserved_1mo_cad ?? p.base_rate_cad * 0.8).toFixed(2),
-            reserved1y: +(p.reserved_1yr_cad ?? p.base_rate_cad * 0.55).toFixed(2),
+            // Three decimals: rounding a $0.044 rate to $0.04 understated it by 9 %.
+            spot: +(liveSpot[p.gpu_model] ?? p.spot_cad ?? p.min_rate_cad ?? p.base_rate_cad * 0.4).toFixed(3),
+            reserved1m: +(p.reserved_1mo_cad ?? p.base_rate_cad * 0.8).toFixed(3),
+            reserved1y: +(p.reserved_1yr_cad ?? p.base_rate_cad * 0.55).toFixed(3),
           }))
       : FALLBACK_GPUS,
     10,

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useLocale } from "@/lib/locale";
 import { marketingGpuLabel } from "@/lib/marketing-gpu";
+import { formatHourlyRate } from "@/lib/hourly-rate";
 
 interface GpuOption {
   model: string;
@@ -61,7 +62,7 @@ export function SavingsCalculator({ gpus }: { gpus: GpuOption[] }) {
         <ResultBox
           label={t("calc.ondemand_monthly")}
           value={monthlyCostOnDemand}
-          sublabel={`${totalHours}h x $${rate.toFixed(2)}/hr`}
+          sublabel={`${totalHours}h x ${formatHourlyRate(rate)}/hr`}
         />
         <ResultBox
           label={t("calc.reserved_monthly")}

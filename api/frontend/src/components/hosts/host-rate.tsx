@@ -7,13 +7,10 @@
 import type { Host } from "@/lib/api";
 import { useLocale } from "@/lib/locale";
 import { cn } from "@/lib/utils";
+import { formatHourlyRate } from "@/lib/hourly-rate";
 
 /** $0.12, $0.096: per-hour rates under a dollar keep the third decimal. */
-export function formatHourlyRate(value: number): string {
-  if (value >= 1) return `$${value.toFixed(2)}`;
-  const text = value.toFixed(3);
-  return `$${text.endsWith("0") ? text.slice(0, -1) : text}`;
-}
+export { formatHourlyRate };
 
 type RateFields = Pick<Host, "renter_rate_per_hour" | "host_earns_per_hour" | "platform_cut_pct">;
 

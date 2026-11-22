@@ -8,6 +8,7 @@ import posthog from "posthog-js";
 import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
 import { gpuTierBadge, marketingGpuLabel } from "@/lib/marketing-gpu";
+import { formatHourlyRate } from "@/lib/hourly-rate";
 
 const SavingsCalculator = dynamic(
   () => import("./calculator").then((mod) => mod.SavingsCalculator),
@@ -143,7 +144,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                 </div>
 
                 {[
-                  [t("pricing.col_spot"), `$${cheapestSpot.toFixed(2)}/hr`, "100%"],
+                  [t("pricing.col_spot"), `${formatHourlyRate(cheapestSpot)}/hr`, "100%"],
                   [t("pricing.stat_spot_save"), `${maxSpotSaving || 70}%`, `${Math.min(maxSpotSaving || 70, 100)}%`],
                   [t("pricing.tier_reserved_title"), `${maxReservedSaving || 45}%`, `${Math.min(maxReservedSaving || 45, 100)}%`],
                 ].map(([label, value, width]) => (
@@ -162,7 +163,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                   <span className="site-mono" style={{ color: "var(--text-4)", fontSize: 11, textTransform: "uppercase" }}>
                     {t("pricing.col_spot")}
                   </span>
-                  <strong style={{ color: "var(--text)", fontSize: 25 }}>${cheapestSpot.toFixed(2)}/hr</strong>
+                  <strong style={{ color: "var(--text)", fontSize: 25 }}>{formatHourlyRate(cheapestSpot)}/hr</strong>
                 </div>
               </div>
             </div>
@@ -171,7 +172,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
           <div className="site-rails site-kpi-strip">
             <div className="site-kpi">
               <div className="site-kpi-label">{t("pricing.col_spot")}</div>
-              <div className="site-kpi-value">${cheapestSpot.toFixed(2)}</div>
+              <div className="site-kpi-value">{formatHourlyRate(cheapestSpot)}</div>
             </div>
             <div className="site-kpi">
               <div className="site-kpi-label">{t("pricing.stat_spot_save")}</div>
@@ -203,7 +204,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                 <h3 className="site-card-title">{t(plan.title)}</h3>
                 <p className="site-card-copy">{t(plan.desc)}</p>
                 <div className="site-plan-price">
-                  <strong>{fromPrices[plan.price] != null ? t(plan.price, { price: `$${fromPrices[plan.price]!.toFixed(2)}` }) : "—"}</strong>
+                  <strong>{fromPrices[plan.price] != null ? t(plan.price, { price: formatHourlyRate(fromPrices[plan.price]!) }) : "—"}</strong>
                   <span style={{ color: "var(--text-4)" }}>{t(plan.unit)}</span>
                 </div>
                 <div className="site-plan-items">
@@ -245,10 +246,10 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                       {marketingGpuLabel(gpu.model)}
                     </td>
                     <td>{gpu.vram} GB</td>
-                    <td className="site-table-x">${gpu.spot.toFixed(2)}</td>
-                    <td>${gpu.onDemand.toFixed(2)}</td>
-                    <td>${gpu.reserved1m.toFixed(2)}</td>
-                    <td>${gpu.reserved1y.toFixed(2)}</td>
+                    <td className="site-table-x">{formatHourlyRate(gpu.spot)}</td>
+                    <td>{formatHourlyRate(gpu.onDemand)}</td>
+                    <td>{formatHourlyRate(gpu.reserved1m)}</td>
+                    <td>{formatHourlyRate(gpu.reserved1y)}</td>
                   </tr>
                 ))}
               </tbody>
