@@ -1,0 +1,126 @@
+---
+title: Benchmark your own instance
+subtitle: Run xcelsior-bench, the benchmark behind every listing, and compare your numbers with the host's.
+slug: benchmark
+---
+
+{/*
+  DRAFT. Not published: the docs site builds only the pages docs.yml lists,
+  and Xcel AI reads only api/fern/pages/. To publish it, move it to
+  api/fern/pages/benchmark.mdx and add it to the navigation in
+  api/fern/docs.yml. Its licence is not decided yet. The signing key, flags,
+  thresholds and field names below are checked against the code by
+  tests/test_xcelsior_bench_docs.py.
+*/}
+
+## What it is
+
+Every host on Xcelsior runs `xcelsior-bench` when it is admitted and again at
+each re-verification, while it is idle. The result is what you see on a
+listing: the benchmark date, the verdict, the measured numbers and the peak
+temperature. The full result is in `get_host_evidence` (MCP) and
+`GET /api/v2/hosts/{host_id}/evidence` (API).
+
+You can run the same file inside your own instance. Your numbers then come from
+the same code that produced the host's, so you can check what a listing says on
+the GPU you are actually paying for.
+
+## What it measures
+
+| Field | What it is |
+| --- | --- |
+| `fp16_tflops`, `bf16_tflops` | Dense matrix-multiply throughput |
+| `memory_bandwidth_gbps` | Device memory bandwidth |
+| `allocatable_vram_gb` | The largest single allocation that succeeds |
+| `pcie_h2d_gbps`, `pcie_d2h_gbps` | Host-to-device and device-to-host copy speed |
+| `sustained` | A full-load phase, sampled every second: median and minimum SM clock, peak temperature, power, and the share of time spent throttled, by reason |
+
+The sustained phase runs for 5 minutes by default. The other measurements are
+short.
+
+## Verdict
+
+The verdict is `pass`, `fail` or `unknown`. It only fails on clear faults:
+
+- the GPU slowed down for heat for more than 10% of the sustained phase
+  (`thermal_throttling`);
+- the GPU slowed down for a hardware or power-brake fault for more than 10% of
+  the sustained phase (`power_throttling`);
+- with `--advertised-vram-gb`, the largest allocation was under 90% of that
+  figure (`allocatable_vram_below_listing`).
+
+Running at the power cap under full load is normal. It is reported as
+`power_cap_share` and is not a fault.
+
+If a measurement could not be taken, the verdict is `unknown`, never `pass`.
+For example, a container with no `nvidia-smi` and no `pynvml` cannot read the
+throttle reasons.
+
+## Run it
+
+You need PyTorch with CUDA, which the PyTorch images already have. Run it while
+nothing else is using the GPU, or your own work will lower the numbers.
+
+```bash
+curl -fsSL -D headers.txt -o xcelsior_bench.py https://xcelsior.ca/static/xcelsior_bench.py
+python3 xcelsior_bench.py --advertised-vram-gb 12 > mine.json
+```
+
+Set `--advertised-vram-gb` to the VRAM on the listing you rented. Other
+options:
+
+- `--sustained-seconds N` sets the length of the sustained phase. Use the
+  default (300) when you compare with a host's result.
+- `--device N` picks the GPU on a multi-GPU instance.
+- `--samples` adds every per-second sample to the output.
+
+You pay for the instance's seconds while it runs, as for any other work.
+
+### Check the file first (optional)
+
+The file is signed with the same ed25519 key the host installer checks. To
+verify your copy:
+
+```bash
+cat > xcelsior-signing.pub <<'EOF'
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAa8ybnMNSvU/2/QRbDJ5Y1F6LzusKKu1ACYMeMhyyRXs=
+-----END PUBLIC KEY-----
+EOF
+awk 'tolower($1)=="x-xcelsior-agent-signature:"{print $2}' headers.txt | tr -d '\r' | base64 -d > xcelsior_bench.sig
+openssl pkeyutl -verify -rawin -pubin -inkey xcelsior-signing.pub -sigfile xcelsior_bench.sig -in xcelsior_bench.py
+```
+
+`Signature Verified Successfully` means the file is the one Xcelsior signed.
+OpenSSL 3.0 or later is needed for `-rawin`.
+
+## Compare with the host's result
+
+Get the host's evidence, then compare the fields that both results share:
+
+```bash
+curl -fsS -H "Authorization: Bearer $XCELSIOR_BEARER_TOKEN" \
+  https://xcelsior.ca/api/v2/hosts/$HOST_ID/evidence > host.json
+
+python3 - <<'EOF'
+import json
+mine = json.load(open("mine.json"))
+host = json.load(open("host.json"))["benchmark"]
+if host is None:
+    raise SystemExit("This host has no benchmark yet.")
+if mine["bench_version"] != host["bench_version"]:
+    print(f"different versions: yours {mine['bench_version']}, host {host['bench_version']}")
+for key in ("fp16_tflops", "bf16_tflops", "memory_bandwidth_gbps",
+            "allocatable_vram_gb", "pcie_h2d_gbps", "pcie_d2h_gbps"):
+    print(f"{key:24} yours {mine.get(key)!s:>8}   host {host.get(key)!s:>8}")
+for key in ("sm_clock_p50_mhz", "temp_peak_c", "thermal_throttle_share"):
+    print(f"{key:24} yours {mine['sustained'].get(key)!s:>8}   host {host['sustained'].get(key)!s:>8}")
+EOF
+```
+
+Compare only results with the same `bench_version`. A different driver, CUDA
+or PyTorch version can move the numbers by a few percent. Both results record
+those versions, so you can see when that is the reason.
+
+From an agent, `search_marketplace` returns each listing's evidence summary and
+`get_host_evidence` returns the full result, with the same field names.
