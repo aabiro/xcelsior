@@ -1,4 +1,8 @@
 import type { HpcCluster, HpcJob } from "@/lib/api";
+import { formatDuration, formatMicros } from "@/lib/format-units";
+
+// One formatter for durations and money across the dashboard.
+export { formatDuration, formatMicros };
 
 /** A health signal older than this many poll intervals counts as late. */
 export const LATE_INTERVALS = 3;
@@ -23,18 +27,6 @@ function ms(iso: string | null | undefined): number | null {
 export function ageSeconds(iso: string | null | undefined, now: number): number | null {
   const at = ms(iso);
   return at === null ? null : Math.max(0, Math.round((now - at) / 1000));
-}
-
-/** 42 → "42s", 3725 → "1h 2m", 200000 → "2d 7h". */
-export function formatDuration(seconds: number | null | undefined): string {
-  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "—";
-  const s = Math.max(0, Math.round(seconds));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${s % 60}s`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ${m % 60}m`;
-  return `${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
 export function formatAge(iso: string | null | undefined, now: number): string {
@@ -206,13 +198,6 @@ export function jobMatches(job: HpcJob, query: string): boolean {
 // ── Money, GPU time and the billing ledger ───────────────────────────
 
 /** 389083 → "$0.3891". Under a dollar keeps four places, so a short run isn't "$0.00". */
-export function formatMicros(micros: number | null | undefined): string {
-  if (micros === null || micros === undefined || !Number.isFinite(micros)) return "—";
-  const dollars = micros / 1_000_000;
-  const places = dollars !== 0 && Math.abs(dollars) < 1 ? 4 : 2;
-  return `$${dollars.toLocaleString("en-CA", { minimumFractionDigits: places, maximumFractionDigits: places })}`;
-}
-
 /** GPU seconds as hours: 4002 → "1.11". */
 export function formatGpuHours(gpuSeconds: number | null | undefined): string {
   if (gpuSeconds === null || gpuSeconds === undefined || !Number.isFinite(gpuSeconds)) return "—";

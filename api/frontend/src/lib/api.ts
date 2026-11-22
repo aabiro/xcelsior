@@ -752,6 +752,8 @@ export interface LaunchInstanceParams {
   volume_ids?: string[];
   encrypted_workspace?: boolean;
   template_image_id?: string;
+  /** The quick-start template the form started from; the server checks it names `image`. */
+  launch_template_id?: string;
 }
 
 /** Single entry-point for launching instances, marketplace, new-instance page, spot, on-demand.
@@ -2757,6 +2759,84 @@ export function fetchInstanceTimeline(jobId: string) {
   );
 }
 
+/** What the host's verification read when a run was placed (or, for older runs, the last check before it started). */
+export interface ReceiptVerification {
+  state: string;
+  freshness: string | null;
+  verification_id: string | null;
+  checked_at: number | null;
+  source: "placement" | "history";
+}
+
+export interface ReceiptAttempt {
+  attempt_id: string | null;
+  attempt_number: number | null;
+  status: string | null;
+  host_id: string | null;
+  started_at: number | null;
+  ended_at: number | null;
+  finished: boolean;
+  billed_seconds: number;
+  rate_micros_per_hour: number | null;
+  total_micros: number;
+  hourly_rounded_micros: number | null;
+  rounding: "exact" | "legacy_4dp";
+  host_verification_at_start: ReceiptVerification | null;
+}
+
+/**
+ * A finished run's receipt, read from the ledger that billed it. Money is
+ * integer micros (1/1,000,000 of a dollar); `reconciled` means the amount
+ * owed, the charged billing cycles and the wallet debits agree to the micro.
+ */
+export interface RunReceipt {
+  receipt_version: number;
+  job_id: string;
+  name: string | null;
+  status: string;
+  final: boolean;
+  currency: string;
+  gpu_model: string | null;
+  gpu_count: number;
+  pricing_mode: string | null;
+  image: string | null;
+  launch_template_id: string | null;
+  saved_image_id: string | null;
+  started_at: number | null;
+  ended_at: number | null;
+  billed_seconds: number;
+  rate_micros_per_hour: number | null;
+  total_micros: number;
+  cycles_charged_micros: number;
+  wallet_debit_micros: number;
+  wallet_debit_count: number;
+  outstanding_micros: number;
+  credits_micros: number;
+  reconciled: boolean;
+  hourly_rounded_micros: number | null;
+  hourly_rounded_label: string;
+  rounding: "exact" | "legacy_4dp";
+  host_verification_at_start: ReceiptVerification | null;
+  attempts: ReceiptAttempt[];
+}
+
+/** 404 for someone else's instance, 409 until a run has finished. */
+export function fetchInstanceReceipt(jobId: string) {
+  return apiFetch<{ ok: boolean; receipt: RunReceipt }>(
+    `/api/instances/${encodeURIComponent(jobId)}/receipt`,
+  );
+}
+
+export function fetchRunReceipts(params: { limit?: number; cursor?: string } = {}) {
+  const q = new URLSearchParams();
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.cursor) q.set("cursor", params.cursor);
+  const qs = q.toString();
+  return apiFetch<{ ok: boolean; receipts: RunReceipt[]; next_cursor: string | null }>(
+    `/api/billing/receipts${qs ? `?${qs}` : ""}`,
+  );
+}
+
 /**
  * Current lease health. The route already redacts: `host_alias` is a SHA-derived
  * stand-in and no credential is included, so this is safe to render as-is.
@@ -3672,7 +3752,10 @@ export interface Instance {
   duration_sec?: number;
   elapsed_sec?: number;
   wait_elapsed_sec?: number;
+  /** Finished runs: what their closed meters billed. Running: billed + a live estimate. */
   cost_cad?: number;
+  /** True while a run is in progress (the figure includes a live estimate). */
+  cost_is_estimate?: boolean;
   rate_per_hour_cad?: number;
   rate_is_estimate?: boolean;
   gpu_display?: string;

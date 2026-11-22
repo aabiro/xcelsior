@@ -326,7 +326,7 @@ describe("HPC operator console", () => {
     await screen.findByTestId("cluster-xcl-local");
     openTab(/dash.hpc.tab_jobs/);
     await screen.findAllByText("train-a1");
-    expect(screen.getAllByText("30m 0s of 1h 0m").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("30m 00s of 1h 00m").length).toBeGreaterThan(0);
     expect(screen.getAllByText("stale").length).toBeGreaterThan(0);
     expect(screen.getAllByText("not started").length).toBeGreaterThan(0);
 
@@ -358,10 +358,10 @@ describe("HPC operator console", () => {
     await waitFor(() => expect(fetchHpcJobOutput).toHaveBeenCalledWith("a1b2c3d4", "out"));
     await waitFor(() => expect(screen.getByTestId("hpc-job-output").textContent).toContain("step 1 ok"));
     await screen.findByText(/42% · epoch 3/);
-    expect(screen.getByText(/A fresh copy is queued; reload after 1m 0s/)).toBeTruthy();
+    expect(screen.getByText(/A fresh copy is queued; reload after 1m 00s/)).toBeTruthy();
     const timeline = within(screen.getByRole("list", { name: "Job timeline" }));
     expect(timeline.getByText("queued 3m 20s")).toBeTruthy();
-    expect(timeline.getByText("running 30m 0s")).toBeTruthy();
+    expect(timeline.getByText("running 30m 00s")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "stderr" }));
     await waitFor(() => expect(fetchHpcJobOutput).toHaveBeenCalledWith("a1b2c3d4", "err"));
@@ -552,8 +552,8 @@ describe("HPC console helpers", () => {
 
   it("formats durations", () => {
     expect(formatDuration(42)).toBe("42s");
-    expect(formatDuration(3725)).toBe("1h 2m");
-    expect(formatDuration(200000)).toBe("2d 7h");
+    expect(formatDuration(3725)).toBe("1h 02m");
+    expect(formatDuration(200000)).toBe("2d 07h");
     expect(formatDuration(null)).toBe("—");
   });
 

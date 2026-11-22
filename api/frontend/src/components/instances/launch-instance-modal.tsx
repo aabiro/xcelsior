@@ -525,6 +525,9 @@ export function LaunchInstanceModal({
         volume_ids: selectedVolumeIds.length > 0 ? selectedVolumeIds : undefined,
         encrypted_workspace: encryptedWorkspace || undefined,
         template_image_id: templateImageId || undefined,
+        // Only when the image is still the template's own: the server refuses
+        // a template id that does not name the image being launched.
+        launch_template_id: !templateImageId && selectedTemplate ? selectedTemplate.id : undefined,
       };
       if (listing?.host_id) params.host_id = listing.host_id;
       if (effectivePricingMode === "spot") {
@@ -543,6 +546,11 @@ export function LaunchInstanceModal({
         has_volume: (params.volume_ids?.length ?? 0) > 0,
         from_marketplace: Boolean(listing?.host_id),
         encrypted_workspace: Boolean(params.encrypted_workspace),
+        // Which workload. A custom or saved image's name is the customer's own
+        // and stays out of analytics; a quick-start template's image is public.
+        template_id: params.launch_template_id ?? null,
+        image: params.launch_template_id ? params.image : null,
+        workload_kind: params.template_image_id ? "saved_image" : params.launch_template_id ? "template" : "custom_image",
       });
       onLaunched?.(jobId, res.instance);
       onClose();

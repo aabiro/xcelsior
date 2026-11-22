@@ -1,12 +1,16 @@
 "use client";
 
-/** Show the instance API's compute estimate; the wallet ledger owns charges. */
+/**
+ * The instance API's compute figure. While a run is in progress it is a live
+ * estimate and says so; once runs have finished it is what their meters billed
+ * (the receipt card replaces this one when a receipt exists).
+ */
 import { Wallet, TrendingUp, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Instance } from "@/lib/api";
 
 export interface CostMeterCardProps {
-  instance: Pick<Instance, "rate_per_hour_cad" | "cost_cad" | "rate_is_estimate">;
+  instance: Pick<Instance, "rate_per_hour_cad" | "cost_cad" | "rate_is_estimate" | "cost_is_estimate">;
 }
 
 function formatCad(value: number | undefined): string {
@@ -36,7 +40,9 @@ export function CostMeterCard({ instance }: CostMeterCardProps) {
             </div>
           </div>
           <div className="space-y-1">
-            <p className="text-sm font-medium text-text-muted">Est. Compute Cost</p>
+            <p className="text-sm font-medium text-text-muted">
+              {instance.cost_is_estimate === false ? "Billed Compute" : "Est. Compute Cost"}
+            </p>
             <div className="flex items-center text-lg">
               <TrendingUp className="w-4 h-4 text-text-muted mr-1" />
               <span>{formatCad(instance.cost_cad)}</span>
@@ -45,7 +51,11 @@ export function CostMeterCard({ instance }: CostMeterCardProps) {
         </div>
         <div className="flex items-start mt-4 text-xs text-text-muted bg-surface-hover p-2 rounded-md">
           <Info className="w-3 h-3 mr-1.5 mt-0.5 flex-shrink-0" />
-          <p>Compute estimate from the latest server update. Final charges appear in billing history.</p>
+          <p>
+            {instance.cost_is_estimate === false
+              ? "What the finished runs were billed. Each debit is in billing history."
+              : "Live estimate from the latest server update. Final charges appear in billing history."}
+          </p>
         </div>
       </CardContent>
     </Card>

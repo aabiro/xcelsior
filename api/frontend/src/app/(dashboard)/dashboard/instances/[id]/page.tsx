@@ -16,7 +16,7 @@ import {
 import {
   fetchInstance, cancelInstance, requeueInstance,
   stopInstance, startInstance, restartInstance, terminateInstance, renameInstance,
-  fetchPlacementExplanation, fetchInstanceTimeline, fetchActiveLease, apiFetch
+  fetchPlacementExplanation, fetchInstanceTimeline, fetchActiveLease, fetchInstanceReceipt, apiFetch
 } from "@/lib/api";
 // Aliased: the API response type and the component that renders it share a
 // name, and importing both unaliased shadows one silently.
@@ -25,10 +25,13 @@ import type {
   PlacementExplanation as PlacementExplanationResult,
   InstanceAttempt,
   ActiveLease,
+  RunReceipt,
 } from "@/lib/api";
 import { ArtifactRetentionCard } from "@/components/instances/artifact-retention-card";
 import { DesiredObservedBadge, type ObservationStatus } from "@/components/instances/desired-observed-badge";
 import { CostMeterCard } from "@/components/instances/cost-meter-card";
+import { ReceiptCard } from "@/components/instances/receipt-card";
+import { formatDuration, formatMicros } from "@/lib/format-units";
 import { toast } from "sonner";
 import { HostKeyVerification } from "@/components/instances/host-key-verification";
 import { PlacementExplanation } from "@/components/instances/placement-explanation";
@@ -314,6 +317,22 @@ export default function InstanceDetailPage() {
       });
     return () => { cancelled = true; };
   }, [id, instance]);
+
+  // The receipt: once a run has finished (a terminal instance, or a stopped
+  // one with billed runs). 409 means no finished run yet and 404 not yours;
+  // both simply leave the card out.
+  const [receipt, setReceipt] = useState<RunReceipt | null>(null);
+  const receiptReady = instance?.status === "completed" || instance?.status === "failed"
+    || instance?.status === "cancelled" || instance?.status === "terminated"
+    || instance?.status === "preempted" || instance?.status === "stopped";
+  useEffect(() => {
+    if (!id || !receiptReady) { setReceipt(null); return; }
+    let cancelled = false;
+    fetchInstanceReceipt(String(id))
+      .then((r) => { if (!cancelled) setReceipt(r.ok ? r.receipt : null); })
+      .catch(() => { if (!cancelled) setReceipt(null); });
+    return () => { cancelled = true; };
+  }, [id, receiptReady, instance?.status, instance?.updated_at]);
 
   const currentAttempt = attempts.reduce<InstanceAttempt | null>((latest, attempt) =>
     !latest || attempt.attempt_number > latest.attempt_number ? attempt : latest, null);
@@ -751,7 +770,7 @@ export default function InstanceDetailPage() {
         </div>
       </Card>
 
-      <CostMeterCard instance={instance} />
+      {receipt ? <ReceiptCard receipt={receipt} /> : <CostMeterCard instance={instance} />}
 
       {/* Spot preemption banner */}
       {showPreemptionBanner && (
@@ -808,10 +827,12 @@ export default function InstanceDetailPage() {
           <div>
             <p className="text-xs text-text-muted">{t("dash.instances.label_duration")}</p>
             <p className="font-medium font-mono">
-              {instance.duration_sec
-                ? `${(instance.duration_sec / 3600).toFixed(1)}h`
+              {receipt
+                ? formatDuration(receipt.billed_seconds)
+                : instance.duration_sec
+                ? formatDuration(instance.duration_sec)
                 : instance.elapsed_sec
-                  ? `${(instance.elapsed_sec / 60).toFixed(0)}m`
+                  ? formatDuration(instance.elapsed_sec)
                   : instance.wait_elapsed_sec
                     ? isTerminal
                       ? `waited ${Math.max(1, Math.round(instance.wait_elapsed_sec / 60))}m`
@@ -828,7 +849,11 @@ export default function InstanceDetailPage() {
           <div>
             <p className="text-xs text-text-muted">{t("dash.instances.label_cost")}</p>
             <p className="font-medium font-mono">
-              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)}` : "-"}
+              {receipt
+                ? formatMicros(receipt.total_micros, { exact: true })
+                : instance.cost_cad != null
+                  ? `${instance.cost_is_estimate ? "~" : ""}$${instance.cost_cad.toFixed(2)}`
+                  : "-"}
             </p>
           </div>
         </Card>
@@ -875,7 +900,11 @@ export default function InstanceDetailPage() {
           <div>
             <p className="text-xs text-text-muted">{t("dash.instances.label_cost")}</p>
             <p className="font-mono font-medium mt-0.5">
-              {instance.cost_cad != null ? `$${instance.cost_cad.toFixed(2)}` : "-"}
+              {receipt
+                ? formatMicros(receipt.total_micros, { exact: true })
+                : instance.cost_cad != null
+                  ? `${instance.cost_is_estimate ? "~" : ""}$${instance.cost_cad.toFixed(2)}`
+                  : "-"}
             </p>
           </div>
           <div>
