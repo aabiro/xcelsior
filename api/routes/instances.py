@@ -407,6 +407,9 @@ class JobIn(BaseModel):
     auto_launch: list[str] | None = Field(default=None, max_length=4)
     exposed_ports: list[int] | None = Field(default=None, max_length=8)
     template_image_id: str | None = None
+    #: Platform admins only: allow placement on a host that is not currently
+    #: verified while verified-only placement is on (operator testing).
+    verification_gate_override: bool = False
 
     @field_validator("image")
     @classmethod
@@ -688,6 +691,12 @@ def api_submit_instance(j: JobIn, request: Request):
             status_code=403,
             detail="nfs_server, nfs_path and nfs_mount_point are operator-only; attach storage with volume_ids",
         )
+    if j.verification_gate_override and not _is_platform_admin(user):
+        raise HTTPException(
+            status_code=403,
+            detail="verification_gate_override is operator-only",
+        )
+    verification_gate_override = bool(j.verification_gate_override)
     from abuse_policy import account_suspended
 
     if account_suspended(user):
@@ -949,6 +958,7 @@ def api_submit_instance(j: JobIn, request: Request):
                 placement_preference=(
                     j.placement_preference.model_dump() if j.placement_preference else None
                 ),
+                verification_gate_override=verification_gate_override,
             )
         except Exception as exc:
             if hold_id:

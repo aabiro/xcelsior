@@ -191,6 +191,21 @@ def read_fleet(
         for row in backoff_rows
     }
 
+    # ── Verification, read with the fleet so the gate sees the same instant ──
+    from verification import verification_freshness
+
+    now_epoch = taken_at.timestamp() if hasattr(taken_at, "timestamp") else None
+    verification: dict[str, str] = {}
+    for row in conn.execute(
+        "SELECT host_id, state, last_check_at, next_check_at FROM host_verifications"
+    ).fetchall():
+        verification[str(_get(row, "host_id", 0))] = verification_freshness(
+            _get(row, "state", 1),
+            _get(row, "last_check_at", 2),
+            _get(row, "next_check_at", 3),
+            now=now_epoch,
+        )
+
     # ── Host fleet: payload merged with control-plane columns ─────────
     # Freshness is the DB-clock receipt time of the host's last accepted
     # observation, never the payload's last_seen (an ICMP ping refreshes that).
@@ -228,6 +243,7 @@ def read_fleet(
         host.pop("lease_claim_backoff", None)
         if host_id in backoff:
             host["lease_claim_backoff"] = backoff[host_id]
+        host["verification_freshness"] = verification.get(host_id, "unverified")
 
         summarize_devices(host, devices_by_host.get(host_id, []))
         host["active_spot_gpu_count"] = spot_gpus_used.get(host_id, 0)

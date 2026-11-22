@@ -18,7 +18,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-FILTER_POLICY_VERSION = "filters/v7"
+FILTER_POLICY_VERSION = "filters/v8"
 
 # Only these device rows can carry placement: a physical NVML identity (the
 # same shape the lease claim requires before it grants a device) in a
@@ -41,6 +41,24 @@ class FilterReason:
     details: dict[str, Any] = field(default_factory=dict)
 
 
+def placement_requires_verified() -> bool:
+    """Whether verified-only placement is on (`XCELSIOR_PLACEMENT_REQUIRE_VERIFIED`).
+
+    When on, a host whose verification is not current — unverified,
+    de-verified, or verified but overdue for its re-check — takes no new jobs,
+    for on-demand and spot alike. A platform admin can override it per job
+    (`verification_gate_override`) for operator testing.
+
+    Read when a FilterContext is built, so every caller that filters — the
+    scheduler, launch preview, capacity counts, migration and preemption
+    planning — applies the same gate without each passing it in.
+    """
+    import os
+
+    raw = os.environ.get("XCELSIOR_PLACEMENT_REQUIRE_VERIFIED", "")
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class FilterContext:
     """Caller-supplied facts the pure filters may not compute themselves."""
@@ -48,6 +66,10 @@ class FilterContext:
     # Hosts whose last observation is older than this are not schedulable
     # (§9.3); the caller derives it from DB time, filters just compare.
     stale_host_ids: frozenset[str] = frozenset()
+    # Verified-only placement. Each host's current verification
+    # (`verification_freshness` on the snapshot, computed from DB time by
+    # `read_fleet`) must read `verified`.
+    require_verified: bool = field(default_factory=placement_requires_verified)
 
 
 def _norm(value: Any) -> str:
@@ -104,6 +126,24 @@ def host_admitted(job: dict, host: dict, ctx: FilterContext) -> FilterReason | N
             {"administrative_state": state},
         )
     return None
+
+
+def host_verified(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
+    """Verified-only placement: the host's verification must be current.
+
+    `verification_freshness` is `verified`, `overdue`, `deverified`,
+    `unverified` or `verifying`; a host with no record reads `unverified`.
+    """
+    if not ctx.require_verified or job.get("verification_gate_override") is True:
+        return None
+    status = _norm(host.get("verification_freshness")) or "unverified"
+    if status == "verified":
+        return None
+    return FilterReason(
+        "host_not_verified",
+        f"host verification is {status}",
+        {"verification": status},
+    )
 
 
 def host_ready(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
@@ -321,6 +361,7 @@ def price(job: dict, host: dict, ctx: FilterContext) -> FilterReason | None:
 HARD_FILTERS: Sequence[Callable[[dict, dict, FilterContext], FilterReason | None]] = (
     host_pin,
     host_admitted,
+    host_verified,
     host_ready,
     gpu_model,
     gpu_count,

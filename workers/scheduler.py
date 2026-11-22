@@ -1685,6 +1685,11 @@ def submit_job(
     # (which is the billing customer, and can be a team): the caller's own
     # user id and email. See core/snapshot_image_access.py.
     image_principals=None,
+    # Admin-only: place this job on a host that is not currently verified,
+    # for operator testing while verified-only placement is on. The launch
+    # route sets it only for a platform admin. Only set when true, so the spec
+    # and its hash are unchanged for every other job.
+    verification_gate_override=False,
 ):
     # A caller may supply a deterministic ``job_id`` so a retried submission
     # upserts the same row instead of creating a duplicate — the launch
@@ -1779,6 +1784,11 @@ def submit_job(
                 "placement_preference": placement_preference or None,
                 "serverless_config": serverless_config,
                 **({"hpc_cluster_id": hpc_cluster_id} if hpc_cluster_id else {}),
+                **(
+                    {"verification_gate_override": True}
+                    if verification_gate_override is True
+                    else {}
+                ),
             },
             allow_nan=False,
         )
@@ -1937,6 +1947,8 @@ def submit_job(
     }
     if hpc_cluster_id:
         job["hpc_cluster_id"] = hpc_cluster_id
+    if verification_gate_override is True:
+        job["verification_gate_override"] = True
 
     if job["job_type"] == "serverless_worker" or serverless_config is not None:
         allowed = {

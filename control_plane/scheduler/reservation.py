@@ -336,6 +336,34 @@ def reserve_and_bind(
             raise HostNotEligible(
                 reason.message, filter_reason=reason.code, filter_details=reason.details
             )
+    # Verified-only placement, re-read here: a host de-verified (or gone
+    # overdue) since the score was computed must not take this job.
+    verification_ctx = FilterContext()
+    if verification_ctx.require_verified and spec.get("verification_gate_override") is not True:
+        from control_plane.scheduler.filters import host_verified
+        from verification import verification_freshness
+
+        vrow = conn.execute(
+            """SELECT state, last_check_at, next_check_at,
+                      EXTRACT(EPOCH FROM clock_timestamp()) AS now_epoch
+                 FROM host_verifications WHERE host_id = %s""",
+            (host_id,),
+        ).fetchone()
+        locked_host["verification_freshness"] = (
+            verification_freshness(
+                _one(vrow, "state", 0),
+                _one(vrow, "last_check_at", 1),
+                _one(vrow, "next_check_at", 2),
+                now=float(_one(vrow, "now_epoch", 3)),
+            )
+            if vrow is not None
+            else "unverified"
+        )
+        reason = host_verified(spec, locked_host, verification_ctx)
+        if reason is not None:
+            raise HostNotEligible(
+                reason.message, filter_reason=reason.code, filter_details=reason.details
+            )
     tier_quote = spec.get("service_tier_quote") or None
     host_exclusive = bool(spec.get("host_exclusive"))
     if tier_quote:
@@ -416,12 +444,15 @@ def reserve_and_bind(
 
         policy = _one(host, "payload", 3)
         policy = policy if isinstance(policy, dict) else json.loads(policy or "{}")
-        (spot_used,) = conn.execute(
-            """SELECT count(DISTINCT a.gpu_device_id) FROM gpu_device_allocations a
+        (spot_used,) = (
+            conn.execute(
+                """SELECT count(DISTINCT a.gpu_device_id) FROM gpu_device_allocations a
             JOIN job_attempts t ON t.attempt_id=a.attempt_id JOIN jobs j ON j.job_id=t.job_id
             WHERE a.host_id=%s AND a.released_at IS NULL AND j.spec->>'pricing_mode'='spot'""",
-            (host_id,),
-        ).fetchone() or (0,)
+                (host_id,),
+            ).fetchone()
+            or (0,)
+        )
         reason = spot_capacity(
             spec,
             {**policy, "gpu_count": len(physical), "active_spot_gpu_count": spot_used},
