@@ -2894,6 +2894,77 @@ export interface InstanceGpuHistory {
   gpus: { index: number | null; gpu_model: string; points: InstanceGpuHistoryPoint[] }[];
 }
 
+/**
+ * Why a finished run cannot count on a public workload page. `not_finished`
+ * and `not_reconciled` clear on their own; the rest are permanent for the run.
+ */
+export type ReceiptShareBlocker =
+  | "not_finished"
+  | "not_reconciled"
+  | "ended_abnormally"
+  | "no_template"
+  | "no_gpu"
+  | "too_short";
+
+export interface ReceiptShareState {
+  ok: boolean;
+  job_id: string;
+  shared: boolean;
+  eligible: boolean;
+  blocker: ReceiptShareBlocker | null;
+  template_label: string | null;
+  gpu_model: string | null;
+  page: {
+    slug: string;
+    live: boolean;
+    runs: number | null;
+    min_runs: number;
+    gpu_has_supply: boolean;
+  } | null;
+}
+
+/** Owner only (404 otherwise); 409 before the instance has a finished run. */
+export function fetchReceiptShare(jobId: string) {
+  return apiFetch<ReceiptShareState>(`/api/instances/${encodeURIComponent(jobId)}/receipt/share`);
+}
+
+export function setReceiptShare(jobId: string, shared: boolean) {
+  return apiFetch<ReceiptShareState>(`/api/instances/${encodeURIComponent(jobId)}/receipt/share`, {
+    method: "PUT",
+    body: JSON.stringify({ shared }),
+  });
+}
+
+/**
+ * A public workload page: one quick-start template on one GPU model, from
+ * three or more real, shared runs. Exactly the server's
+ * `receipt_pages.PAGE_FIELDS` (a backend test holds the two equal). Money is
+ * integer micros.
+ */
+export interface ReceiptPage {
+  slug: string;
+  template_id: string;
+  template_label: string;
+  template_description: string;
+  category: string;
+  gpu_model: string;
+  runs: number;
+  customer_runs: number;
+  operator_runs: number;
+  median_billed_seconds: number;
+  min_billed_seconds: number;
+  max_billed_seconds: number;
+  median_total_micros: number;
+  min_total_micros: number;
+  max_total_micros: number;
+  median_rate_micros_per_hour: number | null;
+  pricing_modes: Record<string, number>;
+  median_gpu_utilization: number | null;
+  utilization_runs: number;
+  /** YYYY-MM of the newest run. */
+  latest_month: string | null;
+}
+
 /** Owner only: 404 for anyone else's instance. */
 export function fetchInstanceTelemetry(jobId: string) {
   return apiFetch<InstanceTelemetryResponse>(

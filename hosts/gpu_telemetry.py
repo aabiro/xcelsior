@@ -239,3 +239,30 @@ def history_for_run(conn, job_id: str, since: float | None = None, limit: int = 
         "fields": list(HISTORY_FIELDS),
         "gpus": series,
     }
+
+
+def average_utilization(conn, job_id: str) -> float | None:
+    """The run's mean GPU utilization over its history points; None without any."""
+    total = 0.0
+    count = 0
+    for gpu in run_gpus(conn, job_id):
+        row = conn.execute(
+            """SELECT AVG((sample->>'utilization')::double precision), COUNT(*)
+                 FROM telemetry_samples
+                WHERE host_id = %s AND gpu_uuid = %s
+                  AND sample ? 'utilization'
+                  AND jsonb_typeof(sample->'utilization') = 'number'
+                  AND received_at >= to_timestamp(%s)
+                  AND (%s::double precision IS NULL OR received_at <= to_timestamp(%s))""",
+            (
+                gpu["host_id"],
+                gpu["gpu_uuid"],
+                gpu["allocated_at"],
+                gpu["released_at"],
+                gpu["released_at"],
+            ),
+        ).fetchone()
+        if row and row[1]:
+            total += float(row[0]) * int(row[1])
+            count += int(row[1])
+    return round(total / count, 1) if count else None

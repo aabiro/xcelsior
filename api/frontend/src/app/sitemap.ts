@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { getAllPosts } from "@/lib/blog";
+import { fetchReceiptPages } from "@/lib/receipt-pages";
 
 /** Parse YYYY-MM-DD as local noon UTC to avoid timezone lastmod drift (F-021). */
 function postLastModified(isoDate: string): Date {
@@ -10,7 +11,7 @@ function postLastModified(isoDate: string): Date {
 
 const BASE_URL = "https://xcelsior.ca";
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticRoutes: MetadataRoute.Sitemap = [
     { url: BASE_URL, lastModified: new Date(), changeFrequency: "weekly", priority: 1.0 },
     { url: `${BASE_URL}/features`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.8 },
@@ -34,5 +35,21 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.6,
   }));
 
-  return [...staticRoutes, ...blogPosts];
+  // Workload pages exist only while they qualify (three shared runs, live
+  // supply), so they are listed from the API, and the index only when it has any.
+  const receipts = await fetchReceiptPages();
+  const receiptPages: MetadataRoute.Sitemap =
+    receipts && receipts.pages.length > 0
+      ? [
+          { url: `${BASE_URL}/receipts`, lastModified: new Date(), changeFrequency: "weekly", priority: 0.7 },
+          ...receipts.pages.map((page) => ({
+            url: `${BASE_URL}/receipts/${page.slug}`,
+            lastModified: new Date(),
+            changeFrequency: "weekly" as const,
+            priority: 0.65,
+          })),
+        ]
+      : [];
+
+  return [...staticRoutes, ...blogPosts, ...receiptPages];
 }

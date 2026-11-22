@@ -3040,6 +3040,11 @@ export interface components {
              */
             accepted_seller_terms: boolean;
         };
+        /** ReceiptSharePayload */
+        ReceiptSharePayload: {
+            /** Shared */
+            shared: boolean;
+        };
         /** RefundRequest */
         RefundRequest: {
             /** Job Id */

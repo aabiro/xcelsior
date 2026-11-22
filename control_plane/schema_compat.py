@@ -94,7 +94,9 @@ from psycopg import Connection
 # the host-evidence read model reads.
 # 168 adds `receipt_emails` and `receipt_email_settings`, which the receipt
 # email sweep claims and reads.
-REQUIRED_MIN_REVISION = "168"
+# 169 adds `receipt_shares`, which the receipt share routes write and the
+# public workload pages read.
+REQUIRED_MIN_REVISION = "169"
 REQUIRED_MAX_REVISION: str | None = None
 
 

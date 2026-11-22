@@ -179,6 +179,9 @@ PUBLIC_PATHS = {
     "/api/v2/gpu/available",
     "/hosts",
     "/api/pricing/reference",
+    # Public workload pages: counts, medians and ranges from shared receipts,
+    # nothing that identifies a person, job or host (billing/receipt_pages.py).
+    "/api/receipt-pages",
     "/api/pricing/rates",
     "/api/pricing/spot",
     "/api/pricing/spot-enabled",
@@ -219,7 +222,14 @@ PUBLIC_PATHS = {
     # limit itself.
     "/api/v2/privacy/unsubscribe",
 }
-PUBLIC_PATH_PREFIXES = ("/api/auth/", "/api/chat", "/legacy/", "/oauth/", "/static/")
+PUBLIC_PATH_PREFIXES = (
+    "/api/auth/",
+    "/api/chat",
+    "/api/receipt-pages/",
+    "/legacy/",
+    "/oauth/",
+    "/static/",
+)
 AGENT_RATE_LIMIT_EXEMPT_PREFIXES = ("/host", "/agent/")
 
 

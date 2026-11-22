@@ -98,7 +98,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `168_receipt_emails.py`.**
+**Repository head: `169_receipt_shares.py`.**
+
+169 adds `receipt_shares` (one row per finished run whose owner chose to count it on the public workload pages, keyed by `job_id`; `source` is `operator` for a platform admin's run and `customer` otherwise; turning a share off sets `revoked_at`). The pages store nothing of their own: they are computed from the shared runs' receipts. Billing-domain table. One idempotent unit through `lock_safe`; downgrade drops it. The runtime floor moves to 169.
 
 168 adds `receipt_emails` (one row per finished run, keyed by `job_id`: a sweep claims it as `sending` before it emails, then records `sent`, `failed` (retried a few times) or `skipped`) and `receipt_email_settings` (one row, `enabled_since`, set when the migration runs, so runs that ended earlier are never emailed). Both are billing-domain tables. One idempotent unit through `lock_safe`; downgrade drops both. The runtime floor moves to 168.
 

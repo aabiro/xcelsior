@@ -1509,6 +1509,31 @@ def api_reference_pricing():
     }
 
 
+@router.get("/api/receipt-pages", tags=["Billing"])
+def api_receipt_pages():
+    """Public workload pages: what a quick-start template cost on a GPU, from real runs.
+
+    Built only from finished, reconciled runs their owners shared, three or
+    more per template and GPU model, on GPU models a launch can get now. Each
+    page carries counts, medians and ranges and nothing that identifies a
+    person, job or host. Money is integer micros of a dollar.
+    """
+    from receipt_pages import MIN_RUNS, public_pages
+
+    return {"ok": True, "min_runs": MIN_RUNS, "pages": public_pages()}
+
+
+@router.get("/api/receipt-pages/{slug}", tags=["Billing"])
+def api_receipt_page(slug: str):
+    """One public workload page by slug (``vllm-on-rtx-3060``); 404 when it does not qualify."""
+    from receipt_pages import MIN_RUNS, public_pages
+
+    page = next((p for p in public_pages() if p["slug"] == slug), None)
+    if page is None:
+        raise HTTPException(status_code=404, detail="No workload page for that slug")
+    return {"ok": True, "min_runs": MIN_RUNS, "page": page}
+
+
 def _usage_tax_context() -> dict:
     """Usage spends pretax credits; the deposit is the tax-collection event.
 

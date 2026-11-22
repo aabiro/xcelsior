@@ -6624,6 +6624,19 @@
         ],
         "title": "ProviderRegisterRequest"
       },
+      "ReceiptSharePayload": {
+        "properties": {
+          "shared": {
+            "type": "boolean",
+            "title": "Shared"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shared"
+        ],
+        "title": "ReceiptSharePayload"
+      },
       "RefundRequest": {
         "properties": {
           "job_id": {

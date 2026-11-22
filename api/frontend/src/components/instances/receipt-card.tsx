@@ -7,6 +7,7 @@
  * wallet debits the total reconciles to. The whole-hours line is a comparison,
  * labelled as one; nothing is billed that way.
  */
+import type { ReactNode } from "react";
 import { CheckCircle2, AlertTriangle, Receipt, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import type { RunReceipt } from "@/lib/api";
@@ -29,7 +30,7 @@ function verificationKey(receipt: RunReceipt): string | null {
   return STATE_KEYS[v.freshness || v.state] ?? STATE_KEYS.unverified;
 }
 
-export function ReceiptCard({ receipt }: { receipt: RunReceipt }) {
+export function ReceiptCard({ receipt, footer }: { receipt: RunReceipt; footer?: ReactNode }) {
   const { t } = useLocale();
   const stateKey = verificationKey(receipt);
   const verified = receipt.host_verification_at_start?.freshness === "verified"
@@ -120,6 +121,7 @@ export function ReceiptCard({ receipt }: { receipt: RunReceipt }) {
         <p className="mt-1 text-xs text-text-muted">{t("dash.receipt.legacy_rounding")}</p>
       )}
       {!receipt.final && <p className="mt-1 text-xs text-text-muted">{t("dash.receipt.not_final")}</p>}
+      {footer}
     </Card>
   );
 }

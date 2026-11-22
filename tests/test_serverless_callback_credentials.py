@@ -211,7 +211,9 @@ def test_sdk_does_not_fall_back_to_a_host_or_platform_token(monkeypatch):
         ("164", False),
         ("165", False),
         ("166", False),
-        ("167", True),
+        ("167", False),
+        ("168", False),
+        ("169", True),
     ],
 )
 def test_runtime_requires_the_current_native_history_floor(revision, compatible, monkeypatch):

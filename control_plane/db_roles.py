@@ -236,6 +236,9 @@ BILLING_TABLES = frozenset(
         # and the moment the feature started (runs before it are not mailed).
         "receipt_emails",
         "receipt_email_settings",
+        # Receipt shares (169): finished runs their owners chose to count on
+        # the public workload pages.
+        "receipt_shares",
     }
 )
 

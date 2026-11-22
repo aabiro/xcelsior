@@ -32,6 +32,7 @@ import { DesiredObservedBadge, type ObservationStatus } from "@/components/insta
 import { CostMeterCard } from "@/components/instances/cost-meter-card";
 import { ReceiptCard } from "@/components/instances/receipt-card";
 import { GpuTelemetryCard } from "@/components/instances/gpu-telemetry-card";
+import { ReceiptShareControl } from "@/components/instances/receipt-share-control";
 import { formatDuration, formatMicros } from "@/lib/format-units";
 import { toast } from "sonner";
 import { HostKeyVerification } from "@/components/instances/host-key-verification";
@@ -771,7 +772,14 @@ export default function InstanceDetailPage() {
         </div>
       </Card>
 
-      {receipt ? <ReceiptCard receipt={receipt} /> : <CostMeterCard instance={instance} />}
+      {receipt ? (
+        <ReceiptCard
+          receipt={receipt}
+          footer={!readOnly ? <ReceiptShareControl jobId={instance.job_id} /> : null}
+        />
+      ) : (
+        <CostMeterCard instance={instance} />
+      )}
 
       {/* Spot preemption banner */}
       {showPreemptionBanner && (

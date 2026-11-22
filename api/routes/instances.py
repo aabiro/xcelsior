@@ -1479,6 +1479,97 @@ def api_instance_receipt(job_id: str, request: Request):
     return {"ok": True, "receipt": receipt}
 
 
+class ReceiptSharePayload(BaseModel):
+    shared: bool = Field(strict=True)
+
+
+def _receipt_share_view(job_id: str, user: dict) -> dict:
+    """Whether this run counts on the public workload pages, and what that means."""
+    from psycopg.rows import dict_row
+
+    from db import _get_pg_pool
+    from receipt_pages import page_progress, share_blocker, share_state, templates
+    from run_receipts import build_receipt
+
+    job = get_job(job_id)
+    if not job or not _user_owns_job(user, job):
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+    with _get_pg_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        receipt = build_receipt(cur, job)
+        share = share_state(cur, job_id)
+    if not receipt_has_finished_run(receipt):
+        raise HTTPException(status_code=409, detail="This instance has no finished run yet")
+    blocker = share_blocker(receipt)
+    template_id = receipt.get("launch_template_id")
+    template = templates().get(str(template_id or ""))
+    shared = bool(share and share["revoked_at"] is None)
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "shared": shared,
+        "eligible": blocker is None,
+        "blocker": blocker,
+        "template_label": template.get("label") if template else None,
+        "gpu_model": receipt.get("gpu_model"),
+        "page": (
+            page_progress(str(template_id), str(receipt.get("gpu_model") or ""))
+            if template and receipt.get("gpu_model")
+            else None
+        ),
+    }
+
+
+@router.get("/api/instances/{job_id}/receipt/share", tags=["Instances"])
+def api_instance_receipt_share(job_id: str, request: Request):
+    """Whether this finished run counts on the public workload pages.
+
+    Owner only (404 otherwise); 409 before the instance has a finished run.
+    ``eligible`` is false with a ``blocker`` for a run that cannot count: not
+    finished or not yet reconciled (both clear on their own), ended by a
+    failure or preemption, not started from a quick-start template, shorter
+    than a minute, or with no known GPU model.
+    """
+    user = _require_auth(request)
+    _require_scope(user, "billing:read")
+    return _receipt_share_view(job_id, user)
+
+
+@router.put("/api/instances/{job_id}/receipt/share", tags=["Instances"])
+def api_set_instance_receipt_share(job_id: str, payload: ReceiptSharePayload, request: Request):
+    """Count this run on the public workload pages, or stop counting it.
+
+    A page shows only counts, medians and ranges for one quick-start template
+    on one GPU model, never who ran it, the job, the host or the image, and
+    only once three shared runs exist. A platform admin's share is labelled
+    an operator run. Turning it off takes effect on the next page refresh.
+    """
+    from psycopg.rows import dict_row
+
+    from db import _get_pg_pool
+    from receipt_pages import set_shared
+    from routes._deps import _is_platform_admin
+
+    user = _require_auth(request)
+    _require_scope(user, "billing:write")
+    _require_team_instance_write(user)
+    view = _receipt_share_view(job_id, user)
+    if payload.shared and not view["eligible"]:
+        raise HTTPException(
+            status_code=409, detail=f"This run cannot count on a public page: {view['blocker']}"
+        )
+    job = get_job(job_id) or {}
+    with _get_pg_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        set_shared(
+            cur,
+            job_id=job_id,
+            owner_id=str(job.get("owner") or ""),
+            shared_by=str(user.get("user_id") or user.get("customer_id") or ""),
+            source="operator" if _is_platform_admin(user) else "customer",
+            on=payload.shared,
+        )
+    return _receipt_share_view(job_id, user)
+
+
 @router.patch("/instance/{job_id}", tags=["Instances"])
 def api_update_instance(job_id: str, update: StatusUpdate, request: Request):
     """Permanent tombstone for unfenced lifecycle reports."""
