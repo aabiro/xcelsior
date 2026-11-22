@@ -23,7 +23,7 @@ def _function(name: str) -> str:
 
 
 def _run(
-    directory: Path, failure: str, *, pull_only: bool = False
+    directory: Path, failure: str, *, pull_only: bool = False, ghcr_auth: str = "host"
 ) -> subprocess.CompletedProcess[str]:
     script = r"""
 set -euo pipefail
@@ -50,6 +50,10 @@ read_remote_mcp_colour() { echo green; }
 store_remote_mcp_colour() { :; }
 deploy_ssh_gateway_blue_green() { :; }
 remote_deploy_state_dir() { echo /tmp/deploy-state; }
+python3() {
+    [[ "$2" == pull-token && "$failure" != token ]] || return 1
+    printf 'synthetic-token-%s\n' "$3"
+}
 store_remote_deploy_hashes() {
     cp "$fixture/desired" "$fixture/applied"
     printf 'persist\n' >> "$fixture/events"
@@ -70,6 +74,13 @@ ssh_cmd_host() {
             echo 'docker-compose.yml:/tmp/deploy-state/release.yml'
             ;;
         *'docker compose --profile blue pull'*) [[ "$failure" != pull ]] ;;
+        *'release_images.py pull '*)
+            [[ "$failure" != pull ]] || return 1
+            local image pull_token
+            image=${*##* }
+            read -r pull_token
+            [[ "$pull_token" == "synthetic-token-${image//\'/}" ]]
+            ;;
         *'release_images.py verify-pull'*) [[ "$failure" != revision ]] ;;
         *'run_db_migrations.py'*) [[ "$failure" != migration ]] ;;
         *'up -d --no-deps scheduler-worker'*) [[ "$failure" != scheduler ]] ;;
@@ -84,6 +95,9 @@ ssh_cmd_host() {
 """
     script += f"\nfixture={shlex.quote(str(directory))}\nfailure={shlex.quote(failure)}\n"
     script += f"PROJECT_DIR={shlex.quote(str(DEPLOY.parents[2]))}\nREMOTE_HOST=fixture\n"
+    script += (
+        f"SCRIPT_DIR=$PROJECT_DIR/api/scripts\nXCELSIOR_DEPLOY_GHCR_AUTH={shlex.quote(ghcr_auth)}\n"
+    )
     if pull_only:
         script += "DEPLOY_RELEASE_CONFIG=candidate\nXCELSIOR_DEPLOY_SKIP_MCP=0\n"
     script += _function("ssh_cmd") + _function("persist_deploy_inputs") + _function("deploy_docker")
@@ -116,6 +130,26 @@ def test_failed_release_keeps_previous_inputs_until_successful_retry(tmp_path, f
     events = (tmp_path / "events").read_text()
     assert events.count("persist\n") == 1
     assert events.endswith("persist\n")
+
+
+@pytest.mark.parametrize("failure", ["token", "pull", "none"])
+def test_github_cli_pull_passes_credentials_only_on_stdin(tmp_path, failure):
+    (tmp_path / "desired").write_text("new fingerprints\n")
+    (tmp_path / "colour").write_text("green")
+    result = _run(tmp_path, failure, pull_only=True, ghcr_auth="github-cli")
+    events = (tmp_path / "events").read_text()
+    assert "synthetic-token" not in (events + result.stderr + result.stdout)
+    assert "docker compose --profile blue pull" not in events
+    if failure != "none":
+        assert result.returncode != 0
+        assert "run_db_migrations.py" not in events
+        assert "persist\n" not in events
+        return
+    assert result.returncode == 0, result.stderr
+    migration = events.index("run_db_migrations.py")
+    for image in ("api", "frontend", "mcp"):
+        assert events.index(f"release_images.py pull '{image}'") < migration
+    assert events.index("verify-pull") < migration
 
 
 @pytest.mark.parametrize("failure", ["stage", "pull", "revision", "none"])

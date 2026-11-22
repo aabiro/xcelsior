@@ -1400,6 +1400,16 @@ frontend_build_hash() {
 }
 
 prepare_release_images() {
+    case "${XCELSIOR_DEPLOY_GHCR_AUTH:-host}" in
+        host) ;;
+        github-cli)
+            [[ -n "${XCELSIOR_DEPLOY_IMAGE_MANIFEST:-}" ]] \
+                || error "XCELSIOR_DEPLOY_GHCR_AUTH=github-cli requires an image manifest."
+            gh auth status --hostname github.com >/dev/null 2>&1 \
+                || error "Authenticate GitHub CLI on the workstation before deploying."
+            ;;
+        *) error "XCELSIOR_DEPLOY_GHCR_AUTH must be host or github-cli." ;;
+    esac
     [[ -n "${XCELSIOR_DEPLOY_IMAGE_MANIFEST:-}" ]] || return 0
     [[ -z "$(git -C "$PROJECT_DIR" status --porcelain)" ]] \
         || error "A pull-only release requires a clean checkout of its source commit."
@@ -1729,8 +1739,17 @@ deploy_docker() {
             || error "Could not stage the pull-only Compose configuration."
         [[ -n "$DEPLOY_RELEASE_COMPOSE_FILES" ]] || error "No staged Compose configuration was returned."
         log "Pulling release images by digest..."
-        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue pull --policy always api frontend mcp" \
-            || error "Release image pull failed before migration or activation."
+        if [[ "${XCELSIOR_DEPLOY_GHCR_AUTH:-host}" == github-cli ]]; then
+            local image
+            for image in api frontend mcp; do
+                python3 "$SCRIPT_DIR/release_images.py" pull-token "$image" |
+                    ssh_cmd "cd /opt/xcelsior && python3 api/scripts/release_images.py pull '$image'" \
+                    || error "Release image pull failed for $image before migration or activation."
+            done
+        else
+            ssh_cmd "cd /opt/xcelsior && docker compose --profile blue pull --policy always api frontend mcp" \
+                || error "Release image pull failed before migration or activation."
+        fi
         local release_commit
         release_commit=$(git -C "$PROJECT_DIR" rev-parse HEAD) || error "Could not resolve the release commit."
         ssh_cmd "cd /opt/xcelsior && python3 api/scripts/release_images.py verify-pull '$release_commit'" \
@@ -2346,6 +2365,7 @@ ${CYAN}Environment variables:${NC}
   XCELSIOR_DEPLOY_SYNC_HOSTS  Comma-separated mirror hosts (rsync-only, parallel)
   XCELSIOR_DEPLOY_BUILD_CACHE  1 (default) keep BuildKit cache between deploys; still prune dangling images and dangling build cache
   XCELSIOR_DEPLOY_IMAGE_MANIFEST  Pull pinned GHCR images built by release_images.py, including MCP, instead of building on prod
+  XCELSIOR_DEPLOY_GHCR_AUTH  host (default) or github-cli for short-lived pull tokens from the workstation
   XCELSIOR_DOCKER_BUILD_CACHE_DIR  Remote cache dir (default: /opt/xcelsior-backups/docker-build-cache)
   XCELSIOR_SSH_CONTROL_PATH  SSH mux socket (default: ~/.ssh/cm-xcelsior-%r@%h:%p)
   XCELSIOR_DEPLOY_SLURM_PLACEMENT  1 places jobs on Slurm. Every other value leaves placement off. Charging is not a deploy switch.

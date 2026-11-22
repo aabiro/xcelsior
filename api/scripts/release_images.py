@@ -2,17 +2,23 @@
 """Build the production images on a workstation and pin a release to GHCR digests."""
 
 import argparse
+import base64
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
 import tempfile
+from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[2]
-REGISTRY = "ghcr.io/xcelsior-gpu"
+REGISTRY_HOST = "ghcr.io"
+REGISTRY_OWNER = "xcelsior-gpu"
+REGISTRY = f"{REGISTRY_HOST}/{REGISTRY_OWNER}"
 PLATFORM = "linux/amd64"
 CONTEXTS = {"api": ".", "frontend": "api/frontend", "mcp": "api/mcp"}
 SERVICES = {
@@ -197,19 +203,24 @@ def stage_compose(state: Path, overlay: str) -> str:
         path.unlink(missing_ok=True)
 
 
-def verify_pulled_images(commit: str) -> None:
-    if not re.fullmatch("[0-9a-f]{40}", commit):
-        raise ValueError("expected the full source commit")
+def staged_image_ref(image: str) -> str:
     references = subprocess.check_output(
-        ["docker", "compose", "config", "--images", *SERVICES],
+        ["docker", "compose", "config", "--images", image],
         cwd=ROOT,
         text=True,
         stderr=subprocess.DEVNULL,
     ).splitlines()
+    pattern = rf"{re.escape(REGISTRY)}/{image}@sha256:[0-9a-f]{{64}}"
+    pinned = [ref for ref in references if re.fullmatch(pattern, ref)]
+    if len(pinned) != 1:
+        raise ValueError(f"expected one pinned image for {image}")
+    return pinned[0]
+
+
+def verify_pulled_images(commit: str) -> None:
+    if not re.fullmatch("[0-9a-f]{40}", commit):
+        raise ValueError("expected the full source commit")
     for image in SERVICES:
-        pinned = [ref for ref in references if ref.startswith(f"{REGISTRY}/{image}@sha256:")]
-        if len(pinned) != 1:
-            raise ValueError(f"expected one pinned image for {image}")
         revision = subprocess.check_output(
             [
                 "docker",
@@ -217,13 +228,65 @@ def verify_pulled_images(commit: str) -> None:
                 "inspect",
                 "--format",
                 '{{ index .Config.Labels "org.opencontainers.image.revision" }}',
-                pinned[0],
+                staged_image_ref(image),
             ],
             cwd=ROOT,
             text=True,
         ).strip()
         if revision != commit:
             raise ValueError(f"the pulled {image} image was built from a different commit")
+
+
+def pull_token(image: str) -> str:
+    login = subprocess.check_output(
+        ["gh", "api", "--hostname", "github.com", "user", "--jq", ".login"], text=True
+    ).strip()
+    token = subprocess.check_output(["gh", "auth", "token", "--hostname", "github.com"]).strip()
+    basic = base64.b64encode(login.encode() + b":" + token).decode()
+    query = urlencode(
+        {"service": REGISTRY_HOST, "scope": f"repository:{REGISTRY_OWNER}/{image}:pull"}
+    )
+    client = http.client.HTTPSConnection(REGISTRY_HOST, timeout=15)
+    try:
+        client.request("GET", f"/token?{query}", headers={"Authorization": f"Basic {basic}"})
+        response = client.getresponse()
+        if response.status != 200:
+            raise ValueError(f"GHCR refused pull credentials for {image} (HTTP {response.status})")
+        scoped = json.load(response).get("token")
+        if not isinstance(scoped, str) or not scoped or any(char.isspace() for char in scoped):
+            raise ValueError(f"GHCR returned an invalid pull token for {image}")
+        return scoped
+    finally:
+        client.close()
+
+
+class DockerSocket(http.client.HTTPConnection):
+    def connect(self) -> None:
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect("/var/run/docker.sock")
+
+
+def pull_staged_image(image: str, token: str) -> None:
+    if not token or any(char.isspace() for char in token):
+        raise ValueError(f"missing or invalid pull token for {image}")
+    reference = staged_image_ref(image)
+    query = urlencode({"fromImage": reference, "platform": PLATFORM})
+    auth = base64.urlsafe_b64encode(json.dumps({"registrytoken": token}).encode()).decode()
+    client = DockerSocket("localhost", timeout=120)
+    try:
+        client.request("POST", f"/images/create?{query}", headers={"X-Registry-Auth": auth})
+        response = client.getresponse()
+        if response.status != 200:
+            raise ValueError(f"Docker refused the {image} image pull (HTTP {response.status})")
+        for line in response:
+            event = json.loads(line)
+            if "error" in event or "errorDetail" in event:
+                # Docker/registry responses may reflect credential material.
+                raise ValueError(f"Docker could not pull the pinned {image} image")
+    finally:
+        client.close()
+    print(f"Pulled pinned {image} image")
 
 
 def main() -> None:
@@ -250,6 +313,10 @@ def main() -> None:
         "verify-pull", help="check the source labels on the staged images"
     )
     verifier.add_argument("commit")
+    issuer = actions.add_parser("pull-token", help="send a short-lived GHCR token through a pipe")
+    issuer.add_argument("image", choices=SERVICES)
+    puller = actions.add_parser("pull", help="pull a staged image using its stdin registry token")
+    puller.add_argument("image", choices=SERVICES)
     args = parser.parse_args()
     try:
         if args.action == "compose":
@@ -258,11 +325,23 @@ def main() -> None:
             print(stage_compose(args.state, sys.stdin.read()))
         elif args.action == "verify-pull":
             verify_pulled_images(args.commit)
+        elif args.action == "pull-token":
+            if sys.stdout.isatty():
+                raise ValueError("pipe the pull token directly to the deployment host")
+            print(pull_token(args.image))
+        elif args.action == "pull":
+            pull_staged_image(args.image, sys.stdin.read(16384).strip())
         else:
             if args.manifest is not None and not args.push:
                 raise ValueError("--manifest requires --push")
             build(args.push, args.manifest, args.frontend_env.resolve())
-    except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        http.client.HTTPException,
+        subprocess.CalledProcessError,
+    ) as exc:
         raise SystemExit(f"release images: {exc}") from None
 
 

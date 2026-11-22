@@ -99,19 +99,25 @@ also supplies the workers and SSH gateway. The frontend and MCP each have
 their own image. A local build works with `python3 api/scripts/release_images.py build`.
 
 For a release, use a clean checkout of the approved commit on `origin/main`.
-Set up GHCR push access for the workstation and pull access for the production
-Docker service account. Keep the previous release manifest for rollback. Put
-the public frontend settings matching the target host in a separate dotenv
-file and write the manifest outside the checkout.
+Set up GHCR push access for the workstation and keep the previous release
+manifest for rollback. Put the public frontend settings matching the target
+host in a separate dotenv file and write the manifest outside the checkout.
 
 ```sh
 python3 api/scripts/release_images.py build --push \
   --frontend-env /path/to/frontend-public.env --manifest /path/to/release.json
-XCELSIOR_DEPLOY_IMAGE_MANIFEST=/path/to/release.json bash api/scripts/deploy.sh
+XCELSIOR_DEPLOY_IMAGE_MANIFEST=/path/to/release.json \
+  XCELSIOR_DEPLOY_GHCR_AUTH=github-cli bash api/scripts/deploy.sh
 ```
 
 The manifest binds the three image digests to the checked-out commit. The
-deploy script checks the frontend build settings against the production
+GitHub CLI mode uses the workstation's GitHub session to request a separate
+pull token for each package. It streams each token to the host for the
+corresponding Docker pull. The workstation keeps its GitHub credential.
+Deployments with a dedicated GHCR read credential already configured on the
+host can use the default `XCELSIOR_DEPLOY_GHCR_AUTH=host`.
+
+The deploy script checks the frontend build settings against the production
 Compose settings, pulls those digests, and verifies their source revision
 before migrations. Migrations and blue-green activation use the staged
 Compose overlay with builds disabled for those services. Keep supplying the
