@@ -811,6 +811,45 @@ def api_v1_instance_timeline(job_id: str, request: Request):
     return {"ok": True, "job_id": job_id, "attempts": _attempts_for_job(job_id)}
 
 
+@router.get("/api/v1/instances/{job_id}/receipt")
+def api_v1_instance_receipt(job_id: str, request: Request):
+    """Receipt for a finished run: exact billed seconds, the locked rate in
+    micros per hour, the total and the wallet debits it reconciles to.
+    Owner only; anyone else gets not-found. 409 until a run has finished."""
+    from routes.instances import receipt_for_user, receipt_has_finished_run
+
+    user = _require_auth(request)
+    _require_scope(user, "billing:read")
+    receipt = receipt_for_user(user, job_id)
+    if receipt is None:
+        raise ProblemException(
+            status=404, code="instance_not_found", detail=f"instance {job_id} not found"
+        )
+    if not receipt_has_finished_run(receipt):
+        raise ProblemException(
+            status=409, code="no_finished_run", detail="the instance has no finished run yet"
+        )
+    return {"ok": True, "receipt": receipt}
+
+
+@router.get("/api/v1/billing/receipts")
+def api_v1_billing_receipts(
+    request: Request,
+    limit: int = Query(20, ge=1, le=50),
+    cursor: str | None = Query(None, max_length=512),
+):
+    """The caller's run receipts, newest first; pass `next_cursor` back as `cursor`."""
+    from routes.instances import receipts_page_for_user
+
+    user = _require_auth(request)
+    _require_scope(user, "billing:read")
+    try:
+        page = receipts_page_for_user(user, limit=limit, cursor=cursor)
+    except ValueError:
+        raise ProblemException(status=422, code="invalid_cursor", detail="cursor is invalid")
+    return {"ok": True, **page}
+
+
 @router.get("/api/v1/instances/{job_id}/events")
 def api_v1_instance_events(
     job_id: str, request: Request, cursor: str | None = None, limit: int = Query(100, ge=1, le=1000)

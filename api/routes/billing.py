@@ -498,6 +498,24 @@ class PayPalMarketplaceCaptureRequest(BaseModel):
     order_id: str = Field(min_length=1, max_length=128)
 
 
+@router.get("/api/billing/receipts", tags=["Billing"])
+def api_billing_receipts(
+    request: Request,
+    limit: int = Query(20, ge=1, le=50),
+    cursor: str | None = Query(None, max_length=512),
+):
+    """Receipts for the caller's finished runs, newest first, one page at a time."""
+    from routes.instances import receipts_page_for_user
+
+    user = _require_auth(request)
+    _require_scope(user, "billing:read")
+    try:
+        page = receipts_page_for_user(user, limit=limit, cursor=cursor)
+    except ValueError:
+        raise HTTPException(400, "cursor is invalid")
+    return {"ok": True, **page}
+
+
 @router.get("/api/billing/paypal/enabled", tags=["Billing"])
 def api_paypal_enabled():
     """Check whether PayPal is configured."""

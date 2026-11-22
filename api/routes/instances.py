@@ -1055,13 +1055,34 @@ def _compute_public_ssh_port(job_id: str) -> int:
         return 0
 
 
+def _billed_compute(job_ids: list[str]) -> dict[str, dict]:
+    """Billed compute per job from closed meters; empty when the ledger is unreachable."""
+    try:
+        from psycopg.rows import dict_row
+
+        from db import _get_pg_pool
+        from run_receipts import billed_compute_by_job
+
+        with _get_pg_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            return billed_compute_by_job(cur, job_ids)
+    except Exception as exc:
+        log.warning("billed compute lookup failed (%s)", type(exc).__name__)
+        return {}
+
+
 def _enrich_instance(
-    j: dict, host_map: dict[str, dict], *, reveal_ssh_password: bool = False
+    j: dict,
+    host_map: dict[str, dict],
+    *,
+    reveal_ssh_password: bool = False,
+    billed: dict[str, dict] | None = None,
 ) -> dict:
     """Shared enrichment for every instance response — list and detail.
 
     Adds docker_image mapping, host GPU info, elapsed/duration, connection
     details, and cost computation.  Single source of truth — no drift.
+    ``billed`` is a prefetched :func:`_billed_compute` result for a list;
+    without it the job's own meters are read.
     """
     # Map internal 'image' → frontend 'docker_image'
     if j.get("image") is not None and not j.get("docker_image"):
@@ -1201,13 +1222,21 @@ def _enrich_instance(
     j.setdefault("preempted_at", j.get("preempted_at"))
     j.setdefault("preemption_count", int(j.get("preemption_count", 0) or 0))
 
-    # Estimated hourly rate (for pricing card even before billing starts)
+    # Estimated hourly rate (for pricing card even before billing starts). Only
+    # from a real source: the tier quote, the spot price, or the host's own
+    # rate. With none of those the billing resolver would fall back to a fixed
+    # $0.20/hr that nobody quoted, so the rate is left unknown instead.
     try:
-        from billing import resolve_compute_rate_cad
+        from billing import resolve_compute_rate_cad, resolve_job_pricing_mode
 
-        rate_hr, _ = resolve_compute_rate_cad(j, host)
-        if rate_hr > 0:
-            j["rate_per_hour_cad"] = round(rate_hr, 4)
+        if (
+            j.get("service_tier_quote")
+            or resolve_job_pricing_mode(j) == "spot"
+            or (host or {}).get("cost_per_hour") is not None
+        ):
+            rate_hr, _ = resolve_compute_rate_cad(j, host)
+            if rate_hr > 0:
+                j["rate_per_hour_cad"] = round(rate_hr, 4)
     except Exception:
         pass
     if not j.get("rate_per_hour_cad") and pricing_mode != "spot":
@@ -1230,19 +1259,41 @@ def _enrich_instance(
         except Exception:
             pass
 
-    # Cost (billable elapsed only — not queue wait time)
-    elapsed = j.get("elapsed_sec") or j.get("duration_sec") or 0
-    if elapsed > 0 and j.get("cost_cad") is None:
-        rate = float(j.get("rate_per_hour_cad") or 0.20)
-        j["cost_cad"] = round((elapsed / 3600) * rate, 4)
-    elif (
-        started <= 0
-        and j.get("cost_cad") is None
-        and j.get("status") in ("failed", "cancelled", "terminated")
-    ):
-        # Ended without ever starting: compute is billed from started_at, so the
-        # compute estimate is a real zero, not an unknown.
-        j["cost_cad"] = 0.0
+    # Cost. Finished runs show what their closed meters billed. The run in
+    # progress adds a live estimate (elapsed × the known rate) and says so. No
+    # rate is assumed: an unknown rate leaves the estimate unknown.
+    job_key = str(j.get("job_id") or "")
+    billed_row = (billed if billed is not None else _billed_compute([job_key])).get(job_key)
+    billed_micros = int(billed_row["micros"]) if billed_row else 0
+    if j.get("cost_cad") is None:
+        from money import micros_to_cad
+
+        if j.get("status") == "running":
+            elapsed = float(j.get("elapsed_sec") or 0)
+            rate = j.get("rate_per_hour_cad")
+            if rate is not None and float(rate) >= 0 and not j.get("rate_is_estimate"):
+                j["cost_cad"] = round(
+                    micros_to_cad(billed_micros) + (elapsed / 3600) * float(rate), 6
+                )
+            elif billed_row:
+                j["cost_cad"] = micros_to_cad(billed_micros)
+            j["cost_is_estimate"] = True
+        elif billed_row:
+            j["cost_cad"] = micros_to_cad(billed_micros)
+            j["cost_is_estimate"] = False
+        elif (
+            started > 0 and j.get("rate_per_hour_cad") is not None and not j.get("rate_is_estimate")
+        ):
+            # Ran, but no meter has closed yet (the billing loop settles it on its
+            # next pass): an estimate from the known rate, labelled as one.
+            elapsed = float(j.get("elapsed_sec") or 0)
+            j["cost_cad"] = round((elapsed / 3600) * float(j["rate_per_hour_cad"]), 6)
+            j["cost_is_estimate"] = True
+        elif started <= 0 and j.get("status") in ("failed", "cancelled", "terminated"):
+            # Ended without ever starting: compute is billed from started_at, so
+            # the cost is a real zero, not an unknown.
+            j["cost_cad"] = 0.0
+            j["cost_is_estimate"] = False
 
     # Encrypted workspace flag
     j.setdefault("encrypted_workspace", bool(j.get("encrypted_workspace")))
@@ -1308,8 +1359,9 @@ def api_list_instances(request: Request, status: str | None = None):
     jobs = _filter_jobs_for_user(list_jobs(status=status), user)
     hosts = list_hosts()
     host_map = {h["host_id"]: h for h in hosts}
+    billed = _billed_compute([str(j.get("job_id") or "") for j in jobs])
     for j in jobs:
-        _enrich_instance(j, host_map)
+        _enrich_instance(j, host_map, billed=billed)
     return {
         "instances": jobs,
         "concurrency": {
@@ -1332,6 +1384,74 @@ def api_get_instance(job_id: str, request: Request):
     host_map = {h["host_id"]: h for h in hosts}
     _enrich_instance(j, host_map, reveal_ssh_password=True)
     return {"instance": j}
+
+
+def receipt_for_user(user: dict, job_id: str) -> dict | None:
+    """The run receipt for *job_id*, or None when *user* may not see the job.
+
+    None covers both "no such job" and "someone else's job": callers answer
+    not-found for either, so a receipt id cannot be probed for existence.
+    """
+    from psycopg.rows import dict_row
+
+    from db import _get_pg_pool
+    from run_receipts import build_receipt
+
+    job = get_job(job_id)
+    if not job or not _user_owns_job(user, job):
+        return None
+    with _get_pg_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        return build_receipt(cur, job)
+
+
+def receipt_has_finished_run(receipt: dict) -> bool:
+    """A receipt exists once the job is terminal or one of its runs has ended."""
+    return bool(receipt["final"]) or any(
+        a["finished"] and a["started_at"] is not None for a in receipt["attempts"]
+    )
+
+
+def receipts_page_for_user(user: dict, *, limit: int, cursor: str | None) -> dict:
+    """The caller's receipts, newest first. Raises ValueError on a bad cursor.
+
+    Always the caller's own wallets (and their team's), admins included: a
+    platform admin reads someone else's receipt by job id, not in their list.
+    """
+    from psycopg.rows import dict_row
+
+    from db import _get_pg_pool
+    from routes._deps import _customer_ids_accessible_by_user
+    from run_receipts import build_receipt, list_receipt_jobs
+
+    owner_ids = _customer_ids_accessible_by_user(user)
+    if not owner_ids:
+        return {"receipts": [], "next_cursor": None}
+    receipts = []
+    with _get_pg_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        job_ids, next_cursor = list_receipt_jobs(cur, owner_ids, limit=limit, cursor=cursor)
+        for job_id in job_ids:
+            job = get_job(job_id)
+            if job and (job.get("owner") or "") in owner_ids:
+                receipts.append(build_receipt(cur, job))
+    return {"receipts": receipts, "next_cursor": next_cursor}
+
+
+@router.get("/api/instances/{job_id}/receipt", tags=["Instances"])
+def api_instance_receipt(job_id: str, request: Request):
+    """The receipt for a finished run: exact seconds, locked rate, what was debited.
+
+    Owner only. Anyone else gets not-found, as for a job that does not exist.
+    409 while the instance has no finished run yet (use the instance's live
+    estimate until then).
+    """
+    user = _require_auth(request)
+    _require_scope(user, "billing:read")
+    receipt = receipt_for_user(user, job_id)
+    if receipt is None:
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+    if not receipt_has_finished_run(receipt):
+        raise HTTPException(status_code=409, detail="This instance has no finished run yet")
+    return {"ok": True, "receipt": receipt}
 
 
 @router.patch("/instance/{job_id}", tags=["Instances"])
