@@ -57,6 +57,7 @@ def _emitter_files() -> set[str]:
         if rel.startswith(
             (
                 "tests/",
+                ".claude/",
                 ".venv/",
                 "venv/",
                 "node_modules/",

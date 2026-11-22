@@ -64,6 +64,7 @@ def _iter_py_files():
         if rel.startswith(
             (
                 "tests/",
+                ".claude/",
                 ".venv/",
                 "venv/",
                 "node_modules/",

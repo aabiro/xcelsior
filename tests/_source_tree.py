@@ -30,6 +30,9 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 #: prose about a defect five times in this suite.
 DEFAULT_EXCLUDED_PREFIXES = (
     ".git/",
+    # Gitignored. Agent sessions check out whole copies of the repository under
+    # .claude/worktrees/; a gate that scans them reports another branch's code.
+    ".claude/",
     ".venv/",
     "venv/",
     "node_modules/",
