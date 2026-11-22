@@ -32,13 +32,22 @@ class VerifyHostRequest(BaseModel):
 
 @router.post("/api/verify/{host_id}", tags=["Verification"])
 def api_verify_host(host_id: str, req: VerifyHostRequest, request: Request):
-    """Run verification checks on a host."""
+    """Run verification checks on a host against a caller-supplied report. Admin only.
+
+    The caller supplies the measurements, so whoever may call this may verify
+    any host with numbers they typed. It required only a signed-in user (the
+    `verification:write` scope check is a no-op for browser sessions), which
+    let any account mark any host verified — and with verified-only placement
+    that decides where every job runs. Real reports come from the host's own
+    agent through `/agent/verify`, which is bound to that host.
+    """
     from routes._deps import _get_current_user, _require_scope
 
     user = _get_current_user(request)
     if not user:
         raise HTTPException(401, "Not authenticated")
     _require_scope(user, "verification:write")
+    _require_admin(request)
     ve = get_verification_engine()
     result = ve.run_verification(host_id, {**req.gpu_info, **req.network_info})
     return {"ok": True, "host_id": host_id, "verification": result}
@@ -81,11 +90,20 @@ def api_verification_status(host_id: str, request: Request):
     if not v:
         return {"ok": True, "host_id": host_id, "status": "unverified"}
 
+    from verification import overdue_after, verification_freshness
+
     state = getattr(v.state, "value", None) or str(v.state)
     return {
         "ok": True,
         "host_id": host_id,
         "status": state,
+        # `verified` past its next check plus the grace reads `overdue`; the
+        # placement gate treats an overdue host as not verified.
+        "freshness": verification_freshness(state, v.last_check_at, v.next_check_at),
+        "overdue_after": (
+            overdue_after(v.last_check_at, v.next_check_at) if state == "verified" else None
+        ),
+        "on_hold": v.hold_active(),
         "overall_score": v.overall_score,
         "verified_at": v.verified_at,
         "last_check_at": v.last_check_at,
@@ -120,8 +138,11 @@ def api_verified_hosts(request: Request):
     # Return all hosts with verification records (any state)
     with store._conn() as conn:
         rows = conn.execute(
-            "SELECT host_id, state, overall_score, last_check_at, gpu_fingerprint, deverify_reason FROM host_verifications ORDER BY state, host_id"
+            "SELECT host_id, state, overall_score, last_check_at, next_check_at, "
+            "gpu_fingerprint, deverify_reason FROM host_verifications ORDER BY state, host_id"
         ).fetchall()
+    from verification import verification_freshness
+
     # Enrich with host data
     all_hosts = list_hosts(active_only=False)
     host_map = {h["host_id"]: h for h in all_hosts}
@@ -132,8 +153,12 @@ def api_verified_hosts(request: Request):
             {
                 "host_id": r["host_id"],
                 "status": r["state"],
+                "freshness": verification_freshness(
+                    r["state"], r["last_check_at"], r["next_check_at"]
+                ),
                 "overall_score": r["overall_score"],
                 "last_check": r["last_check_at"],
+                "next_check_at": r["next_check_at"],
                 "gpu_fingerprint": r["gpu_fingerprint"],
                 "deverify_reason": r["deverify_reason"] or "",
                 "gpu_model": h.get("gpu_model", "—"),
@@ -148,8 +173,10 @@ def api_verified_hosts(request: Request):
 def api_admin_approve_host(host_id: str, request: Request, notes: str = ""):
     """Admin manually approves a host, overriding automated checks.
 
-    Sets host verification state to 'verified' regardless of check results.
-    Useful when an admin has physically inspected hardware or reviewed logs.
+    Sets host verification state to 'verified' regardless of check results and
+    clears any hold. Useful when an admin has physically inspected hardware or
+    reviewed logs. Clearing an identity-mismatch hold also clears the GPU
+    identity baseline, so the next passing verification records the new card.
     """
     _require_admin(request)
     ve = get_verification_engine()
@@ -164,24 +191,50 @@ def api_admin_approve_host(host_id: str, request: Request, notes: str = ""):
             host_id=host_id,
             state=HostVerificationState.UNVERIFIED,
         )
+    from verification import HOLD_IDENTITY_MISMATCH, VERIFICATION_THRESHOLDS
+
+    cleared_hold = existing.hold_reason
+    now = time.time()
     existing.state = "verified"
-    existing.verified_at = time.time()
+    existing.verified_at = now
     existing.deverified_at = None
     existing.deverify_reason = ""
     existing.overall_score = 100.0
-    existing.last_check_at = time.time()
-    existing.next_check_at = time.time() + 86400
+    existing.last_check_at = now
+    existing.next_check_at = now + VERIFICATION_THRESHOLDS["reverify_interval_sec"]
+    # An approval is the admin clearing whatever held the host. A held identity
+    # mismatch means the card changed: the old baseline no longer describes the
+    # machine, so the next passing verification records a new one.
+    existing.hold_reason = ""
+    existing.hold_until = None
+    if cleared_hold == HOLD_IDENTITY_MISMATCH:
+        existing.identity_baseline = {}
     store.save_verification(existing)
-    log.info("ADMIN APPROVED host=%s notes=%s", host_id, notes or "(none)")
-    emit_event("verification_override", {"host_id": host_id, "action": "approve", "notes": notes})
-    return {"ok": True, "host_id": host_id, "status": "verified", "approved_by": "admin"}
+    log.info(
+        "ADMIN APPROVED host=%s notes=%s cleared_hold=%s",
+        host_id,
+        notes or "(none)",
+        cleared_hold or "(none)",
+    )
+    emit_event(
+        "verification_override",
+        {"host_id": host_id, "action": "approve", "notes": notes, "cleared_hold": cleared_hold},
+    )
+    return {
+        "ok": True,
+        "host_id": host_id,
+        "status": "verified",
+        "approved_by": "admin",
+        "cleared_hold": cleared_hold,
+    }
 
 
 @router.post("/api/verify/{host_id}/reject", tags=["Verification"])
 def api_admin_reject_host(host_id: str, request: Request, reason: str = "Admin rejection"):
     """Admin manually rejects/deverifies a host.
 
-    Sets host verification state to 'deverified' so it cannot receive jobs.
+    Sets host verification state to 'deverified', held until an admin approves
+    it again, so it cannot receive jobs while the placement gate is on.
     """
     _require_admin(request)
     ve = get_verification_engine()
@@ -195,10 +248,17 @@ def api_admin_reject_host(host_id: str, request: Request, reason: str = "Admin r
             host_id=host_id,
             state=HostVerificationState.UNVERIFIED,
         )
+    from verification import HOLD_ADMIN_REJECTED
+
     existing.state = "deverified"
     existing.deverified_at = time.time()
     existing.deverify_reason = f"Admin: {reason}"
     existing.last_check_at = time.time()
+    # Held until an admin approves: the reverification sweep must not undo a
+    # rejection because a later benchmark happened to pass.
+    existing.hold_reason = HOLD_ADMIN_REJECTED
+    existing.hold_until = None
+    existing.next_check_at = None
     store.save_verification(existing)
     log.warning("ADMIN REJECTED host=%s reason=%s", host_id, reason)
     emit_event("verification_override", {"host_id": host_id, "action": "reject", "reason": reason})

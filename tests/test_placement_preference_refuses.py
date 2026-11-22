@@ -371,7 +371,7 @@ def _verified(host_id, price, state, *, checked_secs_ago=3600, **kw):
     """A host with a verification state and, by default, a *recent* check.
 
     Defaulting to a fresh check matters: `state='verified'` with no
-    `last_check_at` now reads as `stale`, so a builder that omitted it would
+    `last_check_at` now reads as `overdue`, so a builder that omitted it would
     make every `require_verified` test pass for the wrong reason — or fail for
     one the test is not about.
     """
@@ -547,7 +547,7 @@ def test_the_observation_minimum_is_reachable_within_one_calendar_month():
     )
 
 
-def test_a_verified_stamp_nobody_rechecked_is_stale_not_verified():
+def test_a_verified_stamp_nobody_rechecked_is_overdue_not_verified():
     """The third instance of one shape: measured, but not recently.
 
     `state='verified'` means "was verified once and nothing revoked it". The
@@ -570,15 +570,15 @@ def test_a_verified_stamp_nobody_rechecked_is_stale_not_verified():
     )
     result = choose_host([old], PlacementPreference(require_verified=True)).as_dict()
     assert result["refused"] is True, "a four-month-old stamp counted as verification"
-    assert result["code"] == "verification_stale"
+    assert result["code"] == "verification_overdue"
     assert "has not answered" in result["detail"], (
         "the refusal does not say why the stamp aged — an operator needs to know "
-        "the host stopped answering the sweep, not just that it looks stale"
+        "the host stopped answering the sweep, not just that it looks overdue"
     )
     assert time.time()  # the check is time-based, not a fixed flag
 
 
-def test_stale_and_unverified_are_different_refusals():
+def test_overdue_and_unverified_are_different_refusals():
     """ "No verified hosts exist" is answered by verifying one; "the checker is
     not running" is answered by starting the sweep. One code cannot say both."""
     from control_plane.scheduler.preference import PlacementPreference, choose_host
@@ -592,7 +592,7 @@ def test_stale_and_unverified_are_different_refusals():
         PlacementPreference(require_verified=True),
     ).as_dict()
 
-    assert stale["code"] == "verification_stale"
+    assert stale["code"] == "verification_overdue"
     assert never["code"] == "verification_unsatisfiable"
     assert stale["code"] != never["code"]
 
@@ -654,30 +654,33 @@ def test_an_unconstrained_request_still_places_when_verification_is_unreadable()
     assert choose_host([host]).as_dict()["refused"] is False
 
 
-def test_the_staleness_tolerance_is_derived_from_the_interval_policy():
-    """A typed `7 * 24 * 3600` whose docstring called it "a multiple of
-    reverify_interval_sec" kept the multiple in the comment and not the code —
-    the `TIER_ORDER` defect again.
+def test_overdue_is_the_verification_module_rule_not_a_local_tolerance():
+    """The gate carried its own tolerance (seven intervals, a week) while every
+    other surface would read the same stamp as late. One rule now: overdue past
+    `next_check_at` plus `reverify_grace_sec`, from `verification`."""
+    import time
 
-    Raise the interval to a week and the tolerance silently becomes 1×; raise it
-    to a month and this gate refuses hosts that are perfectly current.
-    """
     from verification import VERIFICATION_THRESHOLDS
-    from control_plane.scheduler.preference import (
-        VERIFICATION_STALE_AFTER_INTERVALS,
-        verification_max_age_seconds,
-    )
+    from control_plane.scheduler.preference import verification_status
 
-    interval = float(VERIFICATION_THRESHOLDS["reverify_interval_sec"])
+    now = time.time()
+    grace = float(VERIFICATION_THRESHOLDS["reverify_grace_sec"])
+    host = {"verification_state": "verified", "last_check_at": now - 86400}
+    host["next_check_at"] = now - grace + 60
+    assert verification_status(host, now=now) == "verified"
+    host["next_check_at"] = now - grace - 60
     assert (
-        verification_max_age_seconds() == interval * VERIFICATION_STALE_AFTER_INTERVALS
-    ), "the tolerance has drifted from the interval it is defined against"
+        verification_status(host, now=now) == "overdue"
+    ), "a stamp past its next check plus the grace still counted as verified"
+    # Two days past due used to pass: the old tolerance was a week.
+    host["next_check_at"] = now - 2 * 86400
+    assert verification_status(host, now=now) == "overdue"
 
 
 def test_the_sweep_and_the_gate_agree_about_a_missing_schedule():
     """They disagreed, and hosts fell in the gap.
 
-    The gate treats a missing `last_check_at` as stale — refused, correctly.
+    The gate treats a missing `last_check_at` as overdue — refused, correctly.
     The due query required `next_check_at IS NOT NULL`, so a verified host with
     no schedule was invisible to the sweep **forever**: permanently refused by
     the gate and permanently unreachable by the only thing that would fix it.

@@ -53,12 +53,25 @@ def test_verification_run_requires_auth():
     assert r.status_code == 401
 
 
-def test_verification_run_authenticated(user_headers):
+def test_verification_run_refuses_a_non_admin(user_headers):
+    """The caller supplies the measurements, so only an admin may submit them."""
     host_id = f"host-{uuid.uuid4().hex[:8]}"
     r = client.post(
         f"/api/verify/{host_id}",
         json={"gpu_info": {"model": "test-gpu"}, "network_info": {}},
         headers=user_headers,
+    )
+    assert r.status_code == 403
+    r2 = client.get(f"/api/verify/{host_id}/status", headers=_admin_headers())
+    assert r2.json().get("status") == "unverified"
+
+
+def test_verification_run_admin():
+    host_id = f"host-{uuid.uuid4().hex[:8]}"
+    r = client.post(
+        f"/api/verify/{host_id}",
+        json={"gpu_info": {"model": "test-gpu"}, "network_info": {}},
+        headers=_admin_headers(),
     )
     assert r.status_code == 200
     assert r.json().get("ok") is True

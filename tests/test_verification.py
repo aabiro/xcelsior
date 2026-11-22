@@ -1,13 +1,10 @@
 """Tests for Xcelsior host verification lifecycle — checks, scoring, de/verification."""
 
 import os
-import tempfile
-import time
+import uuid
 
 import pytest
 
-_tmp_ctx = tempfile.TemporaryDirectory(prefix="xcelsior_verif_test_")
-_tmpdir = _tmp_ctx.name
 os.environ.setdefault("XCELSIOR_API_TOKEN", "")
 os.environ.setdefault("XCELSIOR_ENV", "test")
 
@@ -25,26 +22,66 @@ from verification import (
     check_thermal_stability,
 )
 
+LISTING = {"gpu_model": "NVIDIA RTX 4090", "vram_gb": 24, "gpu_count": 1, "offers": []}
+
+
+class _ListedStore(VerificationStore):
+    """The PostgreSQL store, with the host's listing supplied by the test."""
+
+    def get_advertised_hardware(self, host_id: str):
+        return LISTING
+
+
+_HOSTS: list[str] = []
+
 
 def _store() -> VerificationStore:
-    return VerificationStore(db_path=os.path.join(_tmpdir, f"verif_{os.urandom(4).hex()}.db"))
+    return _ListedStore()
+
+
+def _hid(prefix: str) -> str:
+    host_id = f"{prefix}-{uuid.uuid4().hex[:8]}"
+    _HOSTS.append(host_id)
+    return host_id
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _cleanup_hosts():
+    yield
+    store = VerificationStore()
+    with store._conn() as conn:
+        for table in ("host_verifications", "verification_history", "job_failure_log"):
+            conn.execute(f"DELETE FROM {table} WHERE host_id = ANY(%s)", (_HOSTS,))
 
 
 def _good_report() -> dict:
-    """A host report that passes all checks."""
+    """A host report that passes all checks.
+
+    `advertised_*` stands in for the listing at the check level; the engine
+    replaces it with the listing it reads, whatever the agent sends.
+    """
     return {
-        "claimed_gpu_model": "NVIDIA RTX 4090",
+        "advertised_gpu_model": "NVIDIA RTX 4090",
+        "advertised_vram_gb": 24,
         "gpu_model": "NVIDIA RTX 4090",
-        "claimed_vram_gb": 24,
         "total_vram_gb": 24,
+        "allocatable_vram_gb": 23.2,
         "cuda_version": "12.4",
         "driver_version": "550.54",
         "compute_capability": 8.9,
         "pcie_bandwidth_gbps": 15.0,
         "gpu_temp_celsius": 65,
+        "gpu_temp_samples": 30,
         "packet_loss_pct": 0.1,
         "jitter_ms": 5,
         "throughput_mbps": 500,
+        "versions": {
+            "runc": "1.4.0",
+            "nvidia_toolkit": "1.20.2",
+            "nvidia_driver": "580.178.04",
+            "docker": "29.1.3",
+        },
+        "gpu_identities": [{"index": 0, "gpu_uuid": "GPU-1111-2222", "serial": "1650123456789"}],
     }
 
 
@@ -52,7 +89,7 @@ def _good_report() -> dict:
 
 
 class TestGPUIdentity:
-    """GPU identity — model match and VRAM ≥95%."""
+    """GPU identity — the measured card against the listing, VRAM within 5% either way."""
 
     def test_matching_gpu_passes(self):
         r = check_gpu_identity(_good_report())
@@ -68,16 +105,16 @@ class TestGPUIdentity:
         # What a real RTX 3060 host reports: the agent's canonical NVML name as the
         # claim, and the benchmark's raw torch device name as the actual model.
         report = _good_report()
-        report["claimed_gpu_model"] = "RTX 3060"
+        report["advertised_gpu_model"] = "RTX 3060"
         report["gpu_model"] = "NVIDIA GeForce RTX 3060"
-        report["claimed_vram_gb"] = 12.0
+        report["advertised_vram_gb"] = 12.0
         report["total_vram_gb"] = 11.6
         r = check_gpu_identity(report)
         assert r.passed is True
 
     def test_canonical_claim_still_rejects_a_different_card(self):
         report = _good_report()
-        report["claimed_gpu_model"] = "RTX 4090"
+        report["advertised_gpu_model"] = "RTX 4090"
         report["gpu_model"] = "NVIDIA GeForce RTX 3060"
         r = check_gpu_identity(report)
         assert r.passed is False
@@ -88,9 +125,15 @@ class TestGPUIdentity:
         r = check_gpu_identity(report)
         assert r.passed is False
 
+    def test_vram_above_105pct_fails(self):
+        report = _good_report()
+        report["total_vram_gb"] = 48
+        r = check_gpu_identity(report)
+        assert r.passed is False
+
     def test_empty_model_fails(self):
         report = _good_report()
-        report["claimed_gpu_model"] = ""
+        report["advertised_gpu_model"] = ""
         report["gpu_model"] = ""
         r = check_gpu_identity(report)
         assert r.passed is False
@@ -109,11 +152,12 @@ class TestCUDAReadiness:
         r = check_cuda_readiness(report)
         assert r.passed is False
 
-    def test_missing_cuda_fails(self):
+    def test_missing_cuda_is_not_a_pass(self):
         report = _good_report()
         report["cuda_version"] = ""
         r = check_cuda_readiness(report)
         assert r.passed is False
+        assert r.status == "unknown"
 
 
 class TestPCIeBandwidth:
@@ -178,9 +222,10 @@ class TestVerificationStore:
 
     def test_save_and_get(self):
         store = _store()
-        hv = HostVerification(host_id="h-store-1", state=HostVerificationState.VERIFIED)
+        host_id = _hid("h-store")
+        hv = HostVerification(host_id=host_id, state=HostVerificationState.VERIFIED)
         store.save_verification(hv)
-        got = store.get_verification("h-store-1")
+        got = store.get_verification(host_id)
         assert got is not None
         assert got.state == HostVerificationState.VERIFIED
 
@@ -190,25 +235,23 @@ class TestVerificationStore:
 
     def test_list_verified_hosts(self):
         store = _store()
+        v1, v2 = _hid("h-v1"), _hid("h-v2")
+        store.save_verification(HostVerification(host_id=v1, state=HostVerificationState.VERIFIED))
         store.save_verification(
-            HostVerification(host_id="h-v1", state=HostVerificationState.VERIFIED)
-        )
-        store.save_verification(
-            HostVerification(host_id="h-v2", state=HostVerificationState.DEVERIFIED)
+            HostVerification(host_id=v2, state=HostVerificationState.DEVERIFIED)
         )
         verified = store.list_verified_hosts()
-        assert "h-v1" in verified
-        assert "h-v2" not in verified
+        assert v1 in verified
+        assert v2 not in verified
 
     def test_record_job_failure(self):
         store = _store()
+        host_id = _hid("h-fail")
         store.save_verification(
-            HostVerification(host_id="h-fail", state=HostVerificationState.VERIFIED)
+            HostVerification(host_id=host_id, state=HostVerificationState.VERIFIED)
         )
-        store.record_job_failure("h-fail", "j-fail-1")
-        # Verify failure was recorded (get_recent_failures counts them)
-        count = store.get_recent_failures("h-fail")
-        assert count >= 1
+        store.record_job_failure(host_id, "j-fail-1")
+        assert store.get_recent_failures(host_id) == 1
 
 
 # ── Verification Engine ──────────────────────────────────────────────
@@ -220,18 +263,17 @@ class TestVerificationEngine:
     def test_run_verification_all_pass(self):
         store = _store()
         engine = VerificationEngine(store=store)
-        result = engine.run_verification("h-eng-1", _good_report())
-        assert result.state == HostVerificationState.VERIFIED
-        assert result.overall_score > 80
+        result = engine.run_verification(_hid("h-eng"), _good_report())
+        assert result.state == HostVerificationState.VERIFIED, result.deverify_reason
+        assert result.overall_score == 100
 
     def test_run_verification_failing_check(self):
         store = _store()
         engine = VerificationEngine(store=store)
         report = _good_report()
         report["gpu_model"] = "FAKE GPU"
-        result = engine.run_verification("h-eng-fail", report)
-        # Should still produce a result but with lower score or deverified
-        assert result is not None
+        result = engine.run_verification(_hid("h-eng-fail"), report)
+        assert result.state == HostVerificationState.DEVERIFIED
         assert result.overall_score < 100
 
     def test_threshold_constants(self):
@@ -250,3 +292,10 @@ class TestVerificationResult:
         d = r.to_dict()
         assert d["check_name"] == "test"
         assert d["passed"] is True
+        assert d["status"] == "pass"
+
+    def test_status_wins_over_passed(self):
+        r = VerificationResult(
+            check_name="t", passed=True, expected="", actual="", status="unknown"
+        )
+        assert r.passed is False

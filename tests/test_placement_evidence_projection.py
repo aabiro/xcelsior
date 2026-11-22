@@ -407,7 +407,7 @@ def test_a_candidate_with_no_host_id_is_a_caller_bug_not_a_refusal(hosts):
             attach_placement_evidence(conn, [{"host_id": "", "cost_per_hour": 0.20}])
 
 
-def test_a_verified_stamp_nobody_has_rechecked_refuses_as_stale(hosts):
+def test_a_verified_stamp_nobody_has_rechecked_refuses_as_overdue(hosts):
     """Real rows, the production condition: verified, and 111 days unchecked."""
     host_id = hosts[0]
     now = time.time()
@@ -426,4 +426,4 @@ def test_a_verified_stamp_nobody_has_rechecked_refuses_as_stale(hosts):
 
     refusal = choose_host(merged, PlacementPreference(require_verified=True))
     assert isinstance(refusal, PlacementRefused)
-    assert refusal.code == "verification_stale"
+    assert refusal.code == "verification_overdue"

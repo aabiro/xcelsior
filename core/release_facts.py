@@ -7,7 +7,9 @@ Each value is read from the one file that decides it, so a copy cannot drift:
 - the Xcel AI tool count: the assistant's own tool list;
 - a package version: that package's manifest;
 - the wizard release every instruction pins, and the SPIRE release:
-  ``install.sh``'s pin lines.
+  ``install.sh``'s pin lines;
+- the number of host verification checks ("7 checks"): the length of
+  ``VERIFICATION_CHECKS`` in ``hosts/verification.py``.
 
 Code reads these functions. Text that is served (``llms.txt``) holds
 placeholders such as ``{mcpToolCount}`` and is rendered when it is read. Files
@@ -38,6 +40,7 @@ API_PROJECT = ROOT / "pyproject.toml"
 MCP_SERVER_PACKAGE = ROOT / "api" / "mcp" / "package.json"
 MCP_CLI_PACKAGE = ROOT / "api" / "mcp-cli" / "package.json"
 INSTALLER = ROOT / "api" / "scripts" / "install.sh"
+VERIFICATION = ROOT / "hosts" / "verification.py"
 
 _WIZARD_PIN = re.compile(r'^readonly WIZARD_PACKAGE="(@xcelsior-gpu/wizard@\d+\.\d+\.\d+)"$', re.M)
 
@@ -61,6 +64,26 @@ def xcel_ai_tool_count() -> int:
     from ai_assistant import _build_tools
 
     return len(_build_tools())
+
+
+@lru_cache(maxsize=None)
+def verification_check_count() -> int:
+    """Checks a host must pass to be verified: ``VERIFICATION_CHECKS``' length.
+
+    Read from the source rather than imported: the module imports the host
+    metadata layer, which a build that only wants a number should not need.
+    """
+    import ast
+
+    tree = ast.parse(VERIFICATION.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "VERIFICATION_CHECKS" for t in node.targets)
+            and isinstance(node.value, ast.List)
+        ):
+            return len(node.value.elts)
+    raise RuntimeError(f"{VERIFICATION} no longer defines VERIFICATION_CHECKS as a list")
 
 
 @lru_cache(maxsize=None)
@@ -108,6 +131,7 @@ PLACEHOLDERS: dict[str, Callable[[], object]] = {
     "{xcelAiToolCount}": xcel_ai_tool_count,
     "{wizardPackage}": wizard_package,
     "{apiVersion}": api_version,
+    "{verificationCheckCount}": verification_check_count,
 }
 
 _PLACEHOLDER = re.compile(r"\{[A-Za-z]+\}")
@@ -129,6 +153,7 @@ def frontend_facts() -> dict:
             "regenerate, and tests/test_release_facts.py fails until you do."
         ),
         "mcpToolCount": mcp_tool_count(),
+        "verificationCheckCount": verification_check_count(),
         "wizardPackage": wizard_package(),
     }
 

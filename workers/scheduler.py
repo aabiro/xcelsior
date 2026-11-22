@@ -2495,9 +2495,19 @@ def update_job_status(job_id, status, host_id=None, **kwargs):
             log.debug("Billing/reputation skip: %s", exc)
 
     if status == "failed" and j.get("host_id"):
+        # Whose fault: only a host-fault failure penalises the host or counts
+        # toward de-verification. This used to pass is_host_fault=True for
+        # every failure, so a renter's own crash cost the host reputation.
+        from failure_fault import HOST, classify_failure, record_failed_attempt
+
+        failure_code = j.get("failure_code") or j.get("reason_code")
+        failure_detail = {"error": j.get("error_message") or j.get("failure_reason") or ""}
+        is_host_fault = classify_failure(failure_code, failure_detail) == HOST
+        if is_host_fault:
+            record_failed_attempt(j["host_id"], job_id, failure_code, failure_detail)
         try:
             re_engine = get_reputation_engine()
-            updated = re_engine.record_job_failure(j["host_id"], is_host_fault=True)
+            updated = re_engine.record_job_failure(j["host_id"], is_host_fault=is_host_fault)
             total = updated.jobs_completed + updated.jobs_failed_host
             job_sr = updated.jobs_completed / total if total > 0 else 0.5
             re_engine.update_reliability(

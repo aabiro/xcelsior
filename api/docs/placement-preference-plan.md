@@ -252,6 +252,12 @@ recently enough to be evidence* — so it gets the same treatment:
 verifying one and "the checker is not running" is answered by starting the
 sweep.
 
+> **Update 2026-11-22.** The code is now `verification_overdue`, and the
+> tolerance is no longer a local seven-interval constant: a stamp is overdue
+> past `next_check_at` plus `reverify_grace_sec` (6 h), the one rule in
+> `verification.verification_freshness` that every surface reads. The 7-day
+> figure below is historical.
+
 **`require_verified` is unshippable today by its own numbers.** The tolerance
 derives to 7 days; prod's two verified hosts are 111 and 124 days overdue. So
 the control currently refuses **every** request on real data — the exact

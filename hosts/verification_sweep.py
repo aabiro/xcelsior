@@ -24,14 +24,23 @@ command channel; the agent re-runs the benchmark and POSTs to `/agent/verify`,
 which is the same path startup uses. Nothing about the verification logic
 changes — what changes is that something now causes it to happen more than once.
 
-## What this deliberately does not do
+## What it asks, and what it leaves alone
 
-It does not expire stamps. Moving a host out of `verified` because a check is
-overdue would change `scheduler.allocate_best_host`'s "prefer verified hosts"
-set, and therefore where every job in the marketplace lands. That is the
-reconciliation §5.4 names as a C2 decision, and it is not made in passing here.
-The placement gate already treats an overdue stamp as `stale` on read, so a
-`require_verified` request is answered correctly today either way.
+Due hosts are verified hosts past `next_check_at`, de-verified hosts past their
+cooldown (so a host that failed a check can recover by passing one), and live
+hosts that never produced a report. Hosts under a hold — a swapped GPU, an admin
+rejection, a job-failure hold — are never asked: a benchmark that happens to
+pass must not undo them. `VerificationStore.list_hosts_needing_reverification`
+is the query.
+
+It does not expire stamps. A stamp past `next_check_at` plus the grace reads
+`overdue` at read time (`verification.verification_freshness`), and
+verified-only placement treats an overdue host as not verified, so nothing needs
+rewriting for the gate to see it.
+
+A host that is busy when asked declines (the benchmark would corrupt a paying
+job's timings) and **remembers**: the agent runs the deferred verification the
+moment it is idle, instead of waiting for the next sweep to find it busy again.
 
 ## The sweep cannot fire in the failure it detects
 

@@ -188,7 +188,7 @@ def test_a_preference_the_target_cannot_satisfy_refuses_the_migration(hosts):
             conn, JOB, hosts["target"], preference=PlacementPreference(require_verified=True)
         )
     assert isinstance(decision, PlacementRefused)
-    assert decision.code in ("verification_unsatisfiable", "verification_stale")
+    assert decision.code in ("verification_unsatisfiable", "verification_overdue")
 
 
 def test_a_preference_the_target_does_satisfy_allows_it(hosts):

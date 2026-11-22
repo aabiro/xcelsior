@@ -271,74 +271,30 @@ def host_tier(host: dict) -> str | None:
     return str(tier).strip().lower() if tier else None
 
 
-#: How many reverification intervals a stamp may lapse before it stops counting.
-#:
-#: Refusing the instant a sweep is late would make the constraint hostage to the
-#: sweep's punctuality; seven intervals is slack enough to absorb an outage and
-#: short enough that a four-month-old stamp never passes.
-VERIFICATION_STALE_AFTER_INTERVALS = 7
-
-
-def verification_max_age_seconds() -> float:
-    """The staleness tolerance, **derived from the interval policy it depends on**.
-
-    This was a typed `7 * 24 * 3600` whose docstring explained it as "a generous
-    multiple of `reverify_interval_sec`" — with the multiple living in the
-    comment and not in the code. That is the `TIER_ORDER` defect again: raise
-    the interval to a week and the tolerance silently becomes 1×; raise it to a
-    month and this gate refuses hosts that are perfectly current. Deriving it
-    means the relationship cannot drift out of the sentence describing it.
-    """
-    try:
-        from verification import VERIFICATION_THRESHOLDS
-
-        interval = float(VERIFICATION_THRESHOLDS.get("reverify_interval_sec") or 0)
-    except Exception:  # pragma: no cover - verification module is optional here
-        interval = 0.0
-    if interval <= 0:
-        interval = 86400.0
-    return interval * VERIFICATION_STALE_AFTER_INTERVALS
-
-
-#: Snapshot for readers; the function above is the authority.
-VERIFICATION_MAX_AGE_SECONDS = verification_max_age_seconds()
-
-
 def verification_status(host: dict, *, now: float | None = None) -> str:
-    """`verified`, `stale`, or the raw state — the third instance of one shape.
+    """`verified`, `overdue`, or the raw state — read through the one rule.
 
-    `state = 'verified'` means "was verified once and nothing has revoked it
-    since". It is not a current fact. When this was written the due query
-    `list_hosts_needing_reverification()` had **no callers at all** — no worker,
-    no scheduler pass, no timer — so `next_check_at` was written and never read
-    and a stamp could sit indefinitely past a one-day interval.
+    `state = 'verified'` means "passed when last checked". It is not a current
+    fact. `verification.verification_freshness` decides when a stamp stops
+    counting — past `next_check_at` plus `reverify_grace_sec` — and the trust
+    page, the host page, the MCP tools and the placement gate all read it from
+    there, so "overdue" means the same thing everywhere it is shown.
 
-    `verification_sweep.run_sweep()` now runs hourly and asks those hosts to
-    prove themselves again, which fixes the cause. It does not make this check
-    unnecessary: the sweep can only *ask*, and a host that is offline, busy with
-    a paying job, or running an agent too old to know the command will not
-    answer. A stamp can still be older than the tolerance, and this is what
-    reads it as such.
-
-    That is the same shape as "unmeasured is not perfect" and "a two-hour window
-    is not a year": **measured, but not recently enough to be evidence.** So it
-    gets the same treatment and its own code, because "no verified hosts exist"
-    and "the checker is not running" call for different next steps — the first
-    is answered by verifying a host, the second by starting a sweep.
+    This module used to carry its own tolerance (seven reverification
+    intervals, a week), which let a stamp six days past due satisfy a
+    `require_verified` request while every other surface would have called it
+    late. Measured, but not recently enough to be evidence, gets its own answer
+    and its own refusal code, because "no verified hosts exist" and "the host
+    stopped answering the sweep" call for different next steps.
     """
-    import time as _time
+    from verification import verification_freshness
 
-    state = str(host.get("verification_state") or "").strip().lower()
-    if state != "verified":
-        return state or "unknown"
-    checked = host.get("last_check_at")
-    if checked is None:
-        return "stale"
-    try:
-        age = (now if now is not None else _time.time()) - float(checked)
-    except (TypeError, ValueError):
-        return "stale"
-    return "verified" if age <= verification_max_age_seconds() else "stale"
+    return verification_freshness(
+        host.get("verification_state"),
+        host.get("last_check_at"),
+        host.get("next_check_at"),
+        now=now,
+    )
 
 
 def host_verified(host: dict, *, now: float | None = None) -> bool:
@@ -477,25 +433,27 @@ def choose_host(
         survivors = [h for h, status in statuses if status == "verified"]
         if not survivors:
             seen = sorted({st for _, st in statuses if st}) or ["none recorded"]
-            # Stale is its own refusal. "No verified hosts exist" is answered by
-            # verifying one; "the host stopped answering" is answered by looking
-            # at the host. Collapsing them sends the operator after the wrong
-            # problem.
-            if "stale" in seen:
+            # Overdue is its own refusal. "No verified hosts exist" is answered
+            # by verifying one; "the host stopped answering" is answered by
+            # looking at the host. Collapsing them sends the operator after the
+            # wrong problem.
+            if "overdue" in seen:
+                from verification import VERIFICATION_THRESHOLDS
+
+                grace_h = float(VERIFICATION_THRESHOLDS["reverify_grace_sec"]) / 3600
                 return PlacementRefused(
-                    code="verification_stale",
+                    code="verification_overdue",
                     detail=(
-                        "candidate hosts carry a `verified` state but no recent "
-                        f"check — the stamp must be under "
-                        f"{verification_max_age_seconds() / 86400:.0f} days old to "
-                        "count as current. The hourly reverification sweep asks "
-                        "overdue hosts to prove themselves again, so a stamp this "
-                        "old means the host has not answered: offline, busy with "
-                        "a job, or running an agent that does not know the "
-                        "`reverify` command."
+                        "candidate hosts carry a `verified` state but are overdue "
+                        f"for re-verification (more than {grace_h:g} h past their "
+                        "next scheduled check). The hourly reverification sweep "
+                        "asks overdue hosts to prove themselves again, so an "
+                        "overdue stamp means the host has not answered: offline, "
+                        "busy with a job, or running an agent that does not know "
+                        "the `reverify` command."
                     ),
                     asked="verified",
-                    best_available="stale",
+                    best_available="overdue",
                 )
             return PlacementRefused(
                 code="verification_unsatisfiable",

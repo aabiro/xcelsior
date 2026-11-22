@@ -440,6 +440,12 @@ def api_v2_attempt_status(req: AttemptStatusRequest, request: Request):
             status_code=400,
             detail={"error": {"code": exc.code, "message": str(exc)}},
         )
+    if result.terminal and result.changed and result.status == "failed":
+        # After the commit, so the attempt is settled whatever happens here.
+        # Only host-fault failures count; repeated ones de-verify the host.
+        from failure_fault import record_failed_attempt
+
+        record_failed_attempt(req.host_id, req.job_id, req.failure_code, req.detail)
     return {
         "ok": True,
         "status": result.status,
