@@ -609,6 +609,15 @@ def _priced_at_listed_rate(candidates: list[dict]) -> list[dict]:
     return price_hosts_at_listed_rate(candidates)
 
 
+def _as_given(best: dict, hosts: list[dict]) -> dict:
+    """The caller's own host dict for the winner, not the priced copy ranked on.
+
+    Ranking reads a copy whose ``cost_per_hour`` is the billed rate; callers get
+    back the host they passed in, unchanged.
+    """
+    return next((h for h in hosts if h.get("host_id") == best.get("host_id")), best)
+
+
 def _allocate_host_score(
     job: dict, host: dict, *, volume_host_ids: set[str] | None = None
 ) -> tuple:
@@ -763,7 +772,7 @@ def allocate(job, hosts, jobs: list[dict] | None = None):
         best.get("admitted", False),
         best.get("recommended_runtime", "runc"),
     )
-    return best
+    return _as_given(best, hosts)
 
 
 def _job_may_trigger_preemption(job: dict) -> bool:
@@ -926,7 +935,7 @@ def allocate_binpack(job, hosts, volume_host_ids=None):
         best.get("free_vram_gb", 0),
         _binpack_score(best),
     )
-    return best
+    return _as_given(best, hosts)
 
 
 # Throttle: track last job_error notification per job_id
@@ -4852,7 +4861,7 @@ def allocate_best_host(job, hosts):
         best.get("gpu_model"),
         best.get("free_vram_gb"),
     )
-    return best
+    return _as_given(best, hosts)
 
 
 if __name__ == "__main__":
