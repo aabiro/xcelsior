@@ -82,6 +82,11 @@ NOT_WORKER_CONFIG = frozenset(
         # does not put it in the worker env file; documenting it would invite
         # a value that fights the unit.
         "STATE_DIRECTORY",
+        # Read by xcelsior_bench.py as the default for `--advertised-vram-gb`,
+        # for a renter running the file by hand. The agent never relies on it:
+        # the server judges allocatable VRAM against the listing's VRAM, so a
+        # value an operator set would change nothing.
+        "XCELSIOR_BENCH_ADVERTISED_VRAM_GB",
     }
 )
 

@@ -8,24 +8,33 @@ import json
 from types import SimpleNamespace
 
 import worker_agent
+import xcelsior_bench
 
-# Output of the containerised benchmark on the tower's RTX 3060, 2026-10-11.
+# An xcelsior-bench report shaped like a tower RTX 3060 run. The device fields
+# are from the tower's 2026-10-11 benchmark; the sustained phase is built with
+# the benchmark's own summary function from synthetic one-second samples.
 TOWER_RTX3060 = {
+    "schema": xcelsior_bench.SCHEMA,
+    "bench_version": xcelsior_bench.BENCH_VERSION,
     "gpu_model": "NVIDIA GeForce RTX 3060",
     "total_vram_gb": 11.61,
     "compute_capability": "8.6",
     "cuda_version": "12.4",
     "driver_version": "590.48.01",
-    "tflops": 24.68,
-    "elapsed_s": 0.278,
-    "iters": 50,
+    "fp16_tflops": 24.68,
+    "bf16_tflops": 24.1,
+    "memory_bandwidth_gbps": 330.0,
+    "allocatable_vram_gb": 11.2,
     "pcie_bandwidth_gbps": 5.23,
     "pcie_h2d_gbps": 8.64,
     "pcie_d2h_gbps": 1.82,
-    "gpu_temp_celsius": 34.0,
-    "gpu_temp_avg_celsius": 32.9,
-    "gpu_temp_samples": 29,
+    "sustained": xcelsior_bench.summarize_sustained(
+        [{"sm_clock_mhz": 1777, "temp_c": 34.0, "power_w": 165.0, "throttle_bits": 4}] * 300,
+        300.0,
+    ),
+    "errors": {},
 }
+EXPECTED = worker_agent._verification_fields(TOWER_RTX3060)
 NO_TORCH = {"error": "no_torch"}
 
 
@@ -54,7 +63,7 @@ def _install(monkeypatch, venv, *, image_present=True, pull_ok=False):
 
 def test_benchmarks_in_container_when_venv_has_no_torch(monkeypatch):
     calls = _install(monkeypatch, NO_TORCH)
-    assert worker_agent.run_compute_benchmark() == TOWER_RTX3060
+    assert worker_agent.run_compute_benchmark() == EXPECTED
     container = next(c for c in calls if c[:2] == ["docker", "run"])
     assert container[container.index("--gpus") + 1] == "all"
     assert container[container.index("--network") + 1] == "none"
@@ -63,8 +72,16 @@ def test_benchmarks_in_container_when_venv_has_no_torch(monkeypatch):
 
 def test_pulls_the_image_once_when_missing(monkeypatch):
     calls = _install(monkeypatch, NO_TORCH, image_present=False, pull_ok=True)
-    assert worker_agent.run_compute_benchmark() == TOWER_RTX3060
+    assert worker_agent.run_compute_benchmark() == EXPECTED
     assert worker_agent.registry_docker_cmd("pull", worker_agent.BENCHMARK_IMAGE) in calls
+
+
+def test_the_report_carries_the_fields_the_server_checks_and_the_full_run():
+    assert EXPECTED["tflops"] == 24.68
+    assert EXPECTED["gpu_temp_celsius"] == 34.0
+    assert EXPECTED["gpu_temp_samples"] == 300
+    assert EXPECTED["allocatable_vram_gb"] == 11.2
+    assert EXPECTED["bench"] == TOWER_RTX3060
 
 
 def test_no_report_when_the_image_is_unavailable(monkeypatch):
@@ -75,5 +92,5 @@ def test_no_report_when_the_image_is_unavailable(monkeypatch):
 
 def test_venv_torch_is_used_without_docker(monkeypatch):
     calls = _install(monkeypatch, TOWER_RTX3060)
-    assert worker_agent.run_compute_benchmark() == TOWER_RTX3060
+    assert worker_agent.run_compute_benchmark() == EXPECTED
     assert all(c[0] != "docker" for c in calls)
