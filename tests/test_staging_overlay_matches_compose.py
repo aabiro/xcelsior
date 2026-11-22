@@ -84,14 +84,18 @@ def test_staging_background_process_only_runs_the_slurm_shadow_loop():
         "/app/hpc/slurm-local/conf/xcelsior-profiles.json"
     )
     assert "settle_finished_attempt" not in text
-    # Placement is on for this process alone.
-    assert env.get("XCELSIOR_SLURM_PLACEMENT") == "1"
+    # Admin mode (the 2.4 exit, e5c741be): only a platform admin's jobs are
+    # placed and charged. The loop places them and the api admits them, so
+    # both carry it; no other service does.
+    assert env.get("XCELSIOR_SLURM_PLACEMENT") == "admin"
     others = {
         name: (spec or {}).get("environment", {}).get("XCELSIOR_SLURM_PLACEMENT")
         for name, spec in _services(OVERLAY).items()
-        if name != "bg-worker"
+        if name not in {"bg-worker", "api"}
     }
-    assert not any(others.values()), f"placement switched on outside the shadow loop: {others}"
+    assert not any(others.values()), f"placement switched on outside the Slurm loop: {others}"
+    api_env = _services(OVERLAY)["api"].get("environment") or {}
+    assert api_env.get("XCELSIOR_SLURM_PLACEMENT") == "admin"
 
 
 def test_the_services_that_decide_enforcement_are_covered():
