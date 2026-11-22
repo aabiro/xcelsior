@@ -98,7 +98,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `166_verification_identity_baseline.py`.**
+**Repository head: `167_benchmark_evidence.py`.**
+
+167 makes `benchmarks` (created in 002, never written) the history of xcelsior-bench runs: each verification report from an agent that runs the benchmark adds a row, with the GPU it measured (`gpu_uuid`), the benchmark version (`bench_version`), the verification it belonged to (`verification_id`) and its `verdict` (`pass` / `fail` / `unknown`, judged on the server against the VRAM the listing advertises); the full report stays in `details`. Rows are kept as history. One idempotent unit through `lock_safe`; downgrade drops the columns. The runtime floor moves to 167.
 
 166 gives `host_verifications` a GPU identity baseline and a hold. `identity_baseline` (JSONB, `{}` until recorded) keeps the GPU UUIDs and serials accepted at a host's first fully passing verification; every later verification is compared with it and a mismatch de-verifies the host. `hold_reason` (text, blank = none) and `hold_until` (epoch seconds, NULL = until an admin clears it) keep a de-verified host de-verified when a later benchmark passes: a swapped card or an admin rejection holds until cleared, repeated host-fault job failures hold for a set time. One idempotent unit through `lock_safe`; downgrade drops the columns. The runtime floor moves to 166.
 

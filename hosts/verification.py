@@ -11,7 +11,9 @@
 #                          first full pass
 #   2. cuda_readiness    — CUDA, driver and compute capability present
 #   3. pcie_bandwidth    — measured host<->device copy rate
-#   4. thermal_stability — peak temperature under the benchmark's load
+#   4. thermal_stability — peak temperature under the benchmark's load and,
+#                          from xcelsior-bench, how much of the sustained-load
+#                          window the GPU spent thermal- or power-fault throttled
 #   5. network_quality   — loss, jitter and throughput to the scheduler
 #   6. allocatable_vram  — the largest single allocation that succeeds, against
 #                          the listing
@@ -51,6 +53,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from host_metadata import normalize_gpu_model
+from xcelsior_bench import ALLOCATABLE_FAULT_RATIO, THROTTLE_FAULT_SHARE
 
 log = logging.getLogger("xcelsior")
 
@@ -90,8 +93,11 @@ FINGERPRINT_VERSION = "v2:"
 VERIFICATION_THRESHOLDS = {
     "min_pcie_bandwidth_gbps": 8.0,  # Minimum PCIe bandwidth in GB/s
     "max_gpu_temp_celsius": 90,  # Max peak GPU temp during the benchmark load
+    # Share of xcelsior-bench's sustained window spent thermal- or power-fault
+    # throttled. The benchmark's own verdict uses the same number.
+    "max_throttle_share_pct": THROTTLE_FAULT_SHARE * 100,
     "max_vram_deviation_pct": 5.0,  # |measured - advertised| / advertised
-    "min_allocatable_vram_pct": 90.0,  # Largest allocation vs advertised VRAM
+    "min_allocatable_vram_pct": ALLOCATABLE_FAULT_RATIO * 100,  # Largest allocation vs listing
     "min_cuda_compute_capability": 7.0,  # Minimum CUDA compute capability
     "max_network_loss_pct": 2.0,  # Max acceptable packet loss
     "max_network_jitter_ms": 50.0,  # Max acceptable jitter
@@ -445,10 +451,22 @@ def check_pcie_bandwidth(report: dict) -> VerificationResult:
     )
 
 
-def check_thermal_stability(report: dict) -> VerificationResult:
-    """Peak GPU temperature under the benchmark's load.
+def sustained_load(report: dict) -> dict | None:
+    """The xcelsior-bench sustained-load summary in a report, if the agent ran it."""
+    bench = report.get("bench")
+    sustained = bench.get("sustained") if isinstance(bench, dict) else None
+    return sustained if isinstance(sustained, dict) else None
 
-    A reading of 0 or none is a sensor that did not answer, not a cool GPU.
+
+def check_thermal_stability(report: dict) -> VerificationResult:
+    """Peak GPU temperature under load, and throttling in the sustained window.
+
+    A reading of 0 or none is a sensor that did not answer, not a cool GPU. A
+    report from xcelsior-bench also carries the sustained-load phase: more than
+    ``max_throttle_share_pct`` of it thermal- or power-fault throttled fails,
+    and a sustained phase with no throttle samples is unknown. A report from an
+    agent older than the benchmark has no sustained phase and is judged on its
+    peak temperature alone.
     """
     gpu_temp = _num(report, "gpu_temp_celsius")
     max_temp = VERIFICATION_THRESHOLDS["max_gpu_temp_celsius"]
@@ -459,11 +477,34 @@ def check_thermal_stability(report: dict) -> VerificationResult:
             "no reading",
             str(report.get("thermal_error") or "temperature sensor returned no reading"),
         )
+    sustained = sustained_load(report)
+    if sustained is None:
+        return VerificationResult(
+            check_name="thermal_stability",
+            passed=gpu_temp <= max_temp,
+            expected=f"<= {max_temp}°C",
+            actual=f"{gpu_temp}°C",
+        )
+    limit = float(VERIFICATION_THRESHOLDS["max_throttle_share_pct"])
+    expected = f"<= {max_temp}°C, throttled <= {limit:g}% of the sustained window"
+    thermal = sustained.get("thermal_throttle_share")
+    power = sustained.get("power_fault_share")
+    if thermal is None:
+        return _unknown(
+            "thermal_stability",
+            expected,
+            f"{gpu_temp}°C peak, no throttle samples",
+            "the sustained-load phase took no throttle readings",
+        )
+    power = float(power or 0)
     return VerificationResult(
         check_name="thermal_stability",
-        passed=gpu_temp <= max_temp,
-        expected=f"<= {max_temp}°C",
-        actual=f"{gpu_temp}°C",
+        passed=gpu_temp <= max_temp and thermal * 100 <= limit and power * 100 <= limit,
+        expected=expected,
+        actual=(
+            f"{gpu_temp}°C peak; thermal throttling {thermal * 100:.1f}%, "
+            f"power faults {power * 100:.1f}% of {sustained.get('duration_s', '?')}s"
+        ),
     )
 
 
@@ -699,6 +740,66 @@ class VerificationStore:
                     time.time(),
                 ),
             )
+
+    def record_benchmark(self, host_id: str, verification_id: str, report: dict) -> bool:
+        """Keep an xcelsior-bench run as history in `benchmarks` (167).
+
+        Evidence, not state: a failure to write it is logged and never fails
+        the verification it came with. The verdict is judged here, against the
+        VRAM the listing advertises (the agent does not know it), with the same
+        ``xcelsior_bench.verdict`` a renter's own run uses.
+        """
+        bench = report.get("bench")
+        if not isinstance(bench, dict) or not bench.get("bench_version"):
+            return False
+        from psycopg.types.json import Jsonb
+        from xcelsior_bench import verdict as bench_verdict
+
+        judged = bench_verdict(
+            bench.get("sustained") if isinstance(bench.get("sustained"), dict) else None,
+            _num(bench, "allocatable_vram_gb"),
+            _num(report, "advertised_vram_gb"),
+        )
+        bench = {**bench, "verdict": judged, "advertised_vram_gb": report.get("advertised_vram_gb")}
+
+        tflops = _num(bench, "fp16_tflops")
+        identities = report.get("gpu_identities") or []
+        gpu_uuid = str(
+            report.get("gpu_uuid")
+            or bench.get("gpu_uuid")
+            or (
+                identities[0].get("gpu_uuid")
+                if identities and isinstance(identities[0], dict)
+                else ""
+            )
+            or ""
+        )
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    """INSERT INTO benchmarks
+                       (host_id, gpu_model, score, tflops, memory_bandwidth_gbps,
+                        benchmark_type, details, run_at, gpu_uuid, bench_version,
+                        verification_id, verdict)
+                       VALUES (%s, %s, %s, %s, %s, 'xcelsior-bench', %s, %s, %s, %s, %s, %s)""",
+                    (
+                        host_id,
+                        str(bench.get("gpu_model") or report.get("gpu_model") or ""),
+                        (tflops or 0) / 10,
+                        tflops,
+                        _num(bench, "memory_bandwidth_gbps"),
+                        Jsonb(bench),
+                        float(bench.get("finished_at") or time.time()),
+                        gpu_uuid,
+                        str(bench.get("bench_version")),
+                        verification_id,
+                        judged["result"],
+                    ),
+                )
+            return True
+        except Exception as exc:
+            log.warning("benchmark history write failed for %s: %s", host_id, exc)
+            return False
 
     def get_advertised_hardware(self, host_id: str) -> Optional[dict]:
         """What the host's listing says it is: the hosts row and its available offers.
@@ -1015,6 +1116,7 @@ class VerificationEngine:
             )
 
         self.store.save_verification(v)
+        self.store.record_benchmark(host_id, v.verification_id, report)
         return v
 
     def check_failure_threshold(

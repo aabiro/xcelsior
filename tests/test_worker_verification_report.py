@@ -126,24 +126,47 @@ def test_the_verification_cycle_sends_identity_and_versions(monkeypatch):
     assert sent["versions"] == {"runc": "1.4.0"}
 
 
-# ── The benchmark script ─────────────────────────────────────────────
+# ── The benchmark ───────────────────────────────────────────────────
 
 
-def _benchmark_tree() -> ast.Module:
-    return ast.parse(worker_agent._BENCHMARK_SCRIPT)
+def _benchmark_source() -> str:
+    return (Path(worker_agent.__file__).parent / worker_agent.BENCH_FILE).read_text()
 
 
-def test_the_benchmark_script_names_nothing_it_does_not_define():
-    """It referenced `log`, which the subprocess never defines: every error branch raised."""
-    names = {n.id for n in ast.walk(_benchmark_tree()) if isinstance(n, ast.Name)}
-    assert "log" not in names
+def test_the_benchmark_names_nothing_it_does_not_define():
+    """The old inline script referenced `log`, which the subprocess never defined."""
+    tree = ast.parse(_benchmark_source())
+    assigned = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    assert "log" not in assigned
 
 
 def test_the_benchmark_measures_allocatable_vram_and_reports_a_dead_sensor_as_none():
-    script = worker_agent._BENCHMARK_SCRIPT
-    assert "mem_get_info" in script and '"allocatable_vram_gb"' in script
-    assert re.search(r'report\["gpu_temp_celsius"\]\s*=\s*None', script)
-    assert '"gpu_temp_samples"' in script
+    import xcelsior_bench
+
+    assert "mem_get_info" in _benchmark_source()
+    summary = xcelsior_bench.summarize_sustained(
+        [{"sm_clock_mhz": 1800, "temp_c": 0, "power_w": None, "throttle_bits": 0}] * 5, 5.0
+    )
+    assert summary["temp_peak_c"] is None
+
+
+def test_the_flat_fields_come_from_the_benchmark_report():
+    bench = {
+        "bench_version": "1.0.0",
+        "gpu_model": "NVIDIA GeForce RTX 3060",
+        "allocatable_vram_gb": 11.2,
+        "fp16_tflops": 25.0,
+        "sustained": {"temp_peak_c": 71, "temp_p50_c": 68.0, "samples": 300},
+        "errors": {"pcie": "boom"},
+    }
+    fields = worker_agent._verification_fields(bench)
+    assert fields["tflops"] == 25.0 and fields["allocatable_vram_gb"] == 11.2
+    assert fields["gpu_temp_celsius"] == 71 and fields["gpu_temp_samples"] == 300
+    assert fields["pcie_error"] == "boom" and fields["pcie_bandwidth_gbps"] == 0
+    assert fields["bench"] is bench
+    # A sustained phase that read no temperature reports no samples.
+    no_temp = worker_agent._verification_fields({"sustained": {"samples": 300}})
+    assert no_temp["gpu_temp_samples"] == 0
 
 
 # ── Busy hosts remember a reverification ─────────────────────────────

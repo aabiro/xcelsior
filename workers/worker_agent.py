@@ -670,150 +670,89 @@ def _ip_is_local(ip: str) -> bool:
 
 
 #: The verification benchmark, run by the agent's own Python or in BENCHMARK_IMAGE.
-_BENCHMARK_SCRIPT = """
-import time, json, subprocess, re
-report = {}
+#: The benchmark is ``xcelsior_bench.py``: one versioned file, shared with
+#: renters (``python3 xcelsior_bench.py`` inside an instance gives numbers
+#: comparable to a host's published ones). The agent runs its source with
+#: ``python -c``, in this venv or in BENCHMARK_IMAGE, so nothing is installed in
+#: the image. It is a sibling module: ``upgrade_agent`` fetches and verifies it.
+BENCH_FILE = "xcelsior_bench.py"
+#: Length of the sustained-load phase. The benchmark runs at admission and at
+#: re-verification, and only while the host is idle (see _start_reverification).
+BENCH_SUSTAINED_SEC = int(os.environ.get("XCELSIOR_BENCH_SUSTAINED_SEC", "300"))
 
-try:
-    import torch
-    if not torch.cuda.is_available():
-        print(json.dumps({"error": "no_cuda"}))
-        raise SystemExit
 
-    device = torch.device("cuda:0")
-    props = torch.cuda.get_device_properties(device)
+#: sha256 of the xcelsior_bench.py this agent was built with. An agent that was
+#: upgraded from a version that did not know the file never received it
+#: (upgrade_agent skips sibling modules it does not know), so it fetches the
+#: file from the scheduler and accepts it only if it matches this.
+#: tests/test_xcelsior_bench.py keeps it equal to the file.
+BENCH_SHA256 = "c9079e4acbb1234ccd17a940245d74a630c5719b835b0a20c71febfd5427ce25"
 
-    # ── GPU Identity ──
-    report["gpu_model"] = props.name
-    report["total_vram_gb"] = round(props.total_memory / (1024**3), 2)
-    report["compute_capability"] = f"{props.major}.{props.minor}"
 
-    # ── Allocatable VRAM: the largest single allocation that succeeds ──
-    # First, before this script holds any other tensor, so it measures what a
-    # renter's job could take on an idle GPU: free memory less what the driver,
-    # the display and the CUDA context already hold.
+def _bench_source() -> str | None:
+    path = _sibling_module_dir(BENCH_FILE) / BENCH_FILE
     try:
-        torch.cuda.empty_cache()
-        free_b, total_b = torch.cuda.mem_get_info(device)
-        step = 64 * 1024 * 1024
-        size = free_b - (free_b % step)
-        best = 0
-        while size >= step:
-            try:
-                block = torch.empty(size, dtype=torch.uint8, device=device)
-                del block
-                torch.cuda.empty_cache()
-                best = size
-                break
-            except RuntimeError:
-                size -= step
-        report["allocatable_vram_gb"] = round(best / (1024**3), 2)
-        report["free_vram_gb_at_probe"] = round(free_b / (1024**3), 2)
-    except Exception as e:
-        report["allocatable_vram_error"] = str(e)[:200]
-
-    # ── CUDA / Driver Versions ──
-    report["cuda_version"] = torch.version.cuda or ""
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() == BENCH_SHA256:
+            return data.decode("utf-8")
+        log.warning("%s differs from the one this agent was built with; fetching it", BENCH_FILE)
+    except OSError:
+        log.info("%s not installed yet; fetching it", BENCH_FILE)
+    if not SCHEDULER_URL:
+        return None
+    fetched = _download_and_verify(
+        f"{SCHEDULER_URL.rstrip('/')}/static/{BENCH_FILE}", BENCH_SHA256, max_bytes=1024 * 1024
+    )
+    if fetched is None:
+        log.warning("Benchmark file %s unavailable", BENCH_FILE)
+        return None
     try:
-        smi = subprocess.run(
-            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=10,
+        path.write_bytes(fetched)
+    except OSError as exc:
+        log.warning("Could not install %s (running it anyway): %s", BENCH_FILE, exc)
+    return fetched.decode("utf-8")
+
+
+def _verification_fields(bench: dict) -> dict:
+    """The flat fields the server's checks read, plus the full benchmark report.
+
+    The peak temperature now comes from the sustained-load phase, which
+    replaced the old 15-second thermal loop.
+    """
+    sustained = bench.get("sustained") or {}
+    errors = bench.get("errors") or {}
+    fields = {
+        key: bench.get(key)
+        for key in (
+            "gpu_model",
+            "total_vram_gb",
+            "compute_capability",
+            "cuda_version",
+            "driver_version",
+            "allocatable_vram_gb",
+            "free_vram_gb_at_probe",
+            "pcie_bandwidth_gbps",
+            "pcie_h2d_gbps",
+            "pcie_d2h_gbps",
         )
-        report["driver_version"] = smi.stdout.strip().split("\\n")[0].strip() if smi.returncode == 0 else ""
-    except Exception as e:
-        report["driver_version"] = ""
-        report["driver_error"] = str(e)[:200]
+        if bench.get(key) is not None
+    }
+    fields["tflops"] = bench.get("fp16_tflops") or 0
+    fields["gpu_temp_celsius"] = sustained.get("temp_peak_c")
+    fields["gpu_temp_avg_celsius"] = sustained.get("temp_p50_c")
+    fields["gpu_temp_samples"] = sustained.get("samples", 0) if sustained.get("temp_peak_c") else 0
+    for name, key in (
+        ("allocatable_vram", "allocatable_vram_error"),
+        ("pcie", "pcie_error"),
+        ("sustained", "thermal_error"),
+    ):
+        if errors.get(name):
+            fields[key] = errors[name]
+    if "pcie_bandwidth_gbps" not in fields:
+        fields["pcie_bandwidth_gbps"] = 0
+    fields["bench"] = bench
+    return fields
 
-    # ── FP16 Matmul Benchmark (TFLOPS) ──
-    a = torch.randn(4096, 4096, dtype=torch.float16, device=device)
-    b = torch.randn(4096, 4096, dtype=torch.float16, device=device)
-    for _ in range(5):
-        torch.mm(a, b)
-    torch.cuda.synchronize()
-    iters = 50
-    start = time.perf_counter()
-    for _ in range(iters):
-        torch.mm(a, b)
-    torch.cuda.synchronize()
-    elapsed = time.perf_counter() - start
-    flops_per_iter = 2 * 4096**3
-    report["tflops"] = round((flops_per_iter * iters) / elapsed / 1e12, 2)
-    report["elapsed_s"] = round(elapsed, 3)
-    report["iters"] = iters
-
-    # ── PCIe Bandwidth (Host→Device→Host) ──
-    # Pinned host memory, a device buffer allocated before timing, one warm-up,
-    # then the median of five copies each way. A single cold copy from pageable
-    # memory also timed the device allocation and the driver's staging copy, so
-    # an RTX 3060 on PCIe 4.0 x16 read about 5 GB/s.
-    try:
-        size_mb = 256
-        data_h = torch.empty(size_mb * 1024 * 1024, dtype=torch.uint8).pin_memory()
-        data_d = torch.empty(size_mb * 1024 * 1024, dtype=torch.uint8, device=device)
-        data_d.copy_(data_h)
-        data_h.copy_(data_d)
-        torch.cuda.synchronize()
-        h2d, d2h = [], []
-        for _ in range(5):
-            t0 = time.perf_counter()
-            data_d.copy_(data_h, non_blocking=True)
-            torch.cuda.synchronize()
-            t1 = time.perf_counter()
-            data_h.copy_(data_d, non_blocking=True)
-            torch.cuda.synchronize()
-            t2 = time.perf_counter()
-            h2d.append(size_mb / 1024 / (t1 - t0))
-            d2h.append(size_mb / 1024 / (t2 - t1))
-        h2d_gbps = round(sorted(h2d)[2], 2)
-        d2h_gbps = round(sorted(d2h)[2], 2)
-        report["pcie_bandwidth_gbps"] = round((h2d_gbps + d2h_gbps) / 2, 2)
-        report["pcie_h2d_gbps"] = h2d_gbps
-        report["pcie_d2h_gbps"] = d2h_gbps
-        del data_h, data_d
-    except Exception as e:
-        report["pcie_bandwidth_gbps"] = 0
-        report["pcie_error"] = str(e)[:200]
-
-    # ── Thermal Stability (15 s of load, sample temp) ──
-    try:
-        temps = []
-        stress_start = time.perf_counter()
-        while time.perf_counter() - stress_start < 15:
-            torch.mm(a, b)
-            torch.cuda.synchronize()
-            try:
-                tsmi = subprocess.run(
-                    ["nvidia-smi", "--query-gpu=temperature.gpu",
-                     "--format=csv,noheader,nounits", "--id=0"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if tsmi.returncode == 0:
-                    temps.append(float(tsmi.stdout.strip()))
-            except Exception as e:
-                report["thermal_error"] = str(e)[:200]
-            time.sleep(0.5)
-        temps = [t for t in temps if t > 0]
-        report["gpu_temp_samples"] = len(temps)
-        if temps:
-            report["gpu_temp_celsius"] = max(temps)
-            report["gpu_temp_avg_celsius"] = round(sum(temps) / len(temps), 1)
-        else:
-            # No reading is not a cool GPU; the server reads this as unknown.
-            report["gpu_temp_celsius"] = None
-    except Exception as e:
-        report["gpu_temp_celsius"] = None
-        report["gpu_temp_samples"] = 0
-        report["thermal_error"] = str(e)[:200]
-
-    # Clean up GPU memory
-    del a, b
-    torch.cuda.empty_cache()
-
-    print(json.dumps(report))
-
-except ImportError:
-    print(json.dumps({"error": "no_torch"}))
-"""
 
 #: Where the benchmark runs when the agent's venv has no PyTorch, which is how
 #: install.sh sets it up (the wheels are ~2.5 GB that only this benchmark needs).
@@ -824,10 +763,12 @@ BENCHMARK_IMAGE = os.environ.get(
 )
 
 
-def _run_benchmark(cmd: list[str], timeout: int) -> dict | None:
+def _run_benchmark(cmd: list[str], timeout: int, env: dict | None = None) -> dict | None:
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        if result.returncode == 0 and result.stdout.strip():
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+        if result.stdout.strip():
+            # The benchmark prints its report, an error report included, as the
+            # last line; its exit code only says whether that was an error.
             return json.loads(result.stdout.strip().splitlines()[-1])
         log.warning("Benchmark exited %s: %s", result.returncode, result.stderr.strip()[-300:])
     except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
@@ -996,15 +937,21 @@ def _ensure_image(image: str) -> bool:
 
 
 def run_compute_benchmark():
-    """Run the benchmark the server's verification checks read.
+    """Run xcelsior-bench and return the report the server's verification reads.
 
-    Collects: TFLOPS (FP16 matmul), CUDA/driver versions, compute capability,
-    PCIe bandwidth, peak temperature over 15 s of load, and allocatable VRAM.
-    GPU identity and component versions are added by `run_verification_cycle`.
-    Returns a full report dict that verification.py can consume, or None.
+    Collects matmul TFLOPS (fp16, bf16), device memory bandwidth, allocatable
+    VRAM, PCIe both ways, CUDA/driver versions, and a sustained-load phase
+    (BENCH_SUSTAINED_SEC) sampling clocks, temperature, power and throttle
+    reasons every second. GPU identity and component versions are added by
+    `run_verification_cycle`. Returns None when it could not run.
     """
-    data = _run_benchmark([sys.executable, "-c", _BENCHMARK_SCRIPT], timeout=300)
-    if data == {"error": "no_torch"} and _ensure_image(BENCHMARK_IMAGE):
+    source = _bench_source()
+    if source is None:
+        return None
+    env = {**os.environ, "XCELSIOR_BENCH_SUSTAINED_SEC": str(BENCH_SUSTAINED_SEC)}
+    timeout = BENCH_SUSTAINED_SEC + 300
+    data = _run_benchmark([sys.executable, "-c", source], timeout=timeout, env=env)
+    if data and data.get("error") == "no_torch" and _ensure_image(BENCHMARK_IMAGE):
         log.info("No PyTorch in the agent's venv; benchmarking in %s", BENCHMARK_IMAGE)
         data = _run_benchmark(
             [
@@ -1017,18 +964,22 @@ def run_compute_benchmark():
                 "none",
                 "--label",
                 "ai.xcelsior.benchmark=true",
+                "-e",
+                f"XCELSIOR_BENCH_SUSTAINED_SEC={BENCH_SUSTAINED_SEC}",
                 "--entrypoint",
                 "python",
                 BENCHMARK_IMAGE,
                 "-c",
-                _BENCHMARK_SCRIPT,
+                source,
             ],
-            timeout=420,
+            timeout=timeout + 120,
         )
-    if data and "error" in data:
+    if not data:
+        return None
+    if "error" in data:
         log.warning("Benchmark skipped: %s", data["error"])
         return None
-    return data
+    return _verification_fields(data)
 
 
 def run_network_benchmark(scheduler_url: str | None = None):
@@ -1746,6 +1697,8 @@ _SIBLING_MODULES = (
     "worker_luks_volumes.py",
     "hardware_isolation.py",
     "mining_response.py",
+    # Not imported: the benchmark runs its source (run_compute_benchmark).
+    "xcelsior_bench.py",
 )
 
 
@@ -4908,7 +4861,10 @@ def run_verification_cycle(gpu_info: dict, versions: dict):
     temperature under load, packet loss and jitter are facts only the host can measure,
     which is precisely why a stamp goes stale with nothing able to refresh it.
     """
-    log.info("Running comprehensive benchmark (GPU + network, ~60 seconds)...")
+    log.info(
+        "Running xcelsior-bench (GPU, %ss sustained load) and the network benchmark...",
+        BENCH_SUSTAINED_SEC,
+    )
     bench = run_compute_benchmark()
     if not bench:
         log.info("Benchmark skipped (PyTorch/CUDA not available)")

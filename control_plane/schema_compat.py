@@ -89,7 +89,10 @@ from psycopg import Connection
 # 166 stores each host's GPU identity baseline and verification hold
 # (`host_verifications.identity_baseline`, `hold_reason`, `hold_until`), which
 # every verification writes. A database at 165 refuses that upsert.
-REQUIRED_MIN_REVISION = "166"
+# 167 adds the xcelsior-bench columns to `benchmarks` (`gpu_uuid`,
+# `bench_version`, `verification_id`, `verdict`), which verification writes and
+# the host-evidence read model reads.
+REQUIRED_MIN_REVISION = "167"
 REQUIRED_MAX_REVISION: str | None = None
 
 

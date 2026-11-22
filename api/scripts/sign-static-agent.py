@@ -26,6 +26,7 @@ SIGNABLE = (
     "worker_privileged.py",
     "hardware_isolation.py",
     "mining_response.py",
+    "xcelsior_bench.py",
     "worker-requirements.txt",
 )
 
@@ -43,6 +44,7 @@ _PKG_FOR_FILE = {
     "worker_privileged.py": "workers",
     "hardware_isolation.py": "workers",
     "mining_response.py": "workers",
+    "xcelsior_bench.py": "workers",
 }
 
 

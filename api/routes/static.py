@@ -53,6 +53,8 @@ _ALLOWED: dict[str, Path] = {
     "hardware_isolation.py": _locate("workers", "hardware_isolation.py"),
     # Resource-abuse signals and the per-container response ladder (CVP-01 §3).
     "mining_response.py": _locate("workers", "mining_response.py"),
+    # The benchmark the agent runs at verification; renters run the same file.
+    "xcelsior_bench.py": _locate("workers", "xcelsior_bench.py"),
     "worker-requirements.txt": _SCRIPTS / "worker-requirements.txt",
 }
 
@@ -71,6 +73,7 @@ _SIGNABLE = frozenset(
         "worker_privileged.py",
         "hardware_isolation.py",
         "mining_response.py",
+        "xcelsior_bench.py",
         "worker-requirements.txt",
     }
 )
