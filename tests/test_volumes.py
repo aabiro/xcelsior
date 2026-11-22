@@ -1044,6 +1044,7 @@ class TestRequiredVolumeMountFailure:
             job_id,
             "failed",
             error_message="required volume mount failed: vol-required",
+            policy_reason="host_volume_mount_failed",
             expected_v2_auth=authority,
         )
         assert [call.args[1] for call in report.call_args_list] == ["starting", "failed"]

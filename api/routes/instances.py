@@ -14,6 +14,7 @@ from typing import Any, Literal, NoReturn, cast
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from routes._deps import (
     AUTH_REQUIRED,
@@ -408,8 +409,9 @@ class JobIn(BaseModel):
     exposed_ports: list[int] | None = Field(default=None, max_length=8)
     template_image_id: str | None = None
     #: Platform admins only: allow placement on a host that is not currently
-    #: verified while verified-only placement is on (operator testing).
-    verification_gate_override: bool = False
+    #: verified while verified-only placement is on (operator testing). Left
+    #: out of the published schema: it is an operator control, not API surface.
+    verification_gate_override: SkipJsonSchema[bool] = False
 
     @field_validator("image")
     @classmethod

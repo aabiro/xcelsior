@@ -89,6 +89,7 @@ def test_partial_volume_mount_failure_cleans_up_without_masking_the_error(monkey
         "mount-failure-regression",
         "failed",
         error_message="required volume mount failed: vol-missing",
+        policy_reason="host_volume_mount_failed",
         expected_v2_auth=ANY,
     )
     unmount.assert_called_once_with("/mnt/xcelsior-volumes/vol-present")
@@ -154,6 +155,7 @@ def test_exclusive_gpu_refusal_clears_worker_bookkeeping(monkeypatch):
         "gpu-busy-regression",
         "failed",
         error_message="exclusive_gpu acquire failed: busy",
+        policy_reason="host_gpu_unavailable",
         expected_v2_auth=ANY,
     )
 

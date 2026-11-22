@@ -20,14 +20,21 @@ from pathlib import Path
 
 import pytest
 
+from tests._source_tree import iter_source_files
+
 ROOT = Path(__file__).resolve().parent.parent
 I18N = ROOT / "api/frontend/src/lib/i18n"
+MARKETING = "api/frontend/src/app/(marketing)/"
 
 COPY_FILES = [
     *sorted(I18N.glob("*.ts")),
     ROOT / "api/frontend/src/app/layout.tsx",
     ROOT / "api/frontend/src/app/manifest.ts",
-    *sorted((ROOT / "api/frontend/src/app/(marketing)").rglob("*.tsx")),
+    *sorted(
+        path
+        for path, rel in iter_source_files("*.tsx", include_prefixes=(MARKETING,))
+        if rel.startswith(MARKETING)
+    ),
     *sorted((ROOT / "api/frontend/content/blog").glob("*.mdx")),
     ROOT / "llms.txt",
     *sorted((ROOT / "api/support_docs").glob("*.mdx")),
