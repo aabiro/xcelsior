@@ -65,7 +65,9 @@ def test_thresholds_and_default_length(page: str, bench) -> None:
     share = f"{round(bench.THROTTLE_FAULT_SHARE * 100)}%"
     ratio = f"{round(bench.ALLOCATABLE_FAULT_RATIO * 100)}%"
     assert flat.count(f"more than {share} of the sustained phase") == 2
-    assert f"under {ratio} of that figure" in flat
+    assert f"under {ratio} of the memory CUDA can address" in flat
+    reserve = f"{round(bench.DRIVER_RESERVE_MAX_RATIO * 100)}%"
+    assert f"within {reserve} under the listing" in flat
     seconds = bench.DEFAULT_SUSTAINED_SECONDS
     assert f"default ({seconds})" in flat
     assert f"{seconds // 60} minutes by default" in flat

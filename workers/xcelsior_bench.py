@@ -15,8 +15,14 @@ faults, everything else is evidence:
 
 - thermal or power-fault throttling for more than ``THROTTLE_FAULT_SHARE`` of
   the sustained window;
-- allocatable VRAM below ``ALLOCATABLE_FAULT_RATIO`` of the advertised VRAM
-  (only when ``--advertised-vram-gb`` is given).
+- allocatable VRAM below ``ALLOCATABLE_FAULT_RATIO`` of the VRAM CUDA can
+  address (only when ``--advertised-vram-gb`` is given; see
+  :func:`allocatable_baseline_gb`).
+
+Two VRAM figures are reported. ``board_vram_gb`` is the card's memory as
+``nvidia-smi`` reports ``memory.total``, the same reading a host's listing is
+made from. ``total_vram_gb`` is what CUDA can address: the board's memory less
+the few hundred MiB the driver reserves for itself.
 
 Throttle reasons are NVML's ``clocksThrottleReasons`` bits. Running at the
 software power cap (0x4) is how a GPU under full load normally behaves, so it is
@@ -38,7 +44,7 @@ import subprocess
 import sys
 import time
 
-BENCH_VERSION = "1.0.0"
+BENCH_VERSION = "1.1.0"
 SCHEMA = "xcelsior-bench/1"
 
 DEFAULT_SUSTAINED_SECONDS = 300
@@ -51,6 +57,10 @@ MIN_SUSTAINED_SECONDS = 300
 MIN_SUSTAINED_SAMPLE_RATIO = 0.9
 THROTTLE_FAULT_SHARE = 0.10
 ALLOCATABLE_FAULT_RATIO = 0.90
+#: How far below the listing CUDA's total may sit and still be the driver's
+#: reservation, which every card has and no host can give a renter: 407 MiB of
+#: a 6 GB RTX 2060 (6.6 %), about 3 % of a 12 GB RTX 3060.
+DRIVER_RESERVE_MAX_RATIO = 0.10
 
 #: NVML clocksThrottleReasons bits.
 THROTTLE_BITS = {
@@ -137,10 +147,32 @@ def sustained_too_short(sustained: dict) -> bool:
     )
 
 
+def allocatable_baseline_gb(
+    advertised_vram_gb: float | None, cuda_visible_vram_gb: float | None
+) -> float | None:
+    """The VRAM the allocation probe is held to.
+
+    The listing is the board's memory; CUDA addresses that less the driver's
+    reservation. Held to the listing, a small card failed for the reservation
+    alone (a 6 GB card can give a job about 5.3 GB, 88 %), while the same
+    overhead on a 12 GB card passed. Held to what CUDA addresses, it passes,
+    and memory another process holds still fails, because CUDA's total does
+    not shrink for it. A CUDA total more than ``DRIVER_RESERVE_MAX_RATIO``
+    below the listing is not a reservation, so the listing is used instead.
+    """
+    if not advertised_vram_gb:
+        return None
+    floor = (1 - DRIVER_RESERVE_MAX_RATIO) * advertised_vram_gb
+    if cuda_visible_vram_gb and floor <= cuda_visible_vram_gb < advertised_vram_gb:
+        return cuda_visible_vram_gb
+    return advertised_vram_gb
+
+
 def verdict(
     sustained: dict | None,
     allocatable_vram_gb: float | None,
     advertised_vram_gb: float | None,
+    cuda_visible_vram_gb: float | None = None,
 ) -> dict:
     """``pass`` / ``fail`` / ``unknown``, and the faults behind a fail.
 
@@ -149,6 +181,7 @@ def verdict(
     missing measurement is never a pass. A fault found in a short run still
     fails.
     """
+    baseline = allocatable_baseline_gb(advertised_vram_gb, cuda_visible_vram_gb)
     faults: list[str] = []
     unknown: list[str] = []
     if not sustained or sustained.get("thermal_throttle_share") is None:
@@ -160,10 +193,10 @@ def verdict(
             faults.append("power_throttling")
         if sustained_too_short(sustained):
             unknown.append("sustained_load_too_short")
-    if advertised_vram_gb:
+    if baseline:
         if not allocatable_vram_gb:
             unknown.append("allocatable_vram")
-        elif allocatable_vram_gb < ALLOCATABLE_FAULT_RATIO * advertised_vram_gb:
+        elif allocatable_vram_gb < ALLOCATABLE_FAULT_RATIO * baseline:
             faults.append("allocatable_vram_below_listing")
     if faults:
         result = "fail"
@@ -177,6 +210,7 @@ def verdict(
         "unknown": unknown,
         "throttle_fault_share": THROTTLE_FAULT_SHARE,
         "allocatable_fault_ratio": ALLOCATABLE_FAULT_RATIO,
+        "allocatable_baseline_gb": baseline,
     }
 
 
@@ -244,12 +278,19 @@ class _Sampler:
         return {"sm_clock_mhz": None, "temp_c": None, "power_w": None, "throttle_bits": None}
 
     def identity(self) -> dict:
-        row = self._smi(["uuid", "serial", "driver_version", "name"]) or []
+        row = self._smi(["uuid", "serial", "driver_version", "name", "memory.total"]) or []
+        board_mib = _float(row[4]) if len(row) > 4 else None
+        nvml, handle = self._nvml, self._handle
+        if board_mib is None and nvml is not None and handle is not None:
+            total = _try(lambda: nvml.nvmlDeviceGetMemoryInfo(handle).total)
+            board_mib = total / 1024**2 if total else None
         return {
             "gpu_uuid": row[0] if len(row) > 0 else "",
             "serial": row[1] if len(row) > 1 and row[1] not in ("[N/A]", "N/A") else "",
             "driver_version": row[2] if len(row) > 2 else "",
             "nvidia_smi_name": row[3] if len(row) > 3 else "",
+            # MiB / 1024, as the agent computes a listing's VRAM from the same field.
+            "board_vram_gb": round(board_mib / 1024, 2) if board_mib else None,
         }
 
 
@@ -445,7 +486,12 @@ def run(
     report["sustained"] = sustained
     if keep_samples:
         report["sustained_samples"] = samples
-    report["verdict"] = verdict(sustained, report.get("allocatable_vram_gb"), advertised_vram_gb)
+    report["verdict"] = verdict(
+        sustained,
+        report.get("allocatable_vram_gb"),
+        advertised_vram_gb,
+        report.get("total_vram_gb"),
+    )
     report["errors"] = errors
     report["finished_at"] = time.time()
     return report

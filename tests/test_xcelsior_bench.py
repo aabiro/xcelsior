@@ -161,6 +161,39 @@ def test_allocatable_vram_short_of_the_listing_fails():
     assert verdict(summary, 11.2, 12.0)["result"] == "pass"
 
 
+def test_the_driver_reservation_is_not_missing_memory():
+    """A 6 GB card: CUDA addresses 5.6 GB and a job can take 5.3 GB in one piece."""
+    from xcelsior_bench import DRIVER_RESERVE_MAX_RATIO, allocatable_baseline_gb
+
+    summary = summarize_sustained(_samples(300, 0, 0), 300.0)
+    # Held to the listing alone, 5.3 of 6.0 is 88 %: the old false failure.
+    assert verdict(summary, 5.3, 6.0)["faults"] == ["allocatable_vram_below_listing"]
+    passed = verdict(summary, 5.3, 6.0, 5.6)
+    assert passed["result"] == "pass" and passed["allocatable_baseline_gb"] == 5.6
+    # Another process holding memory still fails: CUDA's total does not shrink for it.
+    assert verdict(summary, 3.3, 6.0, 5.6)["faults"] == ["allocatable_vram_below_listing"]
+    # A CUDA total far under the listing is not a reservation; the listing is the bar.
+    assert DRIVER_RESERVE_MAX_RATIO == 0.10
+    assert allocatable_baseline_gb(6.0, 5.0) == 6.0
+    assert allocatable_baseline_gb(6.0, 6.2) == 6.0
+    assert allocatable_baseline_gb(None, 5.6) is None
+
+
+def test_the_board_reading_comes_from_the_same_field_as_a_listing(monkeypatch):
+    """nvidia-smi memory.total in MiB / 1024, as the agent computes a listing's VRAM."""
+    from xcelsior_bench import _Sampler
+
+    sampler = _Sampler.__new__(_Sampler)
+    sampler._nvml = None
+    sampler._handle = None
+    monkeypatch.setattr(
+        sampler, "_smi", lambda fields: ["GPU-x", "[N/A]", "580.178.04", "RTX 2060", "6144"]
+    )
+    assert sampler.identity()["board_vram_gb"] == 6.0
+    monkeypatch.setattr(sampler, "_smi", lambda fields: None)
+    assert sampler.identity()["board_vram_gb"] is None
+
+
 def test_a_missing_measurement_is_unknown_not_a_pass():
     no_bits = summarize_sustained(
         [{"sm_clock_mhz": 1900, "temp_c": 70, "power_w": 170, "throttle_bits": None}] * 300,

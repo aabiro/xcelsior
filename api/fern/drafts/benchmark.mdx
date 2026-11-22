@@ -32,6 +32,7 @@ the GPU you are actually paying for.
 | `fp16_tflops`, `bf16_tflops` | Dense matrix-multiply throughput |
 | `memory_bandwidth_gbps` | Device memory bandwidth |
 | `allocatable_vram_gb` | The largest single allocation that succeeds |
+| `board_vram_gb`, `total_vram_gb` | The card's memory as `nvidia-smi` reports it (what a listing says), and the part CUDA can address after the driver's reservation |
 | `pcie_h2d_gbps`, `pcie_d2h_gbps` | Host-to-device and device-to-host copy speed |
 | `sustained` | A full-load phase, sampled every second: median and minimum SM clock, peak temperature, power, and the share of time spent throttled, by reason |
 
@@ -46,8 +47,10 @@ The verdict is `pass`, `fail` or `unknown`. It only fails on clear faults:
   (`thermal_throttling`);
 - the GPU slowed down for a hardware or power-brake fault for more than 10% of
   the sustained phase (`power_throttling`);
-- with `--advertised-vram-gb`, the largest allocation was under 90% of that
-  figure (`allocatable_vram_below_listing`).
+- with `--advertised-vram-gb`, the largest allocation was under 90% of the
+  memory CUDA can address (`allocatable_vram_below_listing`). The driver keeps
+  a few hundred MB of every card for itself, so CUDA's total is the bar when it
+  is within 10% under the listing; otherwise the listing is.
 
 Running at the power cap under full load is normal. It is reported as
 `power_cap_share` and is not a fault.

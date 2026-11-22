@@ -356,12 +356,60 @@ def test_a_vulnerable_version_still_fails():
     assert r.status == CHECK_FAIL
 
 
-def test_allocatable_vram_below_ninety_percent_of_the_listing_fails():
+def test_allocatable_vram_below_ninety_percent_of_what_cuda_addresses_fails():
+    # CUDA addresses 11.76 of the 12 GB listing; the bar is 90 % of that, 10.58.
     report = _report(advertised_vram_gb=12.0)
-    assert check_allocatable_vram({**report, "allocatable_vram_gb": 10.7}).status == CHECK_FAIL
-    assert check_allocatable_vram({**report, "allocatable_vram_gb": 10.9}).status == CHECK_PASS
+    assert check_allocatable_vram({**report, "allocatable_vram_gb": 10.5}).status == CHECK_FAIL
+    assert check_allocatable_vram({**report, "allocatable_vram_gb": 10.6}).status == CHECK_PASS
+    # Without CUDA's total the bar is the listing, as before.
+    no_total = {k: v for k, v in report.items() if k != "total_vram_gb"}
+    assert check_allocatable_vram({**no_total, "allocatable_vram_gb": 10.7}).status == CHECK_FAIL
+    assert check_allocatable_vram({**no_total, "allocatable_vram_gb": 10.9}).status == CHECK_PASS
     report.pop("allocatable_vram_gb")
     assert check_allocatable_vram(report).status == CHECK_UNKNOWN
+
+
+#: What a genuine 6 GB laptop RTX 2060 reports: nvidia-smi says 6144 MiB, the
+#: driver keeps 407 MiB, CUDA addresses the other 5737 MiB (5.6 GB), and a job
+#: can take about 5.3 GB of that in one piece.
+RTX_2060 = {
+    "gpu_model": "NVIDIA GeForce RTX 2060",
+    "board_vram_gb": 6.0,
+    "total_vram_gb": 5.6,
+    "allocatable_vram_gb": 5.3,
+    "advertised_gpu_model": "RTX 2060",
+    "advertised_vram_gb": 6.0,
+}
+
+
+def test_a_genuine_6gb_card_is_not_accused_of_a_short_listing():
+    """The board's memory is compared with the listing, not CUDA's total.
+
+    Before, CUDA's 5.6 GB was compared with the 6.0 GB listing (6.7 % off), so
+    every small card failed identity for the driver's reservation.
+    """
+    identity = check_gpu_identity(_report(**RTX_2060))
+    assert identity.status == CHECK_PASS, identity.details
+    assert "CUDA addresses 5.6GB" in identity.details
+    allocatable = check_allocatable_vram(_report(**RTX_2060))
+    assert allocatable.status == CHECK_PASS, allocatable.actual
+    assert "of 5.6GB" in allocatable.actual and "listing 6GB" in allocatable.actual
+
+
+def test_an_agent_without_the_board_reading_is_judged_as_before():
+    old = {k: v for k, v in RTX_2060.items() if k != "board_vram_gb"}
+    assert check_gpu_identity(_report(**old)).status == CHECK_FAIL
+
+
+def test_a_short_board_or_a_memory_squatter_still_fails():
+    # A 4 GB card listed as 6 GB.
+    short = {**RTX_2060, "board_vram_gb": 4.0, "total_vram_gb": 3.7, "allocatable_vram_gb": 3.4}
+    assert check_gpu_identity(_report(**short)).status == CHECK_FAIL
+    assert check_allocatable_vram(_report(**short)).status == CHECK_FAIL
+    # The right card, with another process holding 2 GB: CUDA's total does not move.
+    squatted = {**RTX_2060, "allocatable_vram_gb": 3.3}
+    assert check_gpu_identity(_report(**squatted)).status == CHECK_PASS
+    assert check_allocatable_vram(_report(**squatted)).status == CHECK_FAIL
 
 
 @pytest.mark.parametrize(

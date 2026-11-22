@@ -5,10 +5,10 @@
 # Seven checks, every one of which must PASS for a host to be verified
 # (`VERIFICATION_CHECKS` is the list and `verification_check_count()` the count
 # that public copy reads):
-#   1. gpu_identity      — measured GPU model and VRAM against the host's
-#                          listing (two-sided, within 5%), and the GPU UUIDs /
-#                          serials against the baseline recorded at the host's
-#                          first full pass
+#   1. gpu_identity      — measured GPU model and board VRAM against the
+#                          host's listing (two-sided, within 5%), and the GPU
+#                          UUIDs / serials against the baseline recorded at the
+#                          host's first full pass
 #   2. cuda_readiness    — CUDA, driver and compute capability present
 #   3. pcie_bandwidth    — measured host<->device copy rate
 #   4. thermal_stability — peak temperature under the benchmark's load and,
@@ -16,7 +16,8 @@
 #                          window the GPU spent thermal- or power-fault throttled
 #   5. network_quality   — loss, jitter and throughput to the scheduler
 #   6. allocatable_vram  — the largest single allocation that succeeds, against
-#                          the listing
+#                          the VRAM CUDA can address (the listing less the
+#                          driver's reservation)
 #   7. security_posture  — runc, NVIDIA Container Toolkit, driver and Docker
 #                          versions against their CVE minimums
 #
@@ -55,6 +56,7 @@ from typing import Any, Optional
 from host_metadata import normalize_gpu_model
 from xcelsior_bench import (
     ALLOCATABLE_FAULT_RATIO,
+    allocatable_baseline_gb,
     MIN_SUSTAINED_SECONDS,
     THROTTLE_FAULT_SHARE,
     sustained_too_short,
@@ -102,7 +104,8 @@ VERIFICATION_THRESHOLDS = {
     # throttled. The benchmark's own verdict uses the same number.
     "max_throttle_share_pct": THROTTLE_FAULT_SHARE * 100,
     "max_vram_deviation_pct": 5.0,  # |measured - advertised| / advertised
-    "min_allocatable_vram_pct": ALLOCATABLE_FAULT_RATIO * 100,  # Largest allocation vs listing
+    # Largest allocation vs the VRAM CUDA addresses (xcelsior_bench.allocatable_baseline_gb)
+    "min_allocatable_vram_pct": ALLOCATABLE_FAULT_RATIO * 100,
     "min_cuda_compute_capability": 7.0,  # Minimum CUDA compute capability
     "max_network_loss_pct": 2.0,  # Max acceptable packet loss
     "max_network_jitter_ms": 50.0,  # Max acceptable jitter
@@ -336,7 +339,12 @@ def check_gpu_identity(report: dict) -> VerificationResult:
     old check compared the agent's NVML name with PyTorch on the same machine,
     which proves nothing about what a renter was sold.
 
-    VRAM is two-sided: over-reporting is as wrong as under-reporting.
+    VRAM is two-sided: over-reporting is as wrong as under-reporting. The
+    measurement is the board's memory (``board_vram_gb``, nvidia-smi's
+    ``memory.total``), the reading the listing itself is made from. CUDA's
+    total (``total_vram_gb``) is that less the driver's reservation, so
+    comparing it with the listing failed a genuine 6 GB card by 6.7 %; it is
+    used only for an agent that does not send the board reading.
 
     The UUID baseline comparison happens in the engine, which has the stored
     record; here a missing UUID makes the check `unknown`.
@@ -344,7 +352,8 @@ def check_gpu_identity(report: dict) -> VerificationResult:
     advertised_model = str(report.get("advertised_gpu_model") or "")
     measured_model = str(report.get("gpu_model") or "")
     advertised_vram = _num(report, "advertised_vram_gb")
-    measured_vram = _num(report, "total_vram_gb")
+    cuda_vram = _num(report, "total_vram_gb")
+    measured_vram = _num(report, "board_vram_gb") or cuda_vram
     identity = reported_identity(report)
     max_dev = float(VERIFICATION_THRESHOLDS["max_vram_deviation_pct"])
 
@@ -392,7 +401,10 @@ def check_gpu_identity(report: dict) -> VerificationResult:
     if count and report.get("gpu_identities") and len(identity["gpu_uuids"]) != int(count):
         problems.append(f"{len(identity['gpu_uuids'])} GPUs reported, {int(count)} listed")
 
-    details = f"VRAM deviation {deviation:.1f}%; {uuid_detail}; {serial_detail}"
+    cuda_detail = (
+        f"; CUDA addresses {cuda_vram:g}GB" if cuda_vram and cuda_vram != measured_vram else ""
+    )
+    details = f"VRAM deviation {deviation:.1f}%{cuda_detail}; {uuid_detail}; {serial_detail}"
     if problems:
         return VerificationResult(
             check_name="gpu_identity",
@@ -550,29 +562,36 @@ def check_network_quality(report: dict) -> VerificationResult:
 
 
 def check_allocatable_vram(report: dict) -> VerificationResult:
-    """The largest single allocation that succeeds, against the listed VRAM.
+    """The largest single allocation that succeeds, against the VRAM CUDA addresses.
 
     Replaces the old memory_fragmentation check, which read PyTorch allocator
     fields the agent never sent and so was skipped — and counted as a pass — on
     every host. This one measures what a renter's job can actually take.
+
+    The bar is :func:`xcelsior_bench.allocatable_baseline_gb`: the listing less
+    the driver's reservation, the same bar the benchmark's own verdict uses.
+    Memory another process holds still fails it.
     """
     allocatable = _num(report, "allocatable_vram_gb")
     advertised = _num(report, "advertised_vram_gb")
+    baseline = allocatable_baseline_gb(advertised, _num(report, "total_vram_gb"))
     floor_pct = float(VERIFICATION_THRESHOLDS["min_allocatable_vram_pct"])
-    expected = f">= {floor_pct:g}% of the listed VRAM"
-    if not allocatable or not advertised:
+    expected = (
+        f">= {floor_pct:g}% of the VRAM CUDA addresses (the listing less the driver's reservation)"
+    )
+    if not allocatable or not advertised or not baseline:
         return _unknown(
             "allocatable_vram",
             expected,
             f"{allocatable or '?'}GB allocatable / {advertised or '?'}GB listed",
             str(report.get("allocatable_vram_error") or "no allocation probe or no listing"),
         )
-    pct = allocatable / advertised * 100
+    pct = allocatable / baseline * 100
     return VerificationResult(
         check_name="allocatable_vram",
         passed=pct >= floor_pct,
         expected=expected,
-        actual=f"{allocatable:.2f}GB of {advertised:g}GB ({pct:.1f}%)",
+        actual=f"{allocatable:.2f}GB of {baseline:g}GB ({pct:.1f}%; listing {advertised:g}GB)",
     )
 
 
@@ -775,6 +794,7 @@ class VerificationStore:
             bench.get("sustained") if isinstance(bench.get("sustained"), dict) else None,
             _num(bench, "allocatable_vram_gb"),
             _num(report, "advertised_vram_gb"),
+            _num(bench, "total_vram_gb"),
         )
         bench = {**bench, "verdict": judged, "advertised_vram_gb": report.get("advertised_vram_gb")}
 

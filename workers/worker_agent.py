@@ -686,7 +686,7 @@ BENCH_SUSTAINED_SEC = int(os.environ.get("XCELSIOR_BENCH_SUSTAINED_SEC", "300"))
 #: (upgrade_agent skips sibling modules it does not know), so it fetches the
 #: file from the scheduler and accepts it only if it matches this.
 #: tests/test_xcelsior_bench.py keeps it equal to the file.
-BENCH_SHA256 = "3ff642a84e1ba6c018ea09757c6340783429c4fcae7e72ddb8a04737afdf9eb6"
+BENCH_SHA256 = "3c784568dedd1109937bfc6cf34241a5a3e53827295a9d305719104c17a878e2"
 
 
 def _bench_source() -> str | None:
@@ -726,6 +726,7 @@ def _verification_fields(bench: dict) -> dict:
         for key in (
             "gpu_model",
             "total_vram_gb",
+            "board_vram_gb",
             "compute_capability",
             "cuda_version",
             "driver_version",

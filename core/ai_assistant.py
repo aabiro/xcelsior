@@ -2725,7 +2725,7 @@ THE {n} CHECKS EXPLAINED (the server runs the same checks on the worker's own re
 3. **PCIe bandwidth** — measured host-to-GPU transfer of at least {T["min_pcie_bandwidth_gbps"]:g} GB/s
 4. **Thermal stability** — peak GPU temperature at or under {T["max_gpu_temp_celsius"]}°C during a short benchmark load (about 15 seconds); a sensor that reads nothing does not pass
 5. **Network quality** — packet loss at most {T["max_network_loss_pct"]:g}%, jitter at most {T["max_network_jitter_ms"]:g} ms, throughput at least {T["min_network_throughput_mbps"]:g} Mbps
-6. **Allocatable VRAM** — at least {T["min_allocatable_vram_pct"]:g}% of the listed VRAM can actually be allocated in one piece
+6. **Allocatable VRAM** — at least {T["min_allocatable_vram_pct"]:g}% of the VRAM CUDA can address (the listing less the few hundred MB the driver reserves) can actually be allocated in one piece
 7. **Security posture** — runc, the NVIDIA container toolkit, the NVIDIA driver and Docker each meet their minimum version; a version that cannot be read does not pass
 
 A check whose reading is missing counts as not passed, never as passed.
