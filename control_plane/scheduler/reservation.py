@@ -336,29 +336,43 @@ def reserve_and_bind(
             raise HostNotEligible(
                 reason.message, filter_reason=reason.code, filter_details=reason.details
             )
-    # Verified-only placement, re-read here: a host de-verified (or gone
-    # overdue) since the score was computed must not take this job.
-    verification_ctx = FilterContext()
-    if verification_ctx.require_verified and spec.get("verification_gate_override") is not True:
-        from control_plane.scheduler.filters import host_verified
-        from verification import verification_freshness
+    # The host's verification as this placement sees it, read under the host
+    # lock. It is recorded on the attempt (the receipt shows what the renter
+    # was placed on) and, with verified-only placement on, it is the gate: a
+    # host de-verified (or gone overdue) since the score was computed must not
+    # take this job.
+    from verification import verification_freshness
 
-        vrow = conn.execute(
-            """SELECT state, last_check_at, next_check_at,
-                      EXTRACT(EPOCH FROM clock_timestamp()) AS now_epoch
-                 FROM host_verifications WHERE host_id = %s""",
-            (host_id,),
-        ).fetchone()
-        locked_host["verification_freshness"] = (
-            verification_freshness(
+    vrow = conn.execute(
+        """SELECT state, last_check_at, next_check_at, verification_id,
+                  EXTRACT(EPOCH FROM clock_timestamp()) AS now_epoch
+             FROM host_verifications WHERE host_id = %s""",
+        (host_id,),
+    ).fetchone()
+    if vrow is not None:
+        verification_at_placement = {
+            "state": str(_one(vrow, "state", 0) or ""),
+            "freshness": verification_freshness(
                 _one(vrow, "state", 0),
                 _one(vrow, "last_check_at", 1),
                 _one(vrow, "next_check_at", 2),
-                now=float(_one(vrow, "now_epoch", 3)),
-            )
-            if vrow is not None
-            else "unverified"
-        )
+                now=float(_one(vrow, "now_epoch", 4)),
+            ),
+            "verification_id": _one(vrow, "verification_id", 3) or None,
+            "last_check_at": _one(vrow, "last_check_at", 1),
+        }
+    else:
+        verification_at_placement = {
+            "state": "unverified",
+            "freshness": "unverified",
+            "verification_id": None,
+            "last_check_at": None,
+        }
+    verification_ctx = FilterContext()
+    if verification_ctx.require_verified and spec.get("verification_gate_override") is not True:
+        from control_plane.scheduler.filters import host_verified
+
+        locked_host["verification_freshness"] = verification_at_placement["freshness"]
         reason = host_verified(spec, locked_host, verification_ctx)
         if reason is not None:
             raise HostNotEligible(
@@ -565,6 +579,7 @@ def reserve_and_bind(
     # This field is generated only from the locked server rows, never from
     # a client explanation or from a later host-price observation.
     explanation["billing_snapshot"] = billing_snapshot
+    explanation["host_verification"] = verification_at_placement
     if preference_evidence:
         explanation["placement_preference"] = preference_evidence
     attempt_number = int(
