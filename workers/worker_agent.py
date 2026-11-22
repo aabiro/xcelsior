@@ -8084,6 +8084,36 @@ def _sample_host_utilization() -> dict:
         return {"cpu_util_pct": 0.0, "system_memory_pct": 0.0}
 
 
+def _gpu_sample(gpu: dict, position: int) -> dict:
+    """One GPU's entry in the telemetry report's ``gpus`` list.
+
+    The server keeps these per GPU (``telemetry_samples``) and shows a renter
+    only the entries for the GPUs their run was given, with only these fields
+    (``gpu_telemetry.RENTER_GPU_FIELDS`` on the server; a test holds the two
+    equal). ``gpu_uuid`` is empty when the reading came from the nvidia-smi
+    fallback without one; the server then matches the entry by index.
+    """
+
+    def num(key: str) -> float | None:
+        value = gpu.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return round(float(value), 2)
+        return None
+
+    index = gpu.get("index")
+    return {
+        "index": index if type(index) is int else position,
+        "gpu_uuid": str(gpu.get("gpu_uuid") or gpu.get("uuid") or ""),
+        "utilization": num("utilization"),
+        "memory_util": num("memory_util"),
+        "memory_used_gb": num("memory_used_gb"),
+        "memory_total_gb": num("memory_total_gb"),
+        "temp": num("temperature_c"),
+        "power_draw_w": num("power_draw_w"),
+        "power_limit_w": num("power_limit_w"),
+    }
+
+
 def telemetry_loop():
     """Background thread: push GPU metrics to scheduler every TELEMETRY_INTERVAL seconds.
 
@@ -8126,6 +8156,14 @@ def telemetry_loop():
 
                 # ECC memory errors
                 metrics["memory_errors"] = gpu.get("memory_errors", 0)
+
+                # Every GPU, for per-GPU history and each renter's own view.
+                # One entry per index: the server drops a list that repeats one.
+                samples = {}
+                for position, reading in enumerate(telemetry):
+                    entry = _gpu_sample(reading, position)
+                    samples.setdefault(entry["index"], entry)
+                metrics["gpus"] = list(samples.values())
 
                 # P2.4 — host bandwidth + disk IO deltas (aggregate across NICs/disks)
                 metrics.update(_sample_io_delta(_io_state))

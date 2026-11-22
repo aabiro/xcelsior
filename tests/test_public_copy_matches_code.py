@@ -7,8 +7,11 @@ and fails if one comes back.
 * Spot locks when the job is **submitted** (`control_plane/spot_admission.py`,
   called from `scheduler.submit_job`), and nothing re-locks it on requeue.
 * Billing is **per second** (`rate_micros × seconds ÷ 3600`), not by the hour.
-* Renters cannot see live telemetry: the renter route reads a store only filled
-  when PostgreSQL is off. Host-side monitoring and mining detection are real.
+* Renters see live telemetry only for their own GPUs, from the per-GPU store
+  (``hosts/gpu_telemetry.py``). Until 2026-11-22 the renter route read a store
+  only filled when PostgreSQL was off, so copy promising it was false; the
+  guard now checks that the route and the instance-page card behind the claim
+  are the real ones.
 * The local wizard checks and the Xcel AI explanation follow the server's
   thresholds and its seven checks.
 """
@@ -63,8 +66,8 @@ FALSE_PHRASES = [
 # Renter-facing keys: the host dashboard's own live gauges are real and stay.
 RENTER_KEY_PREFIXES = ("home.", "features.", "gpus.", "mcp.landing.", "pricing.")
 RENTER_TELEMETRY = re.compile(
-    r"(real[- ]time|live)\s+(nvml\s+)?telemetry|telemetry[^.\"]*stream"
-    r"|télémétrie (en temps réel|et journaux en direct)",
+    r"(real[- ]time|live)\s+((nvml|gpu)\s+)?telemetry|telemetry[^.\"]*stream"
+    r"|télémétrie (gpu )?(en temps réel|en direct|et journaux en direct)",
     re.I,
 )
 
@@ -91,8 +94,9 @@ def _i18n_pairs(path: Path):
         yield m.group(1), m.group(2)
 
 
-def test_renter_copy_does_not_promise_live_telemetry():
-    hits = [
+def test_renter_telemetry_copy_has_the_real_route_behind_it():
+    """Copy may promise a renter live GPU telemetry only while the code delivers it."""
+    claims = [
         f"{path.name}: {key}"
         for path in sorted(I18N.glob("*.ts"))
         for key, value in _i18n_pairs(path)
@@ -104,8 +108,23 @@ def test_renter_copy_does_not_promise_live_telemetry():
         ROOT / "api/frontend/src/app/(marketing)/about/page.tsx",
     ):
         if RENTER_TELEMETRY.search(path.read_text("utf-8")):
-            hits.append(str(path.relative_to(ROOT)))
-    assert not hits, "the renter telemetry route is not live yet (Phase 3): " + ", ".join(hits)
+            claims.append(str(path.relative_to(ROOT)))
+    if not claims:
+        return
+    routes = (ROOT / "api/routes/instances.py").read_text("utf-8")
+    start = routes.index("def api_instance_telemetry(")
+    route = routes[start : routes.index("\n@router", start)]
+    assert "latest_for_run" in route and "_host_telemetry" not in route, (
+        "copy promises renters live telemetry, but the renter route no longer reads "
+        "the per-GPU store: " + ", ".join(claims)
+    )
+    page = (ROOT / "api/frontend/src/app/(dashboard)/dashboard/instances/[id]/page.tsx").read_text(
+        "utf-8"
+    )
+    assert "<GpuTelemetryCard" in page, (
+        "copy promises renters live telemetry, but the instance page no longer shows it: "
+        + ", ".join(claims)
+    )
 
 
 def test_the_spot_copy_says_submit():

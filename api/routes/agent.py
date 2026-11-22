@@ -1031,6 +1031,17 @@ class TelemetryPayload(BaseModel):
         used, total = metrics.get("memory_used_gb"), metrics.get("memory_total_gb")
         if used is not None and total is not None and used > total:
             raise ValueError("GPU memory used cannot exceed total GPU memory")
+        if "gpus" in metrics:
+            # The per-GPU list feeds only the renter's charts. A malformed one
+            # is dropped, never stored, and the rest of the report (the host's
+            # liveness and health) still counts.
+            from gpu_telemetry import validate_gpu_samples
+
+            try:
+                validate_gpu_samples(metrics["gpus"])
+            except ValueError as exc:
+                log.warning("Dropped a malformed per-GPU telemetry list (%s)", exc)
+                metrics = {k: v for k, v in metrics.items() if k != "gpus"}
         return metrics
 
 
@@ -1130,6 +1141,17 @@ def api_agent_telemetry(payload: TelemetryPayload, request: Request):
     _persist_telemetry_latest(payload.host_id, record)  # shared across replicas
     if not _telemetry_pg_enabled():
         _host_telemetry[payload.host_id] = record
+    elif isinstance(gpus := payload.metrics.get("gpus"), list) and gpus:
+        # Per-GPU latest and history (agent 2.3.0+). Evidence for the renter's
+        # view, not the host's liveness, so a failure here is logged and the
+        # report still succeeds.
+        try:
+            from gpu_telemetry import record_gpu_samples
+
+            with _get_pg_pool().connection() as conn:
+                record_gpu_samples(conn, payload.host_id, gpus)
+        except Exception as exc:
+            log.warning("Per-GPU telemetry write failed (%s)", type(exc).__name__)
     return {"ok": True}
 
 

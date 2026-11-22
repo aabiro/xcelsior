@@ -2533,39 +2533,84 @@ async def api_instance_log_stream(request: Request, job_id: str):
     )
 
 
-@router.get("/api/instances/{job_id}/telemetry", tags=["Instances"])
-def api_instance_telemetry(job_id: str, request: Request):
-    """Latest GPU telemetry for the host running this instance (for agents/MCP watch_instance)."""
-    import time as _time
+def _telemetry_job(request: Request, job_id: str) -> dict:
+    """The job, for its owner (or a platform admin); anyone else gets not-found."""
+    from routes._deps import _is_platform_admin, _user_owns_job
 
     user = _require_auth(request)
     _require_scope(user, "instances:read")
-    _check_job_access(user, job_id)
     job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Instance not found")
-    host_id = job.get("host_id")
-    if not host_id:
+    if not job or not (_is_platform_admin(user) or _user_owns_job(user, job)):
+        raise HTTPException(status_code=404, detail=f"Instance {job_id} not found")
+    return job
+
+
+@router.get("/api/instances/{job_id}/telemetry", tags=["Instances"])
+def api_instance_telemetry(job_id: str, request: Request):
+    """The newest sample from each GPU this instance was given (MCP watch_instance).
+
+    Owner only. Only the run's own GPUs, and only GPU fields
+    (``gpu_telemetry.RENTER_GPU_FIELDS``): on a shared host a renter never sees
+    another tenant's GPU, the host's job count or anyone's volume ids. A host
+    whose agent predates per-GPU reports returns ``telemetry: null`` with a
+    message rather than host-wide numbers.
+    """
+    from db import _get_pg_pool
+    from gpu_telemetry import latest_for_run
+
+    job = _telemetry_job(request, job_id)
+    with _get_pg_pool().connection() as conn:
+        latest = latest_for_run(conn, job_id)
+    if latest is None:
         return {
             "ok": True,
             "job_id": job_id,
-            "host_id": None,
+            "host_id": job.get("host_id") or None,
+            "stale": True,
             "telemetry": None,
-            "message": "Instance not yet assigned to a host",
+            "reason": "no_gpu",
+            "message": "This instance has not been given a GPU yet",
         }
-    from routes.agent import _host_telemetry
-
-    data = _host_telemetry.get(host_id)
-    if not data:
-        raise HTTPException(status_code=404, detail=f"No telemetry for host {host_id}")
-    stale = (_time.time() - data.get("received_at", 0)) > 30
+    if not latest["reporting"]:
+        return {
+            "ok": True,
+            "job_id": job_id,
+            "host_id": job.get("host_id") or None,
+            "stale": True,
+            "telemetry": None,
+            "reason": "no_readings",
+            "message": "No per-GPU telemetry from this host yet",
+        }
     return {
         "ok": True,
         "job_id": job_id,
-        "host_id": host_id,
-        "stale": stale,
-        "telemetry": data,
+        "host_id": job.get("host_id") or None,
+        "stale": latest["stale"],
+        "telemetry": {"gpus": latest["gpus"]},
     }
+
+
+@router.get("/api/instances/{job_id}/telemetry/history", tags=["Instances"])
+def api_instance_telemetry_history(
+    job_id: str,
+    request: Request,
+    since: float | None = Query(None, ge=0),
+    limit: int = Query(720, ge=1, le=2880),
+):
+    """This instance's per-GPU series, one point per GPU every 30 s, oldest first.
+
+    Owner only, the run's own GPUs only, from when they were allocated to when
+    they were released. ``since`` (epoch seconds) returns only newer points.
+    """
+    from db import _get_pg_pool
+    from gpu_telemetry import history_for_run
+
+    _telemetry_job(request, job_id)
+    with _get_pg_pool().connection() as conn:
+        history = history_for_run(conn, job_id, since=since, limit=limit)
+    if history is None:
+        return {"ok": True, "job_id": job_id, "history": None}
+    return {"ok": True, "job_id": job_id, "history": history}
 
 
 @router.get("/instances/{job_id}/logs", tags=["Instances"])

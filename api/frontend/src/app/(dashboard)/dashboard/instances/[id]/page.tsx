@@ -31,6 +31,7 @@ import { ArtifactRetentionCard } from "@/components/instances/artifact-retention
 import { DesiredObservedBadge, type ObservationStatus } from "@/components/instances/desired-observed-badge";
 import { CostMeterCard } from "@/components/instances/cost-meter-card";
 import { ReceiptCard } from "@/components/instances/receipt-card";
+import { GpuTelemetryCard } from "@/components/instances/gpu-telemetry-card";
 import { formatDuration, formatMicros } from "@/lib/format-units";
 import { toast } from "sonner";
 import { HostKeyVerification } from "@/components/instances/host-key-verification";
@@ -876,6 +877,8 @@ export default function InstanceDetailPage() {
           </div>
         </Card>
       </div>
+
+      <GpuTelemetryCard jobId={instance.job_id} live={isRunning || isTransitional} />
 
       {/* Pricing card */}
       <Card>

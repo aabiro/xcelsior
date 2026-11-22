@@ -2846,6 +2846,76 @@ export function fetchRunReceipts(params: { limit?: number; cursor?: string } = {
 }
 
 /**
+ * One of this instance's GPUs, newest reading. The measurement fields are
+ * exactly the server's `gpu_telemetry.RENTER_GPU_FIELDS` (a backend test reads
+ * this interface and holds the two equal). Any of them can be null when the
+ * host's driver does not report it.
+ */
+export interface InstanceGpuSample {
+  index: number | null;
+  gpu_model: string;
+  utilization: number | null;
+  memory_util: number | null;
+  memory_used_gb: number | null;
+  memory_total_gb: number | null;
+  temp: number | null;
+  power_draw_w: number | null;
+  power_limit_w: number | null;
+  /** Epoch seconds; null when this GPU has not reported yet. */
+  received_at: number | null;
+  /** True when the newest reading is more than 30 s old. */
+  stale: boolean;
+}
+
+export interface InstanceTelemetryResponse {
+  ok: boolean;
+  job_id: string;
+  host_id: string | null;
+  stale: boolean;
+  /** Null until the instance has a GPU and that GPU's host has reported. */
+  telemetry: { gpus: InstanceGpuSample[] } | null;
+  /** Why `telemetry` is null: no GPU allocated yet, or none of its GPUs has reported. */
+  reason?: "no_gpu" | "no_readings";
+  message?: string;
+}
+
+export interface InstanceGpuHistoryPoint {
+  /** Epoch seconds. */
+  t: number;
+  utilization: number | null;
+  memory_used_gb: number | null;
+  temp: number | null;
+  power_draw_w: number | null;
+}
+
+export interface InstanceGpuHistory {
+  interval_seconds: number;
+  fields: string[];
+  gpus: { index: number | null; gpu_model: string; points: InstanceGpuHistoryPoint[] }[];
+}
+
+/** Owner only: 404 for anyone else's instance. */
+export function fetchInstanceTelemetry(jobId: string) {
+  return apiFetch<InstanceTelemetryResponse>(
+    `/api/instances/${encodeURIComponent(jobId)}/telemetry`,
+  );
+}
+
+/** One point per GPU every 30 s, oldest first; `since` (epoch seconds) for newer points only. */
+export function fetchInstanceTelemetryHistory(
+  jobId: string,
+  params: { since?: number; limit?: number } = {},
+) {
+  const q = new URLSearchParams();
+  if (params.since !== undefined) q.set("since", String(params.since));
+  if (params.limit) q.set("limit", String(params.limit));
+  const qs = q.toString();
+  return apiFetch<{ ok: boolean; job_id: string; history: InstanceGpuHistory | null }>(
+    `/api/instances/${encodeURIComponent(jobId)}/telemetry/history${qs ? `?${qs}` : ""}`,
+  );
+}
+
+/**
  * Current lease health. The route already redacts: `host_alias` is a SHA-derived
  * stand-in and no credential is included, so this is safe to render as-is.
  */
