@@ -25,7 +25,7 @@ const state = (over: Record<string, unknown> = {}) => ({
   blocker: null,
   template_label: "vLLM",
   gpu_model: "RTX 3060",
-  page: { slug: "vllm-on-rtx-3060", live: false, runs: null, min_runs: 3, gpu_has_supply: true },
+  page: { slug: "vllm-on-rtx-3060", live: false, runs: 1, min_runs: 3, gpu_has_supply: true },
   ...over,
 });
 
@@ -37,14 +37,16 @@ describe("receipt share control", () => {
 
   it("is off until the owner turns it on, and saves at once", async () => {
     fetchShare.mockResolvedValue(state());
-    putShare.mockResolvedValue(state({ shared: true }));
+    putShare.mockResolvedValue(
+      state({ shared: true, page: { slug: "vllm-on-rtx-3060", live: false, runs: 2, min_runs: 3, gpu_has_supply: true } }),
+    );
     render(<ReceiptShareControl jobId="j1" />);
     const toggle = await screen.findByRole("switch");
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(toggle);
     await waitFor(() => expect(putShare).toHaveBeenCalledWith("j1", true));
     await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
-    expect(screen.getByTestId("receipt-share-page").textContent).toContain("waiting_runs");
+    expect(screen.getByTestId("receipt-share-page").textContent).toContain('waiting_runs {"shared":2,"runs":3}');
   });
 
   it("links to the live page once it exists", async () => {

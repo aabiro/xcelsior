@@ -69,7 +69,7 @@ export function ReceiptShareControl({ jobId }: { jobId: string }) {
                   {t("dash.receipt_share.view_page", { runs: page.runs ?? page.min_runs })}
                 </Link>
               ) : page.gpu_has_supply ? (
-                t("dash.receipt_share.waiting_runs", { runs: page.min_runs })
+                t("dash.receipt_share.waiting_runs", { shared: page.runs ?? 1, runs: page.min_runs })
               ) : (
                 t("dash.receipt_share.waiting_supply")
               )}

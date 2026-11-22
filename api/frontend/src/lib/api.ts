@@ -2917,6 +2917,7 @@ export interface ReceiptShareState {
   page: {
     slug: string;
     live: boolean;
+    /** Shared runs that count toward the page now, the owner's included. */
     runs: number | null;
     min_runs: number;
     gpu_has_supply: boolean;

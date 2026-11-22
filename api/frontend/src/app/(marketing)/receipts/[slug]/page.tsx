@@ -12,6 +12,9 @@ import {
 } from "@/lib/receipt-pages";
 import { formatHourlyRate } from "@/lib/hourly-rate";
 
+// Three short figures a row: tight enough to fit a phone without scrolling.
+const CELL = { padding: "12px 10px" } as const;
+
 interface Props {
   params: Promise<{ slug: string }>;
 }
@@ -19,7 +22,7 @@ interface Props {
 function describe(page: { runs: number; template_label: string; gpu_model: string; median_total_micros: number; median_billed_seconds: number }) {
   return (
     `${page.runs} real ${page.template_label} runs on ${page.gpu_model}: a typical run took ` +
-    `${formatDuration(page.median_billed_seconds)} and cost ${formatMicros(page.median_total_micros, { exact: true })}, as billed.`
+    `${formatDuration(page.median_billed_seconds)} and cost ${formatMicros(page.median_total_micros)}, as billed.`
   );
 }
 
@@ -71,13 +74,13 @@ export default async function ReceiptPageView({ params }: Props) {
       : `all shared by the customers who ran them`;
   const rows: [string, string, string, string][] = [
     [
-      "Cost per run",
-      formatMicros(page.min_total_micros, { exact: true }),
-      formatMicros(page.median_total_micros, { exact: true }),
-      formatMicros(page.max_total_micros, { exact: true }),
+      "Cost",
+      formatMicros(page.min_total_micros),
+      formatMicros(page.median_total_micros),
+      formatMicros(page.max_total_micros),
     ],
     [
-      "Billed time per run",
+      "Billed time",
       formatDuration(page.min_billed_seconds),
       formatDuration(page.median_billed_seconds),
       formatDuration(page.max_billed_seconds),
@@ -105,7 +108,7 @@ export default async function ReceiptPageView({ params }: Props) {
           <div className="site-kpi-strip" style={{ marginTop: 28 }}>
             <div className="site-kpi">
               <div className="site-kpi-label">Typical cost per run</div>
-              <div className="site-kpi-value">{formatMicros(page.median_total_micros, { exact: true })}</div>
+              <div className="site-kpi-value">{formatMicros(page.median_total_micros)}</div>
             </div>
             <div className="site-kpi">
               <div className="site-kpi-label">Typical billed time</div>
@@ -114,7 +117,7 @@ export default async function ReceiptPageView({ params }: Props) {
             <div className="site-kpi">
               {page.median_gpu_utilization !== null ? (
                 <>
-                  <div className="site-kpi-label">Typical GPU utilization</div>
+                  <div className="site-kpi-label">Typical GPU use</div>
                   <div className="site-kpi-value">{Math.round(page.median_gpu_utilization)}%</div>
                 </>
               ) : (
@@ -138,31 +141,31 @@ export default async function ReceiptPageView({ params }: Props) {
             </p>
           </div>
           <div className="site-table-wrap" style={{ marginTop: 16 }}>
-            <table className="site-table" style={{ minWidth: 520 }}>
+            <table className="site-table" style={{ minWidth: 0 }}>
               <thead>
                 <tr>
-                  <th scope="col">Per run</th>
-                  <th scope="col">Lowest</th>
-                  <th scope="col">Median</th>
-                  <th scope="col">Highest</th>
+                  <th scope="col" style={{ ...CELL, paddingLeft: 16 }}>Per run</th>
+                  <th scope="col" style={CELL}>Lowest</th>
+                  <th scope="col" style={CELL}>Median</th>
+                  <th scope="col" style={CELL}>Highest</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map(([label, low, mid, high]) => (
                   <tr key={label}>
-                    <th scope="row" style={{ textAlign: "left", background: "transparent", paddingLeft: 20 }}>
+                    <th scope="row" style={{ ...CELL, textAlign: "left", background: "transparent", paddingLeft: 16 }}>
                       {label}
                     </th>
-                    <td style={{ textAlign: "center" }}>{low}</td>
-                    <td style={{ textAlign: "center" }}>{mid}</td>
-                    <td style={{ textAlign: "center" }}>{high}</td>
+                    <td style={{ ...CELL, textAlign: "center" }}>{low}</td>
+                    <td style={{ ...CELL, textAlign: "center" }}>{mid}</td>
+                    <td style={{ ...CELL, textAlign: "center" }}>{high}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          <div className="site-prose">
+          <div className="site-prose" style={{ marginTop: 20 }}>
             <ul>
               {page.median_rate_micros_per_hour !== null && (
                 <li className="site-prose-li site-prose-li-disc">

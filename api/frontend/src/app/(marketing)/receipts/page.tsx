@@ -66,7 +66,7 @@ export default async function ReceiptPagesIndex() {
                   <h2 className="site-card-title">{pageTitle(page)}</h2>
                   <p className="site-card-copy">
                     Typical run {formatDuration(page.median_billed_seconds)} for{" "}
-                    {formatMicros(page.median_total_micros, { exact: true })} · {page.runs} runs
+                    {formatMicros(page.median_total_micros)} · {page.runs} runs
                     {monthLabel(page.latest_month) ? ` · updated ${monthLabel(page.latest_month)}` : ""}
                   </p>
                   <span className="site-blog-readmore">

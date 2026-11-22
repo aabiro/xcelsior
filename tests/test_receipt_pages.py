@@ -165,6 +165,8 @@ def test_the_owner_shares_and_unshares_a_finished_run(template_run):
 
     [mine] = mine_now()
     assert mine["source"] == "customer" and mine["billed_seconds"] >= 89
+    # The owner sees their run counted toward the page before it exists.
+    assert on.json()["page"]["live"] is False and on.json()["page"]["runs"] == 1
 
     # A page built from it (MIN_RUNS lowered for one run) names nobody.
     pages = build_pages([mine] * MIN_RUNS, {mine["gpu_model"]})
@@ -174,7 +176,7 @@ def test_the_owner_shares_and_unshares_a_finished_run(template_run):
 
     off = client.put(path, json={"shared": False}, headers=headers)
     assert off.status_code == 200 and off.json()["shared"] is False
-    assert mine_now() == []
+    assert mine_now() == [] and off.json()["page"]["runs"] == 0
 
 
 @pytest.mark.needs_db

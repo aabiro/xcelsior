@@ -55,7 +55,7 @@ PAGE_FIELDS = (
 )
 
 _CACHE_SECONDS = 300
-_cache: dict[str, Any] = {"at": 0.0, "pages": None}
+_cache: dict[str, Any] = {"at": 0.0, "pages": None, "counts": {}}
 
 
 def gpu_slug(gpu_model: str) -> str:
@@ -132,6 +132,12 @@ def set_shared(conn, *, job_id: str, owner_id: str, shared_by: str, source: str,
             "UPDATE receipt_shares SET revoked_at = now() WHERE job_id = %s AND revoked_at IS NULL",
             (job_id,),
         )
+    invalidate_pages()
+
+
+def invalidate_pages() -> None:
+    """Drop the cached pages; call again once the share write has committed,
+    so a read racing the transaction cannot keep a stale count cached."""
     _cache["pages"] = None
 
 
@@ -256,8 +262,13 @@ def public_pages(*, fresh: bool = False) -> list[dict]:
     now = time.monotonic()
     if not fresh and _cache["pages"] is not None and now - _cache["at"] < _CACHE_SECONDS:
         return list(_cache["pages"])
-    pages = build_pages(_shared_runs(_get_pg_pool()), live_supply_models())
-    _cache.update(at=now, pages=pages)
+    runs = _shared_runs(_get_pg_pool())
+    pages = build_pages(runs, live_supply_models())
+    counts: dict[str, int] = {}
+    for run in runs:
+        slug = page_slug(run["template_id"], run["gpu_model"])
+        counts[slug] = counts.get(slug, 0) + 1
+    _cache.update(at=now, pages=pages, counts=counts)
     return list(pages)
 
 
@@ -271,7 +282,9 @@ def page_progress(template_id: str, gpu_model: str) -> dict:
     return {
         "slug": slug,
         "live": live is not None,
-        "runs": live["runs"] if live else None,
+        # Shared runs that count toward this page now (it is live at MIN_RUNS).
+        # A count is all the owner learns about other people's shares.
+        "runs": live["runs"] if live else int(_cache["counts"].get(slug, 0)),
         "min_runs": MIN_RUNS,
         "gpu_has_supply": gpu in live_supply_models(),
     }

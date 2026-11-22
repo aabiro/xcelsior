@@ -1047,7 +1047,7 @@ const en: Record<string, string> = {
   "dash.receipt_share.desc": "Adds this run's time and cost to a public page of real runs, without your name, the job, the host or the image. The page appears once {runs} runs are shared.",
   "dash.receipt_share.settling": "You can share this run once its billing settles.",
   "dash.receipt_share.view_page": "View the public page ({runs} runs)",
-  "dash.receipt_share.waiting_runs": "Shared. The page appears once {runs} runs are shared.",
+  "dash.receipt_share.waiting_runs": "Shared: {shared} of {runs} runs so far.",
   "dash.receipt_share.waiting_supply": "Shared. The page shows while this GPU is available to rent.",
   "dash.receipt_share.failed": "Could not change sharing. Try again.",
   "dash.gpu_telemetry.title": "GPU telemetry",

@@ -1546,7 +1546,7 @@ def api_set_instance_receipt_share(job_id: str, payload: ReceiptSharePayload, re
     from psycopg.rows import dict_row
 
     from db import _get_pg_pool
-    from receipt_pages import set_shared
+    from receipt_pages import invalidate_pages, set_shared
     from routes._deps import _is_platform_admin
 
     user = _require_auth(request)
@@ -1567,6 +1567,7 @@ def api_set_instance_receipt_share(job_id: str, payload: ReceiptSharePayload, re
             source="operator" if _is_platform_admin(user) else "customer",
             on=payload.shared,
         )
+    invalidate_pages()  # committed now; the view below recounts
     return _receipt_share_view(job_id, user)
 
 
