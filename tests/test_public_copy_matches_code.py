@@ -47,6 +47,8 @@ FALSE_PHRASES = [
     (r"facturés? à l'heure", "billing is per second"),
     (r"see health before you rent", "listings show no host health yet"),
     (r"voir l'état avant de louer", "listings show no host health yet"),
+    (r"see it before you rent|visible avant la location", "listings show no throttling data yet"),
+    (r"every host, verified|chaque hôte, vérifié", "not every host is verified"),
 ]
 
 # Renter-facing keys: the host dashboard's own live gauges are real and stay.
