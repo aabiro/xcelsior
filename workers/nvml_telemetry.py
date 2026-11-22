@@ -167,6 +167,93 @@ def collect_gpu_inventory() -> Optional[list[dict]]:
         return None
 
 
+def _decoded(value: Any) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value or "")
+
+
+def _board_serial(value: Any) -> str:
+    """A board serial, or "" when the card does not expose one. Never the UUID."""
+    serial = _decoded(value).strip()
+    if serial.upper() in ("", "[N/A]", "N/A", "0") or serial.startswith("GPU-"):
+        return ""
+    return serial
+
+
+def collect_gpu_identities() -> Optional[list[dict]]:
+    """Every GPU's UUID, board serial and PCI bus id, for the verification baseline.
+
+    Unlike `get_gpu_serial`, the serial here is only ever the board serial:
+    consumer cards do not expose one, and reporting the UUID in its place would
+    let the server believe a serial was checked when none was. An unavailable
+    serial is "" and the server records it as `unavailable`.
+
+    NVML first, `nvidia-smi` when NVML is not initialised. None when neither
+    can read every GPU — a partial list would make a healthy host look like it
+    lost a card.
+    """
+    if _nvml_initialized:
+        try:
+            identities = []
+            for index in range(pynvml.nvmlDeviceGetCount()):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(index)
+                try:
+                    serial = _board_serial(pynvml.nvmlDeviceGetSerial(handle))
+                except Exception:
+                    serial = ""
+                memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                identities.append(
+                    {
+                        "index": index,
+                        "gpu_uuid": _decoded(pynvml.nvmlDeviceGetUUID(handle)),
+                        "serial": serial,
+                        "pci_bus_id": get_gpu_pci_info(handle).get("bus_id") or "",
+                        "model": _decoded(pynvml.nvmlDeviceGetName(handle)),
+                        "total_vram_mb": int(memory.total // (1024 * 1024)),
+                    }
+                )
+            return identities
+        except Exception as exc:
+            log.warning("NVML GPU identity unavailable (%s); trying nvidia-smi", type(exc).__name__)
+
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,uuid,serial,pci.bus_id,name,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    identities = []
+    for line in result.stdout.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 6 or not parts[1].startswith("GPU-"):
+            return None
+        try:
+            index, total_mb = int(parts[0]), int(float(parts[5]))
+        except ValueError:
+            return None
+        identities.append(
+            {
+                "index": index,
+                "gpu_uuid": parts[1],
+                "serial": _board_serial(parts[2]),
+                "pci_bus_id": parts[3],
+                "model": parts[4],
+                "total_vram_mb": total_mb,
+            }
+        )
+    return identities or None
+
+
 def collect_gpu_telemetry(gpu_index: int = 0) -> Optional[dict]:
     """Collect comprehensive telemetry for a single GPU via NVML.
 
@@ -550,11 +637,16 @@ def build_verification_report(gpu_index: int = 0) -> Optional[dict]:
     data = collect_gpu_telemetry(gpu_index)
     if not data:
         return None
+    identities = collect_gpu_identities() or []
+    own = next((i for i in identities if i.get("index") == gpu_index), {})
 
     return {
-        # Identity
+        # Identity: the board serial only ("" when the card exposes none), the
+        # UUID separately, and every GPU's identity for the server's baseline.
         "gpu_model": data.get("gpu_model", ""),
-        "serial": data.get("serial", ""),
+        "gpu_uuid": own.get("gpu_uuid") or data.get("gpu_uuid", ""),
+        "serial": own.get("serial", ""),
+        "gpu_identities": identities,
         "pci_info": data.get("pci_info", {}),
         # VRAM (nvmlDeviceGetMemoryInfo per report)
         "total_vram_gb": data.get("memory_total_gb", 0),

@@ -686,6 +686,30 @@ try:
     report["total_vram_gb"] = round(props.total_memory / (1024**3), 2)
     report["compute_capability"] = f"{props.major}.{props.minor}"
 
+    # ── Allocatable VRAM: the largest single allocation that succeeds ──
+    # First, before this script holds any other tensor, so it measures what a
+    # renter's job could take on an idle GPU: free memory less what the driver,
+    # the display and the CUDA context already hold.
+    try:
+        torch.cuda.empty_cache()
+        free_b, total_b = torch.cuda.mem_get_info(device)
+        step = 64 * 1024 * 1024
+        size = free_b - (free_b % step)
+        best = 0
+        while size >= step:
+            try:
+                block = torch.empty(size, dtype=torch.uint8, device=device)
+                del block
+                torch.cuda.empty_cache()
+                best = size
+                break
+            except RuntimeError:
+                size -= step
+        report["allocatable_vram_gb"] = round(best / (1024**3), 2)
+        report["free_vram_gb_at_probe"] = round(free_b / (1024**3), 2)
+    except Exception as e:
+        report["allocatable_vram_error"] = str(e)[:200]
+
     # ── CUDA / Driver Versions ──
     report["cuda_version"] = torch.version.cuda or ""
     try:
@@ -695,8 +719,8 @@ try:
         )
         report["driver_version"] = smi.stdout.strip().split("\\n")[0].strip() if smi.returncode == 0 else ""
     except Exception as e:
-        log.debug("nvidia-smi driver query failed: %s", e)
         report["driver_version"] = ""
+        report["driver_error"] = str(e)[:200]
 
     # ── FP16 Matmul Benchmark (TFLOPS) ──
     a = torch.randn(4096, 4096, dtype=torch.float16, device=device)
@@ -745,11 +769,10 @@ try:
         report["pcie_d2h_gbps"] = d2h_gbps
         del data_h, data_d
     except Exception as e:
-        log.debug("PCIe bandwidth test failed: %s", e)
         report["pcie_bandwidth_gbps"] = 0
-        report["pcie_error"] = str(e)
+        report["pcie_error"] = str(e)[:200]
 
-    # ── Thermal Stability (sustained load for 15s, sample temp) ──
+    # ── Thermal Stability (15 s of load, sample temp) ──
     try:
         temps = []
         stress_start = time.perf_counter()
@@ -765,18 +788,20 @@ try:
                 if tsmi.returncode == 0:
                     temps.append(float(tsmi.stdout.strip()))
             except Exception as e:
-                log.debug("nvidia-smi temp query failed: %s", e)
+                report["thermal_error"] = str(e)[:200]
             time.sleep(0.5)
+        temps = [t for t in temps if t > 0]
+        report["gpu_temp_samples"] = len(temps)
         if temps:
             report["gpu_temp_celsius"] = max(temps)
             report["gpu_temp_avg_celsius"] = round(sum(temps) / len(temps), 1)
-            report["gpu_temp_samples"] = len(temps)
         else:
-            report["gpu_temp_celsius"] = 0
+            # No reading is not a cool GPU; the server reads this as unknown.
+            report["gpu_temp_celsius"] = None
     except Exception as e:
-        log.debug("thermal stability test failed: %s", e)
-        report["gpu_temp_celsius"] = 0
-        report["thermal_error"] = str(e)
+        report["gpu_temp_celsius"] = None
+        report["gpu_temp_samples"] = 0
+        report["thermal_error"] = str(e)[:200]
 
     # Clean up GPU memory
     del a, b
@@ -916,6 +941,30 @@ _PULL_FAILURE_REASONS = (
 )
 
 
+#: Failure codes for the pull failures that are the host's own (its registry
+#: credentials, its disk), and for the ones that are the image's. Anything else
+#: — a registry that cannot be reached, a rate limit — is left uncoded: those
+#: hit every host at once and are not evidence about this one.
+_PULL_FAILURE_CODES = (
+    (("error getting credentials", "credential helper"), "host_registry_credentials"),
+    (("no space left",), "host_disk_full"),
+    (("manifest unknown", "not found", "repository does not exist"), "image_not_found"),
+    (
+        ("unauthorized", "denied", "authentication required", "no basic auth credentials"),
+        "image_access_denied",
+    ),
+)
+
+
+def _pull_failure_code(last_line: str) -> str | None:
+    """The failure code for a pull failure, so the server can tell whose fault it was."""
+    lowered = (last_line or "").lower()
+    for needles, code in _PULL_FAILURE_CODES:
+        if any(n in lowered for n in needles):
+            return code
+    return None
+
+
 def _pull_failure_message(exit_code: int, last_line: str) -> str:
     """One line a tenant can act on, without repeating the host's raw docker output."""
     lowered = (last_line or "").lower()
@@ -945,10 +994,11 @@ def _ensure_image(image: str) -> bool:
 
 
 def run_compute_benchmark():
-    """Run comprehensive benchmark suite for all 6 verification checks.
+    """Run the benchmark the server's verification checks read.
 
     Collects: TFLOPS (FP16 matmul), CUDA/driver versions, compute capability,
-    PCIe bandwidth, sustained thermal readings, and GPU identity data.
+    PCIe bandwidth, peak temperature over 15 s of load, and allocatable VRAM.
+    GPU identity and component versions are added by `run_verification_cycle`.
     Returns a full report dict that verification.py can consume, or None.
     """
     data = _run_benchmark([sys.executable, "-c", _BENCHMARK_SCRIPT], timeout=300)
@@ -4837,6 +4887,11 @@ def report_verification(full_report):
 _reverify_running = threading.Event()
 
 
+#: Set when a reverification was declined because workloads were running. The
+#: main loop starts it the moment the host is idle, rather than waiting up to an
+#: hour for the sweep to ask again and finding the host busy once more.
+_reverify_pending = threading.Event()
+
 #: Set by run_verification_cycle; the heartbeat loop reports it once known.
 _latest_compute_score: float | None = None
 
@@ -4847,8 +4902,8 @@ def run_verification_cycle(gpu_info: dict, versions: dict):
     **One builder, two callers** — startup and the `reverify` command. Two
     builders would let a scheduled report differ in shape from a startup report,
     and `run_verification`'s checks would then disagree for reasons invisible
-    from either side. The server cannot assemble this: PCIe bandwidth, sustained
-    temperature, packet loss and jitter are facts only the host can measure,
+    from either side. The server cannot assemble this: PCIe bandwidth,
+    temperature under load, packet loss and jitter are facts only the host can measure,
     which is precisely why a stamp goes stale with nothing able to refresh it.
     """
     log.info("Running comprehensive benchmark (GPU + network, ~60 seconds)...")
@@ -4888,12 +4943,85 @@ def run_verification_cycle(gpu_info: dict, versions: dict):
         bench.update(net_bench)
 
     # Merge benchmark data with security versions for the complete check set.
+    # `claimed_*` is this agent's own reading and is kept for the record only:
+    # the server compares the measurements with the host's listing, not with
+    # what the agent says about itself.
     full_report = {**bench}
     full_report["claimed_gpu_model"] = gpu_info["gpu_model"]
     full_report["claimed_vram_gb"] = gpu_info["total_vram_gb"]
     full_report["versions"] = versions
+    identities = collect_gpu_identities_for_verification()
+    if identities:
+        full_report["gpu_identities"] = identities
+        full_report["gpu_uuid"] = identities[0].get("gpu_uuid", "")
+        full_report["serial"] = identities[0].get("serial", "")
+        log.info(
+            "  GPU identity: %s | serial %s",
+            ", ".join(i.get("gpu_uuid", "?") for i in identities),
+            ", ".join(i.get("serial") or "unavailable" for i in identities),
+        )
+    else:
+        log.warning("  GPU identity unavailable: the server will not verify this host without it")
     report_verification(full_report)
     return compute_score
+
+
+def collect_gpu_identities_for_verification() -> list[dict] | None:
+    """Every GPU's UUID, board serial and PCI bus id, for the server's baseline.
+
+    Imported here rather than with the other NVML helpers: `nvml_telemetry.py`
+    is not one of the sibling modules `upgrade_agent` refreshes, so a host can
+    run this agent beside an older copy that lacks the function, and a failed
+    name in the shared import above would switch off NVML entirely.
+    """
+    try:
+        from nvml_telemetry import collect_gpu_identities
+    except ImportError:
+        collect_gpu_identities = None
+    if collect_gpu_identities is not None:
+        try:
+            found = collect_gpu_identities()
+            if found:
+                return found
+        except Exception as exc:
+            log.warning("GPU identity via nvml_telemetry failed: %s", exc)
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,uuid,serial,pci.bus_id,name,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    identities = []
+    for line in result.stdout.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 6 or not parts[1].startswith("GPU-"):
+            return None
+        serial = parts[2]
+        if serial.upper() in ("", "[N/A]", "N/A", "0") or serial.startswith("GPU-"):
+            serial = ""
+        try:
+            identities.append(
+                {
+                    "index": int(parts[0]),
+                    "gpu_uuid": parts[1],
+                    "serial": serial,
+                    "pci_bus_id": parts[3],
+                    "model": parts[4],
+                    "total_vram_mb": int(float(parts[5])),
+                }
+            )
+        except ValueError:
+            return None
+    return identities or None
 
 
 def _reverification_worker():
@@ -4933,21 +5061,37 @@ def _start_reverification() -> bool:
         if not busy:
             _reverify_running.set()
     if busy:
-        log.info(
-            "reverify: deferred, %d workload(s) on this host (%s). The benchmark "
-            "saturates the GPU and would corrupt a paying job's timings.",
-            len(busy),
-            ", ".join(sorted(busy)[:5]),
-        )
+        if not _reverify_pending.is_set():
+            log.info(
+                "reverify: deferred until idle, %d workload(s) on this host (%s). The "
+                "benchmark saturates the GPU and would corrupt a paying job's timings.",
+                len(busy),
+                ", ".join(sorted(busy)[:5]),
+            )
+        _reverify_pending.set()
         return False
 
+    _reverify_pending.clear()
     try:
         thread = threading.Thread(target=_reverification_worker, name="reverification", daemon=True)
         thread.start()
     except RuntimeError:
         _reverify_running.clear()
+        _reverify_pending.set()
         raise
     return True
+
+
+def _run_pending_reverification() -> bool:
+    """Start a deferred reverification once the host is idle. True when started.
+
+    Called from the main loop. `_start_reverification` re-checks for workloads
+    under the attempts lock, so a job that arrives between this call and the
+    start is still seen, and the request stays pending.
+    """
+    if not _reverify_pending.is_set():
+        return False
+    return _start_reverification()
 
 
 def report_telemetry(metrics):
@@ -5549,6 +5693,7 @@ def run_job(job):
                     job_id,
                     "failed",
                     error_message=f"exclusive_gpu acquire failed: {err}",
+                    policy_reason="host_gpu_unavailable",
                 )
 
                 return
@@ -5592,7 +5737,9 @@ def run_job(job):
                 if job_requires_nfs:
                     err = "required NFS mount failed"
                     log.error("Job %s aborting — %s", job_id, err)
-                    report_status(job_id, "failed", error_message=err)
+                    report_status(
+                        job_id, "failed", error_message=err, policy_reason="host_nfs_mount_failed"
+                    )
 
                     return
                 log.warning("NFS mount failed — optional shared storage unavailable")
@@ -5616,7 +5763,9 @@ def run_job(job):
         if failed_encrypted_vol_ids:
             err = "required encrypted volume attach failed: " + ", ".join(failed_encrypted_vol_ids)
             log.error("Job %s aborting — %s", job_id, err)
-            report_status(job_id, "failed", error_message=err)
+            report_status(
+                job_id, "failed", error_message=err, policy_reason="host_volume_mount_failed"
+            )
 
             return
 
@@ -5655,7 +5804,9 @@ def run_job(job):
         if required_volume_ids and failed_volume_ids:
             err = f"required volume mount failed: {', '.join(failed_volume_ids)}"
             log.error("Job %s aborting — %s", job_id, err)
-            report_status(job_id, "failed", error_message=err)
+            report_status(
+                job_id, "failed", error_message=err, policy_reason="host_volume_mount_failed"
+            )
 
             return
 
@@ -5690,7 +5841,10 @@ def run_job(job):
             else:
                 log.error("Encrypted workspace provisioning failed for job %s — aborting", job_id)
                 report_status(
-                    job_id, "failed", error_message="encrypted workspace provisioning failed"
+                    job_id,
+                    "failed",
+                    error_message="encrypted workspace provisioning failed",
+                    policy_reason="host_workspace_failed",
                 )
 
                 return
@@ -5717,7 +5871,9 @@ def run_job(job):
             if verified.returncode != 0:
                 err = "required image signature verification failed"
                 log.error("Job %s: %s: %s", job_id, err, verified.stderr[:300])
-                report_status(job_id, "failed", error_message=err)
+                report_status(
+                    job_id, "failed", error_message=err, policy_reason="image_signature_failed"
+                )
 
                 return
 
@@ -5788,7 +5944,12 @@ def run_job(job):
                         }
                     ],
                 )
-                report_status(job_id, "failed", error_message=err)
+                report_status(
+                    job_id,
+                    "failed",
+                    error_message=err,
+                    policy_reason=_pull_failure_code(pull_tail),
+                )
                 return
 
             # Track in LRU cache index
@@ -5811,7 +5972,9 @@ def run_job(job):
                 return
             if not is_gvisor_available():
                 err = "required gVisor runtime is unavailable"
-                report_status(job_id, "failed", error_message=err)
+                report_status(
+                    job_id, "failed", error_message=err, policy_reason="host_runtime_unavailable"
+                )
 
                 return
             runtime_name = "runsc"
@@ -9151,6 +9314,13 @@ def main():
                     report_observations_v2()
                 except Exception as e:
                     log.warning("observation report failed: %s", e)
+
+            # A reverification declined while jobs ran starts once idle.
+            try:
+                if _run_pending_reverification():
+                    log.info("reverify: host idle, running the deferred verification")
+            except Exception as e:
+                log.warning("deferred reverification failed to start: %s", e)
 
             # Native command delivery is the sole execution transport.
             if admitted and _protocol_negotiated:
