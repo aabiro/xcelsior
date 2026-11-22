@@ -25,7 +25,7 @@ export interface LiveGpu {
 export type LiveMarket =
   | { state: "loading" }
   | { state: "empty" }
-  | { state: "ready"; cheapest: LiveGpu; gpus: LiveGpu[] };
+  | { state: "ready"; cheapest: LiveGpu; featured: LiveGpu; gpus: LiveGpu[] };
 
 type Row = Record<string, unknown> & {
   evidence?: { hosts?: number; verified?: number; latest_benchmark_at?: number | null };
@@ -54,6 +54,16 @@ export function liveGpus(rows: Row[]): LiveGpu[] {
   );
 }
 
+/**
+ * The GPU the hero card shows: the cheapest one on a verified host, or the
+ * cheapest of all when no host is verified. The copy beside it promises
+ * verified hardware, so an unverified card goes there only when it is all
+ * there is. The from-price still reads the cheapest of all (`cheapest`).
+ */
+export function featuredGpu(gpus: LiveGpu[]): LiveGpu | undefined {
+  return gpus.find((g) => g.verifiedHosts > 0) ?? gpus[0];
+}
+
 export function formatFromPrice(value: number): string {
   return `$${value.toFixed(2)}`;
 }
@@ -67,7 +77,11 @@ export function useLiveMarket(): LiveMarket {
       .then((body: { gpus?: Row[] }) => {
         if (cancelled) return;
         const gpus = liveGpus(body.gpus || []);
-        setMarket(gpus.length ? { state: "ready", cheapest: gpus[0], gpus } : { state: "empty" });
+        setMarket(
+          gpus.length
+            ? { state: "ready", cheapest: gpus[0], featured: featuredGpu(gpus) ?? gpus[0], gpus }
+            : { state: "empty" },
+        );
       })
       .catch(() => {
         if (!cancelled) setMarket({ state: "empty" });

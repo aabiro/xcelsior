@@ -58,13 +58,15 @@ function SectionMarker({ code, label }: { code: string; label: string }) {
 
 export default function HomePage() {
   const { t, locale } = useLocale();
-  // The hero card and the price KPI show the cheapest GPU a renter can launch
-  // now, from live supply. No fixed price: the fleet decides it.
+  // From live supply, never a fixed price. The hero card shows the cheapest
+  // GPU on a verified host (any host when none is verified); the price KPI
+  // is the cheapest GPU a renter can launch now.
   const market = useLiveMarket();
-  const live = market.state === "ready" ? market.cheapest : null;
-  const priceKpi = live
-    ? t("home.stat_price", { price: formatFromPrice(live.pricePerHour) })
-    : t("home.stat_price_fallback");
+  const live = market.state === "ready" ? market.featured : null;
+  const priceKpi =
+    market.state === "ready"
+      ? t("home.stat_price", { price: formatFromPrice(market.cheapest.pricePerHour) })
+      : t("home.stat_price_fallback");
 
   return (
     <>

@@ -128,6 +128,13 @@ export type PricingCardRow = {
   reserved1y: number;
 };
 
+/**
+ * Up to ``max`` rows for the pricing table: the marquee models first, then the
+ * rest. The cheapest on-demand row is always kept (it takes the last place if
+ * it would not otherwise fit), because each plan's "From" price is read from
+ * these rows: dropping it showed "From $0.60/hr" while an RTX 2060 rented for
+ * $0.08.
+ */
 export function curatePricingGpus(rows: PricingCardRow[], max = 10): PricingCardRow[] {
   const normalized = rows.map((r) => ({
     ...r,
@@ -142,12 +149,19 @@ export function curatePricingGpus(rows: PricingCardRow[], max = 10): PricingCard
   for (const tier of MARKETING_GPU_PRIORITY) {
     const row = byModel.get(tier);
     if (row) curated.push(row);
-    if (curated.length >= max) return curated;
+    if (curated.length >= max) break;
   }
   for (const row of byModel.values()) {
+    if (curated.length >= max) break;
     if (curated.some((c) => c.model === row.model)) continue;
     curated.push(row);
-    if (curated.length >= max) break;
+  }
+  const cheapest = [...byModel.values()].reduce<PricingCardRow | null>(
+    (best, row) => (row.onDemand > 0 && (!best || row.onDemand < best.onDemand) ? row : best),
+    null,
+  );
+  if (cheapest && max > 0 && !curated.some((c) => c.model === cheapest.model)) {
+    curated.splice(Math.min(curated.length, max - 1), 1, cheapest);
   }
   return curated;
 }

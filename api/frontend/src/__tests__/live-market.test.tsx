@@ -2,7 +2,7 @@ import { render as rtlRender, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "@/lib/locale";
-import { liveGpus } from "@/lib/live-market";
+import { featuredGpu, liveGpus } from "@/lib/live-market";
 import HomePage from "@/app/(marketing)/page";
 
 vi.mock("next/navigation", () => ({
@@ -30,7 +30,30 @@ describe("liveGpus", () => {
   });
 });
 
+describe("featuredGpu", () => {
+  it("prefers the cheapest verified GPU, and falls back to the cheapest", () => {
+    const rows = [
+      { ...ROWS[1], count_available: 1 },
+      ROWS[0],
+    ];
+    const gpus = liveGpus(rows);
+    expect(gpus.map((g) => g.gpuModel)).toEqual(["RTX 2060", "RTX 3060"]);
+    expect(featuredGpu(gpus)?.gpuModel).toBe("RTX 3060");
+    expect(featuredGpu(liveGpus([{ ...ROWS[1], count_available: 1 }]))?.gpuModel).toBe("RTX 2060");
+    expect(featuredGpu([])).toBeUndefined();
+  });
+});
+
 describe("home hero", () => {
+  it("features a verified GPU but quotes the cheapest from-price", async () => {
+    const rows = [{ ...ROWS[1], count_available: 1 }, ROWS[0]];
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ gpus: rows }) })));
+    render(<HomePage />);
+    await waitFor(() => expect(screen.getByTestId("live-gpu-model").textContent).toBe("RTX 3060"));
+    expect(screen.getByTestId("live-gpu-price").textContent).toBe("$0.12/hr");
+    expect(screen.getByText("From $0.08/hr")).toBeTruthy();
+  });
+
   it("shows the cheapest live GPU, not a fixed RTX 4090 price", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ gpus: ROWS }) })));
     render(<HomePage />);
