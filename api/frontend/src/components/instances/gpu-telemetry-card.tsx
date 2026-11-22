@@ -125,7 +125,9 @@ export function GpuTelemetryCard({ jobId, live }: { jobId: string; live: boolean
   const [selected, setSelected] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now() / 1000);
   const historyRef = useRef<InstanceGpuHistory | null>(null);
-  historyRef.current = history;
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
 
   const loadLatest = useCallback(async () => {
     try {
@@ -158,7 +160,6 @@ export function GpuTelemetryCard({ jobId, live }: { jobId: string; live: boolean
 
   useEffect(() => {
     let cancelled = false;
-    setLoaded(false);
     Promise.allSettled([loadLatest(), loadHistory(false)]).then(() => {
       if (!cancelled) setLoaded(true);
     });
@@ -173,8 +174,8 @@ export function GpuTelemetryCard({ jobId, live }: { jobId: string; live: boolean
     };
   }, [live, loadLatest, loadHistory]);
 
-  const gpus: InstanceGpuSample[] = latest?.telemetry?.gpus ?? [];
-  const seriesList = history?.gpus ?? [];
+  const gpus: InstanceGpuSample[] = useMemo(() => latest?.telemetry?.gpus ?? [], [latest]);
+  const seriesList = useMemo(() => history?.gpus ?? [], [history]);
   const indexes = useMemo(() => {
     const seen = new Set<number>();
     for (const g of [...gpus, ...seriesList]) if (typeof g.index === "number") seen.add(g.index);
