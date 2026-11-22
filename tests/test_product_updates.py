@@ -15,6 +15,8 @@ os.environ.setdefault("XCELSIOR_ENV", "test")
 os.environ.setdefault("XCELSIOR_RATE_LIMIT_REQUESTS", "5000")
 os.environ.setdefault("XCELSIOR_AUTH_RATE_LIMIT_REQUESTS", "5000")
 
+import re
+
 import pytest
 
 import product_updates as pu
@@ -88,12 +90,21 @@ def _send(audience, log, server, **kwargs):
 def test_the_issue_in_the_repo_is_valid_and_its_images_exist():
     from pathlib import Path
 
-    public = Path(__file__).resolve().parent.parent / "api" / "frontend" / "public"
+    frontend = Path(__file__).resolve().parent.parent / "api" / "frontend"
+    public = frontend / "public"
+    blog_image_route = frontend / "src/app/(marketing)/blog/[slug]/image/route.ts"
     for path in sorted(pu.ISSUES_DIR.glob("*.json")):
         issue = pu.load_issue(path.stem)
         for url in [issue.hero_image, *(f.image for f in issue.features)]:
             assert url.startswith("https://xcelsior.ca/"), url
-            assert (public / url.removeprefix("https://xcelsior.ca/")).is_file(), url
+            rel = url.removeprefix("https://xcelsior.ca/")
+            post = re.fullmatch(r"blog/([a-z0-9-]+)/image", rel)
+            if post:
+                # A post's generated image: the route exists and so does the post.
+                assert blog_image_route.is_file(), url
+                assert (frontend / "content/blog" / f"{post.group(1)}.mdx").is_file(), url
+            else:
+                assert (public / rel).is_file(), url
 
 
 @pytest.mark.parametrize(

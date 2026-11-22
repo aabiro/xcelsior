@@ -65,6 +65,9 @@ _SKIP_PARTS = {
     "sprites",
     "artifacts",
     ".git",
+    # Gitignored: agent sessions check out whole copies of the repository under
+    # .claude/worktrees/, which are another branch's code, not this tree's.
+    ".claude",
     "site-packages",
 }
 

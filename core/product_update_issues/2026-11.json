@@ -19,7 +19,7 @@
     {
       "title": "A closer look at Xcelsior MCP",
       "body": "Our new introduction walks through connecting a compatible MCP client, the customer tool surface and how authentication and permissions fit together. It also explains which tools belong to internal operators rather than customer agents.",
-      "image": "https://xcelsior.ca/blog/mcp-server-release.png",
+      "image": "https://xcelsior.ca/blog/mcp-server-release/image",
       "image_alt": "Xcelsior MCP: connecting AI agents to compute",
       "cta_label": "Read the MCP introduction",
       "cta_url": "https://xcelsior.ca/blog/mcp-server-release"
