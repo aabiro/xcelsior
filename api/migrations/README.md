@@ -98,7 +98,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `165_live_reference_foreign_keys.py`.**
+**Repository head: `166_verification_identity_baseline.py`.**
+
+166 gives `host_verifications` a GPU identity baseline and a hold. `identity_baseline` (JSONB, `{}` until recorded) keeps the GPU UUIDs and serials accepted at a host's first fully passing verification; every later verification is compared with it and a mismatch de-verifies the host. `hold_reason` (text, blank = none) and `hold_until` (epoch seconds, NULL = until an admin clears it) keep a de-verified host de-verified when a later benchmark passes: a swapped card or an admin rejection holds until cleared, repeated host-fault job failures hold for a set time. One idempotent unit through `lock_safe`; downgrade drops the columns. The runtime floor moves to 166.
 
 165 adds foreign keys for thirteen live references that had none ([NORMALIZATION.md](NORMALIZATION.md) §2a): team members and invites, and `users.team_id`, to `teams`; agent keys to their OAuth client; AI confirmations to their conversation; GPU offers to their host; serverless batches, semantic cache and prefix affinity to their endpoint (and affinity to its worker); image sweep members and volume promotion files. Each child goes with its parent (`ON DELETE CASCADE`), except `users.team_id` (`SET NULL`). `oauth_clients` gains `created_by_user_id` (key to `users`, `SET NULL`), backfilled from `created_by_email`, which stays current through 164's compatibility trigger plus a second `AFTER UPDATE OF email` trigger on `users`. Indexes for the cascade scans. A key over existing orphans stays `NOT VALID` and is logged. Idempotent units through `lock_safe`; downgrade drops the keys, indexes, triggers and the column. The runtime floor moves to 165.
 

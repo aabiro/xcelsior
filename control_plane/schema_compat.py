@@ -86,7 +86,10 @@ from psycopg import Connection
 # and read by user_id, which a database at 163 does not have.
 # 165 records who owns a connector by user id (`oauth_clients.created_by_user_id`),
 # which every client lookup now filters and reads by.
-REQUIRED_MIN_REVISION = "165"
+# 166 stores each host's GPU identity baseline and verification hold
+# (`host_verifications.identity_baseline`, `hold_reason`, `hold_until`), which
+# every verification writes. A database at 165 refuses that upsert.
+REQUIRED_MIN_REVISION = "166"
 REQUIRED_MAX_REVISION: str | None = None
 
 
