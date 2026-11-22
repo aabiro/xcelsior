@@ -151,6 +151,8 @@ const TOOL_SCOPE_REGISTRY = {
   simulate_instance_placement: { allOf: ["instances:read", "gpu:read"] },
   evaluate_placement_preference: { allOf: ["instances:read", "gpu:read"] },
   get_instance_timeline: { allOf: ["instances:read"] },
+  // Money on a finished run: what was billed and what the wallet paid.
+  get_instance_receipt: { allOf: ["billing:read"] },
   // `events:read` finally has a user. It was granted at consent and required by
   // nothing, which is a permission asked of users that authorised nothing they
   // could reach. The account-wide `/api/events` is admin-only and never was an

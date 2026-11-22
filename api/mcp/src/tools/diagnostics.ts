@@ -66,6 +66,12 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, diagnosticHandler(user, "get_instance_timeline", a => client.get(`/api/v1/instances/${encodeURIComponent(String(a.job_id))}/timeline`)));
 
+  server.registerTool("get_instance_receipt", {
+    inputSchema: z.object({ job_id: id.describe("A job_id from list_instances") }),
+    outputSchema: output,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, diagnosticHandler(user, "get_instance_receipt", a => client.get(`/api/v1/instances/${encodeURIComponent(String(a.job_id))}/receipt`)));
+
   server.registerTool("get_event_history", {
     inputSchema: z.object({
       entity_type: z.enum(["job", "host"]).describe("Which kind of thing to read events for"),

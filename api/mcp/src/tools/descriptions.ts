@@ -397,6 +397,16 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "failure, in order. Use when a job is stuck or failed and the current status alone does not " +
     "explain it. Read-only and free.",
 
+  get_instance_receipt:
+    "Get the receipt for an instance's finished runs, read from the ledger that billed them: " +
+    "exact billed seconds, the rate each run was locked at (micros per hour), the total in " +
+    "micros, the wallet debits it reconciles to (`reconciled` is true when owed, charged and " +
+    "debited agree to the micro), and the host's verification when the run was placed. " +
+    "`hourly_rounded_micros` is a comparison only: the same runs billed in whole hours at the " +
+    "same rate. Returns no_finished_run while nothing has finished, and instance_not_found for " +
+    "an instance that is not yours. Use when the user asks what a run cost, wants proof of " +
+    "per-second billing, or is checking a charge against their wallet. Read-only and free.",
+
   get_event_history:
     "Get the recorded event history for one instance or host — what actually happened to it and " +
     "when, from the platform's event log. Use when the user asks why something stopped, what " +

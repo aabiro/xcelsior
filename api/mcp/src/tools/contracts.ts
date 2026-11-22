@@ -204,6 +204,7 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   simulate_instance_placement: { readOnly: true, destructive: false, audience: "customer" },
   evaluate_placement_preference: { readOnly: true, destructive: false, audience: "customer" },
   get_instance_timeline: { readOnly: true, destructive: false, audience: "customer" },
+  get_instance_receipt: { readOnly: true, destructive: false, audience: "customer" },
   get_event_history: { readOnly: true, destructive: false, audience: "customer" },
   list_providers: { readOnly: true, destructive: false, audience: "customer" },
   get_provider_account: { readOnly: true, destructive: false, audience: "customer" },

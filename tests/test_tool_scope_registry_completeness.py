@@ -290,7 +290,13 @@ def _registered_tool_names() -> set[str]:
 #: cluster registry is the operator's), the API refuses a research-only
 #: (Alliance) cluster before anything is written, and the customer profile still
 #: publishes 89.
-EXPECTED_TOOL_TOTAL = 104
+#: **105** with `get_instance_receipt` (2026-11-22). An agent could launch and
+#: watch a run and read the wallet, and could not answer "what did that run
+#: cost?" without adding up ledger rows itself. It reads the same receipt the
+#: instance page shows (billed seconds, locked rate, total reconciled to the
+#: wallet debits). Customer tool under `billing:read`, read-only, so the customer
+#: profile publishes 90.
+EXPECTED_TOOL_TOTAL = 105
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition
