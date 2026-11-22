@@ -2,7 +2,7 @@
 
 _Regenerated 2026-11-22 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**12 of 585 routes (2%)** and **0 of 46 CLI commands** (0%) have no test signal.
+**12 of 590 routes (2%)** and **0 of 46 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -226,6 +226,8 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/pricing/reserved-plans` — `api_reserved_plans`
 - [x] `GET /api/pricing/service-tiers` — `api_service_tier_catalog`
 - [x] `GET /api/pricing/spot-quote` — `api_spot_quote`  ✓ test_untested_endpoints_coverage.py
+- [x] `GET /api/receipt-pages` — `api_receipt_pages`
+- [x] `GET /api/receipt-pages/{slug}` — `api_receipt_page`
 - [x] `POST /api/v2/billing/auto-topup` — `api_billing_configure_topup`  ✓ test_billing_endpoints_coverage.py
 - [x] `GET /api/v2/billing/auto-topup` — `api_billing_get_topup`  ✓ test_billing_endpoints_coverage.py
 - [x] `POST /api/v2/billing/auto-topup-plans` — `api_billing_auto_topup_plan`
@@ -387,8 +389,11 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /admin/instances/{job_id}/reinject-shell` — `api_admin_reinject_shell`  ✓ test_instances_endpoints_coverage.py
 - [x] `GET /api/images/templates` — `api_image_templates`  ✓ test_instances_endpoints_coverage.py
 - [x] `GET /api/instances/{job_id}/receipt` — `api_instance_receipt`
+- [x] `GET /api/instances/{job_id}/receipt/share` — `api_instance_receipt_share`
+- [x] `PUT /api/instances/{job_id}/receipt/share` — `api_set_instance_receipt_share`
 - [x] `POST /api/instances/{job_id}/stream-ticket` — `api_instance_stream_ticket`
 - [x] `GET /api/instances/{job_id}/telemetry` — `api_instance_telemetry`
+- [x] `GET /api/instances/{job_id}/telemetry/history` — `api_instance_telemetry_history`
 - [x] `POST /api/v1/image-sweep-plans/{plan_id}/execute` — `api_execute_image_sweep_plan`
 - [x] `POST /api/v1/image-sweeps` — `api_create_image_sweep`
 - [x] `GET /api/v1/image-sweeps/{sweep_id}` — `api_get_image_sweep`

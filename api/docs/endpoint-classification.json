@@ -551,9 +551,17 @@
     "class": "redundant",
     "notes": "Dashboard twin of GET /api/v1/instances/{job_id}/receipt; same builder"
   },
+  "GET /api/instances/{job_id}/receipt/share": {
+    "class": "internal",
+    "notes": "Dashboard control under the receipt. Publishing a run's figures is the owner's choice on the instance page; deliberately not a tool."
+  },
   "GET /api/instances/{job_id}/telemetry": {
     "class": "covered",
     "notes": "MCP server calls this path"
+  },
+  "GET /api/instances/{job_id}/telemetry/history": {
+    "class": "gap",
+    "notes": "The per-GPU series over a run (one point per GPU every 30 s). watch_instance reads only the newest sample; nothing gives an agent the history."
   },
   "GET /api/keys": {
     "class": "internal",
@@ -674,6 +682,14 @@
   "GET /api/providers/{provider_id}/wise": {
     "class": "covered",
     "notes": "get_wise_status. Wise recipient id and fingerprint are not returned; only the masked hint, cool-off state, queued earnings and latest batch payout."
+  },
+  "GET /api/receipt-pages": {
+    "class": "gap",
+    "notes": "Public workload pages (what real shared runs of a template cost on a GPU). Serves /receipts; an agent sizing a job could quote these, but no tool reads them yet."
+  },
+  "GET /api/receipt-pages/{slug}": {
+    "class": "gap",
+    "notes": "One public workload page; same data as GET /api/receipt-pages, same missing tool."
   },
   "GET /api/reputation/leaderboard": {
     "class": "covered",
@@ -2470,6 +2486,10 @@
   "PUT /api/auth/me/profile": {
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "PUT /api/instances/{job_id}/receipt/share": {
+    "class": "internal",
+    "notes": "Dashboard control under the receipt. Publishing a run's figures is the owner's choice on the instance page; deliberately not a tool."
   },
   "PUT /api/mcp/quick-connect/permissions": {
     "class": "internal",
