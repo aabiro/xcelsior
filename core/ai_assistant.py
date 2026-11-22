@@ -2709,22 +2709,28 @@ Press **r** to retry after making changes."""
 
 
 def _prompt_verification(kv: dict) -> str:
+    from verification import VERIFICATION_THRESHOLDS as T
+    from verification import verification_check_count
+
     gpu = kv.get("gpu", "unknown")
     failed = kv.get("failed_checks", "")
-    return f"""## WIZARD STEP: Hardware Verification — 7-Point Deep Check
-You are Hexara. The wizard ran a full 7-point hardware verification on this provider's GPU ({gpu}).
-{"All 7 checks PASSED." if not failed else "FAILED checks: " + failed}
+    n = verification_check_count()
+    return f"""## WIZARD STEP: Hardware Verification — {n}-Point Check
+You are Hexara. The wizard ran its local {n}-point readiness check on this provider's GPU ({gpu}).
+{f"All {n} local checks PASSED." if not failed else "FAILED checks: " + failed}
 
-THE 7 CHECKS EXPLAINED:
-1. **GPU identity** — confirms GPU model/VRAM match what was detected, driver is loaded
-2. **CUDA readiness** — a container with CUDA can see and use the GPU
-3. **PCIe bandwidth** — GPU bus width is x16 (or at minimum x8), not throttled
-4. **Thermal stability** — GPU temp stays under limit during 30-second stress run
-5. **Network reachability** — outbound connectivity to Xcelsior scheduler confirmed
-6. **Memory integrity** — VRAM read/write cycle shows no uncorrectable errors
-7. **Security runtime** — runc container isolation with GPU passthrough works end-to-end
+THE {n} CHECKS EXPLAINED (the server runs the same checks on the worker's own report):
+1. **GPU identity** — the card's model matches the listing and its VRAM is within {T["max_vram_deviation_pct"]:g}% of the listing either way. The card's UUID (and board serial, where the card reports one — most GeForce cards do not) is recorded on the first full pass; a different card later de-verifies the host until an admin reviews it
+2. **CUDA readiness** — CUDA and the driver are present and compute capability is at least {T["min_cuda_compute_capability"]:g}
+3. **PCIe bandwidth** — measured host-to-GPU transfer of at least {T["min_pcie_bandwidth_gbps"]:g} GB/s
+4. **Thermal stability** — peak GPU temperature at or under {T["max_gpu_temp_celsius"]}°C during a short benchmark load (about 15 seconds); a sensor that reads nothing does not pass
+5. **Network quality** — packet loss at most {T["max_network_loss_pct"]:g}%, jitter at most {T["max_network_jitter_ms"]:g} ms, throughput at least {T["min_network_throughput_mbps"]:g} Mbps
+6. **Allocatable VRAM** — at least {T["min_allocatable_vram_pct"]:g}% of the listed VRAM can actually be allocated in one piece
+7. **Security posture** — runc, the NVIDIA container toolkit, the NVIDIA driver and Docker each meet their minimum version; a version that cannot be read does not pass
 
-WHEN ALL PASS: Tell them their GPU is fully verified and certified for the marketplace. This unlocks a "Verified" badge on their listing. Proceed automatically.
+A check whose reading is missing counts as not passed, never as passed.
+
+WHEN ALL PASS: Tell them the local checks passed. The host is verified only when the server's own run of these checks agrees, after the worker starts; the wizard shows that as "Server Verification". A verified host is re-checked every {T["reverify_interval_sec"] // 3600} hours. Proceed automatically.
 
 WHEN CHECKS FAIL — exact diagnosis per check:
 
@@ -2757,22 +2763,22 @@ sudo lspci -vv -s 01:00.0 | grep -i "lnksta"  # look for Speed 8GT/s, Width x16
 ```bash
 nvidia-smi dmon -s ut -d 1  # live temp + utilisation monitoring
 nvidia-smi -q -d TEMPERATURE | grep "GPU 00"  # current temp
-# RTX consumer: must stay <83°C under full load
-# A100/H100 datacenter: must stay <87°C
+# The limit is {T["max_gpu_temp_celsius"]}°C peak during the benchmark load
+# No temperature reading at all: the driver is not exposing the sensor — update the driver
 # Fix: clean GPU heatsink/fans of dust, improve case airflow, reapply thermal paste if >2 years old
 # Temp target for health: <75°C under 100% load is ideal
 ```
 
-**Memory integrity failed:**
+**Allocatable VRAM failed:**
 ```bash
-# Check for ECC errors:
-nvidia-smi -q | grep -E "ECC|Uncorrectable|Correctable"
-# Persistent uncorrectable errors → GPU VRAM has failed cells — hardware issue
-# Single correctable error → ECC protected it, might be fine; retry once
-# For non-ECC consumer GPUs: `cuda-memcheck python -c "import torch; torch.zeros(1).cuda()"`
+# Something else is holding GPU memory — find it:
+nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+# Stop other GPU workloads (desktop sessions, miners, stale containers), then retry.
+# Persistent uncorrectable ECC errors also shrink usable memory:
+nvidia-smi -q | grep -E "ECC|Uncorrectable"
 ```
 
-**Security runtime (runc) failed:**
+**Security posture failed:**
 ```bash
 sudo runc --version  # must show >= 1.1.12
 sudo nvidia-ctk runtime configure --runtime=runc  # configure NVIDIA CDI for runc
@@ -2905,7 +2911,7 @@ Tell user to press **r** to retry — the API will return the existing record sa
 - Press **r** to continue — it will load the existing host record.
 
 **"GPU not found" or "verification required":**
-- They need to complete the 7-point verification first. Wizard shouldn't reach here if skipped, but if it does: go back.
+- They need to complete the hardware verification step first. Wizard shouldn't reach here if skipped, but if it does: go back.
 
 **systemd install failed (permission denied):**
 ```bash

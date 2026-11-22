@@ -32,7 +32,7 @@ import {
     checkVersions, detectGpuFull, runComputeBenchmark,
     runNetworkBenchmark, buildVerificationReport,
     benchmarkUnavailableResults, buildLocalVerificationResults,
-    CHECK_REMEDIATION,
+    CHECK_REMEDIATION, THERMAL_UNREAD_DETAIL, VERIFICATION_THRESHOLDS,
     type GpuInfo, type BenchmarkResult, type NetworkBenchResult,
     type VersionCheck,
 } from "./provider-checks.js";
@@ -1295,8 +1295,8 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 const thermalMeasured = bench.gpu_temp_celsius > 0;
                 return [
                     { name: "FP16 Matmul", ok: bench.tflops > 0, detail: `${bench.tflops} TFLOPS · XCU score: ${bench.xcu_score}` },
-                    { name: "PCIe Bandwidth", ok: bench.pcie_bandwidth_gbps >= 8, detail: `${bench.pcie_bandwidth_gbps} GB/s (H2D: ${bench.pcie_h2d_gbps}, D2H: ${bench.pcie_d2h_gbps})` },
-                    { name: "Thermal Stability", ok: !thermalMeasured || bench.gpu_temp_celsius <= 90, detail: thermalMeasured ? `Peak ${bench.gpu_temp_celsius}°C · Avg ${bench.gpu_temp_avg_celsius}°C (${bench.gpu_temp_samples} samples)` : "Temperature sensor unavailable — skipped" },
+                    { name: "PCIe Bandwidth", ok: bench.pcie_bandwidth_gbps >= VERIFICATION_THRESHOLDS.min_pcie_bandwidth_gbps, detail: `${bench.pcie_bandwidth_gbps} GB/s (H2D: ${bench.pcie_h2d_gbps}, D2H: ${bench.pcie_d2h_gbps})` },
+                    { name: "Thermal Stability", ok: thermalMeasured && bench.gpu_temp_celsius <= VERIFICATION_THRESHOLDS.max_gpu_temp_celsius, detail: thermalMeasured ? `Peak ${bench.gpu_temp_celsius}°C · Avg ${bench.gpu_temp_avg_celsius}°C (${bench.gpu_temp_samples} samples)` : THERMAL_UNREAD_DETAIL },
                 ];
             }
             case "network": {

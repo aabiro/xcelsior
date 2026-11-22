@@ -35,10 +35,15 @@ export const CHECK_REMEDIATION: Record<string, string> = {
 
 // ── Verification thresholds (mirrors verification.py) ────────────────
 
+/**
+ * The server's thresholds (`hosts/verification.py::VERIFICATION_THRESHOLDS`),
+ * mirrored for the local readiness check. `tests/test_verification_claims.py`
+ * fails if any of these drifts from the server's value.
+ */
 export const VERIFICATION_THRESHOLDS = {
     min_pcie_bandwidth_gbps: 8.0,
     max_gpu_temp_celsius: 90,
-    min_vram_match_pct: 95.0,
+    max_vram_deviation_pct: 5.0,
     min_cuda_compute_capability: 7.0,
     max_network_loss_pct: 2.0,
     max_network_jitter_ms: 50.0,
@@ -559,6 +564,10 @@ export async function runNetworkBenchmark(
 
 // ── 5. Run verification checks ──────────────────────────────────────
 
+/** What a thermal sensor that returns nothing shows. Shared with useWizardFlow. */
+export const THERMAL_UNREAD_DETAIL =
+    "Temperature sensor returned no reading — the server will not verify a host without one";
+
 export function runVerificationChecks(
     gpu: GpuInfo,
     bench: BenchmarkResult,
@@ -594,14 +603,15 @@ export function runVerificationChecks(
         actual: `${bench.pcie_bandwidth_gbps} GB/s`,
     });
 
-    // 4. Thermal Stability — if temp is 0, sensor failed; treat as unknown/pass
+    // 4. Thermal Stability — a sensor that reads 0 is unknown, and unknown is
+    //    not a pass: the server will not verify the host without a reading.
     const thermalMeasured = bench.gpu_temp_celsius > 0;
     checks.push({
         name: "Thermal Stability",
-        passed: !thermalMeasured || bench.gpu_temp_celsius <= T.max_gpu_temp_celsius,
+        passed: thermalMeasured && bench.gpu_temp_celsius <= T.max_gpu_temp_celsius,
         detail: thermalMeasured
             ? `Peak ${bench.gpu_temp_celsius}°C · Avg ${bench.gpu_temp_avg_celsius}°C (${bench.gpu_temp_samples} samples)`
-            : "Temperature sensor unavailable — skipped",
+            : THERMAL_UNREAD_DETAIL,
         threshold: `≤ ${T.max_gpu_temp_celsius}°C`,
         actual: thermalMeasured ? `${bench.gpu_temp_celsius}°C` : "N/A",
     });
@@ -617,16 +627,18 @@ export function runVerificationChecks(
         threshold: `Loss ≤${T.max_network_loss_pct}%, Jitter ≤${T.max_network_jitter_ms}ms, ≥${T.min_network_throughput_mbps} Mbps`,
     });
 
-    // 6. Memory Fragmentation (VRAM claimed vs actual)
-    const vramRatio = gpu.total_vram_gb > 0
-        ? (bench.total_vram_gb / gpu.total_vram_gb) * 100
-        : 0;
+    // 6. VRAM Match — the driver's figure against what CUDA sees, within 5%
+    //    either way. The server compares against the listing instead, and
+    //    adds an allocatable-VRAM probe the local check does not run.
+    const vramDeviation = gpu.total_vram_gb > 0
+        ? (Math.abs(bench.total_vram_gb - gpu.total_vram_gb) / gpu.total_vram_gb) * 100
+        : Infinity;
     checks.push({
-        name: "Memory Integrity",
-        passed: vramRatio >= T.min_vram_match_pct,
-        detail: `Claimed ${gpu.total_vram_gb} GB · Measured ${bench.total_vram_gb} GB (${vramRatio.toFixed(1)}%)`,
-        threshold: `≥ ${T.min_vram_match_pct}% match`,
-        actual: `${vramRatio.toFixed(1)}%`,
+        name: "VRAM Match",
+        passed: vramDeviation <= T.max_vram_deviation_pct,
+        detail: `Driver ${gpu.total_vram_gb} GB · CUDA ${bench.total_vram_gb} GB (${Number.isFinite(vramDeviation) ? vramDeviation.toFixed(1) : "—"}% apart)`,
+        threshold: `within ${T.max_vram_deviation_pct}%`,
+        actual: Number.isFinite(vramDeviation) ? `${vramDeviation.toFixed(1)}%` : "N/A",
     });
 
     // 7. Security Posture (all versions meet minimums)

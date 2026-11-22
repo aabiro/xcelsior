@@ -132,7 +132,7 @@ describe("runVerificationChecks", () => {
         expect(pcie?.passed).toBe(false);
     });
 
-    it("thermal passes when sensor unavailable (temp = 0)", () => {
+    it("thermal does not pass when the sensor reads nothing (temp = 0)", () => {
         const checks = runVerificationChecks(
             makeGpu(),
             makeBench({ gpu_temp_celsius: 0 }),
@@ -140,8 +140,18 @@ describe("runVerificationChecks", () => {
             makeVersions(),
         );
         const thermal = checks.find((c) => c.name === "Thermal Stability");
-        expect(thermal?.passed).toBe(true);
-        expect(thermal?.detail).toContain("unavailable");
+        expect(thermal?.passed).toBe(false);
+        expect(thermal?.detail).toContain("no reading");
+    });
+
+    it("VRAM Match fails when CUDA sees more memory than the driver reports", () => {
+        const checks = runVerificationChecks(
+            makeGpu({ total_vram_gb: 12 }),
+            makeBench({ total_vram_gb: 24 }),
+            makeNetwork(),
+            makeVersions(),
+        );
+        expect(checks.find((c) => c.name === "VRAM Match")?.passed).toBe(false);
     });
 
     it("thermal fails when temp exceeds threshold", () => {
@@ -188,14 +198,14 @@ describe("runVerificationChecks", () => {
         expect(net?.passed).toBe(false);
     });
 
-    it("fails Memory Integrity when VRAM mismatch", () => {
+    it("fails VRAM Match when VRAM mismatch", () => {
         const checks = runVerificationChecks(
             makeGpu({ total_vram_gb: 24 }),
             makeBench({ total_vram_gb: 20 }),
             makeNetwork(),
             makeVersions(),
         );
-        const mem = checks.find((c) => c.name === "Memory Integrity");
+        const mem = checks.find((c) => c.name === "VRAM Match");
         expect(mem?.passed).toBe(false);
     });
 

@@ -543,29 +543,6 @@ def get_in_memory_history() -> list[dict[str, Any]]:
     return list(_history_cache)
 
 
-def lock_spot_rate_for_job(job: dict[str, Any], host_gpu_model: str | None = None) -> float:
-    """Return locked spot CAD/hr for assignment; persists on job dict."""
-    if job.get("service_tier_quote"):
-        from service_tier_pricing import validate_tier_snapshot
-
-        validate_tier_snapshot(job["service_tier_quote"])
-        rate = int(job["service_tier_quote"]["unit_amount_micros"]) / 1_000_000
-        job["spot_rate_cad"] = rate
-        job["pricing_mode"] = "spot"
-        return rate
-    gpu_model = (
-        (host_gpu_model or "").strip()
-        or (job.get("gpu_model") or "").strip()
-        or (job.get("host_gpu_model") or "").strip()
-    )
-    if not gpu_model:
-        gpu_model = "RTX 4090"
-    quote = compute_live_spot_quote(gpu_model)
-    job["spot_rate_cad"] = quote.rate_cad
-    job["pricing_mode"] = "spot"
-    return quote.rate_cad
-
-
 def compute_spot_price_cents(base_price_cents: int, demand: int, supply: int) -> int:
     """Marketplace-compat cents helper (delegates surge math)."""
     base_cad = base_price_cents / 100.0

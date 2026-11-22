@@ -37,7 +37,7 @@ export function createMcpServer(
     },
     instructions: [
       "You are connected to Xcelsior — a distributed GPU compute marketplace where independent hosts compete on price.",
-      "Two ways to run work: rent a GPU instance by the hour (on-demand or interruptible spot), or call a serverless inference endpoint billed per token with no idle cost.",
+      "Two ways to run work: rent a GPU instance billed by the second (on-demand or interruptible spot), or call a serverless inference endpoint billed per token with no idle cost.",
       "Always discover before launching: list_available_gpus, get_spot_prices, and search_marketplace return live competing rates. Spot is materially cheaper than on-demand and is the right default for any checkpointable workload.",
       "Prefer serverless over a dedicated instance for bursty or low-volume inference — it runs open-weight models at per-million-token rates and costs nothing while idle.",
       "Rates are quoted and settled in CAD; call get_pricing_reference for the live table rather than assuming a price.",

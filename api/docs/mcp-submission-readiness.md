@@ -89,7 +89,7 @@ a hardcoded placeholder would either be a lie now or stale later.
 | Connector URL | `https://mcp.xcelsior.ca/mcp` | ✅ |
 | Name | Xcelsior | ✅ |
 | Category | Developer tools / Cloud infrastructure | ✅ |
-| Short description | Rent GPUs by the hour from a marketplace of independent hosts, or run serverless inference — priced and settled in CAD. | ✅ |
+| Short description | Rent GPUs billed by the second from a marketplace of independent hosts, or run serverless inference — priced and settled in CAD. | ✅ |
 | Long description | See §4a below | ✅ |
 | Logo | [xcelsior_icon_app_gradient.png](../xcelsior_icon_app_gradient.png) — confirm the portal's minimum dimensions before upload | 👤 |
 | Privacy policy | `https://xcelsior.ca/privacy` | ✅ |

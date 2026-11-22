@@ -861,7 +861,7 @@ describe("provider verification checks — extended", () => {
         const network = makeNetwork();
         const versions = makeVersions();
         const results = runVerificationChecks(gpu as any, bench as any, network as any, versions);
-        const memCheck = results.find((r) => r.name === "Memory Integrity");
+        const memCheck = results.find((r) => r.name === "VRAM Match");
         expect(memCheck?.passed).toBe(false);
     });
 
@@ -871,7 +871,7 @@ describe("provider verification checks — extended", () => {
         const network = makeNetwork();
         const versions = makeVersions();
         const results = runVerificationChecks(gpu as any, bench as any, network as any, versions);
-        const memCheck = results.find((r) => r.name === "Memory Integrity");
+        const memCheck = results.find((r) => r.name === "VRAM Match");
         expect(memCheck?.passed).toBe(true);
     });
 

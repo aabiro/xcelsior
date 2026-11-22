@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import releaseFacts from "./release-facts.json";
-import { MCP_TOOL_COUNT, withMcpToolCount } from "./mcp-tool-count";
+import { MCP_TOOL_COUNT, VERIFICATION_CHECK_COUNT, withMcpToolCount } from "./mcp-tool-count";
 import { LocaleProvider, useLocale } from "./locale";
 import { createTranslator } from "./i18n/server";
 import { getAllPosts, getPostBySlug } from "./blog";
@@ -34,5 +34,15 @@ describe("MCP tool count", () => {
     expect(post?.content).toContain(`${n} scoped customer tools`);
     expect(post?.content).not.toContain("{mcpToolCount}");
     expect(getAllPosts().find((entry) => entry.slug === post?.slug)?.title).toBe(post?.title);
+  });
+});
+
+describe("verification check count", () => {
+  it("is hosts/verification.py's count, and the comparison table quotes it", () => {
+    expect(VERIFICATION_CHECK_COUNT).toBe(releaseFacts.verificationCheckCount);
+    expect(Number.isSafeInteger(VERIFICATION_CHECK_COUNT) && VERIFICATION_CHECK_COUNT > 0).toBe(true);
+    const n = String(VERIFICATION_CHECK_COUNT);
+    expect(createTranslator("en")("home.cmp_verification_x")).toBe(`${n} checks`);
+    expect(createTranslator("fr")("home.cmp_verification_x")).toBe(`${n} vérifications`);
   });
 });

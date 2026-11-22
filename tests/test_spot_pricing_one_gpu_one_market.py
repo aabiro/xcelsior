@@ -9,7 +9,8 @@ history on the raw string, so:
   picture;
 * the raw name missed its `gpu_pricing` row, fell back to the host's own cost
   per hour, and quoted four times the catalogue spot rate;
-* `lock_spot_rate_for_job` with a raw `host_gpu_model` billed the job at it.
+* the assignment-time lock with a raw `host_gpu_model` billed the job at it
+  (that lock was later removed as dead code: spot locks at submission).
 
 `host_metadata.normalize_gpu_model` already existed and host registration used
 it. Spot pricing did not.
@@ -86,10 +87,13 @@ def test_a_raw_name_quotes_the_catalogue_rate():
     assert raw.rate_cad == canonical.rate_cad
 
 
-def test_a_job_on_a_raw_named_host_is_locked_at_the_catalogue_rate():
-    canonical = sp.compute_live_spot_quote(CANONICAL).rate_cad
-    job: dict = {"job_id": "j-raw", "pricing_mode": "spot"}
-    assert sp.lock_spot_rate_for_job(job, host_gpu_model=RAW) == canonical
+def test_a_job_asking_for_a_raw_name_is_locked_at_the_catalogue_rate():
+    from control_plane.spot_admission import lock_admission_quote
+
+    canonical = sp.compute_live_spot_quote(CANONICAL, require_catalog=True).rate_cad
+    job: dict = {"job_id": "j-raw", "pricing_mode": "spot", "gpu_model": RAW}
+    lock_admission_quote(job)
+    assert job["spot_rate_cad"] == canonical
 
 
 def test_supply_on_a_raw_named_host_counts_toward_the_card():

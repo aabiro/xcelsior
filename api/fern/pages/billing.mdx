@@ -67,11 +67,11 @@ Host-side failures result in **full automatic refunds**. Submitter-initiated can
 
 ## Spot Instance Metering
 
-Spot (interruptible) instances bill at the **locked spot rate** (`spot_rate_cad`) set when the scheduler assigns a host, not the host's on-demand `cost_per_hour` and not a customer bid.
+Spot (interruptible) instances bill at the **locked spot rate** (`spot_rate_cad`), set from the live spot quote for the requested GPU model when the job is submitted — not the host's on-demand `cost_per_hour` and not a customer bid.
 
 - **Launch:** Wallet preflight estimates one hour at the live unified spot quote for the requested GPU model.
 - **While running:** Usage ticks debit the renter at `spot_rate_cad` × elapsed seconds.
-- **On preemption:** Metering stops at `preempted_at`; partial hours are billed pro-rata. The job is requeued with `pricing_mode=spot` preserved; the next assignment may lock a new spot rate.
+- **On preemption:** Metering stops at `preempted_at`; billing is per second, so a partial hour costs only the seconds used. The job is requeued with `pricing_mode=spot` and its locked rate preserved — nothing re-locks a spot rate after submission.
 - **Provider payout:** Marketplace allocations use `gpu_allocations.price_cents_per_hour` for `allocation_type=spot`. Earnings API exposes `spot_earned_cad` vs `on_demand_earned_cad`.
 
 ```bash

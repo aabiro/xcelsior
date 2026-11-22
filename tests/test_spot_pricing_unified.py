@@ -102,12 +102,13 @@ class TestSpotPricingIntegration:
         current = scheduler.get_current_spot_prices()
         assert "RTX 4090" in current
 
-    def test_lock_spot_rate_for_job(self):
+    def test_spot_rate_locks_when_the_job_is_submitted(self):
+        """The public copy says the spot rate locks when you submit; nothing re-locks it."""
         job = scheduler.submit_job("spot-lock", 8, pricing_mode="spot", gpu_model="RTX 4090")
-        rate = sp.lock_spot_rate_for_job(job, host_gpu_model="RTX 4090")
-        assert rate > 0
-        assert job.get("spot_rate_cad") == rate
+        assert job.get("status") == "queued"
+        assert job.get("spot_rate_cad", 0) > 0
         assert job.get("pricing_mode") == "spot"
+        assert not hasattr(sp, "lock_spot_rate_for_job"), "the assignment-time lock was dead code"
 
 
 class TestSpotPricingProperties:
