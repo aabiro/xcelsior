@@ -438,7 +438,15 @@ def anchor_repos():
     phantom-trades-mvp, ara-code) under the project roots or over SSH to the Mac.
     A fresh clone or CI has none of them, which is a missing input rather than a
     regression; where they exist the tests are exactly as strict as before.
+
+    The payload builders put those repos at the front of ``sys.path``. Left
+    there, ara-code's own ``verification.py`` shadowed ``hosts/verification.py``
+    in every process spawned later in the run (the scheduler concurrency
+    replicas failed to import ``verification_freshness``), so the path is put
+    back after each test.
     """
+    import sys
+
     from serverless.anchor_workloads import discover_anchor_repos
 
     discovered = discover_anchor_repos(include_remote=True)
@@ -447,7 +455,9 @@ def anchor_repos():
             f"anchor repos not present here ({len(discovered)} found); set "
             "XCELSIOR_PROJECTS_ROOTS or XCELSIOR_MAC_HOST to run them"
         )
-    return discovered
+    saved = list(sys.path)
+    yield discovered
+    sys.path[:] = saved
 
 
 @pytest.fixture
