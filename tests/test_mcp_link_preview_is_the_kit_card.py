@@ -16,7 +16,15 @@ import pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "api" / "frontend" / "public"
 
-KIT_CARD = PUBLIC / "brand-system" / "assets" / "social" / "mcp-launch" / "link-preview" / "og-1200x630.png"
+KIT_CARD = (
+    PUBLIC
+    / "brand-system"
+    / "assets"
+    / "social"
+    / "mcp-launch"
+    / "link-preview"
+    / "og-1200x630.png"
+)
 SERVED_CARD = PUBLIC / "site-assets" / "assets" / "png" / "og-mcp-1200x630.png"
 
 
@@ -30,7 +38,11 @@ def test_the_served_mcp_card_is_the_kit_card() -> None:
 
 
 def test_the_mcp_page_points_at_the_served_card() -> None:
-    page = (ROOT / "api" / "frontend" / "src" / "app" / "(marketing)" / "mcp" / "page.tsx").read_text(encoding="utf-8")
-    assets = (ROOT / "api" / "frontend" / "src" / "lib" / "brand-assets.ts").read_text(encoding="utf-8")
+    page = (
+        ROOT / "api" / "frontend" / "src" / "app" / "(marketing)" / "mcp" / "page.tsx"
+    ).read_text(encoding="utf-8")
+    assets = (ROOT / "api" / "frontend" / "src" / "lib" / "brand-assets.ts").read_text(
+        encoding="utf-8"
+    )
     assert "SITE_ASSETS.ogMcp1200x630" in page
     assert "/og-mcp-1200x630.png" in assets

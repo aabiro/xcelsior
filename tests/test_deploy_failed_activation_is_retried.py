@@ -116,9 +116,9 @@ def test_failed_release_keeps_previous_inputs_until_successful_retry(tmp_path, f
 
     failed = _run(tmp_path, failure)
     assert failed.returncode != 0, failed.stdout
-    assert (tmp_path / "applied").read_text() == previous, (
-        "retry would skip images/runtime whose activation did not finish"
-    )
+    assert (
+        tmp_path / "applied"
+    ).read_text() == previous, "retry would skip images/runtime whose activation did not finish"
     assert "persist\n" not in (tmp_path / "events").read_text()
     if failure == "migration":
         assert "run_db_migrations.py" in (tmp_path / "events").read_text()
