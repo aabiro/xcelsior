@@ -32,7 +32,7 @@ const translations: Record<string, string> = {
   "auth.register_signin": "Already have an account?",
   "auth.register_signin_link": "Sign in",
   "auth.register_title": "Create your account",
-  "auth.register_subtitle": "Spin up GPUs from $0.30 CAD/hr, and drive them from any AI agent",
+  "auth.register_subtitle": "Spin up verified GPUs billed by the second, and drive them from any AI agent",
   "auth.github": "Continue with GitHub",
   "auth.google": "Continue with Google",
   "auth.huggingface": "Continue with Hugging Face",

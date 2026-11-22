@@ -5,7 +5,7 @@ import { privatePageMetadata } from "@/lib/page-metadata";
 export const metadata = privatePageMetadata(
   "Create Account",
   "/register",
-  "Create your Xcelsior account and launch GPUs from $0.30/hr.",
+  "Create your Xcelsior account and launch verified GPUs billed by the second.",
 );
 
 export default function RegisterLayout({ children }: { children: React.ReactNode }) {

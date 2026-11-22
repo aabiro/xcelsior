@@ -9,16 +9,16 @@ const PricingContent = dynamic(
 
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "GPU compute pricing. From $0.30/hr, with dynamic spot pricing up to 70% off and reserved plans up to 45% off.",
+  description: "GPU compute pricing. One published rate per GPU, with dynamic spot pricing up to 70% off and reserved plans up to 45% off.",
   alternates: { canonical: "https://xcelsior.ca/pricing" },
   openGraph: {
     title: "Pricing | Xcelsior",
-    description: "GPU compute from $0.30/hr. Spot pricing up to 70% off, reserved plans up to 45% off.",
+    description: "GPU compute at one published rate per GPU. Spot pricing up to 70% off, reserved plans up to 45% off.",
     url: "https://xcelsior.ca/pricing",
   },
   twitter: {
     title: "Pricing | Xcelsior",
-    description: "GPU compute from $0.30/hr. Spot pricing up to 70% off, reserved plans up to 45% off.",
+    description: "GPU compute at one published rate per GPU. Spot pricing up to 70% off, reserved plans up to 45% off.",
   },
 };
 

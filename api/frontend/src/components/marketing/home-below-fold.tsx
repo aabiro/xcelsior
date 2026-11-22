@@ -153,7 +153,6 @@ export function HomeBelowFold() {
               <tbody className="text-text-secondary">
                 <CompRow feature={t("home.cmp_agents")} xcelsior={t("home.cmp_agents_x")} aws={t("home.cmp_agents_aws")} vast={t("home.cmp_agents_vast")} runpod={t("home.cmp_agents_rp")} />
                 <CompRow feature={t("home.cmp_quote")} xcelsior={t("home.cmp_quote_x")} aws={t("home.cmp_quote_aws")} vast={t("home.cmp_quote_vast")} runpod={t("home.cmp_quote_rp")} />
-                <CompRow feature={t("home.cmp_price")} xcelsior={t("home.cmp_price_x")} aws={t("home.cmp_price_aws")} vast={t("home.cmp_price_vast")} runpod={t("home.cmp_price_rp")} />
                 <CompRow feature={t("home.cmp_spot")} xcelsior={t("home.cmp_spot_x")} aws={t("home.cmp_spot_aws")} vast={t("home.cmp_spot_vast")} runpod={t("home.cmp_spot_rp")} />
                 <CompRow feature={t("home.cmp_verification")} xcelsior={t("home.cmp_verification_x")} aws={t("home.cmp_verification_aws")} vast={t("home.cmp_verification_vast")} runpod={t("home.cmp_verification_rp")} />
                 <CompRow feature={t("home.cmp_ai")} xcelsior={t("home.cmp_ai_x")} aws={t("home.cmp_ai_aws")} vast={t("home.cmp_ai_vast")} runpod={t("home.cmp_ai_rp")} />

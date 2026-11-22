@@ -81,6 +81,11 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
     if (!gpu.onDemand) return best;
     return Math.max(best, Math.round((1 - gpu.reserved1y / gpu.onDemand) * 100));
   }, 0);
+  // Each plan's from-price is the cheapest row this page lists, never a fixed figure.
+  const fromPrices: Record<string, number | null> = {
+    "pricing.tier_ondemand_from": gpus.length ? Math.min(...gpus.map((gpu) => gpu.onDemand)) : null,
+    "pricing.tier_reserved_from": gpus.length ? Math.min(...gpus.map((gpu) => gpu.reserved1y)) : null,
+  };
   const bestGpu = gpus.length
     ? gpus.reduce((a, b) => (a.spot <= b.spot ? a : b))
     : null;
@@ -198,7 +203,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                 <h3 className="site-card-title">{t(plan.title)}</h3>
                 <p className="site-card-copy">{t(plan.desc)}</p>
                 <div className="site-plan-price">
-                  <strong>{t(plan.price)}</strong>
+                  <strong>{fromPrices[plan.price] != null ? t(plan.price, { price: `$${fromPrices[plan.price]!.toFixed(2)}` }) : "—"}</strong>
                   <span style={{ color: "var(--text-4)" }}>{t(plan.unit)}</span>
                 </div>
                 <div className="site-plan-items">

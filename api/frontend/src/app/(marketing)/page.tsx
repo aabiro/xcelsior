@@ -4,6 +4,8 @@ import Link from "next/link";
 import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
 import { useLocale } from "@/lib/locale";
+import { formatFromPrice, useLiveMarket } from "@/lib/live-market";
+import { formatEpochDate } from "@/lib/format-units";
 
 const kpis = [
   ["home.stat_price_kicker", "home.stat_price"],
@@ -28,7 +30,6 @@ const features = [
 const comparisonRows = [
   ["home.cmp_agents", "home.cmp_agents_x", "home.cmp_agents_aws", "home.cmp_agents_vast", "home.cmp_agents_rp"],
   ["home.cmp_quote", "home.cmp_quote_x", "home.cmp_quote_aws", "home.cmp_quote_vast", "home.cmp_quote_rp"],
-  ["home.cmp_price", "home.cmp_price_x", "home.cmp_price_aws", "home.cmp_price_vast", "home.cmp_price_rp"],
   ["home.cmp_spot", "home.cmp_spot_x", "home.cmp_spot_aws", "home.cmp_spot_vast", "home.cmp_spot_rp"],
   ["home.cmp_verification", "home.cmp_verification_x", "home.cmp_verification_aws", "home.cmp_verification_vast", "home.cmp_verification_rp"],
   ["home.cmp_ai", "home.cmp_ai_x", "home.cmp_ai_aws", "home.cmp_ai_vast", "home.cmp_ai_rp"],
@@ -56,7 +57,14 @@ function SectionMarker({ code, label }: { code: string; label: string }) {
 }
 
 export default function HomePage() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
+  // The hero card and the price KPI show the cheapest GPU a renter can launch
+  // now, from live supply. No fixed price: the fleet decides it.
+  const market = useLiveMarket();
+  const live = market.state === "ready" ? market.cheapest : null;
+  const priceKpi = live
+    ? t("home.stat_price", { price: formatFromPrice(live.pricePerHour) })
+    : t("home.stat_price_fallback");
 
   return (
     <>
@@ -94,39 +102,63 @@ export default function HomePage() {
                       <img src={SITE_ASSETS.iconGradient} style={{ width: 20, height: 20 }} alt="" aria-hidden />
                     </span>
                     <div>
-                      <div className="site-mono" style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>RTX 4090</div>
-                      <div className="site-mono" style={{ color: "var(--text-4)", fontSize: 11 }}>24 GB VRAM</div>
+                      <div className="site-mono" style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }} data-testid="live-gpu-model">
+                        {live ? live.gpuModel : market.state === "loading" ? t("home.live_loading") : t("home.live_none")}
+                      </div>
+                      <div className="site-mono" style={{ color: "var(--text-4)", fontSize: 11 }}>
+                        {live ? `${live.vramGb} GB VRAM` : "\u00a0"}
+                      </div>
                     </div>
                   </div>
-                  <span className="site-live-badge">
-                    <span className="site-live-dot" />
-                    Live
-                  </span>
+                  {live && (
+                    <span className="site-live-badge">
+                      <span className="site-live-dot" />
+                      Live
+                    </span>
+                  )}
                 </div>
 
-                {[
-                  ["Utilization", "72%", "72%"],
-                  ["Memory", "18.4 GB", "76%"],
-                  ["Power", "310 W", "64%"],
-                ].map(([label, value, width]) => (
+                {live && (
+                  [
+                    [t("home.live_available"), t("home.live_available_value", { count: live.available }), live.available > 0 ? "100%" : "0%"],
+                    [
+                      t("home.live_verified"),
+                      t("home.live_verified_value", { verified: live.verifiedHosts, hosts: live.hosts }),
+                      live.hosts ? `${Math.round((live.verifiedHosts / live.hosts) * 100)}%` : "0%",
+                    ],
+                    [
+                      t("home.live_benchmarked"),
+                      live.latestBenchmarkAt ? formatEpochDate(live.latestBenchmarkAt, locale) : t("home.live_never"),
+                      null,
+                    ],
+                  ] as const
+                ).map(([label, value, width]) => (
                   <div key={label} className="site-meter">
                     <div className="site-meter-label">
                       <span style={{ color: "var(--text-4)" }}>{label}</span>
                       <span style={{ color: "var(--text-2)" }}>{value}</span>
                     </div>
-                    <div className="site-meter-track">
-                      <div className="site-meter-bar" style={{ width }} />
-                    </div>
+                    {width !== null && (
+                      <div className="site-meter-track">
+                        <div className="site-meter-bar" style={{ width }} />
+                      </div>
+                    )}
                   </div>
                 ))}
 
                 <div className="site-telemetry-price">
-                  <div className="site-telemetry-price-copy">
-                    <div className="site-telemetry-price-kicker">Spot · RTX 4090</div>
-                    <div className="site-telemetry-price-value">
-                      $0.30<span className="site-telemetry-price-unit">/hr</span>
+                  {live ? (
+                    <div className="site-telemetry-price-copy">
+                      <div className="site-telemetry-price-kicker">{t("home.live_ondemand", { model: live.gpuModel })}</div>
+                      <div className="site-telemetry-price-value" data-testid="live-gpu-price">
+                        {formatFromPrice(live.pricePerHour)}<span className="site-telemetry-price-unit">/hr</span>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="site-telemetry-price-copy">
+                      <Link href="/gpu-availability" className="site-telemetry-price-kicker">{t("home.live_see")} →</Link>
+                    </div>
+                  )}
                   <AuthAwareLink intent="launch" className="site-telemetry-action">
                     {t("gpus.deploy")} →
                   </AuthAwareLink>
@@ -139,7 +171,7 @@ export default function HomePage() {
             {kpis.map(([kicker, label]) => (
               <div key={label} className="site-kpi">
                 <div className="site-kpi-label">{t(kicker)}</div>
-                <div className="site-kpi-value">{t(label)}</div>
+                <div className="site-kpi-value">{label === "home.stat_price" ? priceKpi : t(label)}</div>
               </div>
             ))}
           </div>

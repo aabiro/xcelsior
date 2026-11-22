@@ -40,7 +40,7 @@ export const metadata: Metadata = {
     template: "%s | Xcelsior",
   },
   description:
-    "Rent verified GPUs billed by the second, from $0.30/hr. Drive the whole platform from any MCP agent or from Xcel AI in the dashboard, with dynamic spot pricing.",
+    "Rent verified GPUs billed by the second, at one published rate per GPU. Drive the whole platform from any MCP agent or from Xcel AI in the dashboard, with dynamic spot pricing.",
   keywords: [
     "GPU compute",
     "MCP",
@@ -72,7 +72,7 @@ export const metadata: Metadata = {
     ],
     title: "Xcelsior — The Agent-Native GPU Cloud",
     description:
-      "Rent verified GPUs billed by the second, from $0.30/hr. Drive the whole platform from any MCP agent or from Xcel AI in the dashboard, with dynamic spot pricing.",
+      "Rent verified GPUs billed by the second, at one published rate per GPU. Drive the whole platform from any MCP agent or from Xcel AI in the dashboard, with dynamic spot pricing.",
     url: "https://xcelsior.ca",
     siteName: "Xcelsior",
     locale: "en_CA",
@@ -152,7 +152,7 @@ export default function RootLayout({
               url: "https://xcelsior.ca",
               logo: `${BRAND_ASSET_ORIGIN}${SITE_ASSETS.appGradientRounded512}`,
               description:
-                "Rent verified GPUs billed by the second, from $0.30/hr. Drive the whole platform from any MCP agent or from Xcel AI in the dashboard, with dynamic spot pricing.",
+                "Rent verified GPUs billed by the second, at one published rate per GPU. Drive the whole platform from any MCP agent or from Xcel AI in the dashboard, with dynamic spot pricing.",
               foundingDate: "2024",
               address: {
                 "@type": "PostalAddress",
