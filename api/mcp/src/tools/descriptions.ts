@@ -37,7 +37,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "nodes are offline. Check capacity and the inventory breakdown by model and region. " +
     "For the caller's running jobs, use list_instances with status running. Each gpus row " +
     "aggregates hosts; its evidence says how many are verified or overdue and when one was last " +
-    "benchmarked, and host_ids lead to get_host_evidence. Read-only and " +
+    "benchmarked, and host_ids lead to get_host_evidence. When verified_only is true, only " +
+    "currently verified hosts take jobs, so only their GPUs are counted as free. Read-only and " +
     "free. Counts use the placement snapshot and fresh worker observations; inventory changes continuously.",
 
   get_spot_prices:

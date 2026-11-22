@@ -255,6 +255,21 @@ def attach_evidence(rows: list[dict]) -> list[dict]:
     return rows
 
 
+def only_placeable(rows: list[dict]) -> list[dict]:
+    """With verified-only placement on, drop the badged rows placement would refuse.
+
+    ``XCELSIOR_PLACEMENT_REQUIRE_VERIFIED`` makes the scheduler refuse any host
+    whose verification is not current (``host_verified``). A listing for such a
+    host would offer a GPU no launch can get, so listings follow the same switch
+    and the same freshness rule the badge carries. Off, every row stays.
+    """
+    from control_plane.scheduler.filters import placement_requires_verified
+
+    if not placement_requires_verified():
+        return rows
+    return [r for r in rows if (r.get("evidence") or {}).get("verification") == "verified"]
+
+
 def reputation_score(row: dict) -> float | None:
     """The evidence reputation score on a badged row (None when the host has none)."""
     return (row.get("evidence") or {}).get("reputation_score")

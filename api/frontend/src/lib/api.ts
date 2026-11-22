@@ -4466,7 +4466,8 @@ export async function createMarketplaceReservation(data: {
 // ── v2 Inference API ──────────────────────────────────────────────────
 
 export async function fetchAvailableGPUs() {
-  return apiFetch<{ ok: boolean; gpus: GpuAvailability[] }>(
+  /** verified_only: only currently verified hosts take jobs, so only their GPUs are listed. */
+  return apiFetch<{ ok: boolean; gpus: GpuAvailability[]; verified_only?: boolean }>(
     "/api/v2/gpu/available",
   );
 }

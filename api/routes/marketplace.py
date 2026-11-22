@@ -158,7 +158,9 @@ def _live_priced_listings(listings: list[dict]) -> list[dict]:
     died or was never admitted cannot surface. ``price_per_hour`` is the host's
     own ask; a launch is billed the Standard tier price, which is what
     ``price_per_hour_cad`` carries (the same source as marketplace search and
-    available GPUs). Each listing carries its host's ``evidence`` badge.
+    available GPUs). Each listing carries its host's ``evidence`` badge, and
+    while verified-only placement is on a host that is not currently verified
+    is not listed (``only_placeable``).
     """
     from money import micros_to_cad
     from service_tier_pricing import listed_rate_lookup
@@ -179,7 +181,9 @@ def _live_priced_listings(listings: list[dict]) -> list[dict]:
                 "price_source": "standard_tier",
             }
         )
-    return attach_evidence(live)
+    from host_evidence import only_placeable
+
+    return only_placeable(attach_evidence(live))
 
 
 def _listing_price(listing: dict) -> float:
@@ -286,6 +290,11 @@ def api_marketplace_search_v2(body: MarketplaceSearchParams):
     )
     _with_listed_price(offers)
     attach_evidence(offers)
+    from host_evidence import only_placeable
+
+    # With verified-only placement on, an offer on an unverified host cannot
+    # be launched, so it is not offered.
+    offers = only_placeable(offers)
     if body.max_price_cents > 0:
         # Against the price a renter pays, not the host's ask.
         ceiling = body.max_price_cents * 10_000

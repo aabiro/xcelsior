@@ -2817,6 +2817,66 @@ class TestGpuAvailability:
         assert len(a100s) >= 1
         assert a100s[0]["count_available"] == 2
 
+    def test_with_verified_only_placement_listings_show_only_hosts_a_launch_can_get(
+        self, monkeypatch
+    ):
+        """Placement refuses a host that is not currently verified; so do the listings."""
+        import time as _time
+
+        from marketplace import get_marketplace_engine
+        from verification import HostVerification, VerificationStore
+
+        _register_host("gate-unverified", gpu="RTX 3060", vram=12, versions=GOOD_VERSIONS)
+        _authoritatively_admit("gate-unverified")
+        get_marketplace_engine().upsert_offer(
+            provider_id="gate-test",
+            host_id="gate-unverified",
+            gpu_model="RTX 3060",
+            vram_gb=12,
+            ask_cents_per_hour=12,
+            gpu_count_total=1,
+            region="ca-on",
+        )
+        search = {"gpu_model": "RTX 3060"}
+
+        def offered():
+            body = client.post("/api/v2/marketplace/search", json=search).json()
+            return [o["host_id"] for o in body["offers"]]
+
+        # Off: the host is free and offered, as before.
+        monkeypatch.delenv("XCELSIOR_PLACEMENT_REQUIRE_VERIFIED", raising=False)
+        data = client.get("/api/v2/gpu/available").json()
+        assert data["verified_only"] is False and data["capacity"]["gpus_available"] == 1
+        assert offered() == ["gate-unverified"]
+
+        # On: online, but its GPU is unavailable and its offer is not listed.
+        monkeypatch.setenv("XCELSIOR_PLACEMENT_REQUIRE_VERIFIED", "1")
+        data = client.get("/api/v2/gpu/available").json()
+        assert data["verified_only"] is True
+        assert data["gpus"] == []
+        assert data["capacity"]["hosts_online"] == 1 and data["capacity"]["hosts_ready"] == 0
+        assert data["capacity"]["gpus_unavailable"] == 1
+        assert offered() == []
+
+        # Verified now: free and offered again.
+        now = _time.time()
+        store = VerificationStore()
+        store.save_verification(
+            HostVerification(
+                host_id="gate-unverified",
+                state="verified",
+                last_check_at=now,
+                next_check_at=now + 3600,
+            )
+        )
+        try:
+            data = client.get("/api/v2/gpu/available").json()
+            assert [g["count_available"] for g in data["gpus"]] == [1]
+            assert offered() == ["gate-unverified"]
+        finally:
+            with store._conn() as conn:
+                conn.execute("DELETE FROM host_verifications WHERE host_id = 'gate-unverified'")
+
     def test_stale_offer_region_cannot_duplicate_or_relocate_a_device(self):
         from marketplace import get_marketplace_engine
 

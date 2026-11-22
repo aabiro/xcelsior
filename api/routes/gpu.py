@@ -26,7 +26,12 @@ def api_gpu_available(request: Request, region: str | None = None):
         from host_metadata import normalize_gpu_model, normalize_region, require_location
         from psycopg.rows import dict_row
         from control_plane.scheduler.config import SchedulerConfig
-        from control_plane.scheduler.filters import FilterContext, host_admitted, host_ready
+        from control_plane.scheduler.filters import (
+            FilterContext,
+            host_admitted,
+            host_ready,
+            host_verified,
+        )
         from control_plane.scheduler.snapshot import read_fleet
 
         with _get_pg_pool().connection() as conn:
@@ -78,7 +83,10 @@ def api_gpu_available(request: Request, region: str | None = None):
             host_region = location["region"]
             if requested_region is not None and host_region != requested_region:
                 continue
-            ready = host_ready({}, host, ctx) is None
+            # Ready means placement would take it: with verified-only placement
+            # on, a host whose verification is not current counts as online
+            # but its GPUs as unavailable, never as free.
+            ready = host_ready({}, host, ctx) is None and host_verified({}, host, ctx) is None
             online = str(host["host_id"]) not in fleet.stale_host_ids and str(
                 host.get("status") or ""
             ).lower() in ("active", "ready")
@@ -180,6 +188,9 @@ def api_gpu_available(request: Request, region: str | None = None):
             "source": source,
             "capacity": capacity,
             "inventory": inventory,
+            # True while only currently verified hosts take jobs; their GPUs
+            # alone are counted as available.
+            "verified_only": ctx.require_verified,
             "observed_at": fleet.taken_at.isoformat(),
         }
     except Exception as e:
