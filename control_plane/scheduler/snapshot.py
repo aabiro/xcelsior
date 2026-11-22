@@ -252,6 +252,10 @@ def read_fleet(
             stale.add(host_id)
         hosts.append(host)
 
+    # Rank and cap on what a renter is billed on each host, not its asking price.
+    from service_tier_pricing import price_hosts_at_listed_rate
+
+    hosts = price_hosts_at_listed_rate(hosts)
     return SchedulerSnapshot(
         taken_at=taken_at,
         jobs=[],

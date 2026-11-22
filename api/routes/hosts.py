@@ -1812,8 +1812,11 @@ def api_list_hosts(request: Request, active_only: bool = True):
     """List hosts the caller may see."""
     user = _require_auth(request)
     _require_scope(user, "hosts:read")
+    from service_tier_pricing import listed_rate_lookup
+
     hosts = visible_hosts(user, list_hosts(active_only=active_only))
-    return {"hosts": [enrich_host_for_api(h) for h in hosts]}
+    rate = listed_rate_lookup()  # one catalog read per GPU variant, not per host
+    return {"hosts": [enrich_host_for_api(h, rate) for h in hosts]}
 
 
 @router.get("/api/hosts/{host_id}/maintenance", tags=["Hosts"])

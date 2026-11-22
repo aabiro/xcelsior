@@ -597,6 +597,18 @@ def _gpu_model_candidates(candidates: list[dict], requested_gpu_model: str) -> l
     return [h for h in candidates if (h.get("gpu_model") or "").strip().lower() == requested]
 
 
+def _priced_at_listed_rate(candidates: list[dict]) -> list[dict]:
+    """Candidates whose ``cost_per_hour`` is what a renter is billed on them.
+
+    Every ranker below reads ``cost_per_hour``. A launch is billed from the
+    catalog, never from a host's asking price, so ranking on the ask let a host
+    win work by asking less while earning the same.
+    """
+    from service_tier_pricing import price_hosts_at_listed_rate
+
+    return price_hosts_at_listed_rate(candidates)
+
+
 def _allocate_host_score(
     job: dict, host: dict, *, volume_host_ids: set[str] | None = None
 ) -> tuple:
@@ -721,6 +733,7 @@ def allocate(job, hosts, jobs: list[dict] | None = None):
     candidates = _allocate_candidates(job, hosts, jobs)
     if not candidates:
         return None
+    candidates = _priced_at_listed_rate(candidates)
 
     candidates = _filter_host_capacity(job, candidates, jobs)
     if not candidates:
@@ -867,6 +880,7 @@ def allocate_binpack(job, hosts, volume_host_ids=None):
         candidates = _gpu_model_candidates(candidates, requested_gpu_model)
         if not candidates:
             return None
+    candidates = _priced_at_listed_rate(candidates)
 
     # GPU count filter for multi-GPU gang scheduling
     if num_gpus_needed > 1:
@@ -4818,6 +4832,7 @@ def allocate_best_host(job, hosts):
     candidates = [h for h in hosts if _vram_fits(h, _needed)]
     if not candidates:
         return None
+    candidates = _priced_at_listed_rate(candidates)
 
     # 3. Sort by compute efficiency * reputation boost.
     #

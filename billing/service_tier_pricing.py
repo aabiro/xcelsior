@@ -217,6 +217,47 @@ def listed_rate_lookup() -> Callable[..., int | None]:
     return lookup
 
 
+def host_listed_rate_micros(
+    host: dict[str, Any], lookup: Callable[..., int | None] | None = None
+) -> int | None:
+    """What a renter is billed per GPU-hour on ``host``, or None when unpriced.
+
+    The host's GPU model and VRAM pick the catalog row, the same way a listing
+    of that host is priced. The host's own ``cost_per_hour`` (its old asking
+    price) plays no part: no launch is billed from it.
+    """
+    model = str(host.get("gpu_model") or "").strip()
+    if not model:
+        return None
+    try:
+        vram = float(host.get("total_vram_gb") or host.get("vram_gb") or 0)
+    except (TypeError, ValueError):
+        vram = 0.0
+    return (lookup or listed_rate_lookup())(model, round(vram) or None)
+
+
+def price_hosts_at_listed_rate(
+    hosts: list[dict[str, Any]], lookup: Callable[..., int | None] | None = None
+) -> list[dict[str, Any]]:
+    """Copies of ``hosts`` whose ``cost_per_hour`` is the rate a renter is billed.
+
+    Placement ranks and filters on ``cost_per_hour``. While that was the host's
+    asking price, a host that asked less won more work at the same pay, and a
+    renter's price cap was checked against a number nobody is charged. A host
+    whose model has no catalog row keeps its own figure, so an unpriced model
+    still ranks rather than vanishing.
+    """
+    lookup = lookup or listed_rate_lookup()
+    priced = []
+    for host in hosts:
+        micros = host_listed_rate_micros(host, lookup)
+        if micros is None:
+            priced.append(host)
+        else:
+            priced.append({**host, "cost_per_hour": micros_to_cad(micros)})
+    return priced
+
+
 def quote_tier(
     gpu_model: str,
     mode: str = "on_demand",

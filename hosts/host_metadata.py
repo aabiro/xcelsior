@@ -156,7 +156,41 @@ def _display_hostname(host: dict[str, Any]) -> str:
     return host_id.replace("_", " ").replace("-", " ").strip()
 
 
-def enrich_host_for_api(host: dict[str, Any]) -> dict[str, Any]:
+def host_rate_fields(host: dict[str, Any], rate_lookup=None) -> dict[str, Any]:
+    """What a renter pays on ``host`` and what its operator keeps, per GPU-hour.
+
+    Prices are set: a launch is billed the catalog rate for the GPU, and the
+    operator is paid that charge less the platform cut (the same cut settlement
+    takes). ``cost_per_hour`` and ``price_per_hour`` carry the renter rate so
+    every older reader shows the price a launch is actually billed, never the
+    asking price a worker registered with.
+    """
+    from provider_settlement import platform_cut_bps
+    from service_tier_pricing import host_listed_rate_micros
+
+    from money import micros_to_cad
+
+    micros = host_listed_rate_micros(host, rate_lookup)
+    cut_bps = platform_cut_bps()
+    if micros is None:
+        # No catalog row: nobody can launch on it at a listed price.
+        return {
+            "renter_rate_per_hour": None,
+            "host_earns_per_hour": None,
+            "platform_cut_pct": cut_bps / 100,
+        }
+    earns = (micros * (10_000 - cut_bps) + 5_000) // 10_000
+    rate = micros_to_cad(micros)
+    return {
+        "cost_per_hour": rate,
+        "price_per_hour": rate,
+        "renter_rate_per_hour": rate,
+        "host_earns_per_hour": micros_to_cad(earns),
+        "platform_cut_pct": cut_bps / 100,
+    }
+
+
+def enrich_host_for_api(host: dict[str, Any], rate_lookup=None) -> dict[str, Any]:
     """Add dashboard-friendly aliases and fill missing catalogue fields."""
     out = dict(host)
     gpu = normalize_gpu_model(str(out.get("gpu_model") or ""))
@@ -172,12 +206,7 @@ def enrich_host_for_api(host: dict[str, Any]) -> dict[str, Any]:
         out["total_vram_gb"] = total
         out["vram_gb"] = total
 
-    rate = float(out.get("cost_per_hour") or out.get("price_per_hour") or 0)
-    if rate <= 0 and gpu:
-        rate = platform_rate_cad(gpu)
-    if rate > 0:
-        out["cost_per_hour"] = rate
-        out["price_per_hour"] = rate
+    out.update(host_rate_fields(out, rate_lookup))
 
     hostname = _display_hostname(out)
     if hostname:
