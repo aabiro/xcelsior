@@ -448,7 +448,7 @@ class Invoice:
     - Compute-specific security requirements
     """
 
-    invoice_id: str = field(default_factory=lambda: f"INV-{int(time.time())}-{os.urandom(3).hex()}")
+    invoice_id: str = field(default_factory=lambda: f"INV-{int(time.time())}-{os.urandom(8).hex()}")
     customer_id: str = ""
     customer_name: str = ""
     currency: str = Currency.CAD
@@ -980,7 +980,7 @@ class BillingEngine:
         """
         fee = round(gross_amount_cad * platform_fee_pct, 4)
         payout = round(gross_amount_cad - fee, 4)
-        payout_id = f"PAY-{int(time.time())}-{os.urandom(3).hex()}"
+        payout_id = f"PAY-{int(time.time())}-{os.urandom(8).hex()}"
 
         with self._conn() as conn:
             conn.execute(
@@ -1865,7 +1865,7 @@ class BillingEngine:
                     }
 
         wallet = self.get_wallet(customer_id)
-        tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
+        tx_id = f"TX-{int(time.time())}-{os.urandom(8).hex()}"
 
         with self._conn() as conn:
             if not paid_in:
@@ -2102,7 +2102,7 @@ class BillingEngine:
                 "action": action,
             }
 
-        tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
+        tx_id = f"TX-{int(time.time())}-{os.urandom(8).hex()}"
         amount_micros = cad_to_micros(amount_cad)
         now = time.time()
 
@@ -2443,7 +2443,7 @@ class BillingEngine:
         wallet row lock, so two concurrent calls cannot both miss the key.
         """
         self._ensure_wallet_table()
-        tx_id = f"TX-{int(time.time())}-{os.urandom(3).hex()}"
+        tx_id = f"TX-{int(time.time())}-{os.urandom(8).hex()}"
 
         with self._conn() as conn:
             if idempotency_key:
@@ -2669,7 +2669,7 @@ class BillingEngine:
                     "status": fenced.status or None,
                 }
             if fenced.command_created:
-                cycle_id = f"BC-stop-{int(now)}-{os.urandom(3).hex()}"
+                cycle_id = f"BC-stop-{int(now)}-{os.urandom(8).hex()}"
                 with pool.connection() as conn:
                     conn.execute(
                         """INSERT INTO billing_cycles
@@ -3575,7 +3575,7 @@ class BillingEngine:
 
         cycle_id = ""
         for status, row_start, row_end, row_micros in rows:
-            cycle_id = f"BC-{int(now)}-{os.urandom(3).hex()}"
+            cycle_id = f"BC-{int(now)}-{os.urandom(8).hex()}"
             conn.execute(
                 """INSERT INTO billing_cycles
                    (cycle_id, job_id, customer_id, host_id, resource_type, period_start,
@@ -3993,7 +3993,7 @@ class BillingEngine:
                             conn=conn,
                         )
 
-                        vcycle_id = f"VC-{int(now)}-{os.urandom(3).hex()}"
+                        vcycle_id = f"VC-{int(now)}-{os.urandom(8).hex()}"
                         vstatus = "charged" if vcharge.get("charged") else "failed"
                         if vcharge.get("charged"):
                             # GB-months, the storage meter's unit ($/GB-month).
