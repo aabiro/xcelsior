@@ -3,6 +3,7 @@
 import { Cpu, MapPin, ArrowRight } from "lucide-react";
 import type { MarketplaceListing } from "@/lib/api";
 import { SpotSavingsPill } from "@/components/spot/spot-surface";
+import { EvidenceSummary, VerificationChip } from "@/components/hosts/host-evidence";
 
 interface ListingCardProps {
   listing: MarketplaceListing;
@@ -48,8 +49,10 @@ export function ListingCard({ listing, onClick, spotRateCad }: ListingCardProps)
             </h3>
           </div>
         </div>
-        <span className="shrink-0 rounded-full bg-emerald/10 px-2 py-0.5 text-[10px] font-medium text-emerald uppercase tracking-wide">
-          {listing.status || "available"}
+        {/* The host's verification, not the listing's own status flag: every
+            listing a renter sees is available, so that pill said nothing. */}
+        <span className="shrink-0">
+          <VerificationChip state={listing.evidence?.verification} />
         </span>
       </div>
 
@@ -58,16 +61,12 @@ export function ListingCard({ listing, onClick, spotRateCad }: ListingCardProps)
           <MapPin className="h-3.5 w-3.5" />
           {region}
         </span>
-        {listing.reputation_score != null && (
-          <span className="inline-flex items-center gap-1">
-            <span className="text-accent-gold">★</span>
-            {listing.reputation_score.toFixed(1)}
-          </span>
-        )}
         {listing.hostname && (
           <span className="truncate text-text-muted/70">{listing.hostname}</span>
         )}
       </div>
+
+      <EvidenceSummary badge={listing.evidence} />
 
       <div className="mt-1 flex items-end justify-between gap-3">
         <div>

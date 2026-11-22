@@ -33,3 +33,19 @@ export function formatMicros(
   const max = exact ? 6 : min;
   return `$${dollars.toLocaleString("en-CA", { minimumFractionDigits: min, maximumFractionDigits: max })}`;
 }
+
+/**
+ * A Unix-seconds timestamp as a short date: 1763800000 → "Nov 22, 2026".
+ * The API sends times in seconds; `new Date(seconds)` reads them as
+ * milliseconds and lands in January 1970, which the trust page showed.
+ */
+export function formatEpochDate(seconds: number | null | undefined, locale?: string): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds <= 0) {
+    return "—";
+  }
+  return new Date(seconds * 1000).toLocaleDateString(locale, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
 import {
   ShieldCheck, Search, RefreshCw, CheckCircle, XCircle, AlertTriangle, Lock, Globe, MapPin, Shield, type LucideIcon,
@@ -16,6 +15,8 @@ import {
 import type { VerifiedHost } from "@/lib/api";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
+import { formatEpochDate } from "@/lib/format-units";
+import { EvidenceSummary, VerificationChip } from "@/components/hosts/host-evidence";
 
 /*
  * These three maps key on `ReputationTier` — the vocabulary `/api/trust-tiers`
@@ -264,6 +265,7 @@ export default function TrustPage() {
                   <th className="py-3 px-4 text-left font-medium">GPU</th>
                   <th className="py-3 px-4 text-center font-medium">Status</th>
                   <th className="py-3 px-4 text-center font-medium">Score</th>
+                  <th className="py-3 px-4 text-left font-medium">{t("dash.evidence.title")}</th>
                   <th className="py-3 px-4 text-center font-medium">Last Check</th>
                   <th className="py-3 px-4 text-right font-medium">Actions</th>
                 </tr>
@@ -279,13 +281,20 @@ export default function TrustPage() {
                     </td>
                     <td className="py-3 px-4 text-text-secondary">{host.gpu_model || "-"}</td>
                     <td className="py-3 px-4 text-center">
-                      <StatusBadge status={host.status} />
+                      {/* Freshness, not the stored state: a stamp past its
+                          next check reads overdue, as placement treats it. */}
+                      <VerificationChip state={host.freshness ?? host.status} />
                     </td>
                     <td className="py-3 px-4 text-center font-mono">
                       {host.overall_score.toFixed(1)}
                     </td>
+                    <td className="py-3 px-4 min-w-[14rem]">
+                      <EvidenceSummary badge={host.evidence} />
+                    </td>
                     <td className="py-3 px-4 text-center text-text-muted text-xs">
-                      {host.last_check ? new Date(host.last_check).toLocaleDateString() : "-"}
+                      {/* Unix seconds; `new Date(seconds)` read them as ms and
+                          showed every host as last checked in January 1970. */}
+                      {formatEpochDate(host.last_check)}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex justify-end gap-1">

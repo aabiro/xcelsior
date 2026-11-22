@@ -15,7 +15,8 @@ import {
   fetchTelemetry, fetchReputation,
 } from "@/lib/api";
 import { DeleteHostDialog } from "@/components/hosts/delete-host-dialog";
-import type { Host, TelemetryData, ReputationEntry } from "@/lib/api";
+import type { Host, HostEvidence, TelemetryData, ReputationEntry } from "@/lib/api";
+import { HostEvidenceCard } from "@/components/hosts/host-evidence";
 import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 import { HostLocationForm } from "@/components/ui/province-selector";
@@ -41,12 +42,13 @@ function HostDetailContent({ id }: { id: string }) {
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
   useBreadcrumbLabel(`/dashboard/hosts/${id}`, host?.hostname);
   const [reputation, setReputation] = useState<ReputationEntry | null>(null);
+  const [evidence, setEvidence] = useState<HostEvidence | null>(null);
 
   useEffect(() => {
     let active = true;
 
     fetchHost(id)
-      .then((r) => { if (active) setHost(r.host); })
+      .then((r) => { if (active) { setHost(r.host); setEvidence(r.evidence ?? null); } })
       .catch(() => { if (active) toast.error("Failed to load host"); })
       .finally(() => { if (active) setLoading(false); });
 
@@ -171,6 +173,9 @@ function HostDetailContent({ id }: { id: string }) {
 
       <HostLocationForm host={host} onSaved={setHost} />
       <HostSpotSettings host={host} onUpdated={setHost} />
+
+      {/* What a renter sees: verification freshness, the benchmark, standing. */}
+      <HostEvidenceCard evidence={evidence} />
 
       {/* Verification & Reputation */}
       <div className="grid gap-4 sm:grid-cols-2">

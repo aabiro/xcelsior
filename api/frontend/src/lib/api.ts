@@ -1839,7 +1839,15 @@ export async function requeueInstance(instanceId: string) {
 
 // ── Host Detail ───────────────────────────────────────────────────────
 export async function fetchHost(hostId: string) {
-  return apiFetch<{ ok: boolean; host: Host }>(`/api/hosts/${encodeURIComponent(hostId)}`);
+  return apiFetch<{ ok: boolean; host: Host; evidence: HostEvidence | null }>(
+    `/api/hosts/${encodeURIComponent(hostId)}`,
+  );
+}
+
+export async function fetchHostEvidence(hostId: string) {
+  return apiFetch<{ ok: boolean } & HostEvidence>(
+    `/api/v2/hosts/${encodeURIComponent(hostId)}/evidence`,
+  );
 }
 
 export async function deleteHost(hostId: string) {
@@ -3857,6 +3865,79 @@ export interface Wallet {
   hard_stop?: boolean;
 }
 
+/**
+ * What a listing shows of its host's evidence (`hosts/host_evidence.py`,
+ * `evidence_badge`): verification freshness, the latest benchmark, reputation
+ * and the 30-day job success rate. Times are Unix seconds. Every field can be
+ * null: a host with no rows reads `unverified` with no numbers.
+ */
+export interface HostEvidenceBadge {
+  verification: "verified" | "overdue" | "deverified" | "unverified" | "pending" | string;
+  last_check_at: number | null;
+  next_check_at: number | null;
+  benchmark: {
+    ran_at: number | null;
+    bench_version: string;
+    verdict: "pass" | "fail" | "unknown" | "";
+    fp16_tflops: number | null;
+    memory_bandwidth_gbps: number | null;
+    allocatable_vram_gb: number | null;
+    temp_peak_c: number | null;
+    thermal_throttle_share: number | null;
+  } | null;
+  reputation_tier: string | null;
+  reputation_score: number | null;
+  job_success_rate: number | null;
+}
+
+/** One xcelsior-bench run as the evidence model summarizes it. */
+export interface HostBenchmark {
+  ran_at: number | null;
+  bench_version: string;
+  verdict: "pass" | "fail" | "unknown" | "";
+  faults: string[];
+  gpu_model: string;
+  fp16_tflops: number | null;
+  bf16_tflops: number | null;
+  memory_bandwidth_gbps: number | null;
+  allocatable_vram_gb: number | null;
+  pcie_h2d_gbps: number | null;
+  pcie_d2h_gbps: number | null;
+  sustained: {
+    duration_s: number | null;
+    sm_clock_p50_mhz: number | null;
+    sm_clock_min_mhz: number | null;
+    temp_peak_c: number | null;
+    thermal_throttle_share: number | null;
+    power_fault_share: number | null;
+    power_cap_share: number | null;
+  };
+  driver_version: string;
+  cuda_version: string;
+}
+
+/** A host's evidence in full (`GET /api/v2/hosts/{id}/evidence`, and the host page). */
+export interface HostEvidence {
+  host_id: string;
+  verification: {
+    state: string;
+    freshness: string;
+    overdue: boolean;
+    last_verified_at: number | null;
+    last_check_at: number | null;
+    next_check_at: number | null;
+  };
+  benchmark: HostBenchmark | null;
+  benchmark_history?: { ran_at: number | null; bench_version: string; verdict: string }[];
+  reputation: { tier: string | null; score: number | null };
+  jobs: {
+    window_days: number;
+    runs_ended: number;
+    host_fault_failures: number;
+    success_rate: number | null;
+  };
+}
+
 export interface MarketplaceListing {
   id?: string;
   host_id: string;
@@ -3869,8 +3950,9 @@ export interface MarketplaceListing {
   country?: string;
   province?: string;
   region?: string;
-  reputation_tier?: string;
-  reputation_score?: number;
+  // `reputation_score` / `reputation_tier` were typed here and never sent;
+  // reputation comes with the rest of the host's evidence.
+  evidence?: HostEvidenceBadge;
 }
 
 export interface TelemetrySnapshot {
@@ -3950,10 +4032,16 @@ export interface VerifiedHost {
   host_id: string;
   gpu_model?: string;
   overall_score: number;
-  last_check: string;
+  /** Unix seconds. Typed as a string, it was passed to `new Date()` as
+   *  milliseconds and every host read as last checked in January 1970. */
+  last_check: number | null;
+  next_check_at?: number | null;
+  /** `verified` past its next check plus the grace reads `overdue`. */
+  freshness?: string;
   gpu_fingerprint?: string;
   status: string;
   deverify_reason?: string;
+  evidence?: HostEvidenceBadge;
 }
 
 /**
@@ -4079,11 +4167,17 @@ export interface GPUOffer {
   gpu_count_total: number;
   gpu_count_available: number;
   vram_gb: number;
+  /** The host's own ask. Not what a launch is billed: see price_per_hour_cad. */
   ask_cents_per_hour: number;
+  /** The Standard tier price a launch is billed; null when the model is unpriced. */
+  rate_micros_per_hour: number | null;
+  price_per_hour_cad: number | null;
+  price_source: "standard_tier";
   region: string;
   spot_enabled: boolean;
   spot_min_cents: number;
   available: boolean;
+  evidence: HostEvidenceBadge;
 }
 
 export interface ServerlessPricing {
@@ -4268,6 +4362,15 @@ export interface GpuAvailability {
   province: string;
   count_available: number;
   price_per_hour_cad: number;
+  service_tiers_available?: boolean;
+  /** The hosts this row aggregates, and how many of them are verified. */
+  host_ids?: string[];
+  evidence?: {
+    hosts: number;
+    verified: number;
+    overdue: number;
+    latest_benchmark_at: number | null;
+  };
 }
 
 export interface Volume {
@@ -4304,7 +4407,9 @@ export async function searchMarketplaceV2(params: {
   min_vram_gb?: number;
   max_price_cents?: number;
   region?: string;
-  sort_by?: string;
+  min_reputation?: number;
+  verified_only?: boolean;
+  sort_by?: "price" | "reputation" | "region" | "vram";
   limit?: number;
 }) {
   return apiFetch<{ ok: boolean; offers: GPUOffer[]; count: number }>(
