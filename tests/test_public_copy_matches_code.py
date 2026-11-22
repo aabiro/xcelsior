@@ -49,6 +49,8 @@ FALSE_PHRASES = [
     (r"(next|new) assignment may lock", "nothing re-locks a spot rate"),
     (r"set when the scheduler assigns a host", "spot locks at submission"),
     (r"verrouillé dès l'attribution", "spot locks at submission"),
+    (r"locked at allocation|verrouillé à l'allocation", "spot locks at submission"),
+    (r"locked at the moment the scheduler assigns", "spot locks at submission"),
     (r"\bby the hour\b", "billing is per second"),
     (r"billed hourly|hourly billing", "billing is per second"),
     (r"facturés? à l'heure", "billing is per second"),
