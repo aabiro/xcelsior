@@ -166,7 +166,9 @@ TAILSCALE_SOCKET = os.environ.get("XCELSIOR_TAILSCALE_SOCKET", "").strip()
 # gVisor preference
 PREFER_GVISOR = os.environ.get("XCELSIOR_PREFER_GVISOR", "true").lower() in ("1", "true", "yes")
 
-VERSION = "2.2.0"
+#: 2.3.0: GPU identity and allocatable VRAM in the verification report, deferred
+#: reverification, host-fault failure codes.
+VERSION = "2.3.0"
 _HOST_SSH_USER_RE = re.compile(r"\A[A-Za-z0-9_.-]{1,64}\Z")
 
 

@@ -97,12 +97,12 @@ def test_upgrade_agent_skip_when_already_at_target(fake_agent_file, monkeypatch)
     target_sha = "a" * 64
     monkeypatch.setattr(worker_agent, "_self_sha256", lambda: target_sha)
     # And min_version <= our VERSION
-    assert worker_agent.VERSION == "2.2.0"
+    assert worker_agent.VERSION == "2.3.0"
     ok = worker_agent._handle_upgrade_agent(
         {
             "url": "https://x/",
             "sha256": target_sha,
-            "min_version": "2.0.0",  # we're at 2.2.0
+            "min_version": "2.0.0",  # we're at 2.3.0
         }
     )
     # Returned True (skipped cleanly) and didn't download anything.
@@ -116,9 +116,9 @@ def test_self_sha256_matches_disk():
     assert worker_agent._self_sha256() == expected
 
 
-def test_version_bumped_to_2_1_0():
-    """Lock: Phase 5.5 hardening ships as worker agent v2.2.0."""
-    assert worker_agent.VERSION == "2.2.0"
+def test_version_bumped_to_2_3_0():
+    """Lock: the verification-identity agent (Phase 0, 2026-11-22) ships as v2.3.0."""
+    assert worker_agent.VERSION == "2.3.0"
 
 
 def test_upgrade_agent_refuses_http_url(fake_agent_file):
