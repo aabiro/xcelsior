@@ -53,7 +53,12 @@ from enum import Enum
 from typing import Any, Optional
 
 from host_metadata import normalize_gpu_model
-from xcelsior_bench import ALLOCATABLE_FAULT_RATIO, THROTTLE_FAULT_SHARE
+from xcelsior_bench import (
+    ALLOCATABLE_FAULT_RATIO,
+    MIN_SUSTAINED_SECONDS,
+    THROTTLE_FAULT_SHARE,
+    sustained_too_short,
+)
 
 log = logging.getLogger("xcelsior")
 
@@ -497,14 +502,25 @@ def check_thermal_stability(report: dict) -> VerificationResult:
             "the sustained-load phase took no throttle readings",
         )
     power = float(power or 0)
+    passed = gpu_temp <= max_temp and thermal * 100 <= limit and power * 100 <= limit
+    actual = (
+        f"{gpu_temp}°C peak; thermal throttling {thermal * 100:.1f}%, "
+        f"power faults {power * 100:.1f}% of {sustained.get('duration_s', '?')}s"
+    )
+    # A fault seen in a short run is still a fault; a clean short run proves nothing.
+    if passed and sustained_too_short(sustained):
+        return _unknown(
+            "thermal_stability",
+            f"{expected}, over at least {MIN_SUSTAINED_SECONDS}s",
+            actual,
+            f"the sustained-load phase ran {sustained.get('duration_s', '?')}s with "
+            f"{sustained.get('samples', 0)} samples; it needs {MIN_SUSTAINED_SECONDS}s",
+        )
     return VerificationResult(
         check_name="thermal_stability",
-        passed=gpu_temp <= max_temp and thermal * 100 <= limit and power * 100 <= limit,
+        passed=passed,
         expected=expected,
-        actual=(
-            f"{gpu_temp}°C peak; thermal throttling {thermal * 100:.1f}%, "
-            f"power faults {power * 100:.1f}% of {sustained.get('duration_s', '?')}s"
-        ),
+        actual=actual,
     )
 
 

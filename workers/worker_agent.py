@@ -686,7 +686,7 @@ BENCH_SUSTAINED_SEC = int(os.environ.get("XCELSIOR_BENCH_SUSTAINED_SEC", "300"))
 #: (upgrade_agent skips sibling modules it does not know), so it fetches the
 #: file from the scheduler and accepts it only if it matches this.
 #: tests/test_xcelsior_bench.py keeps it equal to the file.
-BENCH_SHA256 = "c9079e4acbb1234ccd17a940245d74a630c5719b835b0a20c71febfd5427ce25"
+BENCH_SHA256 = "3ff642a84e1ba6c018ea09757c6340783429c4fcae7e72ddb8a04737afdf9eb6"
 
 
 def _bench_source() -> str | None:

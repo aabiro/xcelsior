@@ -42,6 +42,13 @@ BENCH_VERSION = "1.0.0"
 SCHEMA = "xcelsior-bench/1"
 
 DEFAULT_SUSTAINED_SECONDS = 300
+#: The shortest sustained phase that can pass. A longer run is fine; a shorter
+#: one is still reported, but a few seconds under load cannot show that a GPU
+#: does not throttle, so its verdict is ``unknown`` unless it already shows a
+#: fault. ``XCELSIOR_BENCH_SUSTAINED_SEC`` cannot be used to skip the check.
+MIN_SUSTAINED_SECONDS = 300
+#: Share of those seconds that must have produced a sample.
+MIN_SUSTAINED_SAMPLE_RATIO = 0.9
 THROTTLE_FAULT_SHARE = 0.10
 ALLOCATABLE_FAULT_RATIO = 0.90
 
@@ -121,6 +128,15 @@ def summarize_sustained(samples: list[dict], duration_s: float) -> dict:
     return summary
 
 
+def sustained_too_short(sustained: dict) -> bool:
+    """True when the sustained phase is too short, or too sparse, to pass."""
+    duration = sustained.get("duration_s") or 0
+    samples = sustained.get("samples") or 0
+    return duration < MIN_SUSTAINED_SECONDS or samples < (
+        MIN_SUSTAINED_SECONDS * MIN_SUSTAINED_SAMPLE_RATIO
+    )
+
+
 def verdict(
     sustained: dict | None,
     allocatable_vram_gb: float | None,
@@ -128,8 +144,10 @@ def verdict(
 ) -> dict:
     """``pass`` / ``fail`` / ``unknown``, and the faults behind a fail.
 
-    ``unknown`` when the sustained phase took no throttle samples, or the
-    allocation probe did not run: a missing measurement is never a pass.
+    ``unknown`` when the sustained phase took no throttle samples, was shorter
+    than ``MIN_SUSTAINED_SECONDS``, or the allocation probe did not run: a
+    missing measurement is never a pass. A fault found in a short run still
+    fails.
     """
     faults: list[str] = []
     unknown: list[str] = []
@@ -140,6 +158,8 @@ def verdict(
             faults.append("thermal_throttling")
         if (sustained.get("power_fault_share") or 0) > THROTTLE_FAULT_SHARE:
             faults.append("power_throttling")
+        if sustained_too_short(sustained):
+            unknown.append("sustained_load_too_short")
     if advertised_vram_gb:
         if not allocatable_vram_gb:
             unknown.append("allocatable_vram")

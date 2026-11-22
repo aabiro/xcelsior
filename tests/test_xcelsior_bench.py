@@ -174,6 +174,25 @@ def test_a_missing_measurement_is_unknown_not_a_pass():
     assert no_probe["result"] == "unknown" and no_probe["unknown"] == ["allocatable_vram"]
 
 
+def test_a_short_sustained_phase_cannot_pass():
+    """XCELSIOR_BENCH_SUSTAINED_SEC=5 must not turn the throttle check into a formality."""
+    short = summarize_sustained(_samples(5, 0, 0), 5.0)
+    result = verdict(short, 11.2, 12.0)
+    assert result["result"] == "unknown"
+    assert result["unknown"] == ["sustained_load_too_short"]
+    # A fault seen in a short run is still a fault.
+    assert verdict(summarize_sustained(_samples(5, 5, THERMAL), 5.0), 11.2, 12.0)["result"] == (
+        "fail"
+    )
+    # Long enough in time but mostly unsampled is not enough either.
+    sparse = summarize_sustained(_samples(100, 0, 0), 300.0)
+    assert verdict(sparse, 11.2, 12.0)["unknown"] == ["sustained_load_too_short"]
+    # Longer than the minimum is fine.
+    longer = summarize_sustained(_samples(600, 0, 0), 600.0)
+    assert verdict(longer, 11.2, 12.0)["result"] == "pass"
+    assert xcelsior_bench.MIN_SUSTAINED_SECONDS == xcelsior_bench.DEFAULT_SUSTAINED_SECONDS
+
+
 def test_a_dead_temperature_sensor_reads_as_none():
     summary = summarize_sustained(_samples(10, 0, 0, temp=0), 10.0)
     assert summary["temp_peak_c"] is None
@@ -217,6 +236,17 @@ def test_the_server_thermal_check_is_unknown_without_throttle_samples():
 
     result = check_thermal_stability(_report_with({"duration_s": 300, "temp_peak_c": 72.0}))
     assert result.status == CHECK_UNKNOWN
+
+
+def test_the_server_thermal_check_refuses_a_short_clean_run_but_fails_a_short_faulty_one():
+    from verification import CHECK_UNKNOWN, check_thermal_stability
+
+    short = check_thermal_stability(_report_with(summarize_sustained(_samples(5, 0, 0), 5.0)))
+    assert short.status == CHECK_UNKNOWN
+    assert "needs 300s" in short.details
+    faulty = summarize_sustained(_samples(5, 5, THERMAL, temp=72.0), 5.0)
+    result = check_thermal_stability(_report_with(faulty))
+    assert result.passed is False and result.status != CHECK_UNKNOWN
 
 
 def test_a_report_from_an_older_agent_is_judged_on_peak_temperature():

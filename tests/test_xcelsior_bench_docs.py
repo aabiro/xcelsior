@@ -69,6 +69,7 @@ def test_thresholds_and_default_length(page: str, bench) -> None:
     seconds = bench.DEFAULT_SUSTAINED_SECONDS
     assert f"default ({seconds})" in flat
     assert f"{seconds // 60} minutes by default" in flat
+    assert f"A run shorter than {bench.MIN_SUSTAINED_SECONDS} seconds" in flat
 
 
 def test_compared_fields_are_in_both_results(page: str) -> None:

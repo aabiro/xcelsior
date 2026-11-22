@@ -70,7 +70,9 @@ Set `--advertised-vram-gb` to the VRAM on the listing you rented. Other
 options:
 
 - `--sustained-seconds N` sets the length of the sustained phase. Use the
-  default (300) when you compare with a host's result.
+  default (300) when you compare with a host's result. A run shorter than
+  300 seconds still reports its numbers, but its verdict is `unknown`
+  unless it already found a fault.
 - `--device N` picks the GPU on a multi-GPU instance.
 - `--samples` adds every per-second sample to the output.
 
