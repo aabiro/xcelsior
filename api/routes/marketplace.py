@@ -11,6 +11,7 @@ from routes._deps import (
     _require_platform_worker,
     _require_scope,
 )
+from host_evidence import attach_evidence, reputation_score
 from marketplace import get_marketplace_engine
 from scheduler import (
     get_marketplace,
@@ -43,13 +44,15 @@ def api_marketplace_search(
     if max_price is not None:
         listings = [l for l in listings if _listing_price(l) <= max_price]
     if min_reputation is not None:
-        listings = [l for l in listings if (l.get("reputation_score", 0) or 0) >= min_reputation]
+        # Listings never carried `reputation_score`, so any floor above zero
+        # returned nothing. The score is the host's evidence (host_evidence).
+        listings = [l for l in listings if (reputation_score(l) or 0) >= min_reputation]
 
     # Sort
     sort_keys = {
         "price": _listing_price,
         "vram": lambda x: -(x.get("vram_gb", 0) or 0),
-        "reputation": lambda x: -(x.get("reputation_score", 0) or 0),
+        "reputation": lambda x: -(reputation_score(x) or 0),
         "score": lambda x: -(x.get("compute_score", 0) or 0),
     }
     if sort_by in sort_keys:
@@ -155,7 +158,7 @@ def _live_priced_listings(listings: list[dict]) -> list[dict]:
     died or was never admitted cannot surface. ``price_per_hour`` is the host's
     own ask; a launch is billed the Standard tier price, which is what
     ``price_per_hour_cad`` carries (the same source as marketplace search and
-    available GPUs).
+    available GPUs). Each listing carries its host's ``evidence`` badge.
     """
     from money import micros_to_cad
     from service_tier_pricing import listed_rate_lookup
@@ -176,7 +179,7 @@ def _live_priced_listings(listings: list[dict]) -> list[dict]:
                 "price_source": "standard_tier",
             }
         )
-    return live
+    return attach_evidence(live)
 
 
 def _listing_price(listing: dict) -> float:
@@ -251,6 +254,10 @@ class MarketplaceSearchParams(BaseModel):
     max_price_cents: int = Field(default=0, ge=0)
     region: str = Field(default="", max_length=32)
     spot_available: bool = False
+    # The MCP tool sent this from the start; the model had no such field, so
+    # pydantic dropped it and every host matched.
+    min_reputation: float | None = Field(default=None, ge=0, le=10_000)
+    verified_only: bool = False
     sort_by: str = Field(default="price", pattern="^(price|reputation|region|vram)$")
     limit: int = Field(default=50, ge=1, le=500)
 
@@ -267,15 +274,18 @@ def api_marketplace_search_v2(body: MarketplaceSearchParams):
     marked both routes tested when only one was.
     """
     me = get_marketplace_engine()
+    # Every live offer, then filter and sort here: the price, reputation and
+    # verification a renter filters on are not gpu_offers columns, and a SQL
+    # LIMIT before them would cut the list in the wrong order.
     offers = me.search_offers(
         gpu_model=body.gpu_model,
         min_vram_gb=body.min_vram_gb,
         region=body.region,
         spot_available=body.spot_available,
-        sort_by=body.sort_by,
-        limit=body.limit,
+        limit=500,
     )
     _with_listed_price(offers)
+    attach_evidence(offers)
     if body.max_price_cents > 0:
         # Against the price a renter pays, not the host's ask.
         ceiling = body.max_price_cents * 10_000
@@ -284,11 +294,44 @@ def api_marketplace_search_v2(body: MarketplaceSearchParams):
             for o in offers
             if o["rate_micros_per_hour"] is not None and o["rate_micros_per_hour"] <= ceiling
         ]
-    if body.sort_by == "price":
-        offers.sort(
-            key=lambda o: (o["rate_micros_per_hour"] is None, o["rate_micros_per_hour"] or 0)
-        )
+    if body.min_reputation is not None:
+        offers = [o for o in offers if (reputation_score(o) or 0) >= body.min_reputation]
+    if body.verified_only:
+        offers = [o for o in offers if o["evidence"]["verification"] == "verified"]
+    sort_keys = {
+        "price": lambda o: (o["rate_micros_per_hour"] is None, o["rate_micros_per_hour"] or 0),
+        "reputation": lambda o: -(reputation_score(o) or 0),
+        "region": lambda o: str(o.get("region") or ""),
+        "vram": lambda o: -(o.get("vram_gb") or 0),
+    }
+    offers.sort(key=sort_keys[body.sort_by])
+    offers = offers[: body.limit]
     return {"ok": True, "offers": offers, "count": len(offers)}
+
+
+@router.get("/api/v2/hosts/{host_id}/evidence", tags=["Marketplace v2"])
+def api_host_evidence(host_id: str, request: Request):
+    """One host's evidence: verification, benchmark history, reputation, job success.
+
+    The same read model the listings badge from (``host_evidence``), in full,
+    with the dates and verdicts of up to ten earlier benchmark runs. Signed-in
+    users; nothing here is private to the host (no de-verification reason,
+    hold or GPU identity).
+    """
+    user = _require_auth(request)
+    _require_scope(user, "marketplace:read")
+    from db import pg_connection
+
+    with pg_connection() as conn:
+        known = conn.execute("SELECT 1 FROM hosts WHERE host_id = %s", (host_id,)).fetchone()
+    if not known:
+        raise HTTPException(status_code=404, detail=f"Host {host_id} not found")
+    from host_evidence import evidence_for_hosts
+
+    evidence = evidence_for_hosts([host_id], history=10).get(host_id)
+    if evidence is None:
+        raise HTTPException(status_code=503, detail="Host evidence is unavailable")
+    return {"ok": True, **evidence}
 
 
 def _with_listed_price(offers: list[dict]) -> None:

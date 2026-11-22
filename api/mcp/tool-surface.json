@@ -870,6 +870,29 @@
       "hasOutputSchema": true
     },
     {
+      "name": "get_host_evidence",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "marketplace:read"
+      ],
+      "idempotency": "read",
+      "retry": "safe",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "host_id": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "get_image_sweep",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -2440,6 +2463,10 @@
         },
         "min_reputation": {
           "type": "number",
+          "optional": true
+        },
+        "verified_only": {
+          "type": "boolean",
           "optional": true
         },
         "sort_by": {

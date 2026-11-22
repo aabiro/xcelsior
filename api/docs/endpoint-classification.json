@@ -903,6 +903,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "GET /api/v2/hosts/{host_id}/evidence": {
+    "class": "covered",
+    "notes": "MCP server calls this path"
+  },
   "GET /api/v2/inference/endpoints": {
     "class": "redundant",
     "notes": "a compatibility shim: the handler is `api_inference_compat_*`, tagged 'Serverless (compat)', and its whole body delegates to the corresponding api_serverless_* function. Folded into the serverless surface the MCP already calls, and the code declares it rather than leaving it to be inferred"

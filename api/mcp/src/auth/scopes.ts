@@ -54,6 +54,8 @@ const TOOL_SCOPE_REGISTRY = {
   get_spot_prices: { allOf: ["marketplace:read"] },
   get_pricing_reference: { allOf: ["gpu:read"] },
   search_marketplace: { allOf: ["marketplace:read"] },
+  // The evidence behind a listing: verification, benchmark history, reputation.
+  get_host_evidence: { allOf: ["marketplace:read"] },
   list_tiers: { allOf: ["gpu:read"] },
   // What this connection may do, and asking its owner for more. Open to any
   // credential that holds anything at all: a key narrowed to a single

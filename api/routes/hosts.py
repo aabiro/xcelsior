@@ -1797,7 +1797,14 @@ def api_get_host(host_id: str, request: Request):
             (resolved,),
         ).fetchone()
     host = {**host, "last_observed_at": float(row[0]) if row and row[0] is not None else None}
-    return {"ok": True, "host": enrich_host_for_api(host)}
+    from host_evidence import evidence_for_hosts
+
+    return {
+        "ok": True,
+        "host": enrich_host_for_api(host),
+        # What a renter sees on the listing, with the benchmark history.
+        "evidence": evidence_for_hosts([resolved], history=10).get(resolved),
+    }
 
 
 @router.get("/hosts", tags=["Hosts"])

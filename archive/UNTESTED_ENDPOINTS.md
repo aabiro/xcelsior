@@ -1,8 +1,8 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-11-18 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-11-22 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**12 of 580 routes (2%)** and **0 of 46 CLI commands** (0%) have no test signal.
+**12 of 585 routes (2%)** and **0 of 46 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -207,6 +207,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/billing/paypal/marketplace/create-order` — `api_paypal_marketplace_create_order`
 - [x] `POST /api/billing/paypal/webhook` — `api_paypal_webhook`
 - [x] `POST /api/billing/portal-session` — `api_billing_portal_session`
+- [x] `GET /api/billing/receipts` — `api_billing_receipts`
 - [x] `POST /api/billing/refund` — `api_process_refund`
 - [x] `POST /api/billing/setup-intent` — `api_billing_setup_intent`  ✓ test_billing_endpoints_coverage.py
 - [x] `GET /api/billing/usage/{customer_id}` — `api_usage_summary`  ✓ test_billing_endpoints_coverage.py
@@ -256,6 +257,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/compliance/tax-rates` — `api_tax_rates`  ✓ test_compliance_endpoints_coverage.py
 
 ### `routes/control_plane_v1.py` (0 untested)
+- [x] `GET /api/v1/billing/receipts` — `api_v1_billing_receipts`
 - [x] `POST /api/v1/control-plane/commands/{command_id}/retry` — `api_v1_retry_agent_command`
 - [x] `GET /api/v1/control-plane/health` — `api_v1_control_plane_health`
 - [x] `GET /api/v1/control-plane/queue` — `api_v1_control_plane_queue`
@@ -284,6 +286,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `GET /api/v1/instances/{job_id}/control-plane` — `api_v1_instance_control_plane`
 - [x] `GET /api/v1/instances/{job_id}/events` — `api_v1_instance_events`
 - [x] `GET /api/v1/instances/{job_id}/placement-explanation` — `api_v1_instance_placement_explanation`
+- [x] `GET /api/v1/instances/{job_id}/receipt` — `api_v1_instance_receipt`
 - [x] `POST /api/v1/instances/{job_id}/reconcile` — `api_v1_instance_reconcile`
 - [x] `POST /api/v1/instances/{job_id}/retry` — `api_v1_instance_retry`
 - [x] `GET /api/v1/instances/{job_id}/timeline` — `api_v1_instance_timeline`
@@ -383,6 +386,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 ### `routes/instances.py` (0 untested)
 - [x] `POST /admin/instances/{job_id}/reinject-shell` — `api_admin_reinject_shell`  ✓ test_instances_endpoints_coverage.py
 - [x] `GET /api/images/templates` — `api_image_templates`  ✓ test_instances_endpoints_coverage.py
+- [x] `GET /api/instances/{job_id}/receipt` — `api_instance_receipt`
 - [x] `POST /api/instances/{job_id}/stream-ticket` — `api_instance_stream_ticket`
 - [x] `GET /api/instances/{job_id}/telemetry` — `api_instance_telemetry`
 - [x] `POST /api/v1/image-sweep-plans/{plan_id}/execute` — `api_execute_image_sweep_plan`
@@ -421,6 +425,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /user-images/{image_id}/complete` — `api_user_image_complete`
 
 ### `routes/marketplace.py` (0 untested)
+- [x] `GET /api/v2/hosts/{host_id}/evidence` — `api_host_evidence`
 - [x] `POST /api/v2/marketplace/allocate` — `api_marketplace_allocate`
 - [x] `POST /api/v2/marketplace/offers` — `api_marketplace_create_offer`
 - [x] `POST /api/v2/marketplace/release/{allocation_id}` — `api_marketplace_release`  ✓ test_marketplace_endpoints_coverage.py

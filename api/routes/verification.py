@@ -143,9 +143,12 @@ def api_verified_hosts(request: Request):
         ).fetchall()
     from verification import verification_freshness
 
+    from host_evidence import evidence_badge, evidence_for_hosts
+
     # Enrich with host data
     all_hosts = list_hosts(active_only=False)
     host_map = {h["host_id"]: h for h in all_hosts}
+    evidence = evidence_for_hosts([r["host_id"] for r in rows])
     result = []
     for r in rows:
         h = host_map.get(r["host_id"], {})
@@ -164,6 +167,8 @@ def api_verified_hosts(request: Request):
                 "gpu_model": h.get("gpu_model", "—"),
                 "country": h.get("country", ""),
                 "province": h.get("province", ""),
+                # Benchmark, reputation and job success, as the listings show them.
+                "evidence": evidence_badge(evidence.get(r["host_id"])),
             }
         )
     return {"ok": True, "count": len(result), "hosts": result}

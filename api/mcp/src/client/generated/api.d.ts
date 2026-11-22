@@ -2429,6 +2429,13 @@ export interface components {
              * @default false
              */
             spot_available: boolean;
+            /** Min Reputation */
+            min_reputation?: number | null;
+            /**
+             * Verified Only
+             * @default false
+             */
+            verified_only: boolean;
             /**
              * Sort By
              * @default price

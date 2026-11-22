@@ -2986,6 +2986,47 @@
         }
       }
     },
+    "/api/v2/hosts/{host_id}/evidence": {
+      "get": {
+        "tags": [
+          "Marketplace v2"
+        ],
+        "summary": "Host Evidence",
+        "description": "One host's evidence: verification, benchmark history, reputation, job success.\n\nThe same read model the listings badge from (``host_evidence``), in full,\nwith the dates and verdicts of up to ten earlier benchmark runs. Signed-in\nusers; nothing here is private to the host (no de-verification reason,\nhold or GPU identity).",
+        "operationId": "api_host_evidence_api_v2_hosts__host_id__evidence_get",
+        "parameters": [
+          {
+            "name": "host_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Host Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/marketplace/spot-prices": {
       "get": {
         "tags": [
@@ -3992,6 +4033,24 @@
           "spot_available": {
             "type": "boolean",
             "title": "Spot Available",
+            "default": false
+          },
+          "min_reputation": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 10000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Reputation"
+          },
+          "verified_only": {
+            "type": "boolean",
+            "title": "Verified Only",
             "default": false
           },
           "sort_by": {

@@ -5154,6 +5154,24 @@
             "title": "Spot Available",
             "default": false
           },
+          "min_reputation": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 10000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Reputation"
+          },
+          "verified_only": {
+            "type": "boolean",
+            "title": "Verified Only",
+            "default": false
+          },
           "sort_by": {
             "type": "string",
             "pattern": "^(price|reputation|region|vram)$",

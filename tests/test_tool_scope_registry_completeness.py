@@ -296,7 +296,12 @@ def _registered_tool_names() -> set[str]:
 #: instance page shows (billed seconds, locked rate, total reconciled to the
 #: wallet debits). Customer tool under `billing:read`, read-only, so the customer
 #: profile publishes 90.
-EXPECTED_TOOL_TOTAL = 105
+#: **106** with `get_host_evidence` (2026-11-22). Listings showed host trust
+#: fields nothing maintained; the evidence (verification freshness, benchmark
+#: history, reputation, job success) is one read model, and an agent comparing
+#: two hosts needs it per host. Customer tool under `marketplace:read`,
+#: read-only, so the customer profile publishes 91.
+EXPECTED_TOOL_TOTAL = 106
 
 #: The customer profile is what `mcp.xcelsior.ca/mcp` serves and what a
 #: directory lists. It is the total minus two exclusions, and the decomposition

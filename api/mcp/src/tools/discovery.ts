@@ -79,7 +79,8 @@ export function registerDiscoveryTools(
         gpu_model: z.string().optional(),
         min_vram_gb: z.number().optional(),
         region: z.string().optional(),
-        min_reputation: z.number().optional(),
+        min_reputation: z.number().optional().describe("Minimum host reputation score (0-1000)"),
+        verified_only: z.boolean().optional().describe("Only hosts whose verification is current"),
         sort_by: z.enum(["price", "reputation", "region", "vram"]).optional(),
       }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -89,6 +90,26 @@ export function registerDiscoveryTools(
       if (denied) return denied;
       try {
         const data = await client.post("/api/v2/marketplace/search", args);
+        return jsonText(data);
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_host_evidence",
+    {
+      inputSchema: z.object({
+        host_id: z.string().min(1).max(128).describe("A host_id from search_marketplace"),
+      }),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ host_id }) => {
+      const denied = scopeDenied("get_host_evidence", user);
+      if (denied) return denied;
+      try {
+        const data = await client.get(`/api/v2/hosts/${encodeURIComponent(host_id)}/evidence`);
         return jsonText(data);
       } catch (e) {
         return jsonText({ error: formatApiError(e) });

@@ -169,7 +169,7 @@ class MarketplaceEngine:
         max_price_cents: int = 0,
         region: str = "",
         spot_available: bool = False,
-        sort_by: str = "price",  # price, vram, reliability
+        sort_by: str = "price",  # price, vram
         limit: int = 50,
     ) -> list[dict]:
         """Search available GPU offers with filters."""
@@ -194,10 +194,11 @@ class MarketplaceEngine:
 
         where = " AND ".join(conditions)
 
+        # reliability_score is a deprecated column nothing maintains; host
+        # evidence (host_evidence) is what a renter sorts by reputation on.
         order_map = {
             "price": "ask_cents_per_hour ASC",
             "vram": "vram_gb DESC",
-            "reliability": "reliability_score DESC",
         }
         order = order_map.get(sort_by, "ask_cents_per_hour ASC")
 

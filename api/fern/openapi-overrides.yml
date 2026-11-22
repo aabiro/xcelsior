@@ -263,6 +263,10 @@ paths:
     post:
       x-fern-sdk-group-name: marketplaceV2
       x-fern-sdk-method-name: search
+  /api/v2/hosts/{host_id}/evidence:
+    get:
+      x-fern-sdk-group-name: marketplaceV2
+      x-fern-sdk-method-name: getHostEvidence
   /api/v2/marketplace/offers:
     post:
       x-fern-sdk-group-name: marketplaceV2

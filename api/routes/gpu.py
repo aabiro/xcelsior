@@ -53,6 +53,7 @@ def api_gpu_available(request: Request, region: str | None = None):
         ctx = FilterContext(stale_host_ids=fleet.stale_host_ids)
         requested_region = normalize_region(region, default="") if region else None
         gpu_map = {}
+        gpu_hosts: dict[tuple, set[str]] = {}
         inventory_map = {}
         capacity = {
             "hosts_online": 0,
@@ -135,6 +136,7 @@ def api_gpu_available(request: Request, region: str | None = None):
                     },
                 )
                 gpu["count_available"] += 1
+                gpu_hosts.setdefault(key, set()).add(str(host["host_id"]))
                 current_price = gpu["price_per_hour_cad"]
                 if observed_price > 0:
                     gpu["price_per_hour_cad"] = round(
@@ -153,11 +155,20 @@ def api_gpu_available(request: Request, region: str | None = None):
         from money import micros_to_cad
 
         listed_rate = listed_rate_lookup()
-        for gpu in gpus:
+        from host_evidence import evidence_for_hosts, evidence_summary
+
+        evidence = evidence_for_hosts(sorted(set().union(*gpu_hosts.values())))
+        for key, gpu in gpu_map.items():
             micros = listed_rate(gpu["gpu_model"], round(gpu["vram_gb"] or 0) or None)
             gpu["service_tiers_available"] = micros is not None
             if micros is not None:
                 gpu["price_per_hour_cad"] = micros_to_cad(micros)
+            # A row aggregates hosts; the summary says how many of them are
+            # verified and when one was last benchmarked. get_host_evidence
+            # (or search_marketplace) gives each host's own.
+            host_ids = sorted(gpu_hosts.get(key, ()))
+            gpu["host_ids"] = host_ids
+            gpu["evidence"] = evidence_summary([evidence.get(h) for h in host_ids])
         source = "host_gpu_devices" if gpus else "none"
         inventory = sorted(
             inventory_map.values(),

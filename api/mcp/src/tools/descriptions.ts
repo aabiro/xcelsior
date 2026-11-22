@@ -35,7 +35,9 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Use when the user asks what hardware is available, whether nodes are online, or why " +
     "nothing is free. The gpus array contains only free GPUs; an empty array does not mean " +
     "nodes are offline. Check capacity and the inventory breakdown by model and region. " +
-    "For the caller's running jobs, use list_instances with status running. Read-only and " +
+    "For the caller's running jobs, use list_instances with status running. Each gpus row " +
+    "aggregates hosts; its evidence says how many are verified or overdue and when one was last " +
+    "benchmarked, and host_ids lead to get_host_evidence. Read-only and " +
     "free. Counts use the placement snapshot and fresh worker observations; inventory changes continuously.",
 
   get_spot_prices:
@@ -52,10 +54,24 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "particular job will actually cost.",
 
   search_marketplace:
-    "Search live marketplace listings by GPU model, minimum VRAM, region, and host reputation, " +
-    "sorted by price, reputation, region, or VRAM. Use when the user has a constraint to satisfy " +
-    "— a region, a VRAM floor, a trusted host — rather than just wanting to see what " +
-    "exists. Read-only and free. Listings belong to independent hosts and change without notice.",
+    "Search live marketplace listings by GPU model, minimum VRAM, region, host reputation, and " +
+    "current verification (verified_only), sorted by price, reputation, region, or VRAM. Each " +
+    "offer carries its host's evidence: verification (verified, overdue, deverified, unverified) " +
+    "with the last and next check, the latest xcelsior-bench run (date, version, verdict, fp16 " +
+    "TFLOPS, memory bandwidth, allocatable VRAM, peak temperature and thermal-throttle share under " +
+    "sustained load), reputation tier and score, and the 30-day job success rate (runs not ended " +
+    "by a host fault). price_per_hour_cad is the price a launch is billed; ask_cents_per_hour is " +
+    "the host's own ask. Use when the user has a constraint to satisfy — a region, a VRAM floor, " +
+    "a trusted host — or wants to compare hosts. Read-only and free. Listings belong to " +
+    "independent hosts and change without notice.",
+
+  get_host_evidence:
+    "Get one host's evidence in full: verification state and freshness (last check, next check, " +
+    "overdue), the latest xcelsior-bench run with its sustained-load numbers and the dates and " +
+    "verdicts of up to ten earlier runs, reputation tier and score, and the 30-day job success " +
+    "rate with the counts behind it. The same read model the marketplace listings show. Use to " +
+    "compare two hosts or to check a host before launching on it. Returns 404 for an unknown " +
+    "host. Read-only and free.",
 
   list_tiers:
     "List Standard, Premium and Dedicated service tiers and their queue and isolation policies. " +

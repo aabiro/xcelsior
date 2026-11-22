@@ -131,6 +131,9 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   get_spot_prices: { readOnly: true, destructive: false, audience: "customer", openWorld: true },
   get_pricing_reference: { readOnly: true, destructive: false, audience: "customer" },
   search_marketplace: { readOnly: true, destructive: false, audience: "customer", openWorld: true },
+  // Our own records about a host (verification, benchmarks, reputation, job
+  // outcomes), not the host's live inventory: closed-world.
+  get_host_evidence: { readOnly: true, destructive: false, audience: "customer" },
   list_tiers: { readOnly: true, destructive: false, audience: "customer" },
   get_permissions: { readOnly: true, destructive: false, audience: "customer" },
   // Repeat-safe: asking again for the same permissions returns the same

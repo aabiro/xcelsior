@@ -63,6 +63,7 @@ CLIENT_OPERATION_ALLOWLIST = {
     ("/marketplace", "get"),
     ("/marketplace/stats", "get"),
     ("/api/v2/marketplace/search", "post"),
+    ("/api/v2/hosts/{host_id}/evidence", "get"),
     ("/api/v2/marketplace/spot-prices", "get"),
     ("/api/v2/marketplace/spot-prices/{gpu_model}/history", "get"),
     ("/api/v2/marketplace/stats", "get"),
