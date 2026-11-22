@@ -46,6 +46,11 @@ function pct(share: number | null | undefined, digits = 0): string {
   return share === null || share === undefined ? "—" : `${(share * 100).toFixed(digits)}%`;
 }
 
+/** `new_user` → "New User": the tier as the reputation page names it. */
+function tierLabel(tier: string): string {
+  return tier.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export function VerificationChip({ state }: { state: string | undefined }) {
   const { t } = useLocale();
   const f = freshness(state);
@@ -76,18 +81,18 @@ export function EvidenceSummary({ badge }: { badge: HostEvidenceBadge | undefine
             : t("dash.evidence.no_benchmark")}
         </span>
         {verdict && <span className={`font-medium ${verdict.tone}`}>{t(verdict.key)}</span>}
-        {bench?.fp16_tflops != null && (
-          <span className="font-mono">{num(bench.fp16_tflops)} TFLOPS</span>
-        )}
-        {bench?.temp_peak_c != null && (
-          <span className="font-mono">{num(bench.temp_peak_c, 0)}°C</span>
-        )}
       </div>
+      {(bench?.fp16_tflops != null || bench?.temp_peak_c != null) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono">
+          {bench?.fp16_tflops != null && <span>{num(bench.fp16_tflops)} TFLOPS</span>}
+          {bench?.temp_peak_c != null && <span>{num(bench.temp_peak_c, 0)}°C</span>}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {badge.reputation_tier && (
           <span className="inline-flex items-center gap-1">
             <Star className="h-3 w-3 text-accent-gold" />
-            <span className="capitalize">{badge.reputation_tier.replace("_", " ")}</span>
+            <span>{tierLabel(badge.reputation_tier)}</span>
             {badge.reputation_score != null && <span className="font-mono">{num(badge.reputation_score, 0)}</span>}
           </span>
         )}
@@ -187,7 +192,7 @@ export function HostEvidenceCard({ evidence }: { evidence: HostEvidence | null |
         <Stat
           label={t("dash.evidence.reputation")}
           value={evidence.reputation.score != null ? num(evidence.reputation.score, 0) : "—"}
-          sub={evidence.reputation.tier ? evidence.reputation.tier.replace("_", " ") : undefined}
+          sub={evidence.reputation.tier ? tierLabel(evidence.reputation.tier) : undefined}
         />
         <Stat
           label={t("dash.evidence.jobs")}

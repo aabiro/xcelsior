@@ -74,7 +74,7 @@ describe("EvidenceSummary", () => {
     expect(text).toContain("Pass");
     expect(text).toContain("25.4 TFLOPS");
     expect(text).toContain("71°C");
-    expect(text).toContain("gold");
+    expect(text).toContain("Gold");
     expect(text).toContain("75% job success (30 days)");
   });
 
@@ -123,7 +123,7 @@ describe("HostEvidenceCard", () => {
         cuda_version: "12.4",
       },
       benchmark_history: [{ ran_at: RAN_AT - 864_000, bench_version: "1.0.0", verdict: "pass" }],
-      reputation: { tier: null, score: null },
+      reputation: { tier: "new_user", score: 0 },
       jobs: { window_days: 30, runs_ended: 2, host_fault_failures: 2, success_rate: 0 },
     };
     render(<HostEvidenceCard evidence={evidence} />);
@@ -134,5 +134,6 @@ describe("HostEvidenceCard", () => {
     expect(text).toContain("20.0%");
     expect(text).toContain("2 of 2 runs ended by a host fault");
     expect(text).toContain("Earlier runs:");
+    expect(text).toContain("New User");
   });
 });
