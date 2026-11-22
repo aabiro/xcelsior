@@ -3730,8 +3730,14 @@ export interface Host {
   gpu_model: string;
   vram_gb: number;
   status: string;
+  /** The renter rate (same as renter_rate_per_hour when the GPU is priced). */
   cost_per_hour: number;
   price_per_hour?: number;
+  /** What a renter is billed per GPU-hour on this host; null when the model is unpriced. */
+  renter_rate_per_hour?: number | null;
+  /** The renter rate less the platform cut settlement takes. */
+  host_earns_per_hour?: number | null;
+  platform_cut_pct?: number;
   country?: string;
   province?: string;
   region?: string;

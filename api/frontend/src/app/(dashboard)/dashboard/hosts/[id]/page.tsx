@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { useLocale } from "@/lib/locale";
 import { HostLocationForm } from "@/components/ui/province-selector";
 import { HostSpotSettings } from "@/components/hosts/host-spot-settings";
+import { HostRate } from "@/components/hosts/host-rate";
 import { readTelemetry } from "@/lib/telemetry";
 import { useBreadcrumbLabel } from "@/lib/breadcrumb-labels";
 
@@ -156,7 +157,7 @@ function HostDetailContent({ id }: { id: string }) {
           </div>
           <div>
             <p className="text-xs text-text-muted">{t("dash.hosts.label_price")}</p>
-            <p className="font-medium font-mono">${Number(host.cost_per_hour || host.price_per_hour || 0).toFixed(2)}/hr</p>
+            <HostRate host={host} className="items-start" />
           </div>
         </Card>
 

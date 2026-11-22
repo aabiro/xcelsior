@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { useEventStream } from "@/hooks/useEventStream";
 import { cn } from "@/lib/utils";
 import { HostMachineSetupCard } from "@/components/hosts/host-setup-scan";
+import { HostRate } from "@/components/hosts/host-rate";
 import { CodeBlock } from "@/components/ui/code-block";
 import releaseFacts from "@/lib/release-facts.json";
 
@@ -385,7 +386,7 @@ export default function HostsPage() {
                   >
                     <span className="inline-flex items-center gap-2 justify-center">
                       <DollarSign className="h-3.5 w-3.5 text-text-muted" />
-                      Rate
+                      Renters pay
                       <HostSortIcon col="cost_per_hour" sortKey={sortKey} sortDir={sortDir} />
                     </span>
                   </th>
@@ -457,12 +458,7 @@ export default function HostsPage() {
                       </span>
                     </td>
                     <td className="py-4 px-4 text-center">
-                      <span className={cn(
-                        "font-mono text-sm font-medium",
-                        host.cost_per_hour ? "text-emerald" : "text-text-muted"
-                      )}>
-                        {host.cost_per_hour ? `$${Number(host.cost_per_hour).toFixed(2)}/hr` : "Platform rate"}
-                      </span>
+                      <HostRate host={host} />
                     </td>
                     <td className="py-4 px-5 text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -776,7 +772,7 @@ ${WIZARD_CMD}
 
 (\`npx\` runs the wizard without a global install, no \`-g\`, no \`/usr/lib/node_modules\` permission issues.)
 
-**Provide GPUs** (host setup): hardware detection, host registration, pricing, and worker service install.
+**Provide GPUs** (host setup): hardware detection, host registration, and worker service install. Rates are set per GPU model; there is no price to choose.
 
 **Integrate SDK** (app setup, wizard): same command from your project directory, detects your framework, installs the package, creates API credentials, writes your env file, and verifies the connection.
 
@@ -788,15 +784,6 @@ ${SDK_INSTALL_CMD}
 
 Then add your API token from Settings → API & SSH (\`XCELSIOR_API_TOKEN\` or OAuth client). Docs: ${APP_URL}/docs/sdk/typescript-sdk
 
-### SDK Commands (available after setup)
-
-\`\`\`bash
-xcelsior status                                  # Worker status
-xcelsior jobs --watch                            # Live job queue
-xcelsior pricing set --gpu "RTX 4090" --rate 0.45  # Update pricing
-xcelsior diagnostics --full                      # Run diagnostics
-xcelsior earnings --period 30d                   # Earnings summary
-\`\`\`
 
 ### Requirements
 - Node.js >= 18, NVIDIA drivers >= 550, Docker >= 24.0, Ubuntu 22.04+ or WSL2
@@ -1093,9 +1080,9 @@ function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
       description: "You haven't registered any hosts yet. Add your machine to the Xcelsior network to start earning revenue from GPU compute jobs.",
       items: [
         "Click Register Host above to add your GPU machine",
-        "You'll need: hostname, GPU model, VRAM, and a price per hour",
+        "You'll need: hostname, GPU model and VRAM. Rates are set per GPU model, so there is no price to pick",
         "After registering, install the worker agent to go online",
-        "Competitive pricing tip: check Spot Pricing for current market rates",
+        "You keep the renter's rate less the platform cut, shown in the Renters pay column once registered",
       ],
       cta: { label: "Register Host", action: "register" },
     },
@@ -1120,7 +1107,7 @@ function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
       description: `${activeHosts.length} of ${hosts.length} host${hosts.length > 1 ? "s" : ""} active. Your GPU is accepting jobs from the marketplace. Here are tips to maximize your revenue.`,
       items: [
         "Keep your worker agent running 24/7 for highest uptime score",
-        "Competitive pricing improves job assignment priority, check Spot Pricing",
+        "Pass verification and keep it fresh: jobs go to verified, reliable hosts first",
         "Monitor GPU utilization in your host detail page for performance insights",
         "Complete identity verification to unlock higher trust tiers and premium jobs",
         "Set up Stripe payouts in Earnings to receive your revenue",
@@ -1298,16 +1285,6 @@ function InstallWorkerSection({
 /* ── SDK + AI Onboarding Wizard View ──────────────────────────────── */
 
 function SdkSetupView() {
-  const quickCmds = `# Check worker status
-xcelsior status
-# View live job queue
-xcelsior jobs --watch
-# Update pricing dynamically
-xcelsior pricing set --gpu "RTX 4090" --rate 0.45
-# Run diagnostics
-xcelsior diagnostics --full
-# View earnings summary
-xcelsior earnings --period 30d`;
 
   return (
     <div className="space-y-5 mt-2">
@@ -1341,7 +1318,7 @@ xcelsior earnings --period 30d`;
         <ul className="text-xs text-text-secondary space-y-1.5">
           <li className="flex items-start gap-2">
             <span className="text-accent-cyan mt-0.5">&#x2022;</span>
-            <span><span className="font-medium text-text-primary">Provide GPUs</span>, check compatibility, register a pending host, set pricing, install the worker service for verification</span>
+            <span><span className="font-medium text-text-primary">Provide GPUs</span>, check compatibility, register a pending host, show the rate renters pay and your share, install the worker service for verification</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-accent-violet mt-0.5">&#x2022;</span>
@@ -1352,15 +1329,6 @@ xcelsior earnings --period 30d`;
             <span><span className="font-medium text-text-primary">Rent GPUs</span> or <span className="font-medium text-text-primary">Both</span>, marketplace onboarding for running jobs</span>
           </li>
         </ul>
-      </div>
-
-      {/* Step 2: Quick-start commands */}
-      <div>
-        <p className="text-sm font-medium mb-1.5">2. Quick-start commands</p>
-        <p className="text-xs text-text-secondary mb-2">
-          After setup, use these SDK commands to manage your worker:
-        </p>
-        <CodeSnippet text={quickCmds} />
       </div>
 
       {/* Pre-install requirements */}

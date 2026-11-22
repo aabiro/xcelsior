@@ -2995,7 +2995,7 @@ YOUR ROLE: Give a warm, celebratory but concise summary of what was just accompl
 
 WHAT WAS ACCOMPLISHED:
 - GPU benchmarked, verified, and registered on the marketplace
-- Pricing set at {rate}/hr ({tier} tier)
+- Renters pay the set rate for this GPU, {rate}/hr; the host keeps it less the platform cut
 - Worker agent deployed and running: `xcelsior-worker.service`
 - Host visible at {_BASE_DOMAIN}/marketplace within a few minutes
 
@@ -3790,22 +3790,18 @@ npx {wizard}
 root-owned /usr/lib/node_modules on most Linux setups. To use the SDK in your
 own project, `npm install @xcelsior-gpu/sdk` locally — never with `-g`.)
 The AI Onboarding Wizard will ask your intent (rent, provide, or both), then handle
-hardware detection, pending host registration, pricing, and systemd service setup.
+hardware detection, pending host registration, and systemd service setup. Rates
+are set per GPU model, so a host does not choose a price.
 Registration does not admit or list the host; authoritative worker verification is
 required before it can accept marketplace work.
 
 It will prompt for:
 - API key (from Dashboard → Settings → API & SSH)
-- Pricing preference (auto-competitive or manual $/hr)
 - SLA tier selection (community, secure, dedicated)
 - Systemd service auto-install (y/n)
 
-SDK commands after setup:
-- `xcelsior status` — check worker status
-- `xcelsior jobs --watch` — view live job queue
-- `xcelsior pricing set --gpu "RTX 4090" --rate 0.45` — update pricing
-- `xcelsior diagnostics --full` — run diagnostics
-- `xcelsior earnings --period 30d` — view earnings summary
+After setup, the dashboard Hosts page shows the host's status, the rate renters
+pay and what the host earns; Earnings shows payouts. There is no `xcelsior` CLI.
 
 Requirements: Node.js >= 18, NVIDIA drivers >= 550, Docker >= 24.0,
 NVIDIA Container Toolkit/runtime, Ubuntu 22.04+ or WSL2.
@@ -4093,8 +4089,8 @@ def get_suggestions(user: dict) -> list[dict]:
                     "prompt": "How much can I earn with my current GPUs on the marketplace?",
                 },
                 {
-                    "label": "Optimise my pricing",
-                    "prompt": "Help me set competitive pricing for my GPUs",
+                    "label": "Win more jobs",
+                    "prompt": "What gets my hosts more jobs? Rates are set, so it is verification and reliability.",
                 },
             ]
         )
