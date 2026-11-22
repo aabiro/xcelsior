@@ -53,9 +53,9 @@ describe("buildWizardContext", () => {
     });
 
     it("includes pricing for provider mode", () => {
-        const ctx = buildWizardContext("pricing", { mode: "provide", pricing: "custom", "custom-rate": "0.75" }, {}, null, [], null);
-        expect(ctx).toContain("pricing=custom");
-        expect(ctx).toContain("custom_rate=$0.75/hr");
+        const ctx = buildWizardContext("pricing", { mode: "provide", pricing: "recommended" }, {}, null, [], null);
+        expect(ctx).toContain("pricing=recommended");
+        expect(ctx).not.toContain("custom_rate");
     });
 
     it("includes host_id for provider mode", () => {

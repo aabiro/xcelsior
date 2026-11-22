@@ -203,48 +203,6 @@ describe("complete flow walks", () => {
         expect(visited).not.toContain("confirm-setup");
     });
 
-    it("provider flow — custom pricing includes custom-rate step", () => {
-        const visited = walkFlow({
-            mode: "provide",
-            "docker-check": "passed",
-            "device-auth": "authorized",
-            "api-check": "passed",
-            "gpu-detect": "passed",
-            "version-check": "passed",
-            benchmark: "passed",
-            "network-bench": "passed",
-            verification: "passed",
-            pricing: "custom",
-            "custom-rate": "3.50",
-            "host-register": "passed",
-            "admission-gate": "passed",
-            "provider-summary": "yes",
-        });
-
-        expect(visited).toContain("custom-rate");
-        expect(visited).toContain("pricing");
-    });
-
-    it("provider flow — competitive pricing skips custom-rate", () => {
-        const visited = walkFlow({
-            mode: "provide",
-            "docker-check": "passed",
-            "device-auth": "authorized",
-            "api-check": "passed",
-            "gpu-detect": "passed",
-            "version-check": "passed",
-            benchmark: "passed",
-            "network-bench": "passed",
-            verification: "passed",
-            pricing: "competitive",
-            "host-register": "passed",
-            "admission-gate": "passed",
-            "provider-summary": "yes",
-        });
-
-        expect(visited).not.toContain("custom-rate");
-    });
-
     it("both mode — visits provider AND renter steps plus confirm-setup", () => {
         const visited = walkFlow({
             mode: "both",
@@ -285,7 +243,7 @@ describe("complete flow walks", () => {
         expect(visited).toContain("confirm-setup");
     });
 
-    it("both mode with custom pricing and payment gate", () => {
+    it("both mode with the pricing notice and payment gate", () => {
         const visited = walkFlow({
             mode: "both",
             "docker-check": "passed",
@@ -296,8 +254,7 @@ describe("complete flow walks", () => {
             benchmark: "passed",
             "network-bench": "passed",
             verification: "passed",
-            pricing: "custom",
-            "custom-rate": "5.00",
+            pricing: "recommended",
             "host-register": "passed",
             "admission-gate": "passed",
             "provider-summary": "yes",
@@ -313,7 +270,7 @@ describe("complete flow walks", () => {
             "confirm-setup": "yes",
         });
 
-        expect(visited).toContain("custom-rate");
+        expect(visited).not.toContain("custom-rate");
         expect(visited).toContain("payment-gate");
         expect(visited).toContain("confirm-setup");
     });
@@ -384,22 +341,6 @@ describe("step condition exhaustive testing", () => {
         }
     });
 
-    describe("custom-rate compound condition", () => {
-        it("requires both provider mode AND custom pricing", () => {
-            const step = findStep("custom-rate");
-            expect(step.condition!({ mode: "provide", pricing: "custom" })).toBe(true);
-            expect(step.condition!({ mode: "both", pricing: "custom" })).toBe(true);
-            expect(step.condition!({ mode: "provide", pricing: "recommended" })).toBe(false);
-            expect(step.condition!({ mode: "provide", pricing: "competitive" })).toBe(false);
-            expect(step.condition!({ mode: "rent", pricing: "custom" })).toBe(false);
-        });
-
-        it("fails when pricing is missing", () => {
-            const step = findStep("custom-rate");
-            expect(step.condition!({ mode: "provide" })).toBe(false);
-        });
-    });
-
     describe("payment-gate compound condition", () => {
         it("requires renter mode AND wallet insufficient flag", () => {
             const step = findStep("payment-gate");
@@ -427,68 +368,6 @@ describe("step condition exhaustive testing", () => {
                 expect(step.condition).toBeUndefined();
             });
         }
-    });
-});
-
-// ══════════════════════════════════════════════════════════════════════
-// 3. CUSTOM-RATE VALIDATION EDGE CASES
-// ══════════════════════════════════════════════════════════════════════
-
-describe("custom-rate validation edge cases", () => {
-    const validate = findStep("custom-rate").validate!;
-
-    it("accepts valid whole numbers", () => {
-        expect(validate("1")).toBeNull();
-        expect(validate("10")).toBeNull();
-        expect(validate("999")).toBeNull();
-        expect(validate("1000")).toBeNull();
-    });
-
-    it("accepts valid decimals", () => {
-        expect(validate("0.01")).toBeNull();
-        expect(validate("0.50")).toBeNull();
-        expect(validate("99.99")).toBeNull();
-        expect(validate("2.50")).toBeNull();
-    });
-
-    it("rejects zero and near-zero", () => {
-        expect(validate("0")).not.toBeNull();
-        expect(validate("0.00")).not.toBeNull();
-        expect(validate("-0")).not.toBeNull();
-    });
-
-    it("rejects negative numbers", () => {
-        expect(validate("-1")).not.toBeNull();
-        expect(validate("-0.50")).not.toBeNull();
-        expect(validate("-999")).not.toBeNull();
-    });
-
-    it("rejects values above $1000", () => {
-        expect(validate("1001")).not.toBeNull();
-        expect(validate("5000")).not.toBeNull();
-        expect(validate("10000")).not.toBeNull();
-    });
-
-    it("rejects non-numeric strings", () => {
-        expect(validate("abc")).not.toBeNull();
-        expect(validate("")).not.toBeNull();
-        expect(validate("$5")).not.toBeNull();
-        expect(validate("five")).not.toBeNull();
-    });
-
-    it("rejects special float values", () => {
-        expect(validate("NaN")).not.toBeNull();
-        expect(validate("Infinity")).not.toBeNull();
-    });
-
-    it("accepts boundary value $1000 exactly", () => {
-        expect(validate("1000")).toBeNull();
-    });
-
-    it("returns error string, not boolean", () => {
-        const result = validate("abc");
-        expect(typeof result).toBe("string");
-        expect(result!.length).toBeGreaterThan(0);
     });
 });
 
@@ -680,8 +559,8 @@ describe("getNextStep edge cases", () => {
 // ══════════════════════════════════════════════════════════════════════
 
 describe("step structure integrity", () => {
-    it("all 36 steps present", () => {
-        expect(WIZARD_STEPS).toHaveLength(36);
+    it("all 35 steps present", () => {
+        expect(WIZARD_STEPS).toHaveLength(35);
     });
 
     it("no duplicate step IDs", () => {
@@ -1177,10 +1056,10 @@ describe("step type distribution", () => {
         for (const step of WIZARD_STEPS) {
             counts[step.type] = (counts[step.type] || 0) + 1;
         }
-        expect(counts["select"]).toBeGreaterThanOrEqual(4); // mode, pricing, workload, gpu-preference, gpu-pick, image-pick
+        expect(counts["select"]).toBeGreaterThanOrEqual(4); // mode, workload, gpu-preference, gpu-pick, image-pick
         expect(counts["auto-check"]).toBeGreaterThanOrEqual(8); // docker, api, gpu-detect, versions, benchmark, network, verify, host-register, admission, wallet, launch
-        expect(counts["confirm"]).toBeGreaterThanOrEqual(2); // provider-summary, confirm-launch, confirm-setup
-        expect(counts["text"]).toBe(2); // custom-rate, spot-min-cents
+        expect(counts["confirm"]).toBeGreaterThanOrEqual(2); // pricing, provider-summary, confirm-launch, confirm-setup
+        expect(counts["text"]).toBe(1); // spot-min-cents
         expect(counts["done"]).toBe(1);
         expect(counts["device-auth"]).toBe(1);
         expect(counts["auto-fetch"]).toBe(1); // browse-gpus
@@ -1416,12 +1295,10 @@ describe("option value integrity", () => {
         }
     });
 
-    it("pricing options are rent/provide/both", () => {
+    it("pricing is a notice, not a choice: rates are set per GPU model", () => {
         const pricing = findStep("pricing");
-        const values = pricing.options!.map((o) => o.value);
-        expect(values).toContain("recommended");
-        expect(values).toContain("competitive");
-        expect(values).toContain("custom");
+        expect(pricing.type).toBe("confirm");
+        expect(pricing.options).toBeUndefined();
     });
 
     it("workload options cover standard use cases", () => {

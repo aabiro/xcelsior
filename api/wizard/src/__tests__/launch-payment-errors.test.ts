@@ -8,7 +8,7 @@
 import http from "node:http";
 import { describe, expect, it } from "vitest";
 import { getPlatformRate, launchInstance, listAvailableGpus, serverMessage, spendableCad, WizardError } from "../api-client.js";
-import { providerRateFor } from "../wizard-flow.js";
+import { WIZARD_STEPS } from "../wizard-flow.js";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -170,11 +170,12 @@ describe("getPlatformRate", () => {
     });
 });
 
-describe("providerRateFor", () => {
-    it("recommended is the platform rate; competitive is 15% under it", () => {
-        expect(providerRateFor("recommended", 0.49)).toBe(0.49);
-        expect(providerRateFor("competitive", 0.49)).toBe(0.42);
-        expect(providerRateFor("competitive", 0.01)).toBe(0.01); // never zero
+describe("the pricing step", () => {
+    it("asks no price: rates are set per GPU model", () => {
+        const step = WIZARD_STEPS.find((s) => s.id === "pricing");
+        expect(step!.type).toBe("confirm");
+        expect(step!.options).toBeUndefined();
+        expect(WIZARD_STEPS.find((s) => s.id === "custom-rate")).toBeUndefined();
     });
 });
 

@@ -34,7 +34,7 @@ describe("buildTaskList", () => {
 
     it("excludes optional runtime-gated steps from the stable denominator", () => {
         const ids = buildTaskList("provide").map((t) => t.id);
-        expect(ids).not.toContain("custom-rate"); // only if pricing === custom
+        expect(ids).not.toContain("custom-rate"); // there is no price to set
         expect(ids).not.toContain("spot-min-cents");
     });
 

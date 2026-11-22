@@ -598,7 +598,7 @@ export function ProviderSummaryStep({ summary, onConfirm, error }: ProviderSumma
         <Text>  XCU Score: <Text bold color="#ffcc00">{summary.xcuScore}</Text> ({summary.tflops} TFLOPS)</Text>
         <Text>  Status: <Text bold color={summary.verified ? "#22c55e" : "#ef4444"}>{summary.verified ? "VERIFIED ✓" : summary.verificationState.toUpperCase()}</Text></Text>
         <Text>  Host ID: <Text bold>{summary.hostId}</Text></Text>
-        <Text>  Pricing: <Text bold>${summary.costPerHour.toFixed(2)}/hr ({summary.pricing})</Text></Text>
+        <Text>  Renters pay: <Text bold>${summary.costPerHour.toFixed(2)}/hr</Text> (set rate for your GPU; you keep it less the platform cut)</Text>
         {summary.spotEnabled != null && (
           <Text>  Spot: <Text bold color={summary.spotEnabled ? "#22c55e" : "#94a3b8"}>
             {summary.spotEnabled ? `enabled · floor ¢${summary.spotMinCents ?? 0}/hr` : "disabled"}

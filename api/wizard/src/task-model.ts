@@ -29,8 +29,7 @@ const TASK_LABELS: Record<string, string> = {
     "benchmark": "Test GPU speed",
     "network-bench": "Test internet connection",
     "verification": "Verify hardware",
-    "pricing": "Set your pricing",
-    "custom-rate": "Set a custom rate",
+    "pricing": "See what renters pay",
     "spot-enabled": "Choose spot jobs",
     "spot-min-cents": "Set spot minimum price",
     "host-register": "List your machine",
@@ -62,7 +61,7 @@ export function labelForStep(step: WizardStep): string {
 /**
  * Build the ordered task list for a given mode by filtering the canonical steps.
  * The terminal "done" step is excluded (it's a farewell, not a task).
- * Conditional steps whose condition can't yet be evaluated (e.g. custom-rate,
+ * Conditional steps whose condition can't yet be evaluated (e.g. spot-min-cents,
  * payment-gate) are included only when their mode-level condition holds, mirroring
  * the progress-count logic so the denominator stays stable.
  */
@@ -79,7 +78,6 @@ export function buildTaskList(mode: string | undefined): WizardTask[] {
 
 /** Steps that only appear based on a runtime answer, excluded from the stable denominator. */
 const OPTIONAL_RUNTIME_STEPS: ReadonlySet<string> = new Set([
-    "custom-rate", // only if pricing === custom
     "spot-min-cents", // only if spot-enabled === yes
     "payment-gate", // only if wallet insufficient
 ]);

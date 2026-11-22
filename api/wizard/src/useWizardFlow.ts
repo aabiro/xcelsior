@@ -10,7 +10,6 @@ import { openUrl as openBrowser } from "./open-url.js";
 import { configDirectory, updateEnvFile, writePrivateFile } from "./config-files.js";
 import {
     WIZARD_STEPS, getNextStep, STATIC_STEP_HELP, type WizardStep, IMAGE_TEMPLATES, WORKLOAD_IMAGE_MAP, DEVICE_BROWSER_DELAY_MS,
-    COMPETITIVE_DISCOUNT, providerRateFor,
 } from "./wizard-flow.js";
 import {
     streamChat, confirmAction, type ApiClientConfig,
@@ -211,7 +210,6 @@ export interface ProviderSummaryData {
     verificationState: string;
     hostId: string;
     pricing: string;
-    customRate?: string;
     costPerHour: number;
     admitted: boolean;
     runtimeRecommendation: string;
@@ -266,7 +264,6 @@ function saveConfig(answers: Record<string, string | string[]>): void {
     for (const key of ["mode", "workload", "pricing"] as const) {
         if (answers[key]) lines.push(`${key} = ${JSON.stringify(answers[key])}`);
     }
-    if (answers["custom-rate"]) lines.push(`custom_rate = ${Number(answers["custom-rate"])}`);
     if (answers["_host_id"]) lines.push(`host_id = ${JSON.stringify(answers["_host_id"])}`);
 
     if ((answers.mode === "provide" || answers.mode === "both") && answers["_host_id"]) {
@@ -279,7 +276,6 @@ function saveConfig(answers: Record<string, string | string[]>): void {
             values.XCELSIOR_OAUTH_CLIENT_SECRET = String(answers["oauth-client-secret"]);
         }
         if (answers["api-key"]) values.XCELSIOR_API_TOKEN = String(answers["api-key"]);
-        if (answers["custom-rate"]) values.XCELSIOR_COST_PER_HOUR = String(answers["custom-rate"]);
         updateEnvFile(path.join(configDirectory(), ".env"), values);
     }
     writePrivateFile(path.join(configDirectory(), "config.toml"), lines.join("\n") + "\n");
@@ -312,7 +308,6 @@ export function buildWizardContext(
     // Provider context
     if (answers.mode === "provide" || answers.mode === "both") {
         if (answers.pricing) push("pricing", String(answers.pricing));
-        if (answers["custom-rate"]) push("custom_rate", `$${answers["custom-rate"]}/hr`);
         if (answers["_rate"]) push("rate", String(answers["_rate"]));
         if (answers["_host_id"]) push("host_id", String(answers["_host_id"]));
         if (answers["_host_ip"]) push("host_ip", String(answers["_host_ip"]));
@@ -1331,25 +1326,17 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     return [{ name: "Host Registration", ok: false, detail: "No GPU detected — please retry GPU detection" }];
                 }
                 const token = currentAnswers["api-key"] as string;
-                const pricing = currentAnswers.pricing as string;
-                const customRate = currentAnswers["custom-rate"] as string;
-
                 let costPerHour: number;
-                if (pricing === "custom" && customRate) {
-                    costPerHour = Number(customRate);
-                } else {
-                    try {
-                        // The rate renters pay for this GPU, not an average of
-                        // listing rows (those included test hosts that never existed).
-                        const platform = await checked(getPlatformRate(API_BASE_URL, gpu.gpu_model, gpu.total_vram_gb));
-                        costPerHour = providerRateFor(pricing, platform.rate_per_hour);
-                        streamItem("Rate", true, `$${costPerHour.toFixed(2)}/hr — ${pricing === "competitive"
-                            ? `${Math.round(COMPETITIVE_DISCOUNT * 100)}% under` : "the"} platform rate of $${platform.rate_per_hour.toFixed(2)}/hr for ${platform.gpu_model}${platform.standard_variant ? "" : ` ${platform.vram_gb} GB`}`);
-                    } catch (err) {
-                        assertCurrent();
-                        return [{ name: "Host Registration", ok: false,
-                            detail: `Cannot determine your rate: ${err instanceof Error ? err.message : "pricing unavailable"}. Retry in a moment, or choose a custom rate.` }];
-                    }
+                try {
+                    // The set rate renters pay for this GPU. A host does not
+                    // choose a price; it is paid this rate less the platform cut.
+                    const platform = await checked(getPlatformRate(API_BASE_URL, gpu.gpu_model, gpu.total_vram_gb));
+                    costPerHour = platform.rate_per_hour;
+                    streamItem("Rate", true, `renters pay $${costPerHour.toFixed(2)}/hr for ${platform.gpu_model}${platform.standard_variant ? "" : ` ${platform.vram_gb} GB`}; you keep it less the platform cut`);
+                } catch (err) {
+                    assertCurrent();
+                    return [{ name: "Host Registration", ok: false,
+                        detail: `Cannot read the rate for your GPU: ${err instanceof Error ? err.message : "pricing unavailable"}. Retry in a moment.` }];
                 }
                 if (!Number.isFinite(costPerHour) || costPerHour <= 0) {
                     return [{ name: "Host Registration", ok: false, detail: "A positive hourly rate is required" }];
@@ -1436,7 +1423,6 @@ export function useWizardFlow(): UseWizardFlowReturn {
                     const bench = benchResultRef.current;
                     const verState = currentAnswers["_verification_state"] as string || "unknown";
                     const pricing = currentAnswers.pricing as string || "recommended";
-                    const customRateVal = currentAnswers["custom-rate"] as string;
 
                     setProviderSummary({
                         gpuModel: gpu?.gpu_model ?? "Unknown",
@@ -1447,7 +1433,6 @@ export function useWizardFlow(): UseWizardFlowReturn {
                         verificationState: verState,
                         hostId,
                         pricing,
-                        customRate: customRateVal,
                         costPerHour: parseFloat(currentAnswers["_host_cost_per_hour"] as string || "0.20"),
                         admitted,
                         runtimeRecommendation: runtime,
@@ -2040,8 +2025,7 @@ export function useWizardFlow(): UseWizardFlowReturn {
                 "mode": value === "sdk"
                     ? "SDK track — let's wire your app to Xcelsior..."
                     : "Great choice! Let's get you set up...",
-                "pricing": "Got it! Setting your rate...",
-                "custom-rate": "Rate locked in!",
+                "pricing": "Got it!",
                 "workload": "Great pick! Finding the best GPUs for you...",
                 "gpu-preference": "Noted! Searching available options...",
                 "gpu-pick": "Excellent choice!",

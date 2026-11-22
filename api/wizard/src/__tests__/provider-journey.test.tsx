@@ -127,7 +127,7 @@ describe("provider journey through the flow controller", () => {
         saveWizardCheckpoint({ ...checkpoint, answers: { ...checkpoint.answers, mode } });
         render(<Probe />);
         await settle();
-        const visited = await drive({ pricing: "recommended", "spot-enabled": "no", "want-launch": "no" }, "done");
+        const visited = await drive({ "spot-enabled": "no", "want-launch": "no" }, "done");
 
         expect(visited).toEqual(expect.arrayContaining([
             "gpu-detect", "version-check", "network-setup", "benchmark", "network-bench",
@@ -157,31 +157,29 @@ describe("provider journey through the flow controller", () => {
         }
     });
 
-    it("asks 15% under the platform rate when competitive pricing is chosen", async () => {
+    it("registers the set rate for the GPU: a host picks no price", async () => {
         render(<Probe />);
         await settle();
-        await drive({ pricing: "competitive", "spot-enabled": "no", "want-launch": "no" }, "done");
-        // 0.49 × 0.85 = 0.4165 → 0.42
-        expect(api.registerHost.mock.calls[0][2].cost_per_hour).toBe(0.42);
+        await drive({ "spot-enabled": "no", "want-launch": "no" }, "done");
+        expect(api.registerHost.mock.calls[0][2].cost_per_hour).toBe(0.49);
     });
 
     it("registers nothing when the platform rate cannot be read", async () => {
         api.getPlatformRate.mockRejectedValue(new Error("Stripe compute pricing is unavailable"));
         render(<Probe />);
         await settle();
-        await expect(drive({ pricing: "recommended", "spot-enabled": "no" }, "done"))
+        await expect(drive({ "spot-enabled": "no" }, "done"))
             .rejects.toThrow(/host-register failed/);
         expect(api.registerHost).not.toHaveBeenCalled();
         const [item] = flow.checkResults["host-register"].items;
-        expect(item.detail).toContain("Cannot determine your rate: Stripe compute pricing is unavailable");
-        expect(item.detail).toContain("custom rate");
+        expect(item.detail).toContain("Cannot read the rate for your GPU: Stripe compute pricing is unavailable");
     });
 
     it("stops at the network test instead of verifying with invented numbers", async () => {
         machine.runNetworkBenchmark.mockResolvedValue({ ...network, packet_loss_pct: 100, throughput_mbps: 0, latency_avg_ms: 0 });
         render(<Probe />);
         await settle();
-        await expect(drive({ pricing: "recommended", "spot-enabled": "no" }, "verification"))
+        await expect(drive({ "spot-enabled": "no" }, "verification"))
             .rejects.toThrow(/network-bench failed/);
         flow.skipCheck();
         await settle();
@@ -193,7 +191,7 @@ describe("provider journey through the flow controller", () => {
         machine.installWorkerAgent.mockResolvedValue({ installed: false, detail: "Service installed, but no fresh worker heartbeat was confirmed." });
         render(<Probe />);
         await settle();
-        await expect(drive({ pricing: "recommended", "spot-enabled": "no" }, "done"))
+        await expect(drive({ "spot-enabled": "no" }, "done"))
             .rejects.toThrow(/worker-install failed: Worker Agent: Service installed, but no fresh worker heartbeat/);
         expect(flow.isComplete).toBe(false);
     });

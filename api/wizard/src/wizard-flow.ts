@@ -47,20 +47,6 @@ export interface WizardStep {
  */
 export const ASK_HEXARA_KEY = "?";
 
-/** "Competitive" pricing asks this much under the platform rate. */
-export const COMPETITIVE_DISCOUNT = 0.15;
-
-/**
- * A provider's hourly ask for a pricing choice, from the platform rate for
- * their GPU. It used to average `/marketplace/search` rows, which included
- * test listings for hosts that never existed, so the suggestion could be off
- * by any amount. Renters pay the platform rate; a lower ask ranks the host
- * ahead of dearer ones when the scheduler places a job.
- */
-export function providerRateFor(pricing: string | undefined, platformRate: number): number {
-    const factor = pricing === "competitive" ? 1 - COMPETITIVE_DISCOUNT : 1;
-    return Math.max(0.01, Math.round(platformRate * factor * 100) / 100);
-}
 
 /**
  * How long the sign-in screen shows the code before opening the browser.
@@ -266,32 +252,15 @@ export const WIZARD_STEPS: WizardStep[] = [
     },
 
     // ── Step 6: Provider — Pricing ─────────────────────────────────────
+    // Rates are set per GPU model: a launch is billed the catalog rate and the
+    // host is paid that charge less the platform cut. There is no price to
+    // choose, so this step says so instead of asking.
     {
         id: "pricing",
-        type: "select",
-        prompt: "How would you like to price your GPU time?",
-        options: [
-            { label: "💰 Recommended — the platform rate renters pay for your GPU", value: "recommended" },
-            { label: "📊 Competitive — 15% under it; the scheduler prefers cheaper hosts", value: "competitive" },
-            { label: "✏️  Custom — set your own rate", value: "custom" },
-        ],
+        type: "confirm",
+        prompt: "Renters pay a set rate for your GPU model, and you keep it less the platform cut. There is no price to pick: jobs go to verified, reliable hosts first.",
+        confirmLabel: "Got it",
         condition: (a) => a.mode === "provide" || a.mode === "both",
-    },
-
-    // ── Step 7: Provider — Custom rate ─────────────────────────────────
-    {
-        id: "custom-rate",
-        type: "text",
-        prompt: "Enter your hourly rate (e.g. 2.50 for $2.50/hr):",
-        placeholder: "2.50",
-        condition: (a) =>
-            (a.mode === "provide" || a.mode === "both") && a.pricing === "custom",
-        validate: (v) => {
-            const n = parseFloat(v);
-            if (isNaN(n) || n <= 0) return "Enter a positive number (e.g. 2.50)";
-            if (n > 1000) return "Rate seems too high — max $1000/hr";
-            return null;
-        },
     },
 
     // ── Step 7a: Provider — Spot instances ─────────────────────────────

@@ -30,19 +30,6 @@ describe("wizard navigation regressions", () => {
         expect(paymentStep!.condition!({ mode: "rent", "_wallet_insufficient": "" })).toBe(false);
     });
 
-    it("custom-rate validates decimal values", () => {
-        const step = WIZARD_STEPS.find((s) => s.id === "custom-rate");
-        expect(step!.validate!("0.01")).toBeNull();
-        expect(step!.validate!("0.99")).toBeNull();
-        expect(step!.validate!("100.50")).toBeNull();
-    });
-
-    it("custom-rate rejects zero", () => {
-        const step = WIZARD_STEPS.find((s) => s.id === "custom-rate");
-        expect(step!.validate!("0")).not.toBeNull();
-        expect(step!.validate!("0.00")).not.toBeNull();
-    });
-
     it("provider flow visits all required check steps", () => {
         const answers: Record<string, string> = {
             mode: "provide",

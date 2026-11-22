@@ -58,7 +58,6 @@ const STEP_ENTRY: Record<string, BranchId> = {
     "network-bench": "cast",
     verification: "cast",
     pricing: "wave",
-    "custom-rate": "type",
     "spot-enabled": "nod",
     "spot-min-cents": "type",
     "host-register": "cast",
@@ -92,7 +91,7 @@ const CHECK_SUCCESS: Record<string, BranchId> = {
 
 /** Steps where long thinking should show typing instead of generic cast. */
 const TYPING_STEPS = new Set([
-    "sdk-credentials", "ssh-key-setup", "worker-install", "custom-rate", "spot-min-cents",
+    "sdk-credentials", "ssh-key-setup", "worker-install", "spot-min-cents",
 ]);
 
 /** Steps where idle inspection should peek instead of generic wave. */
@@ -105,7 +104,7 @@ function stepApplies(stepId: string, mode?: string): boolean {
     const sdkOnly = stepId.startsWith("sdk-");
     const provideOnly = [
         "docker-check", "gpu-detect", "version-check", "network-setup", "benchmark",
-        "network-bench", "verification", "pricing", "custom-rate", "spot-enabled",
+        "network-bench", "verification", "pricing", "spot-enabled",
         "spot-min-cents", "host-register", "admission-gate", "provider-summary",
         "worker-install", "confirm-setup",
     ].includes(stepId);

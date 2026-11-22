@@ -141,7 +141,7 @@ describe("wizard-flow", () => {
             // confirm-setup only shows for "both" mode; provider-only confirms at provider-summary
             expect(visited).not.toContain("confirm-setup");
             expect(visited).toContain("provider-summary");
-            // custom-rate skipped because pricing != "custom"
+            // there is no custom rate: prices are set per GPU model
             expect(visited).not.toContain("custom-rate");
         });
     });
@@ -152,8 +152,7 @@ describe("wizard-flow", () => {
             let idx = 0;
             const answers: Record<string, string> = {
                 mode: "both",
-                pricing: "custom",
-                "custom-rate": "0.50",
+                pricing: "recommended",
                 "device-auth": "authorized",
                 "api-key": "test-token",
                 workload: "training",
@@ -176,36 +175,9 @@ describe("wizard-flow", () => {
             expect(visited).toContain("docker-check");
             expect(visited).toContain("gpu-detect");
             expect(visited).toContain("pricing");
-            expect(visited).toContain("custom-rate"); // because pricing=custom
+            expect(visited).not.toContain("custom-rate"); // there is no price to set
             expect(visited).toContain("workload");
             expect(visited).toContain("gpu-preference");
-        });
-    });
-
-    describe("getNextStep — custom rate condition", () => {
-        it("shows custom-rate only when pricing is custom", () => {
-            const withCustom = { mode: "provide", pricing: "custom" };
-            const withRecommended = { mode: "provide", pricing: "recommended" };
-
-            // Find pricing step index
-            const pricingIdx = WIZARD_STEPS.findIndex((s) => s.id === "pricing");
-
-            const nextCustom = getNextStep(pricingIdx, withCustom);
-            expect(WIZARD_STEPS[nextCustom].id).toBe("custom-rate");
-
-            const nextRec = getNextStep(pricingIdx, withRecommended);
-            expect(WIZARD_STEPS[nextRec].id).not.toBe("custom-rate");
-        });
-    });
-
-    describe("validation", () => {
-        it("custom-rate step has validate function", () => {
-            const step = WIZARD_STEPS.find((s) => s.id === "custom-rate");
-            expect(step?.validate).toBeDefined();
-            expect(step!.validate!("0.50")).toBeNull();
-            expect(step!.validate!("abc")).not.toBeNull();
-            expect(step!.validate!("")).not.toBeNull();
-            expect(step!.validate!("-1")).not.toBeNull();
         });
     });
 
@@ -239,32 +211,12 @@ describe("wizard-flow", () => {
             expect(result).toBe(-1);
         });
 
-        it("custom-rate rejects value above 1000", () => {
-            const step = WIZARD_STEPS.find((s) => s.id === "custom-rate");
-            // $1000/hr is the boundary — accepted; above is rejected
-            expect(step!.validate!("1000")).toBeNull();
-            expect(step!.validate!("1001")).not.toBeNull();
-        });
-
-        it("custom-rate accepts valid decimal", () => {
-            const step = WIZARD_STEPS.find((s) => s.id === "custom-rate");
-            expect(step!.validate!("0.25")).toBeNull();
-            expect(step!.validate!("1.50")).toBeNull();
-        });
-
-        it("custom-rate rejects zero", () => {
-            const step = WIZARD_STEPS.find((s) => s.id === "custom-rate");
-            expect(step!.validate!("0")).not.toBeNull();
-            expect(step!.validate!("0.00")).not.toBeNull();
-        });
-
         it("provider full walk hits all provider check steps", () => {
             const visited: string[] = [];
             let idx = 0;
             const answers: Record<string, string> = {
                 mode: "provide",
-                pricing: "custom",
-                "custom-rate": "0.35",
+                pricing: "recommended",
                 "device-auth": "authorized",
                 "api-key": "test-token",
             };
@@ -286,7 +238,7 @@ describe("wizard-flow", () => {
             expect(visited).toContain("host-register");
             expect(visited).toContain("admission-gate");
             expect(visited).toContain("provider-summary");
-            expect(visited).toContain("custom-rate");
+            expect(visited).toContain("pricing");
         });
     });
 });
