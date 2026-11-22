@@ -290,6 +290,16 @@ def main():
 
     register_task("sla_credits", _sla_credits, 3600)
 
+    # Email each finished instance's receipt once (default on; opt out in settings).
+    # XCELSIOR_RECEIPT_EMAILS=0 stops the sweep for the whole service.
+    def _receipt_emails():
+        from receipt_emails import send_pending_receipt_emails, sweep_enabled
+
+        if sweep_enabled():
+            send_pending_receipt_emails()
+
+    register_task("receipt_emails", _receipt_emails, 120)
+
     # 6b. Re-verification sweep (P5 C2's first commit).
     #
     # `VerificationStore.list_hosts_needing_reverification()` has existed and

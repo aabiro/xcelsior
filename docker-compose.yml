@@ -68,6 +68,9 @@ x-api-environment: &api-env
   XCELSIOR_SMTP_PASS: ${XCELSIOR_SMTP_PASS:-}
   XCELSIOR_EMAIL_FROM: ${XCELSIOR_EMAIL_FROM:-}
   XCELSIOR_EMAIL_TO: ${XCELSIOR_EMAIL_TO:-}
+  # Receipt email when an instance finishes (billing/receipt_emails.py, in
+  # bg-worker). 0 stops the sweep for everyone; each account can turn it off.
+  XCELSIOR_RECEIPT_EMAILS: ${XCELSIOR_RECEIPT_EMAILS:-1}
   XCELSIOR_TG_TOKEN: ${XCELSIOR_TG_TOKEN:-}
   XCELSIOR_TG_CHAT_ID: ${XCELSIOR_TG_CHAT_ID:-}
   # OAuth 2.0 Authorization Server

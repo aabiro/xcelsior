@@ -98,7 +98,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `167_benchmark_evidence.py`.**
+**Repository head: `168_receipt_emails.py`.**
+
+168 adds `receipt_emails` (one row per finished run, keyed by `job_id`: a sweep claims it as `sending` before it emails, then records `sent`, `failed` (retried a few times) or `skipped`) and `receipt_email_settings` (one row, `enabled_since`, set when the migration runs, so runs that ended earlier are never emailed). Both are billing-domain tables. One idempotent unit through `lock_safe`; downgrade drops both. The runtime floor moves to 168.
 
 167 makes `benchmarks` (created in 002, never written) the history of xcelsior-bench runs: each verification report from an agent that runs the benchmark adds a row, with the GPU it measured (`gpu_uuid`), the benchmark version (`bench_version`), the verification it belonged to (`verification_id`) and its `verdict` (`pass` / `fail` / `unknown`, judged on the server against the VRAM the listing advertises); the full report stays in `details`. Rows are kept as history. One idempotent unit through `lock_safe`; downgrade drops the columns. The runtime floor moves to 167.
 

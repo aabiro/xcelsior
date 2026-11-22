@@ -92,7 +92,9 @@ from psycopg import Connection
 # 167 adds the xcelsior-bench columns to `benchmarks` (`gpu_uuid`,
 # `bench_version`, `verification_id`, `verdict`), which verification writes and
 # the host-evidence read model reads.
-REQUIRED_MIN_REVISION = "167"
+# 168 adds `receipt_emails` and `receipt_email_settings`, which the receipt
+# email sweep claims and reads.
+REQUIRED_MIN_REVISION = "168"
 REQUIRED_MAX_REVISION: str | None = None
 
 

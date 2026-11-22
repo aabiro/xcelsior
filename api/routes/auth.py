@@ -4393,10 +4393,12 @@ def api_get_user_preferences(request: Request):
             raw_prefs = _json.loads(raw_prefs)
         except Exception as e:
             raw_prefs = {}
+    prefs = raw_prefs if isinstance(raw_prefs, dict) else {}
     return {
         "ok": True,
         "notifications": bool(full_user.get("notifications_enabled", 1)),
-        "preferences": raw_prefs if isinstance(raw_prefs, dict) else {},
+        "receipt_emails": prefs.get("receipt_emails", True) is not False,
+        "preferences": prefs,
     }
 
 
@@ -4407,10 +4409,17 @@ def api_set_user_preferences(request: Request, body: dict):
     updates: dict = {}
     if "notifications" in body:
         updates["notifications_enabled"] = 1 if body["notifications"] else 0
+    if "receipt_emails" in body:
+        # A run's receipt by email when an instance finishes (default on).
+        if not isinstance(body["receipt_emails"], bool):
+            raise HTTPException(400, "receipt_emails must be true or false")
+        body.setdefault("preferences", {})
+        if isinstance(body["preferences"], dict):
+            body["preferences"]["receipt_emails"] = body["receipt_emails"]
     # Merge JSONB preferences (partial update)
     if "preferences" in body and isinstance(body["preferences"], dict):
         # Validate: only allow known preference keys
-        allowed_pref_keys = {"onboarding", "ai_panel_open"}
+        allowed_pref_keys = {"onboarding", "ai_panel_open", "receipt_emails"}
         incoming = body["preferences"]
         safe_prefs = {k: v for k, v in incoming.items() if k in allowed_pref_keys}
         if safe_prefs:

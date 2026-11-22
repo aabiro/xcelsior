@@ -28,6 +28,7 @@ TASK_SERVICES = {
     "serverless_callback_credential_retention": "reconciler",
     "burst_evaluator": "api",
     "sla_credits": "api",
+    "receipt_emails": "api",  # reads jobs, users and the ledger; writes receipt_emails
     "reverification_sweep": "api",
     "placement_observation_maintenance": "reconciler",
     "expired_agent_command_sweep": "reconciler",

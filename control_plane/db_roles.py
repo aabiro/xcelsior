@@ -232,6 +232,10 @@ BILLING_TABLES = frozenset(
         "provider_wise_recipients",
         "wise_payouts",
         "wise_webhook_inbox",
+        # Receipt emails (168): one row per finished run emailed or skipped,
+        # and the moment the feature started (runs before it are not mailed).
+        "receipt_emails",
+        "receipt_email_settings",
     }
 )
 

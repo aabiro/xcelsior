@@ -22,6 +22,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { DesktopAppPreferences } from "@/components/settings/DesktopAppPreferences";
 import { ProductUpdatesPreference } from "@/components/settings/ProductUpdatesPreference";
+import { ReceiptEmailsPreference } from "@/components/settings/ReceiptEmailsPreference";
 import { NativeDesktopPreferences } from "@/components/settings/NativeDesktopPreferences";
 import { OAuthClientManager } from "@/components/settings/OAuthClientManager";
 import { McpAgentSetup } from "@/components/settings/McpAgentSetup";
@@ -1143,6 +1144,7 @@ function ProfileTab({
                 enabled={notifications}
                 onToggle={() => setNotifications(!notifications)}
               />
+              <ReceiptEmailsPreference emailOn={notifications} />
               <ProductUpdatesPreference />
               <DesktopAppPreferences />
               <NativeDesktopPreferences />
