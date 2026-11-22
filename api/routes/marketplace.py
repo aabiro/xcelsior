@@ -34,20 +34,20 @@ def api_marketplace_search(
     limit: int = Query(50, ge=1, le=1000),
 ):
     """Search marketplace listings with filters and sorting."""
-    listings = get_marketplace(active_only=True)
+    listings = _live_priced_listings(get_marketplace(active_only=True))
 
     if gpu_model:
         listings = [l for l in listings if gpu_model.lower() in (l.get("gpu_model", "")).lower()]
     if min_vram is not None:
         listings = [l for l in listings if (l.get("vram_gb", 0) or 0) >= min_vram]
     if max_price is not None:
-        listings = [l for l in listings if (l.get("price_per_hour", 999) or 999) <= max_price]
+        listings = [l for l in listings if _listing_price(l) <= max_price]
     if min_reputation is not None:
         listings = [l for l in listings if (l.get("reputation_score", 0) or 0) >= min_reputation]
 
     # Sort
     sort_keys = {
-        "price": lambda x: x.get("price_per_hour", 999),
+        "price": _listing_price,
         "vram": lambda x: -(x.get("vram_gb", 0) or 0),
         "reputation": lambda x: -(x.get("reputation_score", 0) or 0),
         "score": lambda x: -(x.get("compute_score", 0) or 0),
@@ -143,7 +143,45 @@ def api_get_marketplace(request: Request, active_only: bool = True):
         from routes._deps import _require_scope
 
         _require_scope(user, "marketplace:read")
-    return {"listings": get_marketplace(active_only=active_only)}
+    listings = get_marketplace(active_only=active_only)
+    return {"listings": _live_priced_listings(listings) if active_only else listings}
+
+
+def _live_priced_listings(listings: list[dict]) -> list[dict]:
+    """Listings a renter can act on, each with the price a launch is billed.
+
+    A listing shows only while its host is live (status ``active``) and
+    admitted, checked when it is read, so a listing left behind by a host that
+    died or was never admitted cannot surface. ``price_per_hour`` is the host's
+    own ask; a launch is billed the Standard tier price, which is what
+    ``price_per_hour_cad`` carries (the same source as marketplace search and
+    available GPUs).
+    """
+    from money import micros_to_cad
+    from service_tier_pricing import listed_rate_lookup
+
+    hosts = {h.get("host_id"): h for h in list_hosts(active_only=False)}
+    rate = listed_rate_lookup()
+    live = []
+    for listing in listings:
+        host = hosts.get(listing.get("host_id"))
+        if not host or host.get("status") != "active" or host.get("admitted") is not True:
+            continue
+        micros = rate(str(listing.get("gpu_model") or ""), listing.get("vram_gb"))
+        live.append(
+            {
+                **listing,
+                "rate_micros_per_hour": micros,
+                "price_per_hour_cad": micros_to_cad(micros) if micros is not None else None,
+                "price_source": "standard_tier",
+            }
+        )
+    return live
+
+
+def _listing_price(listing: dict) -> float:
+    price = listing.get("price_per_hour_cad")
+    return float(price) if price is not None else 999.0
 
 
 @router.post("/marketplace/bill/{job_id}", tags=["Marketplace"])
@@ -232,13 +270,43 @@ def api_marketplace_search_v2(body: MarketplaceSearchParams):
     offers = me.search_offers(
         gpu_model=body.gpu_model,
         min_vram_gb=body.min_vram_gb,
-        max_price_cents=body.max_price_cents,
         region=body.region,
         spot_available=body.spot_available,
         sort_by=body.sort_by,
         limit=body.limit,
     )
+    _with_listed_price(offers)
+    if body.max_price_cents > 0:
+        # Against the price a renter pays, not the host's ask.
+        ceiling = body.max_price_cents * 10_000
+        offers = [
+            o
+            for o in offers
+            if o["rate_micros_per_hour"] is not None and o["rate_micros_per_hour"] <= ceiling
+        ]
+    if body.sort_by == "price":
+        offers.sort(
+            key=lambda o: (o["rate_micros_per_hour"] is None, o["rate_micros_per_hour"] or 0)
+        )
     return {"ok": True, "offers": offers, "count": len(offers)}
+
+
+def _with_listed_price(offers: list[dict]) -> None:
+    """Every offer carries the price a renter pays, from the one catalog source.
+
+    ``ask_cents_per_hour`` is the host's own ask. It is not what a launch is
+    billed: that comes from the Standard tier price (``listed_rate_micros``),
+    so it is the number shown as ``price_per_hour_cad``.
+    """
+    from money import micros_to_cad
+    from service_tier_pricing import listed_rate_lookup
+
+    rate = listed_rate_lookup()
+    for offer in offers:
+        micros = rate(str(offer.get("gpu_model") or ""), offer.get("vram_gb"))
+        offer["rate_micros_per_hour"] = micros
+        offer["price_per_hour_cad"] = micros_to_cad(micros) if micros is not None else None
+        offer["price_source"] = "standard_tier"
 
 
 @router.get("/api/v2/marketplace/spot-prices", tags=["Marketplace v2"])

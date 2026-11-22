@@ -12,7 +12,7 @@ import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 log = logging.getLogger("xcelsior.spot_pricing")
 
@@ -181,10 +181,19 @@ def get_platform_on_demand_base(gpu_model: str, tier: str = "standard") -> float
 
 
 def _host_supply_by_gpu() -> dict[str, int]:
+    """GPUs on live, admitted hosts, each host counted once.
+
+    This is the whole of supply. A host's marketplace offer describes the same
+    GPUs, so adding offers on top counted every listed host twice, and offers
+    from hosts that were gone or never admitted counted as supply nobody could
+    rent.
+    """
     from scheduler import load_hosts
 
     supply: dict[str, int] = defaultdict(int)
     for host in load_hosts(active_only=True):
+        if host.get("admitted") is not True:
+            continue
         gpu = _canonical_gpu_model(host.get("gpu_model")) or "unknown"
         supply[gpu] += max(1, int(host.get("num_gpus") or 1))
     return dict(supply)
@@ -202,30 +211,6 @@ def _host_min_cost_by_gpu() -> dict[str, float]:
     return mins
 
 
-def _marketplace_supply_by_gpu() -> dict[str, int]:
-    if not _pg_available():
-        return {}
-    try:
-        from db import pg_connection
-
-        with pg_connection() as conn:
-            rows = conn.execute(
-                """SELECT gpu_model, SUM(gpu_count_available) AS supply
-                   FROM gpu_offers
-                   WHERE available = TRUE AND spot_enabled = TRUE
-                   GROUP BY gpu_model""",
-            ).fetchall()
-        supply: dict[str, int] = defaultdict(int)
-        for raw, count in rows:
-            gpu = _canonical_gpu_model(raw)
-            if gpu:
-                supply[gpu] += int(count or 0)
-        return dict(supply)
-    except Exception as exc:
-        log.debug("marketplace supply query failed: %s", exc)
-        return {}
-
-
 def _provider_floor_cents_by_gpu() -> dict[str, int]:
     if not _pg_available():
         return {}
@@ -233,11 +218,16 @@ def _provider_floor_cents_by_gpu() -> dict[str, int]:
         from db import pg_connection
 
         with pg_connection() as conn:
+            from marketplace import LIVE_OFFER_HOST_SQL
+
             rows = conn.execute(
-                """SELECT gpu_model, MAX(spot_min_cents) AS floor_cents
+                cast(
+                    Any,
+                    f"""SELECT gpu_model, MAX(spot_min_cents) AS floor_cents
                    FROM gpu_offers
-                   WHERE available = TRUE AND spot_enabled = TRUE
+                   WHERE available = TRUE AND spot_enabled = TRUE AND {LIVE_OFFER_HOST_SQL}
                    GROUP BY gpu_model""",
+                ),
             ).fetchall()
         floors: dict[str, int] = {}
         for raw, cents in rows:
@@ -256,9 +246,7 @@ def _job_demand_by_gpu() -> dict[str, int]:
 
     hosts = load_hosts(active_only=False)
     host_map = {h["host_id"]: h for h in hosts}
-    host_supply = _host_supply_by_gpu()
-    offer_supply = _marketplace_supply_by_gpu()
-    supply_gpus = set(host_supply) | set(offer_supply)
+    supply_gpus = set(_host_supply_by_gpu())
 
     demand: dict[str, int] = defaultdict(int)
     for job in load_jobs():
@@ -279,27 +267,23 @@ def _job_demand_by_gpu() -> dict[str, int]:
 
 
 def get_supply_demand(gpu_model: str) -> tuple[int, int]:
-    """Merged supply and demand for a GPU model."""
+    """Supply (live, admitted hosts) and demand for a GPU model."""
     return supply_demand_snapshot()(gpu_model)
 
 
 def supply_demand_snapshot() -> Callable[[str], tuple[int, int]]:
     """One read of fleet supply and job demand, answered per GPU model.
 
-    Each read loads every host, offer and job. Quoting the whole catalogue
+    Each read loads every host and job. Quoting the whole catalogue
     with a fresh read per model made `/spot-prices` scale as models × jobs:
     with no cached quotes, 55 models took minutes and the request timed out.
     """
     host_supply = _host_supply_by_gpu()
-    offer_supply = _marketplace_supply_by_gpu()
     demand = _job_demand_by_gpu()
 
     def lookup(gpu_model: str) -> tuple[int, int]:
         gpu_model = _canonical_gpu_model(gpu_model)
-        return (
-            host_supply.get(gpu_model, 0) + offer_supply.get(gpu_model, 0),
-            demand.get(gpu_model, 0),
-        )
+        return (host_supply.get(gpu_model, 0), demand.get(gpu_model, 0))
 
     return lookup
 
@@ -323,7 +307,6 @@ def _catalog_gpu_models() -> set[str]:
     except Exception:
         pass
     models.update(_host_supply_by_gpu())
-    models.update(_marketplace_supply_by_gpu())
     models.update(_job_demand_by_gpu())
     return {m for m in models if _is_priceable_gpu_model(m)}
 

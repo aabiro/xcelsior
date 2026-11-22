@@ -25,6 +25,15 @@ SPOT_THRESHOLD = float(os.environ.get("XCELSIOR_SPOT_THRESHOLD", "0.8"))
 SPOT_UPDATE_INTERVAL = int(os.environ.get("XCELSIOR_SPOT_INTERVAL_SEC", "600"))  # 10 min
 PLATFORM_CUT = float(os.environ.get("XCELSIOR_PLATFORM_CUT", "0.15"))
 
+#: An offer counts only while its host is live (status ``active``) and admitted.
+#: Applied whenever offers are read, so a stale row (a test host, a host that
+#: died or was never admitted) can never surface in search, stats, supply or a
+#: price, and nothing has to remember to delete it first.
+LIVE_OFFER_HOST_SQL = (
+    "host_id IN (SELECT host_id FROM hosts"
+    " WHERE status = 'active' AND admission_state = 'admitted')"
+)
+
 # Reserved instance discount schedule (Phase 2.3).
 #
 # Derived from `reserved_pricing.py` rather than restated here. This dict and
@@ -164,7 +173,7 @@ class MarketplaceEngine:
         limit: int = 50,
     ) -> list[dict]:
         """Search available GPU offers with filters."""
-        conditions = ["available = true"]
+        conditions = ["available = true", LIVE_OFFER_HOST_SQL]
         params = []
 
         if spot_available:
@@ -204,7 +213,9 @@ class MarketplaceEngine:
     def get_offer(self, offer_id: str) -> Optional[dict]:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT * FROM gpu_offers WHERE offer_id = %s",
+                cast(
+                    Any, f"SELECT * FROM gpu_offers WHERE offer_id = %s AND {LIVE_OFFER_HOST_SQL}"
+                ),
                 (offer_id,),
             ).fetchone()
             return dict(row) if row else None
@@ -267,7 +278,11 @@ class MarketplaceEngine:
         with self._conn() as conn:
             # Lock the offer row
             offer = conn.execute(
-                "SELECT * FROM gpu_offers WHERE offer_id = %s FOR UPDATE",
+                cast(
+                    Any,
+                    f"SELECT * FROM gpu_offers WHERE offer_id = %s AND {LIVE_OFFER_HOST_SQL}"
+                    " FOR UPDATE",
+                ),
                 (offer_id,),
             ).fetchone()
 
@@ -493,9 +508,12 @@ class MarketplaceEngine:
         # Find the current on-demand rate for this GPU
         with self._conn() as conn:
             offer = conn.execute(
-                """SELECT MIN(ask_cents_per_hour) as min_price
+                cast(
+                    Any,
+                    f"""SELECT MIN(ask_cents_per_hour) as min_price
                    FROM gpu_offers
-                   WHERE gpu_model ILIKE %s AND available = true""",
+                   WHERE gpu_model ILIKE %s AND available = true AND {LIVE_OFFER_HOST_SQL}""",
+                ),
                 (f"%{gpu_model}%",),
             ).fetchone()
 
@@ -641,9 +659,12 @@ class MarketplaceEngine:
         # Get base price
         with self._conn() as conn:
             offer = conn.execute(
-                """SELECT MIN(ask_cents_per_hour) as min_price
+                cast(
+                    Any,
+                    f"""SELECT MIN(ask_cents_per_hour) as min_price
                    FROM gpu_offers
-                   WHERE gpu_model ILIKE %s AND available = true""",
+                   WHERE gpu_model ILIKE %s AND available = true AND {LIVE_OFFER_HOST_SQL}""",
+                ),
                 (f"%{gpu_model}%",),
             ).fetchone()
 
@@ -666,7 +687,9 @@ class MarketplaceEngine:
     def get_marketplace_stats(self) -> dict:
         with self._conn() as conn:
             offers = conn.execute(
-                """SELECT
+                cast(
+                    Any,
+                    f"""SELECT
                     COUNT(*) as total_offers,
                     COUNT(*) FILTER (WHERE available = true) as available_offers,
                     SUM(gpu_count_total) as total_gpus,
@@ -675,7 +698,8 @@ class MarketplaceEngine:
                     COUNT(DISTINCT provider_id) as providers,
                     MIN(ask_cents_per_hour) as cheapest_cents,
                     AVG(ask_cents_per_hour) as avg_cents
-                   FROM gpu_offers""",
+                   FROM gpu_offers WHERE {LIVE_OFFER_HOST_SQL}""",
+                ),
             ).fetchone()
 
             active_allocs = conn.execute(

@@ -17,7 +17,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional, cast
 
 log = logging.getLogger("xcelsior.inference")
 
@@ -330,10 +330,16 @@ class InferenceEngine:
 
         region = normalize_region(region)
         with self._conn() as conn:
-            # Check gpu_offers first
+            # Check gpu_offers first (only offers on live, admitted hosts)
+            from marketplace import LIVE_OFFER_HOST_SQL
+
             row = conn.execute(
-                """SELECT COUNT(*) as cnt FROM gpu_offers
-                   WHERE gpu_model = %s AND region = %s AND available = true""",
+                cast(
+                    Any,
+                    f"""SELECT COUNT(*) as cnt FROM gpu_offers
+                   WHERE gpu_model = %s AND region = %s AND available = true
+                     AND {LIVE_OFFER_HOST_SQL}""",
+                ),
                 (gpu_type, region),
             ).fetchone()
             if row and row["cnt"] > 0:
@@ -354,9 +360,15 @@ class InferenceEngine:
 
         region = normalize_region(region)
         with self._conn() as conn:
+            from marketplace import LIVE_OFFER_HOST_SQL
+
             row = conn.execute(
-                """SELECT MIN(ask_cents_per_hour) as price FROM gpu_offers
-                   WHERE gpu_model = %s AND (%s = '' OR region = %s) AND available = true""",
+                cast(
+                    Any,
+                    f"""SELECT MIN(ask_cents_per_hour) as price FROM gpu_offers
+                   WHERE gpu_model = %s AND (%s = '' OR region = %s) AND available = true
+                     AND {LIVE_OFFER_HOST_SQL}""",
+                ),
                 (gpu_type, region, region),
             ).fetchone()
             if row and row.get("price"):

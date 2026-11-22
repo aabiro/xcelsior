@@ -100,6 +100,11 @@ def test_supply_on_a_raw_named_host_counts_toward_the_card():
     host_id = f"raw-{uuid.uuid4().hex[:8]}"
     before = sp.get_supply_demand(CANONICAL)[0]
     scheduler.register_host(host_id, "127.0.0.1", RAW, 6, 6, cost_per_hour=0.5)
+    # Supply counts only admitted hosts (Phase 2.5): a registered host that
+    # was never admitted is not a GPU anyone can rent.
+    from tests._db_helpers import admit_test_host
+
+    admit_test_host(host_id, active=True)
     try:
         hosts = sp._host_supply_by_gpu()
         assert RAW not in hosts, f"supply still keyed by the driver's name: {sorted(hosts)}"
@@ -115,8 +120,20 @@ def test_supply_keyed_raw_in_storage_is_still_one_market(monkeypatch):
         scheduler,
         "load_hosts",
         lambda active_only=True: [
-            {"host_id": "a", "gpu_model": RAW, "num_gpus": 1, "cost_per_hour": 0.5},
-            {"host_id": "b", "gpu_model": CANONICAL, "num_gpus": 2, "cost_per_hour": 0.3},
+            {
+                "host_id": "a",
+                "gpu_model": RAW,
+                "num_gpus": 1,
+                "cost_per_hour": 0.5,
+                "admitted": True,
+            },
+            {
+                "host_id": "b",
+                "gpu_model": CANONICAL,
+                "num_gpus": 2,
+                "cost_per_hour": 0.3,
+                "admitted": True,
+            },
         ],
     )
     assert sp._host_supply_by_gpu() == {CANONICAL: 3}

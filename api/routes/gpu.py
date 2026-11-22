@@ -146,19 +146,18 @@ def api_gpu_available(request: Request, region: str | None = None):
             key=lambda g: (g["gpu_model"], g["region"], g["vram_gb"], g["province"]),
         )
         # A launch charges the imported Stripe Price, so show that starting
-        # price where the variant has one. Inventory without a sellable SKU
-        # stays listed with its observed rate and no purchasable tiers.
-        from service_tier_pricing import tier_catalog, TierPricingUnavailable
+        # price where the variant has one: the same listed rate marketplace
+        # search shows. Inventory without a sellable SKU stays listed with its
+        # observed rate and no purchasable tiers.
+        from service_tier_pricing import listed_rate_lookup
         from money import micros_to_cad
 
+        listed_rate = listed_rate_lookup()
         for gpu in gpus:
-            try:
-                catalog = tier_catalog(gpu["gpu_model"], vram_gb=round(gpu["vram_gb"] or 0) or None)
-            except (TierPricingUnavailable, ValueError):
-                gpu["service_tiers_available"] = False
-                continue
-            gpu["service_tiers_available"] = True
-            gpu["price_per_hour_cad"] = micros_to_cad(catalog["base_rate_micros"])
+            micros = listed_rate(gpu["gpu_model"], round(gpu["vram_gb"] or 0) or None)
+            gpu["service_tiers_available"] = micros is not None
+            if micros is not None:
+                gpu["price_per_hour_cad"] = micros_to_cad(micros)
         source = "host_gpu_devices" if gpus else "none"
         inventory = sorted(
             inventory_map.values(),

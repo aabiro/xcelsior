@@ -8,7 +8,7 @@ quotes carry immutable Stripe Price identities into the attempt snapshot.
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Any
+from typing import Any, Callable
 
 from money import micros_to_cad
 
@@ -177,6 +177,44 @@ def tier_catalog(
             else None
         ),
     }
+
+
+def listed_rate_micros(
+    gpu_model: str, vram_gb: float | None = None, mode: str = "on_demand"
+) -> int | None:
+    """What a renter pays per GPU-hour on the Standard tier, or None when unpriced.
+
+    The one price every listing shows: marketplace search, available GPUs and
+    the dashboard marketplace. A launch is billed from this same catalog row
+    through :func:`quote_tier`, never from a host's ask or ``cost_per_hour``,
+    so a listing that showed either of those quoted a price nobody is charged.
+    """
+    try:
+        catalog = tier_catalog(gpu_model, mode, min_vram_gb=vram_gb or None)
+    except TierPricingUnavailable:
+        return None
+    standard = next((t for t in catalog["tiers"] if t["tier"] == "standard"), None)
+    return int(standard["unit_amount_micros"]) if standard else int(catalog["base_rate_micros"])
+
+
+def listed_rate_lookup() -> Callable[..., int | None]:
+    """:func:`listed_rate_micros`, read once per GPU variant for one response.
+
+    A listing page asks for the same few models many times; an unreachable
+    catalog reads as unpriced (None) rather than failing the whole listing.
+    """
+    cache: dict[tuple[str, float | None, str], int | None] = {}
+
+    def lookup(gpu_model: str, vram_gb: float | None = None, mode: str = "on_demand"):
+        key = (gpu_model, vram_gb, mode)
+        if key not in cache:
+            try:
+                cache[key] = listed_rate_micros(gpu_model, vram_gb, mode)
+            except Exception:
+                cache[key] = None
+        return cache[key]
+
+    return lookup
 
 
 def quote_tier(
