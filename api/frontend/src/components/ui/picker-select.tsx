@@ -117,7 +117,10 @@ export function PickerSelect({
 
   const inert = disabled || empty;
   return (
-    <div ref={rootRef} className="relative">
+    // The field takes the width its column gives it; a long choice ("RTX 3060 ·
+    // 12 GB · 1 free · $0.12/hr") truncates instead of widening a grid column
+    // past the screen edge.
+    <div ref={rootRef} className="relative min-w-0 [contain:inline-size]">
       <button
         id={id}
         type="button"
