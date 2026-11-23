@@ -7,6 +7,7 @@ import { apiFetch, updateProfile } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 export const PROVINCES = [
   { code: "all", name: "All Provinces" },
@@ -379,7 +380,6 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
   const [editRevision, setEditRevision] = useState(0);
   // A changed address is shown back in postal format before it is saved. Search
   // suggestions are OpenStreetMap's, not the post office's, so they get the same look.
@@ -451,7 +451,7 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
   const isDirty = (accountFields && accountDirty) || (addressFields && addressDirty);
 
   async function save(address: CapturedAddress) {
-    setSaving(true); setError(""); setSaved(false);
+    setSaving(true); setError("");
     try {
       await updateProfile({
         ...(accountFields ? { ...(!user?.name?.trim() ? { name: name.trim() } : {}),
@@ -482,7 +482,9 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
       setTouched({});
       await refreshUser({ throwOnError: true });
       await onSaved?.();
-      if (settings) setSaved(true);
+      // Feedback is a toast, as everywhere else in the dashboard; an inline
+      // line under the button was easy to miss below the fold on a phone.
+      if (settings) toast.success("Profile saved");
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to save your profile"); }
     finally { setSaving(false); }
   }
@@ -499,7 +501,7 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
       if (!isDirty) return;
       const typed: CapturedAddress = { country, province, address_line1: line1, address_line2: line2, city, postal_code: postal };
       if (addressFields && addressDirty) {
-        setSaving(true); setError(""); setSaved(false);
+        setSaving(true); setError("");
         const checked = await checkAddress(typed);
         setSaving(false);
         if (checked) {
@@ -535,7 +537,10 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
             <option value="">Select account type</option><option value="individual">Personal</option><option value="business">Business</option>
           </Select>
           {typeInvalid && <p id={`${id}-type-error`} className="text-xs text-red-400">Select an account type.</p>}
-          {accountType === "individual" && <p className="text-sm text-text-secondary">A personal account does not need a business name, even if you provide GPUs.</p>}
+          {accountType === "individual" && <p className="text-sm text-text-secondary">
+            A personal account does not need a business name, even if you provide GPUs.
+            {settings && " Choose Business to put your company's name and logo on the dashboard."}
+          </p>}
         </div>
         {accountType === "business" && <>
           <div className="space-y-1.5"><Label htmlFor={`${id}-business`}>Legal business name</Label>
@@ -594,7 +599,6 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
         </div>
       </>}
       {error && <p role="alert" className="rounded-lg border border-red-400/25 bg-red-400/5 p-3 text-sm text-red-400">{error}</p>}
-      {saved && <p role="status" className="text-sm text-emerald">Profile saved.</p>}
       {review ? <div role="group" aria-labelledby={`${id}-review-title`} className="space-y-3 rounded-xl border border-border bg-navy/30 p-4">
         <p id={`${id}-review-title`} className="text-sm font-medium text-text-primary">Is this address right?</p>
         <address className="text-sm not-italic leading-relaxed text-text-primary">

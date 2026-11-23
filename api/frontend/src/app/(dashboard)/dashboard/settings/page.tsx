@@ -9,7 +9,7 @@ import {
   Settings as SettingsIcon, Save, Shield, Bell, Globe, Key, Terminal, Bot,
   Lock, Trash2, Download, Eye, EyeOff, Copy, Plus, AlertTriangle,
   CheckCircle, Loader2, ShieldCheck, X, Users, UserPlus, UserMinus,
-  User, Fingerprint, MonitorSmartphone, KeyRound, Wallet, TrendingDown,
+  User, Fingerprint, MonitorSmartphone, KeyRound, IdCard,
   ChevronLeft, ChevronRight, Pencil, Mail, MailCheck,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -34,16 +34,10 @@ import { cn } from "@/lib/utils";
 import { describePasskeyRegistrationError } from "@/lib/passkeys";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
-import { AccountProfileForm } from "@/components/ui/province-selector";
-import { ProviderProfileForm } from "@/components/providers/seller-profile-card";
 import { ProfileAvatarUpload } from "@/components/user/profile-avatar-upload";
-import { BusinessProfileSection, BusinessProfileTeaser } from "@/components/settings/business-profile-section";
-import { isBusinessAccount } from "@/lib/business-profile";
-import { hostingEnabled } from "@/lib/hosting";
-import { StartHostingButton } from "@/components/hosting/start-hosting-button";
+import { AccountHostingTab } from "@/components/settings/account-hosting-tab";
 import {
   SettingsLayout,
-  SettingsLinkRow,
   SettingsNav,
   SettingsPageFrame,
   SettingsSection,
@@ -70,6 +64,7 @@ function maskNanpPhone(value: string): string {
 
 const TABS = [
   { id: "profile", labelKey: "dash.settings.tab_profile", fallback: "Profile", icon: User, color: "text-accent-cyan" },
+  { id: "account", labelKey: "dash.settings.tab_account", fallback: "Account & hosting", icon: IdCard, color: "text-emerald" },
   { id: "security", labelKey: "dash.settings.tab_security", fallback: "Security", icon: Shield, color: "text-accent-violet" },
   { id: "mcp", labelKey: "dash.settings.tab_mcp", fallback: "AI Agents", icon: Bot, color: "text-accent-violet" },
   { id: "api-keys", labelKey: "dash.settings.tab_api", fallback: "API & SSH", icon: Key, color: "text-accent-gold" },
@@ -113,7 +108,7 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
 // ── Main Page ─────────────────────────────────────────���─────────────
 
 /** Sections that live inside a tab and can be linked to directly. */
-const SECTION_TABS: Record<string, TabId> = { business: "profile" };
+const SECTION_TABS: Record<string, TabId> = { business: "account", hosting: "account" };
 
 /** Scroll to `#id` as soon as it exists (the tab switch animates first), then
  *  flash its outline so the eye lands on it. Returns a cancel function. */
@@ -799,6 +794,9 @@ export default function SettingsPage() {
               onAvatarUpdated={refreshUser}
             />
           )}
+          {activeTab === "account" && user && (
+            <AccountHostingTab user={user} onUpdated={refreshUser} />
+          )}
           {activeTab === "security" && (
             <SecurityTab
               t={t}
@@ -1073,50 +1071,9 @@ function ProfileTab({
                   </p>
                 )}
               </div>
-              <div className="h-px bg-border/50" />
-              <h3 className="text-base font-semibold">Account and address</h3>
-              <AccountProfileForm settings />
-              <div className="space-y-3 rounded-xl border border-border p-4">
-                <h3 className="font-semibold">GPU hosting</h3>
-                <p className="text-sm text-text-secondary">Renting is available on every account. Enable hosting to connect your GPUs and earn from compute jobs.</p>
-                {hostingEnabled(user) ? <Link href="/dashboard/hosting" className="text-sm font-medium text-accent-cyan underline">Manage hosting</Link> : <StartHostingButton />}
-              </div>
-              {hostingEnabled(user) &&
-                <ProviderProfileForm onSaved={() => { void onAvatarUpdated(); }} />}
-
-            </div>
-          </SettingsSection>
-        </StaggerItem>
-
-        <StaggerItem>
-          {isBusinessAccount(user) ? (
-            <BusinessProfileSection key={user.user_id} user={user} onUpdated={onAvatarUpdated} />
-          ) : (
-            <BusinessProfileTeaser />
-          )}
-        </StaggerItem>
-
-        <StaggerItem>
-          <SettingsSection
-            icon={Wallet}
-            title="Billing & compute"
-            description="Wallet, payment methods, and pricing"
-            accent="emerald"
-          >
-            <div className="divide-y divide-border/40">
-              <SettingsLinkRow
-                href="/dashboard/billing"
-                icon={Wallet}
-                title="Billing & wallet"
-                description="Credits, card top-ups, invoices, and crypto deposits"
-              />
-              <SettingsLinkRow
-                href="/dashboard/spot-pricing"
-                icon={TrendingDown}
-                title="Spot pricing"
-                description="Live interruptible GPU rates and savings vs on-demand"
-                iconClassName="text-emerald"
-              />
+              {/* Account type, address, business profile and hosting live on
+                  the Account & hosting tab. Billing and spot pricing are in the
+                  main navigation. This tab is the profile alone. */}
             </div>
           </SettingsSection>
         </StaggerItem>

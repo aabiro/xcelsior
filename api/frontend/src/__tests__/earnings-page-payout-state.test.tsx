@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { toast } from "sonner";
 
 /**
  * The payout-state card belongs to a provider account.
@@ -284,7 +285,9 @@ it("does not ask in settings how the account will be used", async () => {
   render(<AccountProfileForm settings />);
   expect(screen.queryByText("How will you use Xcelsior?")).not.toBeInTheDocument();
   expect(screen.queryByRole("radio", { name: "Provide GPUs" })).not.toBeInTheDocument();
-  expect(screen.getByText("A personal account does not need a business name, even if you provide GPUs.")).toBeInTheDocument();
+  expect(screen.getByText(/A personal account does not need a business name, even if you provide GPUs\./)).toBeInTheDocument();
+  // Settings is where the switch lives, so it says what Business adds.
+  expect(screen.getByText(/Choose Business to put your company's name and logo on the dashboard\./)).toBeInTheDocument();
   expect(await screen.findByRole("option", { name: "Canada" })).toBeInTheDocument();
 });
 
@@ -301,7 +304,9 @@ it("saving profile details preserves a separately edited name and clears hidden 
   authState.user = {...authState.user, name:"Updated Name"};
   view.rerender(<AccountProfileForm settings />);
   fireEvent.click(saveButton);
-  await screen.findByText("Profile saved.");
+  // A toast, not a line under the button (owner review, 2026-11-22).
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Profile saved"));
+  expect(screen.queryByText("Profile saved.")).not.toBeInTheDocument();
   expect(saveButton).toBeDisabled();
   const saved=apiMocks.updateProfile.mock.calls[0][0];
   expect(saved).not.toHaveProperty("name");

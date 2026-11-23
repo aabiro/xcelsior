@@ -884,8 +884,6 @@ const en: Record<string, string> = {
   "dash.business.save": "Save business profile",
   "dash.business.saved": "Business profile saved",
   "dash.business.save_failed": "Could not save the business profile",
-  "dash.business.locked_desc": "Put your company's name and logo on the dashboard. Business profiles are for business accounts: set Account type to Business under Account and address.",
-  "dash.business.locked_action": "Change account type",
   "dash.business.visit_site": "Visit {site} (opens in a new tab)",
   "dash.team.active_workspace": "Active workspace",
   "dash.team.role_admin": "You are a team admin in this workspace.",
@@ -1332,6 +1330,12 @@ const en: Record<string, string> = {
 
   /* ── Dashboard, MCP / AI Agents ─────────────────────────────────── */
   "dash.settings.tab_mcp": "AI Agents",
+  "dash.settings.tab_account": "Account & hosting",
+  "dash.settings.account_title": "Account and address",
+  "dash.settings.account_desc": "Personal or business, and the address on your invoices and payouts",
+  "dash.settings.hosting_title": "GPU hosting",
+  "dash.settings.hosting_desc": "Renting works on every account. Turn on hosting to connect your GPUs and earn from compute jobs.",
+  "dash.settings.hosting_manage": "Manage hosting",
   /* ── MCP Connect page (/dashboard/mcp) ─────────────────────────────── */
   "dash.mcp.headline": "From prompt to compute. In any agent.",
   "dash.mcp.subhead": "Connect Claude, Cursor, or any AI agent to your GPUs. Paste one prompt — your API key is included.",

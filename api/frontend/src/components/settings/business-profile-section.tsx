@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { Building2, Check, ChevronDown, ImageUp, Loader2, Save, Trash2, Upload } from "lucide-react";
+import { Building2, ChevronDown, ImageUp, Loader2, Save, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
@@ -170,7 +170,6 @@ export function BusinessProfileSection({
   const [websiteEdited, setWebsiteEdited] = useState(false);
   const [websiteTouched, setWebsiteTouched] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [justSaved, setJustSaved] = useState(false);
   const [error, setError] = useState("");
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [logoBusy, setLogoBusy] = useState<"upload" | "remove" | null>(null);
@@ -219,7 +218,6 @@ export function BusinessProfileSection({
     if (!dirty || saving) return;
     setSaving(true);
     setError("");
-    setJustSaved(false);
     try {
       const result = await updateProfile({
         business_display_name: draft.name,
@@ -233,7 +231,7 @@ export function BusinessProfileSection({
       setWebsiteEdited(false);
       setWebsiteTouched(false);
       await onUpdated();
-      setJustSaved(true);
+      toast.success(t("dash.business.saved"));
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : t("dash.business.save_failed"));
     } finally {
@@ -427,7 +425,6 @@ export function BusinessProfileSection({
               aria-describedby={user.business_name ? `${id}-name-hint` : undefined}
               onChange={(event) => {
                 setDisplayName(event.target.value);
-                setJustSaved(false);
               }}
             />
           </Field>
@@ -452,7 +449,6 @@ export function BusinessProfileSection({
               onChange={(event) => {
                 setWebsiteEdited(true);
                 setWebsite(event.target.value);
-                setJustSaved(false);
               }}
             />
           </Field>
@@ -470,7 +466,6 @@ export function BusinessProfileSection({
                 placeholder={t("dash.business.tagline_placeholder")}
                 onChange={(event) => {
                   setTagline(event.target.value);
-                  setJustSaved(false);
                 }}
               />
             </Field>
@@ -507,12 +502,6 @@ export function BusinessProfileSection({
           </p>
         )}
         <div className="flex flex-wrap items-center justify-end gap-3">
-          {justSaved && !dirty && (
-            <p role="status" className="inline-flex items-center gap-1.5 text-sm text-emerald">
-              <Check className="h-4 w-4" aria-hidden />
-              {t("dash.business.saved")}
-            </p>
-          )}
           <Button type="submit" disabled={saving || !dirty || !valid} className="w-full sm:w-auto">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {t("dash.business.save")}
@@ -520,33 +509,5 @@ export function BusinessProfileSection({
         </div>
       </form>
     </SettingsSection>
-  );
-}
-
-/** What a personal account sees: what a business profile is, and the way in. */
-export function BusinessProfileTeaser() {
-  const { t } = useLocale();
-  const focusAccountType = () => {
-    const select = document.querySelector<HTMLSelectElement>('[data-field="account-type"]');
-    if (!select) return;
-    select.scrollIntoView({ behavior: "smooth", block: "center" });
-    select.focus({ preventScroll: true });
-  };
-  return (
-    <section
-      id="business"
-      className="scroll-mt-4 flex flex-col gap-4 rounded-2xl border border-dashed border-border/70 bg-surface/50 p-5 sm:flex-row sm:items-center"
-    >
-      <div className="flex min-w-0 flex-1 items-start gap-3">
-        <BusinessLogo size="md" />
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-text-primary">{t("dash.business.profile")}</h3>
-          <p className="mt-0.5 text-xs leading-relaxed text-text-muted">{t("dash.business.locked_desc")}</p>
-        </div>
-      </div>
-      <Button type="button" variant="outline" size="sm" onClick={focusAccountType} className="shrink-0 self-start sm:self-center">
-        {t("dash.business.locked_action")}
-      </Button>
-    </section>
   );
 }

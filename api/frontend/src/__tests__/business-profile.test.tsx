@@ -31,7 +31,7 @@ import {
 } from "@/lib/business-profile";
 import { BusinessLogo } from "@/components/user/business-logo";
 import { BusinessMenuCard } from "@/components/user/business-identity";
-import { BusinessProfileSection, BusinessProfileTeaser } from "@/components/settings/business-profile-section";
+import { BusinessProfileSection } from "@/components/settings/business-profile-section";
 
 const business = (over: Partial<User> = {}): User => ({
   user_id: "u-1",
@@ -179,7 +179,9 @@ describe("BusinessProfileSection", () => {
     expect((screen.getByLabelText(/dash.business.website/) as HTMLInputElement).value).toBe(
       "https://northlabs.example",
     );
-    expect(await screen.findByRole("status")).toHaveProperty("textContent", "dash.business.saved");
+    // Saved is a toast, not a line in the page (owner review, 2026-11-22).
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("dash.business.saved"));
+    expect(screen.queryByRole("status")).toBeNull();
     expect(save).toHaveProperty("disabled", true);
   });
 
@@ -244,18 +246,5 @@ describe("BusinessProfileSection", () => {
     fireEvent.click(screen.getByRole("button", { name: /dash.business.logo_remove/ }));
     await waitFor(() => expect(deleteBusinessLogo).toHaveBeenCalled());
     await waitFor(() => expect(onUpdated).toHaveBeenCalled());
-  });
-});
-
-describe("BusinessProfileTeaser", () => {
-  it("takes a personal account to the account type field", () => {
-    document.body.insertAdjacentHTML("beforeend", '<select data-field="account-type"></select>');
-    const select = document.querySelector<HTMLSelectElement>('[data-field="account-type"]')!;
-    select.scrollIntoView = vi.fn();
-    render(<BusinessProfileTeaser />);
-    fireEvent.click(screen.getByRole("button", { name: "dash.business.locked_action" }));
-    expect(select.scrollIntoView).toHaveBeenCalled();
-    expect(document.activeElement).toBe(select);
-    select.remove();
   });
 });
