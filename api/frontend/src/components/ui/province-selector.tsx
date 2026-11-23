@@ -635,19 +635,18 @@ export function HostLocationForm({ host, onSaved }: {
   const [requirements, setRequirements] = useState<string[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
   const locationValid = Boolean(country.trim()) && requirements !== null && (!requirements.includes("province") || Boolean(province.trim()));
   const isDirty = host.location_complete === false || country !== (host.country ?? "") || province !== (host.province ?? "");
   return <form noValidate className="space-y-4 rounded-xl border border-border bg-surface p-5" onSubmit={async (event) => {
     event.preventDefault();
     if (!locationValid) return;
-    setSaving(true); setError(""); setSaved(false);
+    setSaving(true); setError("");
     try {
       if (typeof host.version !== "number") throw new Error("Reload this host's details before editing its location.");
       const result = await apiFetch<{ host: import("@/lib/api").Host }>(`/api/hosts/${encodeURIComponent(host.host_id)}/location`, {
         method: "PATCH", body: JSON.stringify({ country, province, expected_version: host.version }),
       });
-      onSaved({ ...host, ...result.host }); setSaved(true);
+      onSaved({ ...host, ...result.host }); toast.success("Host location saved");
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to save the host location"); }
     finally { setSaving(false); }
   }}>
@@ -657,11 +656,10 @@ export function HostLocationForm({ host, onSaved }: {
       {prefill && <p className="mt-1 text-sm text-text-secondary">Filled in from your account address. Change it if this machine is somewhere else.</p>}
     </div>
     <LocationFields country={country} province={province}
-      onCountryChange={(value) => { setCountry(value); setSaved(false); }}
-      onProvinceChange={(value) => { setProvince(value); setSaved(false); }}
+      onCountryChange={setCountry}
+      onProvinceChange={setProvince}
       onRequirementsChange={setRequirements} />
     {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
-    {saved && <p role="status" className="text-sm text-emerald">Host location saved.</p>}
     <Button type="submit" disabled={saving || !locationValid || !isDirty || typeof host.version !== "number"}>{saving ? "Saving…" : "Save location"}</Button>
   </form>;
 }

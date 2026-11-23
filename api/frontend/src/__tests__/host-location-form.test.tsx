@@ -8,6 +8,8 @@ const initial = { host_id: "move-host", version: 1, country: "CA", province: "ON
 let host: Host;
 let rejectSave: boolean;
 const fetchMock = vi.fn();
+const toastSuccess = vi.fn();
+vi.mock("sonner", () => ({ toast: { success: (...a: unknown[]) => toastSuccess(...a), error: vi.fn() } }));
 const response = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
 function Screen() {
@@ -44,7 +46,8 @@ describe("host relocation", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /state|province/i }), { target: { value: "NY" } });
     await waitFor(() => expect(screen.getByRole("button", { name: "Save location" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Save location" }));
-    await screen.findByText("Host location saved.");
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Host location saved"));
+    expect(screen.queryByText("Host location saved.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save location" })).toBeDisabled();
     expect(host.region).toBe("us-ny");
     expect(host.status).toBe("active");
