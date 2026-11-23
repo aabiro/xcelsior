@@ -798,7 +798,7 @@ const fr: Record<string, string> = {
   "dash.serverless.region_other": "Autre",
   "dash.serverless.gpu_count": "GPU par worker",
   "dash.serverless.est_cost": "Est.",
-  "dash.serverless.per_worker": " par worker/h",
+  "dash.serverless.per_worker": " par worker",
   "dash.serverless.max_workers": "Workers max",
   "dash.serverless.deploy": "Déployer l’endpoint",
   "dash.serverless.deploying": "Déploiement…",
