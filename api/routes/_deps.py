@@ -1248,6 +1248,10 @@ def _require_oauth_client_write(user: dict, client: dict) -> None:
 def _merge_auth_user(base: dict, full_user: dict | None = None) -> dict:
     merged = dict(base or {})
     if full_user:
+        # The account's address now, not the one a token was issued under:
+        # an email change does not reissue tokens.
+        if full_user.get("email"):
+            merged["email"] = full_user["email"]
         merged["role"] = full_user.get("role", merged.get("role", "submitter"))
         merged["name"] = full_user.get("name", merged.get("name", ""))
         merged["customer_id"] = full_user.get("customer_id", merged.get("customer_id"))
@@ -1426,6 +1430,24 @@ def _create_session(email: str, user: dict, request: Request | None = None) -> d
     return session
 
 
+def _principal_user_record(principal: dict) -> dict | None:
+    """The user row behind a token's principal, found by ``user_id``.
+
+    A cached access token carries the email it was issued under. The account
+    is keyed by ``user_id`` (164), and an email change does not reissue tokens,
+    so looking the row up by that cached email found nothing once the address
+    changed: the session went on with the old address and an empty profile,
+    and every write keyed by email matched no row until the next sign-in.
+    """
+    user_id = str(principal.get("user_id") or "")
+    if user_id:
+        row = UserStore.get_user_by_id(user_id)
+        if row:
+            return row
+    email = principal.get("email")
+    return UserStore.get_user(email) if email else None
+
+
 def _resolve_current_user(request: Request) -> dict | None:
     auth = request.headers.get("authorization", "")
     token = ""
@@ -1456,7 +1478,7 @@ def _resolve_current_user(request: Request) -> dict | None:
             log.error("oauth.auth_cache.unavailable token_lookup_failed: %s", exc)
             raise HTTPException(503, "Dedicated auth cache unavailable") from exc
         if oauth_user:
-            full_user = UserStore.get_user(oauth_user["email"]) if oauth_user.get("email") else None
+            full_user = _principal_user_record(oauth_user)
             merged = _merge_auth_user(dict(oauth_user), full_user)
             merged["auth_type"] = "oauth_access_token"
             merged["scopes"] = list(oauth_user.get("scopes") or [])
@@ -1472,11 +1494,7 @@ def _resolve_current_user(request: Request) -> dict | None:
     if looks_like_agent_key(token):
         agent_principal = validate_agent_api_key(token)
         if agent_principal:
-            full_user = (
-                UserStore.get_user(agent_principal["email"])
-                if agent_principal.get("email")
-                else None
-            )
+            full_user = _principal_user_record(agent_principal)
             return _merge_auth_user(dict(agent_principal), full_user)
 
     machine_principal = validate_client_credentials_jwt(token)

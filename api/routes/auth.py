@@ -3382,6 +3382,7 @@ def _filter_auth_identity(user: dict, identity: dict) -> dict:
         filtered.pop(key, None)
     if "email" not in scopes:
         filtered.pop("email", None)
+        filtered.pop("pending_email", None)
     return filtered
 
 
@@ -3447,6 +3448,12 @@ def api_auth_me(request: Request):
     merged_user["missing_profile_fields"] = profile_missing_fields(merged_user)
     merged_user["profile_complete"] = not merged_user["missing_profile_fields"]
     merged_user.update(_deps_team_context_for_user(merged_user))
+    # An unconfirmed email change, so Settings can say where the link went
+    # after a reload instead of offering the form again as if nothing were
+    # pending. An expired one is not shown: its link no longer works.
+    pending_email = full_user.get("pending_email") or ""
+    if pending_email and float(full_user.get("email_change_expires") or 0) > time.time():
+        merged_user["pending_email"] = pending_email
     avatar_url = None
     try:
         from user_avatars import avatar_public_url
@@ -4284,6 +4291,21 @@ def api_auth_email_change_confirm(body: EmailChangeConfirmRequest, request: Requ
         )
     except Exception as e:
         log.debug("email-change confirmation send failed: %s", e)
+    # The address the account just left hears about it too. Whoever holds a
+    # session can request a change, so this is how the owner of the old
+    # address learns of one they did not make.
+    try:
+        _send_team_email(
+            old_email,
+            "Your Xcelsior email was changed",
+            f"The email on your Xcelsior account was changed from {old_email} to {new_email}.\n\n"
+            "If you made this change, there is nothing to do. If you didn't, contact "
+            "support@xcelsior.ca right away so we can secure your account.",
+            cta_url="mailto:support@xcelsior.ca",
+            cta_label="Contact support",
+        )
+    except Exception as e:
+        log.debug("email-change notice to the old address failed: %s", e)
 
     return {"ok": True, "email": new_email, "message": "Email address updated"}
 
