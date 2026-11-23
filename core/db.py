@@ -1635,6 +1635,36 @@ class UserStore:
             )
 
     @staticmethod
+    def confirm_email_change(token: str) -> tuple[str, str]:
+        """Consume a verification link once, holding the user row through the change."""
+        try:
+            with auth_connection() as conn:
+                row = conn.execute(
+                    "SELECT email, pending_email, email_change_expires FROM users "
+                    "WHERE email_change_token = %s FOR UPDATE",
+                    (token,),
+                ).fetchone()
+                if not row or not row.get("pending_email"):
+                    raise ValueError("This confirmation link is invalid or has already been used")
+                if time.time() > (row["email_change_expires"] or 0):
+                    raise ValueError(
+                        "This confirmation link has expired. Please request a new email change."
+                    )
+                old_email, new_email = row["email"], row["pending_email"]
+                if conn.execute("SELECT 1 FROM users WHERE email = %s", (new_email,)).fetchone():
+                    raise ValueError("Email already in use")
+                conn.execute(
+                    "UPDATE users SET email = %s, email_verified = 1, pending_email = NULL, "
+                    "email_change_token = NULL, email_change_expires = NULL WHERE email = %s",
+                    (new_email, old_email),
+                )
+                return old_email, new_email
+        except Exception as error:
+            if getattr(error, "sqlstate", None) == "23505":
+                raise ValueError("Email already in use") from error
+            raise
+
+    @staticmethod
     def delete_user(email: str) -> None:
         """Hard-delete a user; everything keyed to it cascades (164)."""
         with auth_connection() as conn:

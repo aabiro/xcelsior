@@ -30,7 +30,7 @@ client = TestClient(app)
 def sent(monkeypatch):
     mails: list[tuple[str, str, str]] = []
 
-    def _capture(to_email, subject, body_text, cta_url=None, cta_label=""):
+    def _capture(to_email, subject, body_text, cta_url=None, cta_label="", **_kwargs):
         mails.append((to_email, subject, body_text))
 
     monkeypatch.setattr(auth_routes, "_send_team_email", _capture)

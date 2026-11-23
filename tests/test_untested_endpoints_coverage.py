@@ -154,7 +154,8 @@ def test_the_profile_route_refuses_a_role_it_cannot_change(user_headers) -> None
     assert "PATCH /api/auth/me" in r.text
 
 
-def test_requesting_an_email_change(user_headers) -> None:
+def test_requesting_an_email_change(user_headers, monkeypatch) -> None:
+    monkeypatch.setattr("routes.auth._send_team_email", lambda *args, **kwargs: None)
     r = client.post(
         "/api/auth/me/email-change",
         json={

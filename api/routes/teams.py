@@ -35,6 +35,8 @@ def _send_team_email(
     body_text: str,
     cta_url: str | None = None,
     cta_label: str = "Go to Dashboard",
+    *,
+    require_delivery: bool = False,
 ):
     """Send a styled team notification email in a background thread. Best-effort.
 
@@ -47,6 +49,8 @@ def _send_team_email(
 
     cfg = ALERT_CONFIG
     if not cfg.get("email_enabled") or not cfg.get("smtp_host"):
+        if require_delivery:
+            raise RuntimeError("Email delivery is not configured")
         # Was a bare `return`. An unconfigured mailer in production is a
         # misconfiguration, and returning silently meant a user got "check your
         # email" while nothing was attempted and nothing was logged at any level.
@@ -109,17 +113,22 @@ def _send_team_email(
             msg.attach(MIMEText(body_text, "plain"))
             # Styled HTML
             msg.attach(MIMEText(html, "html"))
-            with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
+            with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"], timeout=10) as server:
                 server.starttls()
                 server.login(cfg["smtp_user"], cfg["smtp_pass"])
                 server.send_message(msg)
             log.info("TEAM EMAIL SENT: %s -> %s", subject, to_email)
         except Exception as e:
             log.warning("TEAM EMAIL FAILED: %s -> %s | %s", subject, to_email, e)
+            if require_delivery:
+                raise
 
     import threading
 
-    threading.Thread(target=_do_send, daemon=True).start()
+    if require_delivery:
+        _do_send()
+    else:
+        threading.Thread(target=_do_send, daemon=True).start()
 
 
 # ── Model: CreateTeamRequest ──

@@ -4228,9 +4228,22 @@ def api_auth_email_change(body: EmailChangeRequest, request: Request):
             "If you didn't request this, you can safely ignore this email — nothing will change.",
             cta_url=confirm_url,
             cta_label="Confirm New Email",
+            require_delivery=True,
         )
     except Exception as e:
-        log.debug("email-change verification send failed: %s", e)
+        # The page said "check your email" while nothing had been sent. Undo
+        # this request (only this one: a newer request may have replaced it)
+        # and say so.
+        log.warning("email-change verification send failed: %s", e)
+        from db import auth_connection
+
+        with auth_connection() as conn:
+            conn.execute(
+                "UPDATE users SET pending_email = NULL, email_change_token = NULL, "
+                "email_change_expires = NULL WHERE email = %s AND email_change_token = %s",
+                (current_email, token),
+            )
+        raise HTTPException(503, "Could not send the verification email. Please try again.")
 
     return {
         "ok": True,
@@ -4248,26 +4261,12 @@ def api_auth_email_change_confirm(body: EmailChangeConfirmRequest, request: Requ
     if not token:
         raise HTTPException(400, "Invalid confirmation link")
 
-    from db import auth_connection
-
-    with auth_connection() as conn:
-        row = conn.execute(
-            "SELECT email, pending_email, email_change_expires FROM users "
-            "WHERE email_change_token = %s",
-            (token,),
-        ).fetchone()
-    if not row or not row.get("pending_email"):
-        raise HTTPException(400, "This confirmation link is invalid or has already been used")
-    if time.time() > (row["email_change_expires"] or 0):
-        raise HTTPException(
-            400, "This confirmation link has expired. Please request a new email change."
-        )
-    old_email = row["email"]
-    new_email = row["pending_email"]
     try:
-        UserStore.change_email(old_email, new_email)
-    except ValueError:
-        raise HTTPException(409, "That email is now registered to another account")
+        old_email, new_email = UserStore.confirm_email_change(token)
+    except ValueError as error:
+        if str(error) == "Email already in use":
+            raise HTTPException(409, "That email is now registered to another account")
+        raise HTTPException(400, str(error))
 
     # In-app notification + confirmation email to the new address
     try:
