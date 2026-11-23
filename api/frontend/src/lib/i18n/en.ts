@@ -1338,12 +1338,11 @@ const en: Record<string, string> = {
 
   /* ── Dashboard, MCP / AI Agents ─────────────────────────────────── */
   "dash.settings.tab_mcp": "AI Agents",
-  "dash.settings.tab_account": "Account & hosting",
+  "dash.settings.tab_account": "Account",
+  "dash.hosting.payout_title": "Payout details",
+  "dash.hosting.payout_desc": "The legal name and tax details your hosting payouts are issued to.",
   "dash.settings.account_title": "Account and address",
   "dash.settings.account_desc": "Personal or business, and the address on your invoices and payouts",
-  "dash.settings.hosting_title": "GPU hosting",
-  "dash.settings.hosting_desc": "Renting works on every account. Turn on hosting to connect your GPUs and earn from compute jobs.",
-  "dash.settings.hosting_manage": "Manage hosting",
   /* ── MCP Connect page (/dashboard/mcp) ─────────────────────────────── */
   "dash.mcp.headline": "From prompt to compute. In any agent.",
   "dash.mcp.subhead": "Connect Claude, Cursor, or any AI agent to your GPUs. Paste one prompt — your API key is included.",

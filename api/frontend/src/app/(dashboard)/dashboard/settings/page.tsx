@@ -35,7 +35,7 @@ import { describePasskeyRegistrationError } from "@/lib/passkeys";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { ProfileAvatarUpload } from "@/components/user/profile-avatar-upload";
-import { AccountHostingTab } from "@/components/settings/account-hosting-tab";
+import { AccountTab } from "@/components/settings/account-tab";
 import {
   SettingsLayout,
   SettingsNav,
@@ -64,7 +64,7 @@ function maskNanpPhone(value: string): string {
 
 const TABS = [
   { id: "profile", labelKey: "dash.settings.tab_profile", fallback: "Profile", icon: User, color: "text-accent-cyan" },
-  { id: "account", labelKey: "dash.settings.tab_account", fallback: "Account & hosting", icon: IdCard, color: "text-emerald" },
+  { id: "account", labelKey: "dash.settings.tab_account", fallback: "Account", icon: IdCard, color: "text-emerald" },
   { id: "security", labelKey: "dash.settings.tab_security", fallback: "Security", icon: Shield, color: "text-accent-violet" },
   { id: "mcp", labelKey: "dash.settings.tab_mcp", fallback: "AI Agents", icon: Bot, color: "text-accent-violet" },
   { id: "api-keys", labelKey: "dash.settings.tab_api", fallback: "API & SSH", icon: Key, color: "text-accent-gold" },
@@ -108,7 +108,9 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
 // ── Main Page ─────────────────────────────────────────���─────────────
 
 /** Sections that live inside a tab and can be linked to directly. */
-const SECTION_TABS: Record<string, TabId> = { business: "account", hosting: "account" };
+const SECTION_TABS: Record<string, TabId> = { business: "account" };
+/** Sections that moved to their own page. Old links and bookmarks follow them. */
+const MOVED_SECTIONS: Record<string, string> = { hosting: "/dashboard/hosting", payout: "/dashboard/hosting#payout" };
 
 /** Scroll to `#id` as soon as it exists (the tab switch animates first), then
  *  flash its outline so the eye lands on it. Returns a cancel function. */
@@ -233,6 +235,11 @@ export default function SettingsPage() {
       }
       // A section inside a tab (#business): open its tab, then bring it into
       // view once the tab's content has mounted.
+      const moved = MOVED_SECTIONS[hash];
+      if (moved) {
+        window.location.replace(moved);
+        return;
+      }
       const sectionTab = SECTION_TABS[hash];
       if (!sectionTab) return;
       setActiveTab(sectionTab);
@@ -795,7 +802,7 @@ export default function SettingsPage() {
             />
           )}
           {activeTab === "account" && user && (
-            <AccountHostingTab user={user} onUpdated={refreshUser} />
+            <AccountTab user={user} onUpdated={refreshUser} />
           )}
           {activeTab === "security" && (
             <SecurityTab
