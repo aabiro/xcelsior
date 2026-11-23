@@ -224,6 +224,9 @@ const fr: Record<string, string> = {
   /* ── Disponibilité GPU (marketing) ───────────────────────────────────── */
   "gpus.badge_live": "Disponibilité en direct",
   "gpus.badge_reference": "Tarifs de référence",
+  "gpus.none_listed": "Aucun GPU spot affiché",
+  "gpus.power_title": "Conçu pour les charges de travail qui comptent",
+  "gpus.power_desc": "De l'entraînement de modèles à des milliards de paramètres à l'inférence à faible latence, déployez exactement le matériel dont votre pile a besoin.",
   "gpus.title": "Contrôle total sur de vrais GPU",
   "gpus.subtitle": "Louez à la minute. Démarrez instantanément. Sans attente, sans partage. Tarifs transparents, tarification au comptant dynamique.",
   "gpus.stat_cheapest": "Dès",

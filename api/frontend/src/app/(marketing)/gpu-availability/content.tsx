@@ -26,12 +26,6 @@ const WORKLOADS = [
   { key: "inference", icon: "sparkle", art: "inference-hardware-v2", tone: "cyan" as const },
 ] as const;
 
-const FLAGSHIP = [
-  { key: "b200", tier: "B200", tone: "gold" as const },
-  { key: "h100", tier: "H100", tone: "cyan" as const },
-  { key: "a100", tier: "A100", tone: "green" as const },
-] as const;
-
 function ThemeIcon({ name }: { name: string }) {
   return (
     <>
@@ -386,7 +380,7 @@ export function GPUAvailabilityContent() {
                     </span>
                     <div>
                       <div className="site-mono" style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>
-                        {bestSpotGpu ? marketingGpuLabel(bestSpotGpu.gpu_model) : "RTX 4090"}
+                        {bestSpotGpu ? marketingGpuLabel(bestSpotGpu.gpu_model) : t("gpus.none_listed")}
                       </div>
                       <div className="site-mono" style={{ color: "var(--text-4)", fontSize: 11 }}>
                         {bestSpotGpu ? `${bestSpotGpu.vram_gb} GB VRAM` : "Live inventory"}
@@ -479,25 +473,12 @@ export function GPUAvailabilityContent() {
           </div>
         </section>
 
-        <section className="site-rails site-section" style={{ paddingBottom: 0 }}>
-          <SectionMarker code="02" label={t("gpus.featured_title")} />
-          <p className="site-section-copy">{t("gpus.featured_desc")}</p>
-          <div className="site-foundation-grid site-section-flush">
-            {FLAGSHIP.map(({ key, tier, tone }, index) => (
-              <article key={key} className="site-foundation-card site-flagship-card" data-tone={tone}>
-                <div className="site-product-badge" style={{ color: `var(--${tone})` }}>{tier}</div>
-                <h3 className="site-card-title">{tier}</h3>
-                <p className="site-card-copy">{t(`gpus.featured_${key}`)}</p>
-                {index === 0 ? (
-                  <span className="site-chip" data-tone="gold">Latest gen</span>
-                ) : null}
-              </article>
-            ))}
-          </div>
-        </section>
-
+        {/* A "Flagship silicon" section listed B200, H100 and A100 as "on the
+            fleet, ready when you are". None was. What the fleet holds is the
+            live table below, from /api/v2/gpu/available (owner review,
+            2026-11-22: no hardcoded GPU catalog anywhere). */}
         <section className="site-rails site-section">
-          <SectionMarker code="03" label={t("gpus.compliance_badge")} />
+          <SectionMarker code="02" label={t("gpus.compliance_badge")} />
           <div className="site-feature-grid site-duo-grid">
             <article className="site-feature-card site-story-card">
               <div className="site-icon-box">
@@ -540,7 +521,7 @@ export function GPUAvailabilityContent() {
         </section>
 
         <section className="site-rails site-section">
-          <SectionMarker code="04" label={t("gpus.fleet_title")} />
+          <SectionMarker code="03" label={t("gpus.fleet_title")} />
           <div className="site-section-head-row">
             <div>
               <p className="site-section-copy">{t("gpus.fleet_desc")}</p>
@@ -658,7 +639,7 @@ export function GPUAvailabilityContent() {
         </section>
 
         <section className="site-rails site-section">
-          <SectionMarker code="05" label={t("gpus.velocity_badge")} />
+          <SectionMarker code="04" label={t("gpus.velocity_badge")} />
           <div className="site-callout site-callout-split">
             <div>
               <h2 className="site-callout-title">{t("gpus.velocity_title")}</h2>

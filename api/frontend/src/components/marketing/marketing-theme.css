@@ -1381,15 +1381,13 @@ html:has(.site-nav) {
 }
 
 .site-media-card,
-.site-story-card,
-.site-flagship-card {
+.site-story-card {
   position: relative;
   overflow: hidden;
 }
 
 .site-media-card::before,
 .site-story-card::before,
-.site-flagship-card::before,
 .site-media-panel::before,
 .site-price-dock-card::before {
   content: "";
@@ -1425,22 +1423,6 @@ html:has(.site-nav) {
 .site-media-card-body {
   position: relative;
   padding-top: 28px;
-}
-
-.site-flagship-card {
-  min-height: 240px;
-}
-
-.site-flagship-card[data-tone="gold"] {
-  background: linear-gradient(165deg, rgba(255, 191, 94, 0.08), transparent 68%);
-}
-
-.site-flagship-card[data-tone="cyan"] {
-  background: linear-gradient(165deg, rgba(56, 219, 255, 0.08), transparent 68%);
-}
-
-.site-flagship-card[data-tone="green"] {
-  background: linear-gradient(165deg, rgba(52, 211, 153, 0.08), transparent 68%);
 }
 
 .site-story-card {
@@ -3826,12 +3808,6 @@ html:has(.site-nav) {
   .site-callout-visual {
     min-height: 0;
     aspect-ratio: 64 / 21;
-  }
-
-  /* Stacked flagship cards carry two lines; desktop's row height left them
-     half empty. */
-  .site-flagship-card {
-    min-height: 0;
   }
 
   .site-map-panel {
