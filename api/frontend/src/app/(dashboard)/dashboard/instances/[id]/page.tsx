@@ -1196,7 +1196,7 @@ export default function InstanceDetailPage() {
                           {instance.ssh_status.key_count === 0 ? (
                             <>
                               Add a public key at{" "}
-                              <Link href="/dashboard/settings?tab=api-keys" className="underline">
+                              <Link href="/dashboard/settings#api-keys" className="underline">
                                 Settings → SSH Keys
                               </Link>
                               . The web terminal below works without a key.
