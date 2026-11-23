@@ -273,6 +273,7 @@ const en_public: Record<string, string> = {
   "calc.hours_day": "Hours/Day",
   "calc.days_month": "Days/Month",
   "calc.ondemand_monthly": "On-Demand Monthly",
+  "pricing.rates_unavailable": "Rates are unavailable right now. Please try again shortly.",
   "calc.reserved_monthly": "Reserved 1yr Monthly",
   "calc.reserved_strikethrough_label": "On-demand equivalent",
   "calc.reserved_note": "45% reserved discount",

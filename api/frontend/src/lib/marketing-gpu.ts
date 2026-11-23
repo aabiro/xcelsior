@@ -123,19 +123,20 @@ export type PricingCardRow = {
   model: string;
   vram: number;
   onDemand: number;
-  spot: number;
-  reserved1m: number;
-  reserved1y: number;
+  spot: number | null;
+  reserved1m: number | null;
+  reserved1y: number | null;
 };
 
 /**
- * Up to ``max`` rows for the pricing table: the marquee models first, then the
- * rest. The cheapest on-demand row is always kept (it takes the last place if
- * it would not otherwise fit), because each plan's "From" price is read from
- * these rows: dropping it showed "From $0.60/hr" while an RTX 2060 rented for
- * $0.08.
+ * Up to ``max`` rows for the pricing table: GPUs in the live fleet (``pinned``)
+ * first, since those are the ones a renter can take today, then the marquee
+ * models, then the rest. The cheapest on-demand row is always kept (it takes
+ * the last place if it would not otherwise fit), because each plan's "From"
+ * price is read from these rows: dropping it showed "From $0.60/hr" while an
+ * RTX 2060 rented for $0.08.
  */
-export function curatePricingGpus(rows: PricingCardRow[], max = 10): PricingCardRow[] {
+export function curatePricingGpus(rows: PricingCardRow[], max = 10, pinned: string[] = []): PricingCardRow[] {
   const normalized = rows.map((r) => ({
     ...r,
     model: normalizeGpuModel(r.model, r.vram),
@@ -146,10 +147,15 @@ export function curatePricingGpus(rows: PricingCardRow[], max = 10): PricingCard
   }
 
   const curated: PricingCardRow[] = [];
+  for (const model of pinned) {
+    const row = byModel.get(normalizeGpuModel(model));
+    if (row && curated.length < max && !curated.includes(row)) curated.push(row);
+  }
+  const pinnedCount = curated.length;
   for (const tier of MARKETING_GPU_PRIORITY) {
-    const row = byModel.get(tier);
-    if (row) curated.push(row);
     if (curated.length >= max) break;
+    const row = byModel.get(tier);
+    if (row && !curated.includes(row)) curated.push(row);
   }
   for (const row of byModel.values()) {
     if (curated.length >= max) break;
@@ -161,7 +167,9 @@ export function curatePricingGpus(rows: PricingCardRow[], max = 10): PricingCard
     null,
   );
   if (cheapest && max > 0 && !curated.some((c) => c.model === cheapest.model)) {
-    curated.splice(Math.min(curated.length, max - 1), 1, cheapest);
+    // Take the last place, unless every place holds a fleet GPU.
+    const last = Math.min(curated.length, max - 1);
+    if (last >= pinnedCount) curated.splice(last, 1, cheapest);
   }
   return curated;
 }

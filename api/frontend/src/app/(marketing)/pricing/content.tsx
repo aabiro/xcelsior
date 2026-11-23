@@ -19,9 +19,9 @@ interface GpuRow {
   model: string;
   vram: number;
   onDemand: number;
-  spot: number;
-  reserved1m: number;
-  reserved1y: number;
+  spot: number | null;
+  reserved1m: number | null;
+  reserved1y: number | null;
 }
 
 const plans = [
@@ -73,25 +73,30 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
     posthog.capture("pricing_page_viewed", { gpu_count: gpus.length });
   }, [gpus.length]);
 
-  const cheapestSpot = gpus.length ? Math.min(...gpus.map((gpu) => gpu.spot)) : 0.3;
+  const minimum = (values: (number | null)[]) => {
+    const known = values.filter((value): value is number => value !== null);
+    return known.length ? Math.min(...known) : null;
+  };
+  const rateLabel = (value: number | null) => value === null ? "—" : formatHourlyRate(value);
+  const cheapestSpot = minimum(gpus.map(gpu => gpu.spot));
   const maxSpotSaving = gpus.reduce((best, gpu) => {
-    if (!gpu.onDemand) return best;
+    if (!gpu.onDemand || gpu.spot === null) return best;
     return Math.max(best, Math.round((1 - gpu.spot / gpu.onDemand) * 100));
   }, 0);
   const maxReservedSaving = gpus.reduce((best, gpu) => {
-    if (!gpu.onDemand) return best;
+    if (!gpu.onDemand || gpu.reserved1y === null) return best;
     return Math.max(best, Math.round((1 - gpu.reserved1y / gpu.onDemand) * 100));
   }, 0);
   // Each plan's from-price is the cheapest row this page lists, never a fixed figure.
   const fromPrices: Record<string, number | null> = {
     "pricing.tier_ondemand_from": gpus.length ? Math.min(...gpus.map((gpu) => gpu.onDemand)) : null,
-    "pricing.tier_reserved_from": gpus.length ? Math.min(...gpus.map((gpu) => gpu.reserved1y)) : null,
+    "pricing.tier_reserved_from": minimum(gpus.map((gpu) => gpu.reserved1y)),
   };
-  const bestGpu = gpus.length
-    ? gpus.reduce((a, b) => (a.spot <= b.spot ? a : b))
-    : null;
+  const spotSavingLabel = cheapestSpot === null ? "—" : `${maxSpotSaving}%`;
+  const reservedSavingLabel = fromPrices["pricing.tier_reserved_from"] === null ? "—" : `${maxReservedSaving}%`;
+  const bestGpu = [...gpus].filter(gpu => gpu.spot !== null).sort((a, b) => a.spot! - b.spot!)[0];
   const rows = useMemo(
-    () => [...gpus].sort((a, b) => a.spot - b.spot || a.model.localeCompare(b.model)),
+    () => [...gpus].sort((a, b) => (a.spot ?? Infinity) - (b.spot ?? Infinity) || a.model.localeCompare(b.model)),
     [gpus],
   );
 
@@ -130,23 +135,23 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                     </span>
                     <div>
                       <div className="site-mono" style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>
-                        {bestGpu ? marketingGpuLabel(bestGpu.model) : "RTX 4090"}
+                        {bestGpu ? marketingGpuLabel(bestGpu.model) : t("pricing.rates_unavailable")}
                       </div>
                       <div className="site-mono" style={{ color: "var(--text-4)", fontSize: 11 }}>
-                        {bestGpu ? `${bestGpu.vram} GB VRAM` : "Best value"}
+                        {bestGpu ? `${bestGpu.vram} GB VRAM` : "—"}
                       </div>
                     </div>
                   </div>
                   <span className="site-live-badge">
                     <span className="site-live-dot" />
-                    Live
+                    {gpus.length ? "Live" : "—"}
                   </span>
                 </div>
 
                 {[
-                  [t("pricing.col_spot"), `${formatHourlyRate(cheapestSpot)}/hr`, "100%"],
-                  [t("pricing.stat_spot_save"), `${maxSpotSaving || 70}%`, `${Math.min(maxSpotSaving || 70, 100)}%`],
-                  [t("pricing.tier_reserved_title"), `${maxReservedSaving || 45}%`, `${Math.min(maxReservedSaving || 45, 100)}%`],
+                  [t("pricing.col_spot"), `${rateLabel(cheapestSpot)}/hr`, cheapestSpot === null ? "0%" : "100%"],
+                  [t("pricing.stat_spot_save"), spotSavingLabel, `${Math.min(maxSpotSaving, 100)}%`],
+                  [t("pricing.tier_reserved_title"), reservedSavingLabel, `${Math.min(maxReservedSaving, 100)}%`],
                 ].map(([label, value, width]) => (
                   <div key={label} className="site-meter">
                     <div className="site-meter-label">
@@ -163,7 +168,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                   <span className="site-mono" style={{ color: "var(--text-4)", fontSize: 11, textTransform: "uppercase" }}>
                     {t("pricing.col_spot")}
                   </span>
-                  <strong style={{ color: "var(--text)", fontSize: 25 }}>{formatHourlyRate(cheapestSpot)}/hr</strong>
+                  <strong style={{ color: "var(--text)", fontSize: 25 }}>{rateLabel(cheapestSpot)}/hr</strong>
                 </div>
               </div>
             </div>
@@ -172,15 +177,15 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
           <div className="site-rails site-kpi-strip">
             <div className="site-kpi">
               <div className="site-kpi-label">{t("pricing.col_spot")}</div>
-              <div className="site-kpi-value">{formatHourlyRate(cheapestSpot)}</div>
+              <div className="site-kpi-value">{rateLabel(cheapestSpot)}</div>
             </div>
             <div className="site-kpi">
               <div className="site-kpi-label">{t("pricing.stat_spot_save")}</div>
-              <div className="site-kpi-value">{maxSpotSaving || 70}%</div>
+              <div className="site-kpi-value">{spotSavingLabel}</div>
             </div>
             <div className="site-kpi">
               <div className="site-kpi-label">{t("pricing.tier_reserved_badge")}</div>
-              <div className="site-kpi-value">{maxReservedSaving || 45}%</div>
+              <div className="site-kpi-value">{reservedSavingLabel}</div>
             </div>
           </div>
         </div>
@@ -199,7 +204,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                 {/* Kept on every card, empty when there is nothing to say, so the
                     titles, prices and rules line up across the row. */}
                 <div className="site-product-badge site-plan-badge" aria-hidden={!plan.featured}>
-                  {plan.featured ? t("pricing.tier_reserved_saving", { pct: maxReservedSaving || 45 }) : "\u00a0"}
+                  {plan.featured && fromPrices[plan.price] !== null ? t("pricing.tier_reserved_saving", { pct: maxReservedSaving }) : "\u00a0"}
                 </div>
                 <h3 className="site-card-title">{t(plan.title)}</h3>
                 <p className="site-card-copy">{t(plan.desc)}</p>
@@ -239,6 +244,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                 </tr>
               </thead>
               <tbody>
+                {!rows.length && <tr><td colSpan={6}>{t("pricing.rates_unavailable")}</td></tr>}
                 {rows.map((gpu) => (
                   <tr key={gpu.model}>
                     <td className="site-table-feature">
@@ -246,10 +252,10 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
                       {marketingGpuLabel(gpu.model)}
                     </td>
                     <td>{gpu.vram} GB</td>
-                    <td className="site-table-x">{formatHourlyRate(gpu.spot)}</td>
+                    <td className="site-table-x">{rateLabel(gpu.spot)}</td>
                     <td>{formatHourlyRate(gpu.onDemand)}</td>
-                    <td>{formatHourlyRate(gpu.reserved1m)}</td>
-                    <td>{formatHourlyRate(gpu.reserved1y)}</td>
+                    <td>{rateLabel(gpu.reserved1m)}</td>
+                    <td>{rateLabel(gpu.reserved1y)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -259,7 +265,7 @@ export function PricingContent({ gpus }: { gpus: GpuRow[] }) {
 
         <section id="calculator" className="site-rails site-section">
           <SectionMarker code="03" label={t("pricing.savings_calculator")} />
-          <SavingsCalculator gpus={gpus.map((gpu) => ({ model: gpu.model, onDemand: gpu.onDemand }))} />
+          <SavingsCalculator gpus={gpus.map((gpu) => ({ model: gpu.model, onDemand: gpu.onDemand, reserved: gpu.reserved1y }))} />
         </section>
 
         <section className="site-rails site-cta">

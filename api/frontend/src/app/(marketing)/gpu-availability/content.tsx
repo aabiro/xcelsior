@@ -55,9 +55,11 @@ async function fetchGpuSummaries(): Promise<{
 }> {
   let hostsOk = false;
   let pricingOk = false;
-  const [gpuRes, pricingRes] = await Promise.all([
+  const [gpuRes, pricingRes, spotRes] = await Promise.all([
     fetch(`${API}/api/v2/gpu/available`, { credentials: "omit" }),
     fetch(`${API}/api/pricing/reference`, { credentials: "omit" }),
+    // The live spot market, the same figure the pricing page shows.
+    fetch(`${API}/spot-prices`, { credentials: "omit" }).catch(() => null),
   ]);
 
   hostsOk = gpuRes.ok;
@@ -65,7 +67,12 @@ async function fetchGpuSummaries(): Promise<{
   const gpuBody = hostsOk ? await gpuRes.json() : { gpus: [] };
   const pricingBody = pricingOk ? await pricingRes.json() : { pricing: {} };
 
-  const offers: Array<Record<string, unknown>> = gpuBody.gpus || [];
+  const spotBody = spotRes?.ok ? await spotRes.json().catch(() => ({})) : {};
+  const liveSpot: Record<string, number> = spotBody.prices || spotBody.spot_prices || {};
+
+  // Every listed GPU (count_total), not only the free ones: a busy GPU still
+  // exists, and counting only free ones made "available of total" read 0 of 0.
+  const offers: Array<Record<string, unknown>> = gpuBody.inventory?.length ? gpuBody.inventory : gpuBody.gpus || [];
   const pricing: Record<string, Record<string, number>> = pricingBody.pricing || {};
 
   const byModel = new Map<
@@ -74,7 +81,9 @@ async function fetchGpuSummaries(): Promise<{
   >();
 
   for (const row of offers) {
-    const raw = (row.gpu_model as string) || "Unknown";
+    const raw = (row.gpu_model as string) || "";
+    const total = Number(row.count_total ?? row.count_available) || 0;
+    if (!raw || total <= 0) continue;
     const model = normalizeGpuModel(raw, Number(row.vram_gb) || 0);
     const vram = Number(row.vram_gb) || 0;
     const count = Number(row.count_available) || 0;
@@ -84,24 +93,21 @@ async function fetchGpuSummaries(): Promise<{
     }
     const entry = byModel.get(model)!;
     entry.available += count;
-    entry.total += count;
+    entry.total += total;
     if (province) entry.locations.add(province);
     if (vram > entry.vram) entry.vram = vram;
   }
 
-  for (const [rawModel, rates] of Object.entries(pricing)) {
-    const model = normalizeGpuModel(rawModel, (rates.vram_gb as number) || 0);
-    if (!byModel.has(model)) {
-      const vram = (rates.vram_gb as number) || 0;
-      byModel.set(model, { available: 0, total: 0, vram, locations: new Set() });
-    }
-  }
+  // Only GPUs in the fleet are listed. Rate-card models nobody hosts used to
+  // appear here as "0 available", which read as stock that had sold out.
 
   const summaries: MarketingGpuRow[] = [];
   for (const [model, entry] of byModel) {
     const ref = pricing[model] || pricing[Object.keys(pricing).find((k) => normalizeGpuModel(k) === model) || ""] || {};
     const base = (ref.base_rate_cad as number) || 0;
-    const spot = (ref.spot_cad as number) || (base ? base * 0.4 : 0);
+    const spotKey = Object.keys(liveSpot).find((k) => normalizeGpuModel(k) === model);
+    // A spot rate the market or the card publishes; never a fraction of on-demand.
+    const spot = (spotKey ? liveSpot[spotKey] : 0) || (ref.spot_cad as number) || 0;
     summaries.push({
       gpu_model: model,
       available: entry.available,
@@ -115,7 +121,7 @@ async function fetchGpuSummaries(): Promise<{
 
   return {
     summaries: curateMarketingGpus(summaries),
-    liveData: hostsOk && offers.length > 0,
+    liveData: hostsOk,
     hostsOk,
     pricingOk,
   };
@@ -175,7 +181,7 @@ function GpuPriceDock({
   onToggleMode: () => void;
   t: (key: string) => string;
 }) {
-  const spotOff = gpu.price_cad > 0
+  const spotOff = gpu.price_cad > 0 && gpu.spot_cad > 0
     ? Math.round((1 - gpu.spot_cad / gpu.price_cad) * 100)
     : 0;
   const active = priceMode === "spot" ? gpu.spot_cad : gpu.price_cad;
@@ -275,7 +281,7 @@ export function GPUAvailabilityContent() {
   }, []);
 
   const spotPrices = gpus.filter((g) => g.spot_cad > 0).map((g) => g.spot_cad);
-  const cheapestSpot = spotPrices.length ? Math.min(...spotPrices) : 0.3;
+  const cheapestSpot = spotPrices.length ? Math.min(...spotPrices) : 0;
   const totalAvailable = gpus.reduce((sum, g) => sum + g.available, 0);
   const modelsWithStock = gpus.filter((g) => g.available > 0).length;
   const regionsLive = useMemo(
@@ -330,7 +336,7 @@ export function GPUAvailabilityContent() {
   const telemetryBars = [
     {
       label: t("gpus.stat_cheapest"),
-      value: `${formatPrice(cheapestSpot)}/hr`,
+      value: cheapestSpot ? `${formatPrice(cheapestSpot)}/hr` : "—",
       width: "100%",
     },
     {
@@ -418,7 +424,7 @@ export function GPUAvailabilityContent() {
           <div className="site-rails site-kpi-strip">
             <div className="site-kpi">
               <div className="site-kpi-label">{t("gpus.stat_cheapest")}</div>
-              <div className="site-kpi-value">${cheapestSpot.toFixed(2)}</div>
+              <div className="site-kpi-value">{formatPrice(cheapestSpot)}</div>
             </div>
             <div className="site-kpi">
               <div className="site-kpi-label">{t("gpus.stat_models")}</div>

@@ -1,12 +1,27 @@
 import { ImageResponse } from "next/og";
+import { formatHourlyRate } from "@/lib/hourly-rate";
+import { marketingGpuLabel } from "@/lib/marketing-gpu";
+import { loadPricing } from "./rates";
 
 // Node runtime (the default): a static image needs nothing from Edge, which
 // Next.js has deprecated and which kept this route from being prerendered.
-export const alt = "Xcelsior Pricing, Save up to 60% on GPU Compute";
+export const alt = "Xcelsior GPU pricing: published per-GPU hourly rates";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-export default function PricingOG() {
+// The image reads the published rate card, so it is rebuilt as rates change.
+export const revalidate = 3600;
+
+export default async function PricingOG() {
+  const { rows, maxSpotSaving } = await loadPricing();
+  // The cheapest GPU on the card, the dearest, and one between: the range a
+  // renter will find on the page, at the page's own rates. It replaced three
+  // invented prices ("RTX 4090 $0.45/hr", "A100 80GB $1.89/hr", "H100 SXM
+  // $2.99/hr") that matched nothing Xcelsior published.
+  const byRate = [...rows].sort((a, b) => a.onDemand - b.onDemand);
+  const cards = byRate.length <= 3
+    ? byRate
+    : [byRate[0], byRate[Math.floor(byRate.length / 2)], byRate[byRate.length - 1]];
   return new ImageResponse(
     (
       <div
@@ -80,16 +95,12 @@ export default function PricingOG() {
             marginBottom: 40,
           }}
         >
-          Up to 60% less than hyperscalers
+          {maxSpotSaving ? `One published rate per GPU · spot up to ${maxSpotSaving}% off` : "One published rate per GPU"}
         </p>
 
         {/* GPU price cards */}
         <div style={{ display: "flex", gap: 24 }}>
-          {[
-            { gpu: "RTX 4090", price: "$0.45/hr" },
-            { gpu: "A100 80GB", price: "$1.89/hr" },
-            { gpu: "H100 SXM", price: "$2.99/hr" },
-          ].map((card) => (
+          {cards.map((row) => ({ gpu: marketingGpuLabel(row.model), price: `${formatHourlyRate(row.onDemand)}/hr` })).map((card) => (
             <div
               key={card.gpu}
               style={{

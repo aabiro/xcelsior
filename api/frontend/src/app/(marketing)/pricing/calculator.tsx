@@ -8,6 +8,7 @@ import { formatHourlyRate } from "@/lib/hourly-rate";
 interface GpuOption {
   model: string;
   onDemand: number;
+  reserved: number | null;
 }
 
 export function SavingsCalculator({ gpus }: { gpus: GpuOption[] }) {
@@ -17,18 +18,19 @@ export function SavingsCalculator({ gpus }: { gpus: GpuOption[] }) {
   const [daysPerMonth, setDaysPerMonth] = useState(22);
 
   const gpu = gpus.find((item) => item.model === selectedGpu);
-  const rate = gpu?.onDemand ?? 0;
+  const rate = gpu?.onDemand ?? null;
   const totalHours = hoursPerDay * daysPerMonth;
-  const monthlyCostOnDemand = totalHours * rate;
-  const monthlyCostReserved = monthlyCostOnDemand * 0.55;
-  const savings = monthlyCostOnDemand - monthlyCostReserved;
+  const monthlyCostOnDemand = rate === null ? null : totalHours * rate;
+  const monthlyCostReserved = gpu?.reserved == null ? null : totalHours * gpu.reserved;
+  const savings = monthlyCostOnDemand === null || monthlyCostReserved === null ? null : monthlyCostOnDemand - monthlyCostReserved;
 
   return (
     <div className="site-calculator">
       <div className="site-calculator-controls">
         <label className="site-field-wrap">
           <span>{t("calc.gpu_model")}</span>
-          <select value={selectedGpu} onChange={(event) => setSelectedGpu(event.target.value)} className="site-field">
+          <select value={selectedGpu} disabled={!gpus.length} onChange={(event) => setSelectedGpu(event.target.value)} className="site-field">
+            {!gpus.length && <option value="">{t("pricing.rates_unavailable")}</option>}
             {gpus.map((item) => (
               <option key={item.model} value={item.model}>{marketingGpuLabel(item.model)}</option>
             ))}
@@ -62,14 +64,14 @@ export function SavingsCalculator({ gpus }: { gpus: GpuOption[] }) {
         <ResultBox
           label={t("calc.ondemand_monthly")}
           value={monthlyCostOnDemand}
-          sublabel={`${totalHours}h x ${formatHourlyRate(rate)}/hr`}
+          sublabel={rate === null ? "—" : `${totalHours}h x ${formatHourlyRate(rate)}/hr`}
         />
         <ResultBox
           label={t("calc.reserved_monthly")}
           value={monthlyCostReserved}
           original={monthlyCostOnDemand}
           strikeLabel={t("calc.reserved_strikethrough_label")}
-          sublabel={t("calc.reserved_note")}
+          sublabel={gpu?.reserved == null ? "—" : `${totalHours}h x ${formatHourlyRate(gpu.reserved)}/hr`}
           highlighted
         />
         <ResultBox
@@ -93,8 +95,8 @@ function ResultBox({
   accent,
 }: {
   label: string;
-  value: number;
-  original?: number;
+  value: number | null;
+  original?: number | null;
   strikeLabel?: string;
   sublabel: string;
   highlighted?: boolean;
@@ -111,7 +113,7 @@ function ResultBox({
           <s>${original.toFixed(2)}</s>
         </div>
       ) : null}
-      <p className="site-result-value">${value.toFixed(2)}</p>
+      <p className="site-result-value">{value === null ? "—" : `$${value.toFixed(2)}`}</p>
       <p className="site-result-note">{sublabel}</p>
     </div>
   );

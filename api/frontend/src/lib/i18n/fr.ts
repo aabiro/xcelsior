@@ -282,6 +282,7 @@ const fr: Record<string, string> = {
   "calc.hours_day": "Heures/jour",
   "calc.days_month": "Jours/mois",
   "calc.ondemand_monthly": "Mensuel à la demande",
+  "pricing.rates_unavailable": "Les tarifs sont indisponibles pour le moment. Réessayez sous peu.",
   "calc.reserved_monthly": "Mensuel réservé 1 an",
   "calc.reserved_strikethrough_label": "Équivalent à la demande",
   "calc.reserved_note": "Réduction de 45 % réservée",

@@ -31,7 +31,6 @@ import type {
 } from "@/lib/api";
 import { PlacementPreferenceControl } from "@/components/instances/placement-preference-control";
 import { cn, generateFunName } from "@/lib/utils";
-import { getVramOptions } from "@/lib/gpu-models";
 import { markInstanceLaunched } from "@/components/InstallBanner";
 import {
   Activity,
@@ -221,28 +220,20 @@ export function LaunchInstanceModal({
       minPricePerHourCad?: number;
     }>()).values(),
   ).sort((a, b) => a.gpu_model.localeCompare(b.gpu_model));
-  const fallbackGpuOptions = pricing.map((entry) => ({
-    gpu_model: entry.gpu_model,
-    maxVramGb: 0,
-    countAvailable: 0,
-    minPricePerHourCad: entry.on_demand_cad,
-  }));
   const gpuModelOptions = gpuInventoryOptions;
   const selectedGpuStillAvailable = !gpuModel || gpuModelOptions.some((option) => option.gpu_model === gpuModel);
 
-  // VRAM options per selected GPU model, derived from live inventory
-  // when available, otherwise from the canonical catalog in
-  // frontend/src/lib/gpu-models.ts.
+  // VRAM choices describe actual inventory, including currently busy machines.
   const vramOptionsForGpu: number[] = (() => {
     if (!resolvedGpu) return [];
     // Collect unique VRAM values from live inventory for this model
     const fromInventory = [...new Set(
-      availableGpus
+      eligibleInventory
         .filter((g) => g.gpu_model === resolvedGpu && g.vram_gb > 0)
         .map((g) => g.vram_gb),
     )].sort((a, b) => a - b);
     if (fromInventory.length > 0) return fromInventory;
-    return getVramOptions(resolvedGpu);
+    return [];
   })();
   const resolvedVramGb = vramGb || (vramOptionsForGpu.length === 1 ? vramOptionsForGpu[0] : undefined);
 
@@ -250,8 +241,7 @@ export function LaunchInstanceModal({
   const listingRate = listing ? (listing.price_per_hour_cad || listing.price_per_hour || 0) : 0;
   const estimatedGpu = resolvedGpu || gpuModelOptions
     .filter((entry) => entry.minPricePerHourCad != null)
-    .sort((a, b) => a.minPricePerHourCad! - b.minPricePerHourCad!)[0]?.gpu_model
-    || pricing[0]?.gpu_model;
+    .sort((a, b) => a.minPricePerHourCad! - b.minPricePerHourCad!)[0]?.gpu_model;
   const estimatedInventory = gpuModelOptions.find((entry) => entry.gpu_model === estimatedGpu);
   const estimatedPricing = pricing.find((entry) => entry.gpu_model === estimatedGpu);
   const currentCatalog = tierCatalog?.gpu_model === estimatedGpu && tierCatalog?.mode === effectivePricingMode && (!resolvedVramGb || tierCatalog.vram_gb === resolvedVramGb) ? tierCatalog : null;

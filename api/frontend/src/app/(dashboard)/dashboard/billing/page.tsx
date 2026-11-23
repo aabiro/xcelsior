@@ -1234,8 +1234,10 @@ export default function BillingPage() {
                           variant="outline"
                           size="sm"
                           className="w-full"
-                          disabled={subscribing === key}
-                          onClick={() => handleSubscribe(key, sample?.[0] || "RTX 4090")}
+                          // A plan is for the GPU the backend quoted; with no quote there is
+                          // nothing to reserve (it used to reserve an RTX 4090 nobody picked).
+                          disabled={subscribing === key || !sample}
+                          onClick={() => { if (sample) void handleSubscribe(key, sample[0]); }}
                         >
                           {subscribing === key ? (
                             <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Subscribing…</>
