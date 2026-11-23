@@ -87,6 +87,10 @@ NOT_WORKER_CONFIG = frozenset(
         # the server judges allocatable VRAM against the listing's VRAM, so a
         # value an operator set would change nothing.
         "XCELSIOR_BENCH_ADVERTISED_VRAM_GB",
+        # The docker CLI's own variable. The agent sets it to its private
+        # config directory at start and only reads it to leave an existing
+        # value alone; the worker needs nothing configured for it.
+        "DOCKER_CONFIG",
     }
 )
 

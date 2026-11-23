@@ -855,6 +855,24 @@ def registry_docker_cmd(*args: str) -> list[str]:
     return ["docker", "--config", _registry_config_dir(), *args]
 
 
+def _use_worker_docker_config() -> None:
+    """Every docker call this process makes reads the worker's own config.
+
+    Pulls already passed ``--config``; ``docker run``, ``exec`` and the rest did
+    not, so they read ~/.docker/config.json. The unit runs with
+    ProtectHome=true, so that read failed and each call printed "WARNING: Error
+    loading config file: /home/xcelsior/.docker/config.json: permission denied"
+    into the renter's instance log (prod, 2026-11-22). An operator who set
+    DOCKER_CONFIG for the service keeps it.
+    """
+    if os.environ.get("DOCKER_CONFIG", "").strip():
+        return
+    try:
+        os.environ["DOCKER_CONFIG"] = _registry_config_dir()
+    except OSError as e:
+        log.warning("Could not set DOCKER_CONFIG for the worker: %s", e)
+
+
 _PULL_FAILURE_REASONS = (
     # (substrings of docker's last output line, what to tell the tenant)
     (
@@ -4853,6 +4871,41 @@ _reverify_running = threading.Event()
 #: hour for the sweep to ask again and finding the host busy once more.
 _reverify_pending = threading.Event()
 
+#: The pending request, kept across restarts. In memory only, an agent restart
+#: (an upgrade, a reboot) forgot it, and a host that went idle afterwards waited
+#: for the next hourly sweep to be asked again.
+_REVERIFY_PENDING_PATH = os.path.join(_WORKER_STATE_DIR, "reverify-pending")
+
+
+def _set_reverify_pending() -> None:
+    _reverify_pending.set()
+    try:
+        os.makedirs(os.path.dirname(_REVERIFY_PENDING_PATH), exist_ok=True)
+        with open(_REVERIFY_PENDING_PATH, "w") as fh:
+            fh.write(f"{time.time():.0f}\n")
+    except OSError as e:
+        log.debug("reverify: could not record the pending request: %s", e)
+
+
+def _clear_reverify_pending() -> None:
+    _reverify_pending.clear()
+    try:
+        os.unlink(_REVERIFY_PENDING_PATH)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        log.debug("reverify: could not clear the pending request: %s", e)
+
+
+def _restore_reverify_pending() -> bool:
+    """Pick up a request a previous run deferred. True when one was waiting."""
+    if os.path.exists(_REVERIFY_PENDING_PATH):
+        _reverify_pending.set()
+        log.info("reverify: a request deferred before the restart is still pending")
+        return True
+    return False
+
+
 #: Set by run_verification_cycle; the heartbeat loop reports it once known.
 _latest_compute_score: float | None = None
 
@@ -5032,16 +5085,16 @@ def _start_reverification() -> bool:
                 len(busy),
                 ", ".join(sorted(busy)[:5]),
             )
-        _reverify_pending.set()
+        _set_reverify_pending()
         return False
 
-    _reverify_pending.clear()
+    _clear_reverify_pending()
     try:
         thread = threading.Thread(target=_reverification_worker, name="reverification", daemon=True)
         thread.start()
     except RuntimeError:
         _reverify_running.clear()
-        _reverify_pending.set()
+        _set_reverify_pending()
         raise
     return True
 
@@ -9064,6 +9117,8 @@ def main():
     """Main entry point — pull-based worker agent."""
     _install_signal_handlers()
     validate_config()
+    _use_worker_docker_config()
+    _restore_reverify_pending()
     # Read the attempt journal first, whether or not the API is reachable:
     # surviving containers get a local lease deadline even before protocol
     # negotiation, and no later save can overwrite records not yet read.

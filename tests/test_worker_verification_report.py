@@ -173,12 +173,13 @@ def test_the_flat_fields_come_from_the_benchmark_report():
 
 
 @pytest.fixture
-def idle_agent(monkeypatch):
+def idle_agent(monkeypatch, tmp_path):
     monkeypatch.setattr(worker_agent, "_active_containers", {})
     monkeypatch.setattr(worker_agent, "_v2_attempts", {})
     monkeypatch.setattr(worker_agent, "_v2_starts_in_progress", set())
     monkeypatch.setattr(worker_agent, "_reverify_running", threading.Event())
     monkeypatch.setattr(worker_agent, "_reverify_pending", threading.Event())
+    monkeypatch.setattr(worker_agent, "_REVERIFY_PENDING_PATH", str(tmp_path / "reverify-pending"))
     return worker_agent
 
 
@@ -211,6 +212,26 @@ def test_a_deferred_reverify_command_is_accepted_not_failed(idle_agent):
         # A second request while one is already pending is accepted too.
         assert idle_agent._dispatch_agent_commands([cmd]) == 1
         thread.assert_not_called()
+
+
+def test_a_deferred_reverification_survives_an_agent_restart(idle_agent, monkeypatch):
+    """In memory only, an upgrade or reboot forgot it; the idle host then waited
+    up to an hour for the sweep to ask again."""
+    idle_agent._active_containers["job-1"] = {"container": "xcl-job-1"}
+    with mock.patch.object(idle_agent.threading, "Thread"):
+        assert idle_agent._start_reverification() is False
+    assert Path(idle_agent._REVERIFY_PENDING_PATH).exists()
+
+    # A new process: the event starts clear, the file is still there.
+    monkeypatch.setattr(idle_agent, "_reverify_pending", threading.Event())
+    idle_agent._active_containers.clear()
+    assert idle_agent._restore_reverify_pending() is True
+    with mock.patch.object(idle_agent.threading, "Thread") as thread:
+        assert idle_agent._run_pending_reverification() is True
+        thread.assert_called_once()
+    # Started: nothing is left to restore after the next restart.
+    assert not Path(idle_agent._REVERIFY_PENDING_PATH).exists()
+    assert idle_agent._restore_reverify_pending() is False
 
 
 def test_nothing_pending_starts_nothing(idle_agent):
