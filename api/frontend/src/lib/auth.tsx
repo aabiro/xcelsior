@@ -32,6 +32,8 @@ export type BusinessLogoTile = "none" | "light" | "dark";
 export interface User {
   user_id: string;
   email: string;
+  /** An email change waiting on its confirmation link (absent once expired). */
+  pending_email?: string;
   name?: string;
   role: string;
   is_admin?: boolean;

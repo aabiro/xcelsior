@@ -146,7 +146,7 @@ export default function SettingsPage() {
 
   // Profile
   const [name, setName] = useState(user?.name || "");
-  const [email] = useState(user?.email || "");
+  const email = user?.email || "";
   const [notifications, setNotifications] = useState(true);
   const [savedNotifications, setSavedNotifications] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -922,6 +922,11 @@ function ProfileTab({
   const [confirmEmail, setConfirmEmail] = useState("");
   const [requestingEmail, setRequestingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState<string | null>(null);
+  // Changing the email used to open only behind the pencil, so the address
+  // read as fixed (owner review, 2026-11-22). It has its own control now, and
+  // a change waiting on its link is shown until it is confirmed or replaced.
+  const [changingEmail, setChangingEmail] = useState(false);
+  const pendingEmail = changingEmail ? null : emailSent ?? user.pending_email ?? null;
 
   const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail.trim());
   const emailsMatch = newEmail.trim().toLowerCase() === confirmEmail.trim().toLowerCase();
@@ -930,7 +935,12 @@ function ProfileTab({
   const cancelEdit = () => {
     setEditing(false);
     setNameDraft(name);
-    setNewEmail(""); setConfirmEmail(""); setEmailSent(null);
+  };
+  const startEmailChange = () => {
+    setNewEmail(""); setConfirmEmail(""); setEmailSent(null); setChangingEmail(true);
+  };
+  const cancelEmailChange = () => {
+    setNewEmail(""); setConfirmEmail(""); setChangingEmail(false);
   };
 
   const saveName = async () => {
@@ -953,7 +963,9 @@ function ProfileTab({
     try {
       const res = await api.requestEmailChange(newEmail.trim().toLowerCase());
       setEmailSent(res.pending_email);
+      setChangingEmail(false);
       toast.success(res.message);
+      await onAvatarUpdated();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("dash.settings.email_change_failed"));
     } finally { setRequestingEmail(false); }
@@ -996,10 +1008,13 @@ function ProfileTab({
               {/* Divider above name */}
               <div className="h-px bg-border/50" />
               <div className="space-y-2">
-                <Label>{t("dash.settings.name")}</Label>
+                <Label htmlFor="settings-name">{t("dash.settings.name")}</Label>
                 {editing ? (
                   <div className="flex gap-2">
                     <Input
+                      id="settings-name"
+                      name="name"
+                      autoComplete="name"
                       value={nameDraft}
                       onChange={(e) => setNameDraft(e.target.value)}
                       maxLength={64}
@@ -1015,38 +1030,49 @@ function ProfileTab({
                     </Button>
                   </div>
                 ) : (
-                  <Input value={name} disabled className="opacity-70" />
+                  <Input id="settings-name" value={name} disabled className="opacity-70" />
                 )}
               </div>
               <div className="space-y-2">
-                <Label>{t("dash.settings.email")}</Label>
-                {!editing ? (
-                  <Input value={email} disabled className="opacity-60" />
-                ) : emailSent ? (
-                  <div className="flex items-start gap-3 rounded-xl border border-accent-cyan/30 bg-accent-cyan/5 px-4 py-3">
+                <Label htmlFor="settings-email">{t("dash.settings.email")}</Label>
+                <Input id="settings-email" value={email} disabled className="opacity-60" />
+                {pendingEmail ? (
+                  <div role="status" className="flex items-start gap-3 rounded-xl border border-accent-cyan/30 bg-accent-cyan/5 px-4 py-3">
                     <MailCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent-cyan" />
                     <div className="text-sm text-text-secondary">
-                      {t("dash.settings.email_change_sent", { email: emailSent })}{" "}
+                      {t("dash.settings.email_change_sent", { email: pendingEmail })}{" "}
                       <button
                         type="button"
-                        onClick={() => { setEmailSent(null); setNewEmail(""); setConfirmEmail(""); }}
+                        onClick={startEmailChange}
                         className="text-accent-cyan underline hover:no-underline"
                       >
                         {t("dash.settings.email_change_use_different")}
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Input value={email} disabled className="opacity-60" />
+                ) : changingEmail ? (
+                  <form
+                    className="space-y-2"
+                    noValidate
+                    onSubmit={(e) => { e.preventDefault(); void requestEmail(); }}
+                  >
                     <Input
                       type="email"
+                      name="email"
+                      autoComplete="email"
+                      inputMode="email"
+                      autoFocus
+                      aria-label={t("dash.settings.email_change_new")}
                       value={newEmail}
                       onChange={(e) => setNewEmail(e.target.value)}
                       placeholder={t("dash.settings.email_change_new")}
                     />
                     <Input
                       type="email"
+                      name="email-confirm"
+                      autoComplete="email"
+                      inputMode="email"
+                      aria-label={t("dash.settings.email_change_confirm")}
                       value={confirmEmail}
                       onChange={(e) => setConfirmEmail(e.target.value)}
                       placeholder={t("dash.settings.email_change_confirm")}
@@ -1054,21 +1080,31 @@ function ProfileTab({
                     {newEmail && confirmEmail && !emailsMatch && (
                       <p className="text-xs text-accent-red">{t("dash.settings.email_change_mismatch")}</p>
                     )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={requestEmail}
-                      disabled={requestingEmail || !emailValid || !emailsMatch}
-                    >
-                      {requestingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-                      {t("dash.settings.email_change_send")}
-                    </Button>
-                  </div>
-                )}
-                {editing && !emailSent && (
-                  <p className="text-xs text-text-muted">
-                    {t("dash.settings.email_change_note")}
-                  </p>
+                    <p className="text-xs text-text-muted">{t("dash.settings.email_change_note")}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="submit"
+                        size="sm"
+                        variant="outline"
+                        disabled={requestingEmail || !emailValid || !emailsMatch}
+                      >
+                        {requestingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                        {t("dash.settings.email_change_send")}
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" onClick={cancelEmailChange}>
+                        {t("dash.settings.cancel")}
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={startEmailChange}
+                    className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-accent-cyan hover:underline sm:min-h-0"
+                  >
+                    <Mail className="h-4 w-4" aria-hidden />
+                    {t("dash.settings.email_change_start")}
+                  </button>
                 )}
               </div>
               {/* Account type, address, business profile and hosting live on
