@@ -167,7 +167,8 @@ export function PickerSelect({
                   active ? "bg-ice-blue/15 font-medium text-text-primary" : "text-text-secondary active:bg-surface-hover",
                 )}
               >
-                <span className="min-w-0 truncate">{option.label}</span>
+                {/* The list shows the whole label (price included), wrapping if it must. */}
+                <span className="min-w-0 break-words py-2">{option.label}</span>
                 {active && <Check className="h-4 w-4 shrink-0 text-ice-blue" aria-hidden />}
               </button>
             );
