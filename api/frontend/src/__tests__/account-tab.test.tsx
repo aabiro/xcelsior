@@ -5,8 +5,8 @@ import type { User } from "@/lib/auth";
 // Account type and the business profile were blended into the Profile tab,
 // with a "Change account type" button that only scrolled back up to the same
 // select (owner review, 2026-11-22). They have their own Account tab. GPU
-// hosting and payout details are on /dashboard/hosting, not in Settings: the
-// owner wants account and hosting kept separate (2026-11-23).
+// hosting and payout details are a separate Hosting tab: the owner wants
+// account and hosting kept apart (2026-11-23).
 
 vi.mock("@/lib/locale", () => ({ useLocale: () => ({ t: (key: string) => key }) }));
 vi.mock("@/components/ui/province-selector", () => ({

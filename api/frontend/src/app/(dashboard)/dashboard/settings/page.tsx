@@ -9,7 +9,7 @@ import {
   Settings as SettingsIcon, Save, Shield, Bell, Globe, Key, Terminal, Bot,
   Lock, Trash2, Download, Eye, EyeOff, Copy, Plus, AlertTriangle,
   CheckCircle, Loader2, ShieldCheck, X, Users, UserPlus, UserMinus,
-  User, Fingerprint, MonitorSmartphone, KeyRound, IdCard,
+  User, Fingerprint, MonitorSmartphone, KeyRound, IdCard, Server,
   ChevronLeft, ChevronRight, Pencil, Mail, MailCheck,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -36,6 +36,7 @@ import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { ProfileAvatarUpload } from "@/components/user/profile-avatar-upload";
 import { AccountTab } from "@/components/settings/account-tab";
+import { HostingTab } from "@/components/settings/hosting-tab";
 import {
   SettingsLayout,
   SettingsNav,
@@ -65,6 +66,7 @@ function maskNanpPhone(value: string): string {
 const TABS = [
   { id: "profile", labelKey: "dash.settings.tab_profile", fallback: "Profile", icon: User, color: "text-accent-cyan" },
   { id: "account", labelKey: "dash.settings.tab_account", fallback: "Account", icon: IdCard, color: "text-emerald" },
+  { id: "hosting", labelKey: "dash.settings.tab_hosting", fallback: "Hosting", icon: Server, color: "text-emerald" },
   { id: "security", labelKey: "dash.settings.tab_security", fallback: "Security", icon: Shield, color: "text-accent-violet" },
   { id: "mcp", labelKey: "dash.settings.tab_mcp", fallback: "AI Agents", icon: Bot, color: "text-accent-violet" },
   { id: "api-keys", labelKey: "dash.settings.tab_api", fallback: "API & SSH", icon: Key, color: "text-accent-gold" },
@@ -108,9 +110,7 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
 // ── Main Page ─────────────────────────────────────────���─────────────
 
 /** Sections that live inside a tab and can be linked to directly. */
-const SECTION_TABS: Record<string, TabId> = { business: "account" };
-/** Sections that moved to their own page. Old links and bookmarks follow them. */
-const MOVED_SECTIONS: Record<string, string> = { hosting: "/dashboard/hosting", payout: "/dashboard/hosting#payout" };
+const SECTION_TABS: Record<string, TabId> = { business: "account", payout: "hosting" };
 
 /** Scroll to `#id` as soon as it exists (the tab switch animates first), then
  *  flash its outline so the eye lands on it. Returns a cancel function. */
@@ -235,11 +235,6 @@ export default function SettingsPage() {
       }
       // A section inside a tab (#business): open its tab, then bring it into
       // view once the tab's content has mounted.
-      const moved = MOVED_SECTIONS[hash];
-      if (moved) {
-        window.location.replace(moved);
-        return;
-      }
       const sectionTab = SECTION_TABS[hash];
       if (!sectionTab) return;
       setActiveTab(sectionTab);
@@ -803,6 +798,9 @@ export default function SettingsPage() {
           )}
           {activeTab === "account" && user && (
             <AccountTab user={user} onUpdated={refreshUser} />
+          )}
+          {activeTab === "hosting" && user && (
+            <HostingTab user={user} onUpdated={refreshUser} />
           )}
           {activeTab === "security" && (
             <SecurityTab

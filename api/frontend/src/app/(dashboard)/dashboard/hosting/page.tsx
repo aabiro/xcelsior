@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, ChevronRight, Loader2, RefreshCw, Server, ShieldCheck, SlidersHorizontal, Wallet } from "lucide-react";
+import { Check, ChevronRight, Loader2, RefreshCw, Server, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { fetchHosts, type Host } from "@/lib/api";
 import { hostingEnabled, hostingProgress } from "@/lib/hosting";
@@ -12,9 +12,6 @@ import { HostSpotSettings } from "@/components/hosts/host-spot-settings";
 import { Button } from "@/components/ui/button";
 import { useEventStream } from "@/hooks/useEventStream";
 import { cn } from "@/lib/utils";
-import { ProviderProfileForm } from "@/components/providers/seller-profile-card";
-import { SettingsSection } from "@/components/settings/settings-layout";
-import { useLocale } from "@/lib/locale";
 
 const STEPS = [
   { title: "Connect GPU", icon: Server, description: "Register your machine and install the worker on it." },
@@ -23,8 +20,7 @@ const STEPS = [
 ];
 
 export default function HostingPage() {
-  const { user, refreshUser } = useAuth();
-  const { t } = useLocale();
+  const { user } = useAuth();
   const enabled = hostingEnabled(user);
   const [hosts, setHosts] = useState<Host[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,10 +87,5 @@ export default function HostingPage() {
         </section>)}
         {verified.length > 0 && <p className="text-sm text-text-secondary">Standard rates follow the platform catalog. Spot settings control your interruptible capacity. <Link href="/dashboard/earnings" className="text-accent-cyan underline">Set up payouts on Earnings</Link>.</p>}
       </>}
-    {/* Legal and tax details for payouts. They sat in Settings under an
-        "Account & hosting" tab; hosting is its own page now (owner, 2026-11-23). */}
-    {enabled && <SettingsSection id="payout" icon={Wallet} title={t("dash.hosting.payout_title")} description={t("dash.hosting.payout_desc")} accent="emerald">
-      <ProviderProfileForm onSaved={() => { void refreshUser(); }} />
-    </SettingsSection>}
   </div>;
 }
