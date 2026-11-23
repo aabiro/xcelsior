@@ -2365,8 +2365,13 @@ def _dispatch_agent_commands(commands: list) -> int:
                     args.get("reason", "?"),
                     by,
                 )
-                if _start_reverification():
-                    dispatched += 1
+                # Started, already running, or remembered until the host is
+                # idle: each one accepts the request. Nacking a deferral made
+                # the control plane redeliver it four times and dead-letter
+                # it, which read as a broken host while it was doing exactly
+                # what it should (not benchmarking under a paying job).
+                _start_reverification()
+                dispatched += 1
             elif name == "fingerprint_environment":
                 sweep_id = str(args.get("sweep_id") or "")
                 member_index = args.get("member_index")

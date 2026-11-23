@@ -197,6 +197,22 @@ def test_a_busy_host_defers_the_reverification_and_runs_it_once_idle(idle_agent)
     assert not idle_agent._reverify_pending.is_set()
 
 
+def test_a_deferred_reverify_command_is_accepted_not_failed(idle_agent):
+    """A busy host remembers the request; the command must not be retried to death.
+
+    Prod 2026-11-22: both hosts ran a long instance, declined, nacked, and every
+    hourly request ended in dead_letter although the agent had it pending.
+    """
+    idle_agent._active_containers["job-1"] = {"container": "xcl-job-1"}
+    cmd = {"id": "cmd-1", "command": "reverify", "args": {"reason": "scheduled_reverification"}}
+    with mock.patch.object(idle_agent.threading, "Thread") as thread:
+        assert idle_agent._dispatch_agent_commands([cmd]) == 1
+        assert idle_agent._reverify_pending.is_set()
+        # A second request while one is already pending is accepted too.
+        assert idle_agent._dispatch_agent_commands([cmd]) == 1
+        thread.assert_not_called()
+
+
 def test_nothing_pending_starts_nothing(idle_agent):
     with mock.patch.object(idle_agent.threading, "Thread") as thread:
         assert idle_agent._run_pending_reverification() is False
