@@ -554,7 +554,7 @@ export default function InstanceDetailPage() {
                     setEditingName(false);
                   }}
                 >
-                  <input
+                  <input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                     autoFocus
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}

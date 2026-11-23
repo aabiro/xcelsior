@@ -36,7 +36,7 @@ export function SavingsCalculator({ gpus }: { gpus: GpuOption[] }) {
         </label>
         <label className="site-field-wrap">
           <span>{t("calc.hours_day")}</span>
-          <input
+          <input autoComplete="off"
             type="number"
             min={1}
             max={24}
@@ -47,7 +47,7 @@ export function SavingsCalculator({ gpus }: { gpus: GpuOption[] }) {
         </label>
         <label className="site-field-wrap">
           <span>{t("calc.days_month")}</span>
-          <input
+          <input autoComplete="off"
             type="number"
             min={1}
             max={31}

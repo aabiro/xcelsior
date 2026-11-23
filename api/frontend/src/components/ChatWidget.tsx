@@ -575,7 +575,7 @@ function ChatWidgetSession({ showFab = true, externalOpen, onClose, onOpenAiPane
                   )}
                   <form onSubmit={handleSubmit} className="px-4 py-3">
                     <div className="flex items-end gap-2">
-                      <input
+                      <input autoComplete="off"
                         ref={inputRef}
                         type="text"
                         value={input}

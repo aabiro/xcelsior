@@ -359,7 +359,7 @@ export default function TemplatesPage() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[200px] max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <Input
+            <Input autoComplete="off"
               placeholder="Search name, tag, description…"
               value={query}
               onChange={e => setQuery(e.target.value)}
@@ -710,7 +710,7 @@ function EditTemplateDialog({
       <div className="px-6 py-4 space-y-4">
         <div>
           <Label>Description</Label>
-          <textarea
+          <textarea autoComplete="off"
             value={description}
             onChange={e => setDescription(e.target.value)}
             maxLength={512}
@@ -724,7 +724,7 @@ function EditTemplateDialog({
         <div>
           <Label>Labels</Label>
           <div className="flex gap-2 mt-1">
-            <Input
+            <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
               value={labelInput}
               onChange={e => setLabelInput(e.target.value)}
               onKeyDown={e => {

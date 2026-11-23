@@ -103,7 +103,7 @@ export function SaveAsTemplateDialog({
         <div className="mt-5 space-y-4">
           <div>
             <label className="mb-1 block text-xs font-medium text-text-secondary">Name</label>
-            <input
+            <input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -120,7 +120,7 @@ export function SaveAsTemplateDialog({
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-text-secondary">Tag</label>
-            <input
+            <input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
               type="text"
               value={tag}
               onChange={(e) => setTag(e.target.value)}
@@ -131,7 +131,7 @@ export function SaveAsTemplateDialog({
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-text-secondary">Description (optional)</label>
-            <textarea
+            <textarea autoComplete="off"
               value={description}
               onChange={(e) => setDescription(e.target.value.slice(0, 512))}
               placeholder="What's in this template?"

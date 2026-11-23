@@ -112,7 +112,7 @@ export function PlacementPreferenceControl({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-xs text-text-secondary">
           Minimum uptime %
-          <input
+          <input autoComplete="off"
             type="number" min={0} max={100} step={0.1}
             value={minUptime}
             onChange={(e) => setMinUptime(e.target.value)}
@@ -134,7 +134,7 @@ export function PlacementPreferenceControl({
         </label>
         <label className="text-xs text-text-secondary">
           Max premium % over cheapest
-          <input
+          <input autoComplete="off"
             type="number" min={0} step={1}
             value={maxPremium}
             onChange={(e) => setMaxPremium(e.target.value)}

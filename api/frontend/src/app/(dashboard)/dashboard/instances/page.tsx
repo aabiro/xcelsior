@@ -486,7 +486,7 @@ export default function InstancesPage() {
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-          <Input
+          <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
             className="pl-9"
             placeholder={t("dash.instances.search")}
             value={search}
@@ -647,7 +647,7 @@ export default function InstancesPage() {
             }
           }}
         >
-          <Input
+          <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
             autoFocus
             value={renameValue}
             maxLength={128}

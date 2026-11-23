@@ -180,7 +180,7 @@ export function SubmitPanel({ onSubmitted }: { onSubmitted: () => void }) {
 
           <div className="space-y-1.5">
             <Label htmlFor="hpc-job-name" className="text-xs">Job name</Label>
-            <Input id="hpc-job-name" placeholder="my-training-run" value={jobName} onChange={(e) => setJobName(e.target.value)} />
+            <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} id="hpc-job-name" placeholder="my-training-run" value={jobName} onChange={(e) => setJobName(e.target.value)} />
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -194,7 +194,7 @@ export function SubmitPanel({ onSubmitted }: { onSubmitted: () => void }) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="hpc-walltime" className="text-xs">Wall time</Label>
-              <Input id="hpc-walltime" placeholder="HH:MM:SS" value={walltime} onChange={(e) => setWalltime(e.target.value)} className="font-mono" />
+              <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} id="hpc-walltime" placeholder="HH:MM:SS" value={walltime} onChange={(e) => setWalltime(e.target.value)} className="font-mono" />
             </div>
           </div>
           <p className="-mt-2 text-[11px] text-text-muted">
@@ -203,7 +203,7 @@ export function SubmitPanel({ onSubmitted }: { onSubmitted: () => void }) {
 
           <div className="space-y-1.5">
             <Label htmlFor="hpc-command" className="text-xs">Command</Label>
-            <textarea
+            <textarea autoComplete="off" autoCapitalize="none" autoCorrect="off"
               id="hpc-command"
               value={command}
               onChange={(e) => setCommand(e.target.value)}

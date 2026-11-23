@@ -123,7 +123,7 @@ export function RegisterClusterDialog({ open, onClose, onRegistered }: Props) {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="hpc-reg-id" className="text-xs">Cluster ID (optional)</Label>
-            <Input
+            <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
               id="hpc-reg-id"
               placeholder="The profile's own ID"
               value={clusterId}
@@ -170,7 +170,7 @@ export function RegisterClusterDialog({ open, onClose, onRegistered }: Props) {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="hpc-reg-port" className="text-xs">Port</Label>
-                <Input
+                <Input autoComplete="off"
                   id="hpc-reg-port"
                   inputMode="numeric"
                   value={port}
@@ -212,7 +212,7 @@ export function RegisterClusterDialog({ open, onClose, onRegistered }: Props) {
 
             <div className="space-y-1.5">
               <Label htmlFor="hpc-reg-key" className="text-xs">Host key to pin</Label>
-              <TextArea
+              <TextArea autoComplete="off" autoCapitalize="none" autoCorrect="off"
                 id="hpc-reg-key"
                 rows={3}
                 placeholder="login.cluster.example ssh-ed25519 AAAA…"

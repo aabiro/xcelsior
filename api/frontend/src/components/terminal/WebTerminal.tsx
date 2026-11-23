@@ -787,7 +787,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
         {/* Ctrl+F search panel, overlay inside terminal area */}
         {searchOpen && (
           <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1 rounded border border-border bg-[#0f172a] px-2 py-1 shadow-lg">
-            <input
+            <input autoComplete="off" autoCapitalize="none" autoCorrect="off"
               ref={searchInputRef}
               value={searchQuery}
               onChange={(e) => {

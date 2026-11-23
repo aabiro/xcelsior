@@ -276,7 +276,7 @@ export default function HostsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted pointer-events-none" />
-              <Input
+              <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                 className="pl-10 h-10"
                 placeholder="Search by hostname or ID..."
                 value={search}
@@ -605,7 +605,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
             <Label className="text-sm font-medium">
               Hostname <span className="text-accent-red">*</span>
             </Label>
-            <Input
+            <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
               value={hostname}
               onChange={(e) => setHostname(e.target.value)}
               required

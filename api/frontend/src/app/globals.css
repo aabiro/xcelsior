@@ -754,6 +754,14 @@ select:-webkit-autofill:focus {
     0 0 0 1000px var(--autofill-bg, var(--color-navy)) inset;
   transition: background-color 600000s 0s, color 600000s 0s;
 }
+/* The address lookup is a search field so Safari stops offering a saved
+   address over it; it keeps the plain text field's look (no native clear
+   button or search decoration). */
+input[name="lookup-search"]::-webkit-search-cancel-button,
+input[name="lookup-search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
 select:-webkit-autofill:focus {
   -webkit-box-shadow: 0 0 0 2px var(--color-ice-blue), 0 0 0 1000px var(--autofill-bg, var(--color-navy)) inset;
   box-shadow: 0 0 0 2px var(--color-ice-blue), 0 0 0 1000px var(--autofill-bg, var(--color-navy)) inset;

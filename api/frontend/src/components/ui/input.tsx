@@ -5,9 +5,16 @@ import { useState, useRef } from "react";
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {}
 
-export function Input({ className, ...props }: InputProps) {
+/**
+ * Text fields default to `autoComplete="off"`: most fields here are searches,
+ * resource names and identifiers, where the browser's guess offered saved names
+ * and addresses. A field that should be filled in passes its token (name, email,
+ * organization, address-line1, one-time-code, ...).
+ */
+export function Input({ className, autoComplete = "off", ...props }: InputProps) {
   return (
     <input
+      autoComplete={autoComplete}
       className={cn(
         "flex h-10 w-full rounded-lg border border-border bg-navy px-3 py-2 text-sm text-text-primary placeholder:text-text-muted",
         "focus:outline-none focus:ring-2 focus:ring-ice-blue focus:border-transparent",
@@ -49,10 +56,12 @@ export function Select({
 
 export function TextArea({
   className,
+  autoComplete = "off",
   ...props
 }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
+      autoComplete={autoComplete}
       className={cn(
         "flex w-full rounded-lg border border-border bg-navy px-3 py-2 text-sm text-text-primary placeholder:text-text-muted",
         "focus:outline-none focus:ring-2 focus:ring-ice-blue focus:border-transparent",
@@ -80,6 +89,7 @@ export function NumberInput({
   max,
   step = 1,
   disabled,
+  autoComplete = "off",
   ...props
 }: NumberInputProps) {
   const [isFocused, setIsFocused] = useState(false);
@@ -117,6 +127,7 @@ export function NumberInput({
       <input
         ref={inputRef}
         type="number"
+        autoComplete={autoComplete}
         value={value}
         onChange={handleChange}
         onFocus={() => setIsFocused(true)}
@@ -138,10 +149,11 @@ export function NumberInput({
         <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col bg-navy/95 rounded border border-border/50 shadow-lg backdrop-blur-sm">
           <button
             type="button"
+            aria-label="Increase value"
             onMouseDown={(e) => {
               e.preventDefault();
-              handleIncrement();
             }}
+            onClick={handleIncrement}
             className="px-0.5 py-px hover:bg-ice-blue/10 rounded-t transition-colors text-text-secondary hover:text-ice-blue"
             tabIndex={-1}
           >
@@ -149,10 +161,11 @@ export function NumberInput({
           </button>
           <button
             type="button"
+            aria-label="Decrease value"
             onMouseDown={(e) => {
               e.preventDefault();
-              handleDecrement();
             }}
+            onClick={handleDecrement}
             className="px-0.5 py-px hover:bg-ice-blue/10 rounded-b transition-colors text-text-secondary hover:text-ice-blue"
             tabIndex={-1}
           >

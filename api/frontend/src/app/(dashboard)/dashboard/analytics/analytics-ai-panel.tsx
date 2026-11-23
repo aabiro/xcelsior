@@ -785,7 +785,7 @@ export function AnalyticsAiPanel({
           {/* ── Input Area ─────────────────────────────── */}
           <div className="border-t border-border/30 px-4 py-3 bg-[#0a0e1a]/50">
             <form onSubmit={handleSubmit} className="relative">
-              <textarea
+              <textarea autoComplete="off"
                 ref={inputRef}
                 value={input}
                 onChange={handleInputChange}

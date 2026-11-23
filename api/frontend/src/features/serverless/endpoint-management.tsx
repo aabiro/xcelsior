@@ -441,7 +441,7 @@ function NumberField({
   return (
     <label className="space-y-1.5 text-sm">
       <span className="font-medium">{label}</span>
-      <input
+      <input autoComplete="off"
         type="number"
         min={min}
         max={max}

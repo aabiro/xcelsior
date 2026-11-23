@@ -15,4 +15,16 @@ describe("address search", () => {
     expect(input).toHaveAttribute("data-1p-ignore");
     expect(input).toHaveAttribute("data-lpignore", "true");
   });
+
+  // Safari ignores an unknown token and guesses from the field's name and type,
+  // so it kept offering a saved contact address on iPhone (owner, 2026-11-23).
+  it("gives Safari nothing to guess an address from", () => {
+    render(<AddressLookup country="CA" onSelect={vi.fn()} />);
+    const input = screen.getByLabelText("Search address");
+    expect(input).toHaveAttribute("type", "search");
+    const name = input.getAttribute("name") ?? "";
+    expect(name).toMatch(/search/);
+    expect(name).not.toMatch(/addr|street|postal|city/i);
+    expect(input.getAttribute("autocomplete") ?? "").not.toMatch(/addr/i);
+  });
 });

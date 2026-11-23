@@ -427,7 +427,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
 	            <div className="grid gap-4 sm:grid-cols-2">
 	              <label className="space-y-1.5 text-sm">
 	                <span className="font-medium">Workers min</span>
-	                <input
+	                <input autoComplete="off"
 	                  type="number"
 	                  min={0}
 	                  max={editForm.max_workers}
@@ -438,7 +438,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
 	              </label>
 	              <label className="space-y-1.5 text-sm">
 	                <span className="font-medium">Workers max</span>
-	                <input
+	                <input autoComplete="off"
 	                  type="number"
 	                  min={Math.max(1, editForm.min_workers)}
 	                  value={editForm.max_workers}
@@ -448,7 +448,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
 	              </label>
 	              <label className="space-y-1.5 text-sm">
 	                <span className="font-medium">Idle timeout(s)</span>
-	                <input
+	                <input autoComplete="off"
 	                  type="number"
 	                  min={1}
 	                  max={3600}
@@ -459,7 +459,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
 	              </label>
 	              <label className="space-y-1.5 text-sm">
 	                <span className="font-medium">Max concurrency</span>
-	                <input
+	                <input autoComplete="off"
 	                  type="number"
 	                  min={1}
 	                  max={256}
@@ -481,7 +481,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
 	              </label>
 	              <label className="space-y-1.5 text-sm">
 	                <span className="font-medium">Queue timeout(s)</span>
-	                <input
+	                <input autoComplete="off"
 	                  type="number"
 	                  min={1}
 	                  max={3600}
@@ -506,7 +506,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
 	              </label>
 	              <label className="space-y-1.5 text-sm">
 	                <span className="font-medium">{editForm.scaling_policy_type === "queue_delay" ? "Queue delay time(s)" : "Request count"}</span>
-	                <input
+	                <input autoComplete="off"
 	                  type="number"
 	                  min={1}
 	                  max={1000}

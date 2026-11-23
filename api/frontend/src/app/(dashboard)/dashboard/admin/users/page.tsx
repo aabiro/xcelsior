@@ -256,7 +256,7 @@ export default function AdminUsersPage() {
                 <CardTitle className="flex items-center gap-2"><Users className="h-4 w-4" /> All Users</CardTitle>
                 <div className="relative w-72">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted" />
-                  <Input
+                  <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                     placeholder="Search by email, role, province..."
                     value={searchQuery}
                     onChange={(e) => { setSearchQuery(e.target.value); setPage(0); }}

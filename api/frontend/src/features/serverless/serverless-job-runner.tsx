@@ -141,7 +141,7 @@ export function ServerlessJobRunner({
         </div>
         {warm && <Badge variant={warm.state === "ready" ? "active" : "default"}>{formatServerlessChip(warm.state)}</Badge>}
       </div>
-      <textarea
+      <textarea autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
         className="w-full min-h-[100px] rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs"
         value={payload}
         onChange={(e) => setPayload(e.target.value)}

@@ -175,7 +175,7 @@ export default function NotificationsPage() {
         <CardContent className="py-3 px-4 flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <Input
+            <Input autoComplete="off"
               placeholder="Search notifications..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}

@@ -229,7 +229,7 @@ export default function MarketplacePage() {
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[220px] flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
-          <input
+          <input autoComplete="off"
             className="w-full rounded-full border border-border/60 bg-surface py-2 pl-9 pr-3 text-sm placeholder:text-text-muted focus:border-ice-blue/50 focus:outline-none focus:ring-1 focus:ring-ice-blue/30"
             placeholder={t("dash.market.search")}
             value={search}

@@ -154,7 +154,7 @@ function AmountStep({
           <Label htmlFor="business-name" className="mb-1.5 block text-text-secondary text-xs">
             Business name
           </Label>
-          <Input
+          <Input autoComplete="organization"
             id="business-name"
             value={businessName}
             onChange={(event) => setBusinessName(event.target.value)}
@@ -166,7 +166,7 @@ function AmountStep({
           <Label htmlFor="gst-number" className="mb-1.5 block text-text-secondary text-xs">
             GST/HST number
           </Label>
-          <Input
+          <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
             id="gst-number"
             value={gstNumber}
             onChange={(event) => setGstNumber(event.target.value)}

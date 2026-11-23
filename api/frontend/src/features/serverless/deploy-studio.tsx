@@ -336,7 +336,7 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                 <h2 className="text-lg font-semibold">{t("dash.serverless.source_title")}</h2>
                 <div>
                   <label className="block text-sm font-medium mb-1">{t("dash.serverless.endpoint_name")}</label>
-                  <Input
+                  <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                     placeholder={t("dash.serverless.endpoint_name_ph")}
                     value={form.name}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("name", e.target.value)}
@@ -389,7 +389,7 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">{t("dash.serverless.model_custom_id")}</label>
-                      <Input
+                      <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                         value={form.modelRef}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("modelRef", e.target.value)}
                         placeholder="org/model-name"
@@ -419,7 +419,7 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                       <>
                         <div className="sm:col-span-2">
                           <label className="block text-sm font-medium mb-1">{t("dash.serverless.github_repo")}</label>
-                          <Input
+                          <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                             value={form.githubRepo}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("githubRepo", e.target.value)}
                             placeholder="https://github.com/org/repo"
@@ -427,7 +427,7 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                         </div>
                         <div>
                           <label className="block text-sm font-medium mb-1">{t("dash.serverless.github_branch")}</label>
-                          <Input
+                          <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                             value={form.githubBranch}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("githubBranch", e.target.value)}
                             placeholder="main"
@@ -435,7 +435,7 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                         </div>
                         <div>
                           <label className="block text-sm font-medium mb-1">{t("dash.serverless.container_image")}</label>
-                          <Input
+                          <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                             value={form.imageRef}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("imageRef", e.target.value)}
                             placeholder={t("dash.serverless.github_image_ph")}
@@ -445,7 +445,7 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                     ) : (
                     <div className="sm:col-span-2">
                       <label className="block text-sm font-medium mb-1">{t("dash.serverless.container_image")}</label>
-                      <Input
+                      <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                         value={form.imageRef}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("imageRef", e.target.value)}
                         placeholder="registry.io/your-image:tag"
@@ -454,7 +454,7 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                     )}
                     <div className="sm:col-span-2">
                       <label className="block text-sm font-medium mb-1">{t("dash.serverless.start_command")}</label>
-                      <Input
+                      <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                         value={form.startupCommand}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("startupCommand", e.target.value)}
                         placeholder="python handler.py"
@@ -466,21 +466,21 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">{t("dash.serverless.health_path")}</label>
-                      <Input
+                      <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                         value={form.healthCheckPath}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("healthCheckPath", e.target.value)}
                       />
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">{t("dash.serverless.cuda_version")}</label>
-                      <Input
+                      <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                         value={form.cudaVersion}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("cudaVersion", e.target.value)}
                       />
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">{t("dash.serverless.registry_auth")}</label>
-                      <Input
+                      <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                         value={form.registryAuth}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => update("registryAuth", e.target.value)}
                         placeholder={t("dash.serverless.registry_auth_ph")}
@@ -653,7 +653,7 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                 <div className="space-y-2">
                   {form.envRows.map((row, i) => (
                     <div key={i} className="flex gap-2">
-                      <Input
+                      <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                         className="flex-1"
                         placeholder="KEY"
                         value={row.key}
@@ -663,7 +663,7 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                           update("envRows", rows);
                         }}
                       />
-                      <Input
+                      <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                         className="flex-[2]"
                         placeholder="value"
                         value={row.value}

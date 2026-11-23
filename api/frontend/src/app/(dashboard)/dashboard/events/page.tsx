@@ -227,7 +227,7 @@ export default function EventsPage() {
         ))}
       </div>
       <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setSearch(query); resetPage(); }}>
-        <Input aria-label="Search events" placeholder="Search by instance, host, actor or message" value={query} onChange={(event) => setQuery(event.target.value)} />
+        <Input autoComplete="off" aria-label="Search events" placeholder="Search by instance, host, actor or message" value={query} onChange={(event) => setQuery(event.target.value)} />
         <Button type="submit" variant="outline">Search</Button>
         {search && <Button type="button" variant="ghost" onClick={() => { setQuery(""); setSearch(""); resetPage(); }}>Clear</Button>}
       </form>

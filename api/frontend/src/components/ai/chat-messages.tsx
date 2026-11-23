@@ -416,7 +416,7 @@ export function ChatInput({
           "focus-within:border-accent-cyan/40 focus-within:ring-1 focus-within:ring-accent-cyan/15 focus-within:shadow-[0_0_20px_rgba(0,212,255,0.04)]",
           "transition-all duration-200",
         )}>
-          <textarea
+          <textarea autoComplete="off"
             ref={inputRef}
             value={value}
             onChange={(e) => onChange(e.target.value)}

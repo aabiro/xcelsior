@@ -411,7 +411,7 @@ export function McpAgentSetup({
           />
           <div>
             <Label className="text-xs">{t("dash.settings.mcp.token_input_label")}</Label>
-            <Input
+            <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
               value={token}
               onChange={(e) => setToken(e.target.value)}
               placeholder={t("dash.settings.mcp.token_input_placeholder")}

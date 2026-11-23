@@ -475,7 +475,7 @@ export default function AdminAiInsightsPage() {
             setPage(1);
           }}
         >
-          <Input
+          <Input autoComplete="off"
             placeholder="Search messages..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}

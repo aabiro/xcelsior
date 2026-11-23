@@ -221,7 +221,7 @@ for chunk in response:
 
       {mode === "chat" && isPreset && (
         <div className="space-y-3">
-          <Input
+          <Input autoComplete="off"
             value={prompt}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPrompt(e.target.value)}
             placeholder={t("dash.serverless.prompt_ph")}

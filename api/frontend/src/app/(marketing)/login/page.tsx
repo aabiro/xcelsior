@@ -465,6 +465,11 @@ function LoginPageContent() {
                 <label className="site-field-wrap site-auth-field-wrap">
                   <span className="site-auth-label">{mfaMethod === "backup" ? t("auth.mfa_backup_label") : t("auth.mfa_code_placeholder")}</span>
                   <input
+                    autoComplete="one-time-code"
+                    inputMode={mfaMethod === "backup" ? "text" : "numeric"}
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={mfaCode}
                     onChange={(e) => {
                       const val = mfaMethod === "backup" ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, "").slice(0, 6);

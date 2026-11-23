@@ -1075,7 +1075,10 @@ function ProfileTab({
                     <Input
                       type="email"
                       name="email-confirm"
-                      autoComplete="email"
+                      autoComplete="off"
+                      data-1p-ignore=""
+                      data-lpignore="true"
+                      data-form-type="other"
                       inputMode="email"
                       aria-label={t("dash.settings.email_change_confirm")}
                       value={confirmEmail}
@@ -1393,7 +1396,7 @@ function SecurityTab({
                   <div className="space-y-2">
                     <Label>{t("dash.settings.mfa_totp_verify")}</Label>
                     <div className="flex gap-2">
-                      <Input
+                      <Input autoComplete="one-time-code" inputMode="numeric"
                         value={totpCode}
                         onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                         placeholder={t("dash.settings.mfa_code_placeholder")}
@@ -1482,7 +1485,7 @@ function SecurityTab({
                   <div className="space-y-2">
                     <Label>{t("dash.settings.mfa_sms_verify")}</Label>
                     <div className="flex gap-2">
-                      <Input
+                      <Input autoComplete="one-time-code" inputMode="numeric"
                         value={smsCode}
                         onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                         placeholder={t("dash.settings.mfa_code_placeholder")}
@@ -1829,8 +1832,8 @@ function ApiKeysTab({
               </p>
 
               <div className="rounded-lg border border-dashed border-border/80 bg-navy-light/20 p-4 space-y-3">
-                <Input placeholder="Key name (e.g. Work Laptop, Home Desktop)" value={newSshKeyName} onChange={(e) => setNewSshKeyName(e.target.value)} />
-                <textarea
+                <Input autoComplete="off" placeholder="Key name (e.g. Work Laptop, Home Desktop)" value={newSshKeyName} onChange={(e) => setNewSshKeyName(e.target.value)} />
+                <textarea autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs placeholder:text-text-muted min-h-[80px] resize-y focus:outline-none focus:ring-2 focus:ring-ring transition-shadow"
                   placeholder="ssh-ed25519 AAAA... user@host"
                   value={newSshKeyValue}
@@ -2251,7 +2254,7 @@ function PrivacyTab({
                 held artifacts remain clearly identified until their retention ends.
               </p>
               <div className="flex gap-2">
-                <Input
+                <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                   placeholder='Type "DELETE" to confirm'
                   value={deleteConfirm}
                   onChange={(e) => setDeleteConfirm(e.target.value)}

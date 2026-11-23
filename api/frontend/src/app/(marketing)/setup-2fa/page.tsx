@@ -341,7 +341,7 @@ function Setup2FAPageContent() {
           <form onSubmit={handlePasskeyAdd} className="site-auth-form">
             <label className="site-field-wrap site-auth-field-wrap">
               <span className="site-auth-label">Name your passkey</span>
-              <input
+              <input autoComplete="off"
                 value={passkeyName}
                 onChange={(e) => setPasskeyName(e.target.value)}
                 placeholder={t("dash.settings.mfa_passkey_name_placeholder")}
@@ -375,7 +375,7 @@ function Setup2FAPageContent() {
             </div>
             <label className="site-field-wrap site-auth-field-wrap">
               <span className="site-auth-label">Enter 6-digit code</span>
-              <input
+              <input autoComplete="one-time-code" inputMode="numeric"
                 value={totpCode}
                 onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                 placeholder="000000"
@@ -402,7 +402,7 @@ function Setup2FAPageContent() {
                 <span className="site-auth-label">Phone Number</span>
                 <div className="site-auth-phone-row">
                   <span className="site-auth-prefix">+1</span>
-                  <input
+                  <input autoComplete="tel-national"
                     value={smsPhone}
                     onChange={(e) => {
                       const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
@@ -428,7 +428,7 @@ function Setup2FAPageContent() {
                   <span className="site-auth-label">Enter verification code</span>
                   <span className="site-auth-note">Sent to +1 {smsPhone}</span>
                 </div>
-                <input
+                <input autoComplete="one-time-code" inputMode="numeric"
                   value={smsCode}
                   onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   placeholder="000000"

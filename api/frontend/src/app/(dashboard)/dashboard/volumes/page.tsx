@@ -426,7 +426,7 @@ export default function VolumesPage() {
         <div className="space-y-4">
           <div>
             <label className="text-xs font-medium text-text-secondary mb-1.5 block">Volume Name</label>
-            <Input
+            <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
               placeholder="my-dataset"
               value={newName}
               maxLength={128}
@@ -547,7 +547,7 @@ export default function VolumesPage() {
         <div className="space-y-4">
           {canWrite && (
             <div className="flex gap-2">
-              <Input
+              <Input autoComplete="off"
                 placeholder={t("dash.volumes.snapshot_label")}
                 value={snapshotLabel}
                 maxLength={128}
@@ -600,7 +600,7 @@ export default function VolumesPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted pointer-events-none" />
-              <Input
+              <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                 className="pl-10 h-10"
                 placeholder="Search by name or ID..."
                 value={search}
@@ -728,7 +728,7 @@ export default function VolumesPage() {
                                   className="flex items-center gap-1"
                                   onSubmit={(e) => { e.preventDefault(); handleRename(vol.volume_id); }}
                                 >
-                                  <input
+                                  <input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                                     autoFocus
                                     value={renameValue}
                                     onChange={(e) => setRenameValue(e.target.value)}

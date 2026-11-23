@@ -642,7 +642,7 @@ export function LaunchInstanceModal({
                 <div className="space-y-1.5">
                   <Label className="text-xs">Instance Name</Label>
                   <div className="flex gap-2">
-                    <Input
+                    <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                       placeholder="chunky-narwhal"
                       value={instanceName}
                       onChange={(e) => setInstanceName(e.target.value)}
@@ -716,7 +716,7 @@ export function LaunchInstanceModal({
                       <span className="text-[11px] uppercase tracking-[0.16em] text-text-muted">Any image</span>
                     </button>
                   </div>
-                  <Input
+                  <Input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                     placeholder="docker.io/my-org/my-image:latest"
                     value={image ?? defaultImage}
                     onChange={(e) => setImage(e.target.value)}
@@ -1017,7 +1017,7 @@ export function LaunchInstanceModal({
                 {/* Template image */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-text-secondary">Template Image <span className="text-text-muted">(optional)</span></label>
-                  <input
+                  <input autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                     type="text"
                     className="w-full rounded-md border border-border/60 bg-surface-hover/40 px-3 py-2 text-sm placeholder:text-text-muted focus:border-ice-blue/50 focus:outline-none focus:ring-1 focus:ring-ice-blue/30"
                     placeholder="Image ID or leave blank to use standard image"
