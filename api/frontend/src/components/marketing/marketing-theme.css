@@ -676,6 +676,9 @@ html:has(.site-nav) {
 }
 
 .site-telemetry-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
   padding: 10px 15px;
   border: 1px solid var(--edge);
@@ -3430,8 +3433,13 @@ html:has(.site-nav) {
     display: inline-flex;
   }
 
+  /* Solid on a phone: at 60 % the page's headings showed through the open
+     menu and fought its links (owner review, 2026-11-23). The panel only
+     shows below this breakpoint, so desktop is unchanged. */
   .site-mobile-panel[data-open="true"] {
     display: block;
+    background: var(--bg);
+    backdrop-filter: none;
   }
 
   .site-mobile-panel-inner {

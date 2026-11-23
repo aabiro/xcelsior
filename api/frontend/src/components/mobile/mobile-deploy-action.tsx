@@ -16,6 +16,11 @@ import { DeployServerlessModal } from "./deploy-serverless-modal";
 interface MobileDeployActionProps {
   canWrite: boolean;
   serverlessEnabled: boolean;
+  /**
+   * The phone navigation drawer is open. The dock sat at z-48 over the
+   * drawer's last links (owner review, 2026-11-23); it steps aside instead.
+   */
+  suppressed?: boolean;
 }
 
 type DeployTrack = "instance" | "serverless";
@@ -27,7 +32,7 @@ const DOCK_CLEARANCE_VAR = "--mobile-dock-clearance";
  * Pages with dedicated inputs or profile forms. The deployment dock must not
  * cover their fields and Save buttons.
  */
-const DOCKLESS_PATHS = ["/dashboard/ai", "/dashboard/mcp", "/dashboard/hosts", "/dashboard/settings"];
+const DOCKLESS_PATHS = ["/dashboard/ai", "/dashboard/mcp", "/dashboard/hosts", "/dashboard/settings", "/dashboard/hosting", "/dashboard/earnings", "/dashboard/inference/new"];
 /**
  * One instance's page: its logs and web terminal fill the screen, and the dock
  * sat over the Terminal card (prod, 2026-11-22). Launching another machine is
@@ -65,7 +70,7 @@ function safeVibrate(pattern: number | number[]) {
   }
 }
 
-export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeployActionProps) {
+export function MobileDeployAction({ canWrite, serverlessEnabled, suppressed = false }: MobileDeployActionProps) {
   const { t } = useLocale();
   const pathname = usePathname();
   const { state: desktopState } = useDesktopRuntime();
@@ -80,6 +85,7 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
   const trackHintSeen = trackHintStored || trackSwitched;
   const blockClickUntilRef = useRef(0);
   const lastToastAtRef = useRef(0);
+  const lastTapAtRef = useRef(0);
   const modalOpenRef = useRef(false);
   const swipeOriginRef = useRef<{ x: number; y: number } | null>(null);
   const dockRef = useRef<HTMLDivElement | null>(null);
@@ -107,6 +113,7 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
   const resetArmed = useCallback(() => {
     disarm();
     blockClickUntilRef.current = 0;
+    lastTapAtRef.current = 0;
     swipeOriginRef.current = null;
     didSwipeRef.current = false;
   }, [disarm]);
@@ -194,8 +201,18 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
       return;
     }
 
+    const now = Date.now();
+    // Touch browsers often report detail=1 for both taps. Track their timing
+    // as well as mouse double clicks. Keyboard activation opens the form too.
+    if (e.detail === 0 || e.detail >= 2 || (lastTapAtRef.current > 0 && now - lastTapAtRef.current <= 350)) {
+      lastTapAtRef.current = 0;
+      if (selectedTrack === "serverless") setDeployModalOpen(true);
+      else setLaunchModalOpen(true);
+      return;
+    }
+    lastTapAtRef.current = now;
     showHintToast();
-  }, [armedTrack, isHolding, showHintToast]);
+  }, [armedTrack, isHolding, selectedTrack, showHintToast]);
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
     swipeOriginRef.current = { x: e.clientX, y: e.clientY };
@@ -288,8 +305,10 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
           // nav the dashboard does not have, and lifted the dock mid-screen.
           "bottom-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
           showOnMobile ? "flex" : "hidden max-md:flex",
-          modalOpen && "opacity-0 pointer-events-none",
+          (modalOpen || suppressed) && "opacity-0 pointer-events-none",
         )}
+        aria-hidden={suppressed || undefined}
+        inert={suppressed || undefined}
       >
         <div className="pointer-events-auto relative flex flex-col items-center gap-2.5">
           {isArmed && !modalOpen && (

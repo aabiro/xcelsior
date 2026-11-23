@@ -47,8 +47,11 @@ const BUSY_FLEET = {
 function gpuSelect() {
   return screen.getByLabelText("dash.serverless.gpu_type") as HTMLSelectElement;
 }
+function countrySelect() {
+  return screen.getByLabelText("dash.serverless.country") as HTMLSelectElement;
+}
 function regionSelect() {
-  return screen.getByLabelText("dash.serverless.region") as HTMLSelectElement;
+  return screen.getByLabelText("dash.serverless.province") as HTMLSelectElement;
 }
 
 describe("DeployServerlessModal", () => {
@@ -66,6 +69,9 @@ describe("DeployServerlessModal", () => {
     expect(screen.queryByText(/B200|H200|A100/)).toBeNull();
 
     fireEvent.change(gpuSelect(), { target: { value: "RTX 3060" } });
+    // Country, then province by name; the region code stays underneath.
+    expect(countrySelect()).toHaveValue("CA");
+    expect(countrySelect().selectedOptions[0].textContent).toBe("Canada");
     expect(regionSelect()).toHaveValue("ca-on");
     expect(Array.from(regionSelect().options).map((o) => o.value)).toEqual(["ca-on"]);
     expect(screen.getByText("dash.serverless.gpu_all_busy")).toBeInTheDocument();
@@ -77,6 +83,7 @@ describe("DeployServerlessModal", () => {
     expect(await screen.findByText("dash.serverless.no_gpus_title")).toBeInTheDocument();
     expect(gpuSelect()).toBeDisabled();
     expect(gpuSelect().options).toHaveLength(1);
+    expect(countrySelect()).toBeDisabled();
     expect(regionSelect()).toBeDisabled();
     expect(screen.getByRole("button", { name: /dash\.serverless\.deploy/ })).toBeDisabled();
   });

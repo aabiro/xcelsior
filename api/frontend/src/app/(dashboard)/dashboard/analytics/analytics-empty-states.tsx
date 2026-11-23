@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BarChart3, Clock, Cpu, DollarSign, Globe, Server, Shield, TrendingUp, Wallet, Zap } from "lucide-react";
+import { BarChart3, Clock, Cpu, DollarSign, Globe, Server, Shield, TrendingUp, Wallet, Zap, ArrowRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { FadeIn } from "@/components/ui/motion";
@@ -150,11 +150,11 @@ export function PlatformPulseOverview({
           </Card>
         </div>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <Link href="/dashboard/instances" className="text-sm text-accent-cyan hover:underline font-medium">
-            Launch an instance →
+          <Link href="/dashboard/instances" className="inline-flex items-center gap-1 text-sm text-accent-cyan hover:underline font-medium">
+            Launch an instance <ArrowRight className="h-[1em] w-[1em] shrink-0" aria-hidden />
           </Link>
-          <Link href="/dashboard/hosts" className="text-sm text-accent-violet hover:underline font-medium">
-            Register a host →
+          <Link href="/dashboard/hosts" className="inline-flex items-center gap-1 text-sm text-accent-violet hover:underline font-medium">
+            Register a host <ArrowRight className="h-[1em] w-[1em] shrink-0" aria-hidden />
           </Link>
         </div>
       </div>

@@ -5,7 +5,7 @@ import { useModalBodyLock } from "@/hooks/useModalBodyLock";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Loader2, Rocket, X, Zap } from "lucide-react";
+import { ArrowRight, Loader2, Rocket, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, NumberInput, Select } from "@/components/ui/input";
 import { useLocale } from "@/lib/locale";
@@ -27,6 +27,8 @@ import {
 import { DeployGpuEmpty, deployGpuLabel } from "@/features/serverless/gpu-picker";
 import type { DeployStudioForm } from "@/features/serverless/types";
 import { endpointHref } from "@/features/serverless/endpoint-href";
+import { RegionPicker } from "@/features/serverless/region-picker";
+import { PickerSelect } from "@/components/ui/picker-select";
 
 interface DeployServerlessModalProps {
   open: boolean;
@@ -46,6 +48,7 @@ export function DeployServerlessModal({ open, onClose, canWrite }: DeployServerl
   const [deploying, setDeploying] = useState(false);
   const deployingRef = useRef(false);
   const loadGenRef = useRef(0);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useModalBodyLock(open);
 
@@ -81,11 +84,28 @@ export function DeployServerlessModal({ open, onClose, canWrite }: DeployServerl
 
   useEffect(() => {
     if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
+      if (e.key === "Tab") {
+        const elements = Array.from(panelRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), [tabindex="0"]',
+        ) ?? []).filter(element => element.getClientRects().length > 0);
+        const first = elements[0];
+        const last = elements[elements.length - 1];
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
+          e.preventDefault(); last?.focus();
+        } else if (!e.shiftKey && (document.activeElement === last || document.activeElement === panelRef.current)) {
+          e.preventDefault(); first?.focus();
+        }
+      }
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (previous?.isConnected) previous.focus();
+    };
   }, [open, onClose]);
 
   const update = <K extends keyof DeployStudioForm>(key: K, value: DeployStudioForm[K]) => {
@@ -139,10 +159,12 @@ export function DeployServerlessModal({ open, onClose, canWrite }: DeployServerl
               scrolled visibly under the title. `--popover-solid` is the solid
               colour every dialog uses. */}
           <motion.div
+            ref={panelRef}
             role="dialog"
+            tabIndex={-1}
             aria-modal="true"
             aria-labelledby="deploy-serverless-title"
-            className="mx-0 flex w-full max-h-[92dvh] flex-col overflow-hidden rounded-t-3xl border border-border/80 bg-[var(--popover-solid)] shadow-2xl sm:mx-4 sm:max-w-lg sm:rounded-2xl"
+            className="mx-0 flex w-full max-h-[92dvh] flex-col overflow-hidden rounded-t-3xl border border-border/80 bg-[var(--popover-solid)] shadow-2xl outline-none sm:mx-4 sm:max-w-lg sm:rounded-2xl"
             initial={{ y: 48, opacity: 0, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 32, opacity: 0, scale: 0.98 }}
@@ -217,49 +239,37 @@ export function DeployServerlessModal({ open, onClose, canWrite }: DeployServerl
                 <DeployGpuEmpty failed={gpuData.failed} onRetry={() => void loadGpus(++loadGenRef.current)} />
               )}
 
+              <div>
+                <label id="deploy-serverless-gpu-label" htmlFor="deploy-serverless-gpu" className="mb-1.5 block text-sm font-medium">
+                  {t("dash.serverless.gpu_type")}
+                </label>
+                <PickerSelect
+                  id="deploy-serverless-gpu"
+                  aria-labelledby="deploy-serverless-gpu-label"
+                  value={form.gpuTier}
+                  options={loadingGpus ? [] : gpuOptions.map((option) => ({ value: option.model, label: deployGpuLabel(option, t) }))}
+                  onChange={updateGpuTier}
+                  placeholder={loadingGpus
+                    ? t("dash.serverless.gpus_loading")
+                    : gpuOptions.length === 0
+                      ? t("dash.serverless.no_gpus_short")
+                      : t("dash.serverless.select_gpu")}
+                  disabled={loadingGpus}
+                  className={FIELD}
+                  renderNative={(select) => <Select {...select} className={FIELD} />}
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="deploy-serverless-gpu" className="mb-1.5 block text-sm font-medium">
-                    {t("dash.serverless.gpu_type")}
-                  </label>
-                  <Select
-                    id="deploy-serverless-gpu"
-                    value={form.gpuTier}
-                    onChange={(e) => updateGpuTier(e.target.value)}
-                    disabled={loadingGpus || gpuOptions.length === 0}
-                    className={FIELD}
-                  >
-                    <option value="">
-                      {loadingGpus
-                        ? t("dash.serverless.gpus_loading")
-                        : gpuOptions.length === 0
-                          ? t("dash.serverless.no_gpus_short")
-                          : t("dash.serverless.select_gpu")}
-                    </option>
-                    {gpuOptions.map((option) => (
-                      <option key={option.model} value={option.model}>
-                        {deployGpuLabel(option, t)}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <div>
-                  <label htmlFor="deploy-serverless-region" className="mb-1.5 block text-sm font-medium">
-                    {t("dash.serverless.region")}
-                  </label>
-                  <Select
-                    id="deploy-serverless-region"
-                    value={form.region}
-                    onChange={(e) => update("region", e.target.value)}
-                    disabled={regions.length === 0}
-                    className={FIELD}
-                  >
-                    {regions.length === 0 && <option value="">{t("dash.serverless.region_pick_gpu")}</option>}
-                    {regions.map((r) => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </Select>
-                </div>
+                <RegionPicker
+                  regions={regions}
+                  value={form.region}
+                  onChange={(region) => update("region", region)}
+                  labelClassName="mb-1.5 block text-sm font-medium"
+                  fieldClassName={FIELD}
+                  renderNative={(select) => <Select {...select} className={FIELD} />}
+                  field={(label, control, key) => <div key={key} className="min-w-0">{label}{control}</div>}
+                />
               </div>
 
               {selectedOption && selectedOption.available === 0 && (
@@ -309,9 +319,10 @@ export function DeployServerlessModal({ open, onClose, canWrite }: DeployServerl
                 <Link
                   href="/dashboard/inference/new"
                   onClick={onClose}
-                  className="py-2 text-center text-sm text-accent-cyan hover:underline"
+                  className="inline-flex min-h-11 items-center justify-center gap-1.5 py-2 text-center text-sm text-accent-cyan hover:underline"
                 >
                   {t("dash.mobile.deploy_full_studio")}
+                  <ArrowRight className="h-4 w-4" aria-hidden />
                 </Link>
               </div>
             </div>

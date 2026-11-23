@@ -23,6 +23,7 @@ import {
   ArrowUpRight, ArrowDownRight, HardDrive, Leaf, Clock, Zap, Receipt, Loader2,
   Bitcoin, Activity, Gift, Sparkles, CheckCircle2, RotateCcw, Trash2,
   TrendingDown, Cloud, Wallet as WalletIcon, ChevronLeft, ChevronRight,
+  ArrowRight,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
@@ -965,9 +966,9 @@ export default function BillingPage() {
                     </p>
                     <Link
                       href="/dashboard/spot-pricing"
-                      className="mt-2 inline-flex text-xs font-medium text-accent-cyan hover:underline"
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-accent-cyan hover:underline"
                     >
-                      View spot pricing →
+                      View spot pricing <ArrowRight className="h-[1em] w-[1em] shrink-0" aria-hidden />
                     </Link>
                   </div>
                 </div>

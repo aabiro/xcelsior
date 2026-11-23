@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { AuthAwareLink } from "@/components/marketing/auth-aware-link";
 import { SITE_ASSETS, siteIcon } from "@/lib/brand-assets";
@@ -158,11 +159,11 @@ export default function HomePage() {
                     </div>
                   ) : (
                     <div className="site-telemetry-price-copy">
-                      <Link href="/gpu-availability" className="site-telemetry-price-kicker">{t("home.live_see")} →</Link>
+                      <Link href="/gpu-availability" className="site-telemetry-price-kicker" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{t("home.live_see")} <ArrowRight size="1em" style={{ flexShrink: 0 }} aria-hidden /></Link>
                     </div>
                   )}
                   <AuthAwareLink intent="launch" className="site-telemetry-action">
-                    {t("gpus.deploy")} →
+                    {t("gpus.deploy")} <ArrowRight size="1em" style={{ flexShrink: 0 }} aria-hidden />
                   </AuthAwareLink>
                 </div>
               </div>

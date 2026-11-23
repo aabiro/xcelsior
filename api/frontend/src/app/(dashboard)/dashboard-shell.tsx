@@ -812,6 +812,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <MobileDeployAction
           serverlessEnabled={showServerless}
           canWrite={canWriteServerless}
+          suppressed={mobileOpen}
         />
       </div>
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Archive, HardDrive, Loader2 } from "lucide-react";
+import { AlertTriangle, Archive, HardDrive, Loader2, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchArtifactExpiry,
@@ -138,8 +138,8 @@ export function ArtifactRetentionCard({ jobId }: { jobId: string }) {
           </Button>
         </div>
       ) : (
-        <Link href="/dashboard/volumes" className="text-sm text-cyan-400 hover:underline">
-          Create a volume to keep this output →
+        <Link href="/dashboard/volumes" className="inline-flex items-center gap-1 text-sm text-cyan-400 hover:underline">
+          Create a volume to keep this output <ArrowRight className="h-[1em] w-[1em] shrink-0" aria-hidden />
         </Link>
       )}
     </Card>

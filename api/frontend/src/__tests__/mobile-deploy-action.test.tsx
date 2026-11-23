@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MobileDeployAction } from "@/components/mobile/mobile-deploy-action";
 
 vi.mock("@/lib/desktop/runtime", () => ({
@@ -41,6 +41,10 @@ vi.mock("@/components/instances/launch-instance-modal", () => ({
     open ? <div data-testid="launch-instance-modal" /> : null,
 }));
 
+vi.mock("@/components/mobile/deploy-serverless-modal", () => ({
+  DeployServerlessModal: ({ open }: { open: boolean }) => open ? <div data-testid="deploy-serverless-modal" /> : null,
+}));
+
 describe("MobileDeployAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -62,6 +66,9 @@ describe("MobileDeployAction", () => {
   it.each([
     "/dashboard/hosts/host-id",
     "/dashboard/settings",
+    "/dashboard/hosting",
+    "/dashboard/earnings",
+    "/dashboard/inference/new",
     // An instance's logs and terminal: the dock covered the Terminal card.
     "/dashboard/instances/925934a5",
   ])("keeps editable forms clear on %s", (pathname) => {
@@ -91,5 +98,31 @@ describe("MobileDeployAction", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("opens the instance form after two touch-style taps", () => {
+    render(<MobileDeployAction serverlessEnabled canWrite />);
+    const action = screen.getByRole("button", { name: "dash.mobile.action_idle_label" });
+    fireEvent.click(action, { detail: 1 });
+    expect(screen.queryByTestId("launch-instance-modal")).toBeNull();
+    fireEvent.click(action, { detail: 1 });
+    expect(screen.getByTestId("launch-instance-modal")).toBeInTheDocument();
+  });
 
+  it("opens the selected serverless form on keyboard activation", () => {
+    render(<MobileDeployAction serverlessEnabled canWrite />);
+    fireEvent.click(screen.getByText("dash.mobile.track_serverless"));
+    fireEvent.click(screen.getByRole("button", { name: "dash.mobile.action_idle_label" }), { detail: 0 });
+    expect(screen.getByTestId("deploy-serverless-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("launch-instance-modal")).toBeNull();
+  });
+
+  // The dock (z-48) drew over the phone navigation drawer's last links
+  // (owner review, 2026-11-23). While the drawer is open it steps aside.
+  it("steps aside while the navigation drawer is open", () => {
+    const { container } = render(<MobileDeployAction serverlessEnabled canWrite suppressed />);
+    const dock = container.querySelector("[aria-hidden='true']") as HTMLElement;
+    expect(dock).not.toBeNull();
+    expect(dock.className).toContain("pointer-events-none");
+    expect(dock.className).toContain("opacity-0");
+    expect(dock.hasAttribute("inert")).toBe(true);
+  });
 });

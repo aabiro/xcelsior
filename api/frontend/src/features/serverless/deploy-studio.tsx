@@ -28,6 +28,9 @@ import { DeployGpuEmpty, deployGpuLabel } from "./gpu-picker";
 import { ServerlessHero, ServerlessSelect, StepRail } from "./serverless-ui";
 import { formatModelDisplayName } from "./format";
 import { endpointHref } from "@/features/serverless/endpoint-href";
+import { PickerSelect } from "@/components/ui/picker-select";
+import { RegionPicker } from "./region-picker";
+import { regionLabel, useSubdivisionNames } from "./region-names";
 
 interface DeployStudioProps {
   /** Live inventory from `/api/v2/gpu/available`; the only source of GPU choices. */
@@ -73,7 +76,7 @@ function clearDraft() {
 
 export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
   const gpus = gpuData.gpus;
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<DeployStudioForm>(DEFAULT_FORM);
@@ -142,6 +145,7 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
   }, [gpuOptions]);
 
   const regions = useMemo(() => deployRegionOptions(gpuOptions, form.gpuTier), [gpuOptions, form.gpuTier]);
+  const regionNames = useSubdivisionNames(regions);
   const selectedOption = gpuOptions.find((option) => option.model === form.gpuTier);
   const selectedGpu = freeGpuRow(gpus, form.gpuTier, form.region);
   // Only a free GPU carries a price; no estimate is invented for a busy one.
@@ -497,39 +501,31 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                 {gpuOptions.length === 0 && <DeployGpuEmpty failed={gpuData.failed} />}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium mb-1">{t("dash.serverless.gpu_type")}</label>
-                    <ServerlessSelect
+                    <label id="studio-gpu-label" htmlFor="studio-gpu" className="block text-sm font-medium mb-1">{t("dash.serverless.gpu_type")}</label>
+                    <PickerSelect
+                      id="studio-gpu"
+                      aria-labelledby="studio-gpu-label"
                       value={form.gpuTier}
-                      onChange={(e) => updateGpuTier(e.target.value)}
-                      disabled={gpuOptions.length === 0}
-                    >
-                      <option value="">
-                        {gpuOptions.length === 0 ? t("dash.serverless.no_gpus_short") : t("dash.serverless.select_gpu")}
-                      </option>
-                      {gpuOptions.map((option) => {
+                      options={gpuOptions.map((option) => {
                         const free = freeGpuRow(gpus, option.model, "");
-                        return (
-                          <option key={option.model} value={option.model}>
-                            {deployGpuLabel(option, t)}
-                            {free ? ` · $${free.price_per_hour_cad.toFixed(2)}/hr` : ""}
-                          </option>
-                        );
+                        return {
+                          value: option.model,
+                          label: `${deployGpuLabel(option, t)}${free ? ` · $${free.price_per_hour_cad.toFixed(2)}/hr` : ""}`,
+                        };
                       })}
-                    </ServerlessSelect>
+                      onChange={updateGpuTier}
+                      placeholder={gpuOptions.length === 0 ? t("dash.serverless.no_gpus_short") : t("dash.serverless.select_gpu")}
+                      renderNative={(select) => <ServerlessSelect {...select} />}
+                    />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">{t("dash.serverless.region")}</label>
-                    <ServerlessSelect
-                      value={form.region}
-                      onChange={(e) => update("region", e.target.value)}
-                      disabled={regions.length === 0}
-                    >
-                      {regions.length === 0 && <option value="">{t("dash.serverless.region_pick_gpu")}</option>}
-                      {regions.map((r) => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </ServerlessSelect>
-                  </div>
+                  <RegionPicker
+                    regions={regions}
+                    value={form.region}
+                    onChange={(region) => update("region", region)}
+                    labelClassName="block text-sm font-medium mb-1"
+                    renderNative={(select) => <ServerlessSelect {...select} />}
+                    field={(label, control, key) => <div key={key}>{label}{control}</div>}
+                  />
                   <div>
                     <label className="block text-sm font-medium mb-1">{t("dash.serverless.gpu_count")}</label>
                     <NumberInput min={1} max={8} value={form.gpuCount} onChange={(v) => update("gpuCount", v)} />
@@ -694,7 +690,7 @@ export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
                   {[
                     { icon: Sparkles, label: t("dash.serverless.review_method"), value: form.method === "preset" ? t("dash.serverless.method_preset") : t("dash.serverless.method_custom") },
                     { icon: Box, label: t("dash.serverless.review_source"), value: reviewSource },
-                    { icon: Cpu, label: t("dash.serverless.review_gpu"), value: `${form.gpuCount}× ${form.gpuTier || "-"} · ${form.region}` },
+                    { icon: Cpu, label: t("dash.serverless.review_gpu"), value: `${form.gpuCount}× ${form.gpuTier || "-"} · ${form.region ? regionLabel(form.region, locale, regionNames) : "-"}` },
 	                    { icon: Layers, label: t("dash.serverless.review_scaling"), value: `${form.minWorkers}-${form.maxWorkers} workers · ${form.maxConcurrency} concurrent` },
 	                    { icon: Timer, label: t("dash.serverless.idle_timeout"), value: `${form.idleTimeoutSec}s` },
 	                    { icon: Gauge, label: "Execution", value: `${form.executionMode === "sync" ? "Sync" : "Async"} · ${form.queueTimeoutSec}s queue` },

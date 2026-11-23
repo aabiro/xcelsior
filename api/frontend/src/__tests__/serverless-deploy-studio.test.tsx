@@ -136,8 +136,9 @@ describe("DeployStudio", () => {
       expect(screen.getByText("dash.serverless.hardware_title")).toBeInTheDocument();
     });
 
-    const [, regionSelect] = screen.getAllByRole("combobox");
+    const [, countrySelect, regionSelect] = screen.getAllByRole("combobox");
     await waitFor(() => {
+      expect(countrySelect).toHaveValue("CA");
       expect(regionSelect).toHaveValue("ca-on");
     });
 
@@ -163,11 +164,12 @@ describe("DeployStudio", () => {
     await waitFor(() => {
       expect(screen.getByText("dash.serverless.hardware_title")).toBeInTheDocument();
     });
-    const [gpuSelect, regionSelect] = screen.getAllByRole("combobox");
+    const [gpuSelect, countrySelect, regionSelect] = screen.getAllByRole("combobox");
     const labels = Array.from((gpuSelect as HTMLSelectElement).options).map((o) => o.value).filter(Boolean);
     expect(labels).toEqual(["RTX 3060", "RTX 2060"]);
     // The free model is preselected; the busy one stays choosable, its workers queue.
     expect(gpuSelect).toHaveValue("RTX 3060");
+    expect(countrySelect).toHaveValue("CA");
     expect(regionSelect).toHaveValue("ca-on");
     fireEvent.change(gpuSelect, { target: { value: "RTX 2060" } });
     expect(await screen.findByText("dash.serverless.gpu_all_busy")).toBeInTheDocument();
@@ -178,8 +180,9 @@ describe("DeployStudio", () => {
     clickContinue();
     clickContinue();
     expect(await screen.findByText("dash.serverless.no_gpus_title")).toBeInTheDocument();
-    const [gpuSelect, regionSelect] = screen.getAllByRole("combobox");
+    const [gpuSelect, countrySelect, regionSelect] = screen.getAllByRole("combobox");
     expect(gpuSelect).toBeDisabled();
+    expect(countrySelect).toBeDisabled();
     expect(regionSelect).toBeDisabled();
     expect((gpuSelect as HTMLSelectElement).options).toHaveLength(1);
     expect(screen.queryByText(/A100|H100|B200/)).toBeNull();

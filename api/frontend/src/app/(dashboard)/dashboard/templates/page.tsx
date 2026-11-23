@@ -11,6 +11,7 @@ import {
   Layers, RefreshCw, Trash2, Loader2, Search,
   Globe, Lock, X, Check, Tag,
   ArrowUpDown,
+  ArrowRight,
 } from "lucide-react";
 import { FadeIn } from "@/components/ui/motion";
 import { Pagination, usePagination } from "@/components/ui/pagination";
@@ -416,9 +417,9 @@ export default function TemplatesPage() {
                 {scope === "mine" && (
                   <NextLink
                     href="/dashboard/instances"
-                    className="inline-block mt-3 text-sm text-ice-blue hover:underline"
+                    className="inline-flex items-center gap-1 mt-3 text-sm text-ice-blue hover:underline"
                   >
-                    Go to instances →
+                    Go to instances <ArrowRight className="h-[1em] w-[1em] shrink-0" aria-hidden />
                   </NextLink>
                 )}
               </div>
