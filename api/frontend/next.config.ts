@@ -81,6 +81,17 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
+        // An endpoint's page is /dashboard/inference?endpoint=<id>; Quick Deploy
+        // and the endpoint sidebar used to link to this path, a 404 (prod,
+        // 2026-11-22). The [id] page's redirect() only fires once the client has
+        // rendered through the auth shell and the serverless gate, so it could
+        // sit on a blank page; this answers with a 307 before anything renders.
+        // `new` is the deploy studio, a real route.
+        source: "/dashboard/inference/:id((?!new$)[^/]+)",
+        destination: "/dashboard/inference?endpoint=:id",
+        permanent: false,
+      },
+      {
         source: "/docs",
         destination: "https://docs.xcelsior.ca",
         permanent: false,
