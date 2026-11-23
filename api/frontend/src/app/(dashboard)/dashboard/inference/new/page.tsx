@@ -5,10 +5,10 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
-import type { GpuAvailability } from "@/lib/api";
 import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { DeployStudio } from "@/features/serverless/deploy-studio";
+import { EMPTY_DEPLOY_GPU_DATA, loadDeployGpuData, type DeployGpuData } from "@/features/serverless/gpu-options";
 
 
 export default function DeployStudioPage() {
@@ -16,25 +16,21 @@ export default function DeployStudioPage() {
   const { t } = useLocale();
   const team = getTeamContext(user);
   const canWrite = team.canWriteInstances;
-  const [gpus, setGpus] = useState<GpuAvailability[]>([]);
+  const [gpuData, setGpuData] = useState<DeployGpuData>(EMPTY_DEPLOY_GPU_DATA);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async (showSpinner = false) => {
-    if (showSpinner) setLoading(true);
-    try {
-      const res = await api.fetchAvailableGPUs();
-      setGpus(res.gpus || []);
-    } catch {
-      // GPU catalog optional for Deploy Studio, falls back to gpu-models.ts
-    } finally {
+  // Live inventory only. A failed read is shown as a failure, never as a catalog.
+  const load = useCallback(() => {
+    void loadDeployGpuData(api.fetchAvailableGPUs).then((data) => {
+      setGpuData(data);
       setLoading(false);
-    }
+    });
   }, []);
 
-  useEffect(() => { void load(false); }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    const onTeamChanged = () => { void load(false); };
+    const onTeamChanged = () => { load(); };
     window.addEventListener("xcelsior-team-changed", onTeamChanged);
     return () => window.removeEventListener("xcelsior-team-changed", onTeamChanged);
   }, [load]);
@@ -59,7 +55,7 @@ export default function DeployStudioPage() {
   return (
     <div className="space-y-6">
       <TeamContextBanner team={team} variant="general" />
-      <DeployStudio gpus={gpus} canWrite={canWrite} />
+      <DeployStudio gpuData={gpuData} canWrite={canWrite} />
     </div>
   );
 }

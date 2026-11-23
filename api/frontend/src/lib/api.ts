@@ -4521,6 +4521,19 @@ export interface GpuAvailability {
   };
 }
 
+/** One admitted GPU model in one region, from `/api/v2/gpu/available`. */
+export interface GpuInventoryRow {
+  gpu_model: string;
+  vram_gb: number;
+  region: string;
+  province: string;
+  count_total: number;
+  count_available: number;
+  count_allocated: number;
+  count_held: number;
+  count_unavailable: number;
+}
+
 export interface Volume {
   volume_id: string;
   owner_id: string;
@@ -4608,10 +4621,17 @@ export async function createMarketplaceReservation(data: {
 // ── v2 Inference API ──────────────────────────────────────────────────
 
 export async function fetchAvailableGPUs() {
-  /** verified_only: only currently verified hosts take jobs, so only their GPUs are listed. */
-  return apiFetch<{ ok: boolean; gpus: GpuAvailability[]; verified_only?: boolean }>(
-    "/api/v2/gpu/available",
-  );
+  /**
+   * `gpus`: the free GPUs, with price. `inventory`: every admitted GPU, free or
+   * busy. verified_only: only currently verified hosts take jobs, so only their
+   * GPUs are listed.
+   */
+  return apiFetch<{
+    ok: boolean;
+    gpus: GpuAvailability[];
+    inventory?: GpuInventoryRow[];
+    verified_only?: boolean;
+  }>("/api/v2/gpu/available");
 }
 
 export type ServerlessEndpointCreatePayload = {

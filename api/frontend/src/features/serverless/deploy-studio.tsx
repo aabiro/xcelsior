@@ -13,8 +13,6 @@ import { Input, NumberInput } from "@/components/ui/input";
 
 import { useLocale } from "@/lib/locale";
 import { apiFetch } from "@/lib/api";
-import type { GpuAvailability } from "@/lib/api";
-import { GPU_MODELS } from "@/lib/gpu-models";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -23,12 +21,17 @@ import {
 } from "./constants";
 import type { DeployStudioForm } from "./types";
 import { deployServerlessEndpoint } from "./deploy-actions";
-import { findGpuInRegion, regionOptionsForGpus } from "./region-options";
+import {
+  defaultDeployGpu, deployGpuOptions, deployRegionOptions, freeGpuRow, regionFor, type DeployGpuData,
+} from "./gpu-options";
+import { DeployGpuEmpty, deployGpuLabel } from "./gpu-picker";
 import { ServerlessHero, ServerlessSelect, StepRail } from "./serverless-ui";
 import { formatModelDisplayName } from "./format";
+import { endpointHref } from "@/features/serverless/endpoint-href";
 
 interface DeployStudioProps {
-  gpus: GpuAvailability[];
+  /** Live inventory from `/api/v2/gpu/available`; the only source of GPU choices. */
+  gpuData: DeployGpuData;
   canWrite: boolean;
 }
 
@@ -68,7 +71,8 @@ function clearDraft() {
   }
 }
 
-export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
+export function DeployStudio({ gpuData, canWrite }: DeployStudioProps) {
+  const gpus = gpuData.gpus;
   const { t } = useLocale();
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -123,25 +127,25 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
     return () => window.clearTimeout(id);
   }, [form, step, draftReady]);
 
-  const gpuTypes = useMemo(() => {
-    const fromMarket = [...new Set(gpus.map((g) => g.gpu_model))];
-    if (fromMarket.length > 0) return fromMarket;
-    return GPU_MODELS.slice(0, 12).map((g) => g.value);
-  }, [gpus]);
+  const gpuOptions = useMemo(() => deployGpuOptions(gpuData), [gpuData]);
 
   useEffect(() => {
     setForm((prev) => {
-      const nextGpuTier = prev.gpuTier || (gpus.length > 0 ? gpuTypes[0] || "" : "");
-      const nextRegions = regionOptionsForGpus(gpus, nextGpuTier);
-      const nextRegion = nextRegions.includes(prev.region) ? prev.region : nextRegions[0];
+      // A drafted model that is no longer in the fleet is dropped, not kept as a
+      // choice the picker cannot show.
+      const known = gpuOptions.some((option) => option.model === prev.gpuTier);
+      const nextGpuTier = known ? prev.gpuTier : defaultDeployGpu(gpuOptions);
+      const nextRegion = regionFor(gpuOptions, nextGpuTier, prev.region);
       if (prev.gpuTier === nextGpuTier && prev.region === nextRegion) return prev;
       return { ...prev, gpuTier: nextGpuTier, region: nextRegion };
     });
-  }, [gpus, gpuTypes]);
+  }, [gpuOptions]);
 
-  const regions = useMemo(() => regionOptionsForGpus(gpus, form.gpuTier), [gpus, form.gpuTier]);
-  const selectedGpu = findGpuInRegion(gpus, form.gpuTier, form.region);
-  const costPerHour = selectedGpu?.price_per_hour_cad ?? (form.gpuTier ? 2.5 : 0);
+  const regions = useMemo(() => deployRegionOptions(gpuOptions, form.gpuTier), [gpuOptions, form.gpuTier]);
+  const selectedOption = gpuOptions.find((option) => option.model === form.gpuTier);
+  const selectedGpu = freeGpuRow(gpus, form.gpuTier, form.region);
+  // Only a free GPU carries a price; no estimate is invented for a busy one.
+  const costPerHour = selectedGpu?.price_per_hour_cad ?? null;
 
   const update = <K extends keyof DeployStudioForm>(key: K, value: DeployStudioForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -175,11 +179,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
   };
 
   const updateGpuTier = (gpuTier: string) => {
-    setForm((prev) => {
-      const nextRegions = regionOptionsForGpus(gpus, gpuTier);
-      const region = nextRegions.includes(prev.region) ? prev.region : nextRegions[0];
-      return { ...prev, gpuTier, region };
-    });
+    setForm((prev) => ({ ...prev, gpuTier, region: regionFor(gpuOptions, gpuTier, prev.region) }));
   };
 
   const validateStep = (idx: number): string | null => {
@@ -237,7 +237,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
         model_ref: form.method === "preset" ? form.modelRef : null,
         custom_source: form.method === "custom" ? form.customSource : null,
       });
-      router.push(`/dashboard/inference?endpoint=${encodeURIComponent(res.endpoint.endpoint_id)}`);
+      router.push(endpointHref(res.endpoint.endpoint_id));
     } catch (e: unknown) {
       posthog.captureException(e instanceof Error ? e : new Error(String(e)));
       const msg = e instanceof Error ? e.message : t("dash.serverless.deploy_failed");
@@ -494,20 +494,24 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
             {step === 2 && (
               <>
                 <h2 className="text-lg font-semibold">{t("dash.serverless.hardware_title")}</h2>
+                {gpuOptions.length === 0 && <DeployGpuEmpty failed={gpuData.failed} />}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label className="block text-sm font-medium mb-1">{t("dash.serverless.gpu_type")}</label>
                     <ServerlessSelect
                       value={form.gpuTier}
                       onChange={(e) => updateGpuTier(e.target.value)}
+                      disabled={gpuOptions.length === 0}
                     >
-                      <option value="">{t("dash.serverless.select_gpu")}</option>
-                      {gpuTypes.map((g) => {
-                        const info = gpus.find((x) => x.gpu_model === g);
+                      <option value="">
+                        {gpuOptions.length === 0 ? t("dash.serverless.no_gpus_short") : t("dash.serverless.select_gpu")}
+                      </option>
+                      {gpuOptions.map((option) => {
+                        const free = freeGpuRow(gpus, option.model, "");
                         return (
-                          <option key={g} value={g}>
-                            {g}
-                            {info ? `, ${info.vram_gb}GB · $${info.price_per_hour_cad.toFixed(2)}/hr` : ""}
+                          <option key={option.model} value={option.model}>
+                            {deployGpuLabel(option, t)}
+                            {free ? ` · $${free.price_per_hour_cad.toFixed(2)}/hr` : ""}
                           </option>
                         );
                       })}
@@ -518,7 +522,9 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                     <ServerlessSelect
                       value={form.region}
                       onChange={(e) => update("region", e.target.value)}
+                      disabled={regions.length === 0}
                     >
+                      {regions.length === 0 && <option value="">{t("dash.serverless.region_pick_gpu")}</option>}
                       {regions.map((r) => (
                         <option key={r} value={r}>{r}</option>
                       ))}
@@ -529,7 +535,12 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                     <NumberInput min={1} max={8} value={form.gpuCount} onChange={(v) => update("gpuCount", v)} />
                   </div>
                 </div>
-                {form.gpuTier && (
+                {selectedOption && selectedOption.available === 0 && (
+                  <p className="text-sm text-text-muted">
+                    {t("dash.serverless.gpu_all_busy", { model: selectedOption.model })}
+                  </p>
+                )}
+                {form.gpuTier && costPerHour !== null && (
                   <div className="rounded-xl border border-accent-cyan/20 bg-accent-cyan/5 p-4 flex items-center gap-3">
                     <Gauge className="h-5 w-5 text-accent-cyan shrink-0" />
                     <div className="text-sm">
@@ -710,7 +721,7 @@ export function DeployStudio({ gpus, canWrite }: DeployStudioProps) {
                     {t("dash.serverless.cold_start_note")}
                   </div>
                   <p className="text-xs text-text-muted mt-1">{t("dash.serverless.cold_start_desc")}</p>
-                  {form.gpuTier && (
+                  {form.gpuTier && costPerHour !== null && (
                     <p className="text-sm mt-2 font-mono">
                       ~${(costPerHour * form.gpuCount).toFixed(2)}/hr {t("dash.serverless.per_worker")}
                       {form.method === "preset" && formatTokenRateFromPricing(form.modelRef, tokenQuotes[form.modelRef]) && (

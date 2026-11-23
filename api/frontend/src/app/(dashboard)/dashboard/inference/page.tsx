@@ -12,7 +12,7 @@ import { FadeIn } from "@/components/ui/motion";
 import { useAuth } from "@/lib/auth";
 import { useLocale } from "@/lib/locale";
 import * as api from "@/lib/api";
-import type { GpuAvailability, ServerlessEndpoint } from "@/lib/api";
+import type { ServerlessEndpoint } from "@/lib/api";
 import { useEventStream } from "@/hooks/useEventStream";
 import { getTeamContext } from "@/lib/team-context";
 import { PRESET_MODELS, formatTokenRateFromPricing, type TokenPricingQuote } from "@/features/serverless/constants";
@@ -21,7 +21,9 @@ import { ServerlessEmptyState, ServerlessHero } from "@/features/serverless/serv
 import { formatModelDisplayName, formatServerlessChip } from "@/features/serverless/format";
 import { ServerlessEndpointManagement } from "@/features/serverless/endpoint-management";
 import { DeployStudio } from "@/features/serverless/deploy-studio";
+import { EMPTY_DEPLOY_GPU_DATA, loadDeployGpuData, type DeployGpuData } from "@/features/serverless/gpu-options";
 import { toast } from "sonner";
+import { endpointHref } from "@/features/serverless/endpoint-href";
 
 function serverlessActionError(err: unknown, viewerMessage: string): string {
   const msg = err instanceof Error ? err.message : "Request failed";
@@ -36,7 +38,7 @@ export default function InferencePage() {
   const team = getTeamContext(user);
   const canWrite = team.canWriteInstances;
   const [endpoints, setEndpoints] = useState<ServerlessEndpoint[]>([]);
-  const [gpus, setGpus] = useState<GpuAvailability[]>([]);
+  const [gpuData, setGpuData] = useState<DeployGpuData>(EMPTY_DEPLOY_GPU_DATA);
   const [loading, setLoading] = useState(true);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [tokenQuotes, setTokenQuotes] = useState<Record<string, TokenPricingQuote>>({});
@@ -50,10 +52,10 @@ export default function InferencePage() {
     try {
       const [endpointRes, gpuRes] = await Promise.all([
         api.listServerlessEndpoints(),
-        api.fetchAvailableGPUs().catch(() => ({ gpus: [] })),
+        loadDeployGpuData(api.fetchAvailableGPUs),
       ]);
       setEndpoints(endpointRes.endpoints || []);
-      setGpus(gpuRes.gpus || []);
+      setGpuData(gpuRes);
     } catch {
       toast.error(t("dash.serverless.load_failed"));
     } finally {
@@ -97,7 +99,7 @@ export default function InferencePage() {
 
   const selectEndpoint = (endpointId: string) => {
     setActiveTab("endpoints");
-    router.replace(`/dashboard/inference?endpoint=${encodeURIComponent(endpointId)}`, { scroll: false });
+    router.replace(endpointHref(endpointId), { scroll: false });
   };
 
   const confirmDelete = async () => {
@@ -230,7 +232,7 @@ export default function InferencePage() {
         className="h-[88vh]"
         bodyClassName="min-h-0 flex-1 overflow-hidden px-0 pb-0"
       >
-        <DeployStudio gpus={gpus} canWrite={canWrite} />
+        <DeployStudio gpuData={gpuData} canWrite={canWrite} />
       </Dialog>
 
       <ConfirmDialog

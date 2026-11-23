@@ -34,14 +34,17 @@ export function formatTokenRateFromPricing(
   return null;
 }
 
-/** Preset LLM SKUs (chat, embed, rerank) — rates from /api/v2/serverless/preset-token-pricing. */
+/**
+ * Preset LLM SKUs (chat, embed, rerank) — rates from /api/v2/serverless/preset-token-pricing.
+ * Open-weight models only: a preset is pulled and served by the engine on the
+ * worker. Voyage-3, Voyage-3-code and Cohere Rerank v3.5 were listed here and
+ * have no public weights, so a deploy of one could never start (2026-11-22).
+ * Must match `DOC_PRESET_MODELS` in api/serverless/registry_models.py (drift-guarded).
+ */
 export const PRESET_MODELS = [
   { id: "Qwen/Qwen3-8B", label: "Qwen3 8B (default)", vram: 16, task: "chat" as PresetTask },
   { id: "BAAI/bge-m3", label: "BGE-M3 (embeddings)", vram: 8, task: "embed" },
   { id: "BAAI/bge-reranker-v2-m3", label: "BGE Reranker v2 (rerank)", vram: 8, task: "rerank" },
-  { id: "VoyageAI/voyage-3", label: "Voyage-3 (embeddings)", vram: 8, task: "embed" },
-  { id: "VoyageAI/voyage-3-code", label: "Voyage-3-code (embeddings)", vram: 8, task: "embed" },
-  { id: "Cohere/cohere-rerank-v3.5", label: "Cohere Rerank v3.5 (rerank)", vram: 8, task: "rerank" },
 ] as const;
 
 export const DEPLOY_STUDIO_STEPS = [

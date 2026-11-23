@@ -27,21 +27,20 @@ _HF_TO_REGISTRY_ID: dict[str, str] = {
     "baai/bge-reranker-v2-m3": "store_llm_baai_bge_reranker_v2_m3",
     "meta-llama/llama-3.1-8b-instruct": "store_llm_meta_llama_llama_3_1_8b_instruct",
     "meta-llama/llama-3.3-70b-instruct": "store_llm_meta_llama_llama_3_3_70b_instruct",
-    "voyageai/voyage-3": "store_llm_voyageai_voyage_3",
-    "voyageai/voyage-3-code": "store_llm_voyageai_voyage_3_code",
-    "cohere/cohere-rerank-v3.5": "store_llm_cohere_cohere_rerank_v3_5",
 }
 
 _SAFE = re.compile(r"[^a-zA-Z0-9._-]+")
 
 # Preset model SKUs — paths resolved from pxl-registry / local model store.
+# Open-weight models only: the worker's engine serves the weights. Voyage-3,
+# Voyage-3-code and Cohere Rerank v3.5 were listed and have no public weights,
+# so an endpoint on one could never start (2026-11-22). The dashboard's
+# PRESET_MODELS (api/frontend/src/features/serverless/constants.ts) must list
+# exactly these; tests/test_serverless_presets_are_deployable.py checks it.
 DOC_PRESET_MODELS: tuple[str, ...] = (
     "Qwen/Qwen3-8B",
     "BAAI/bge-m3",  # embeddings preset (UPGRADE_PLAN §xcelsior)
     "BAAI/bge-reranker-v2-m3",  # rerank preset (RAG companion)
-    "VoyageAI/voyage-3",
-    "VoyageAI/voyage-3-code",
-    "Cohere/cohere-rerank-v3.5",
 )
 # Support weights required at worker start (not user-selectable presets).
 DOC_SUPPORT_MODELS: tuple[str, ...] = ("RedHatAI/Qwen3-8B-speculator.eagle3",)

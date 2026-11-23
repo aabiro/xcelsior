@@ -14,7 +14,6 @@ import { useEventStream } from "@/hooks/useEventStream";
 import * as api from "@/lib/api";
 import type {
   ServerlessEndpoint, ServerlessEndpointMetrics, ServerlessWorker, ServerlessJob, ServerlessApiKey,
-  GpuAvailability,
 } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -33,6 +32,8 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { DeployStudio } from "./deploy-studio";
+import { EMPTY_DEPLOY_GPU_DATA, loadDeployGpuData, type DeployGpuData } from "./gpu-options";
+import { endpointHref } from "@/features/serverless/endpoint-href";
 
 const TABS: { id: DetailTab; icon: typeof Activity; labelKey: string }[] = [
   { id: "overview", icon: BarChart3, labelKey: "dash.serverless.tab_overview" },
@@ -91,7 +92,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
   const [jobs, setJobs] = useState<ServerlessJob[]>([]);
   const [keys, setKeys] = useState<ServerlessApiKey[]>([]);
   const [allEndpoints, setAllEndpoints] = useState<ServerlessEndpoint[]>([]);
-  const [gpus, setGpus] = useState<GpuAvailability[]>([]);
+  const [gpuData, setGpuData] = useState<DeployGpuData>(EMPTY_DEPLOY_GPU_DATA);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -112,8 +113,8 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
           : Promise.resolve({ endpoints: [] });
       const availableGpus =
         typeof api.fetchAvailableGPUs === "function"
-          ? api.fetchAvailableGPUs().catch(() => ({ gpus: [] }))
-          : Promise.resolve({ gpus: [] });
+          ? loadDeployGpuData(api.fetchAvailableGPUs)
+          : Promise.resolve(EMPTY_DEPLOY_GPU_DATA);
       const [epRes, metricsRes, workersRes, jobsRes, keysRes, listRes, gpuRes] = await Promise.all([
         api.getServerlessEndpoint(endpointId),
         api.getServerlessEndpointMetrics(endpointId, 24).catch(() => ({ metrics: null })),
@@ -129,7 +130,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
       setJobs(jobsRes.jobs || []);
       setKeys(keysRes.keys || []);
       setAllEndpoints(listRes.endpoints || []);
-      setGpus(gpuRes.gpus || []);
+      setGpuData(gpuRes);
       setNotFound(false);
       setLoadError(false);
     } catch (err) {
@@ -383,7 +384,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
                 return (
                   <Link
                     key={ep.endpoint_id}
-                    href={`/dashboard/inference/${ep.endpoint_id}`}
+                    href={endpointHref(ep.endpoint_id)}
                     className={`block rounded-lg px-2.5 py-2.5 text-left text-sm transition-all border border-transparent ${active ? "bg-accent-violet/12 text-accent-violet border-accent-violet/20" : "text-text-muted hover:bg-surface-hover hover:text-text-primary"}`}
                   >
                     <span className={`block truncate text-[10px] font-mono tracking-tight ${active ? "text-accent-violet/90" : "text-text-muted"}`}>
@@ -534,7 +535,7 @@ export function EndpointDetail({ endpointId, canWrite }: EndpointDetailProps) {
 	      </Dialog>
 
 	      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} title="Create endpoint" maxWidth="max-w-5xl" bodyClassName="px-6 pb-6 overflow-y-auto">
-	        <DeployStudio gpus={gpus} canWrite={canWrite} />
+	        <DeployStudio gpuData={gpuData} canWrite={canWrite} />
 	      </Dialog>
 	    </FadeIn>
 	  );
