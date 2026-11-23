@@ -1140,6 +1140,8 @@ html:has(.site-nav) {
 }
 
 .site-field {
+  --autofill-bg: var(--surface-2);
+  --autofill-fg: var(--text);
   min-height: 44px;
   width: 100%;
   border: 1px solid var(--edge);
@@ -1153,6 +1155,7 @@ html:has(.site-nav) {
 }
 
 .site-field:focus {
+  --autofill-bg: var(--surface-3);
   border-color: var(--cyan);
   background: var(--surface-3);
 }

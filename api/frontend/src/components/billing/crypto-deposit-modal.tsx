@@ -503,7 +503,7 @@ export function CryptoDepositModal({
                         setAmount(e.target.value);
                         setShowAmountError(false);
                       }}
-                      className="pl-9 pr-16 font-mono text-base h-12 rounded-xl bg-navy-light border-border focus:border-amber-500 focus:ring-amber-500/20"
+                      className="pl-9 pr-16 font-mono text-base h-12 rounded-xl bg-navy-light border-border"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-text-muted font-medium">
                       CAD

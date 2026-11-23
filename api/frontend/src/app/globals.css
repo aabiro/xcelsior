@@ -711,16 +711,67 @@ select {
   padding-right: 2.1rem !important;
   cursor: pointer;
 }
+/* The same focus as every text field (Input: a 2px ice-blue ring, no border
+   colour). Selects had a faint 15% glow and a cyan border instead, so a form
+   changed its focus style from field to field (owner review, 2026-11-22). */
 select:focus {
   outline: none;
-  border-color: var(--color-accent-cyan) !important;
-  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.15);
+  border-color: transparent !important;
+  box-shadow: 0 0 0 2px var(--color-ice-blue);
 }
 html.light select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 /* hide native select arrow in IE / Edge Legacy */
 select::-ms-expand { display: none; }
+
+/* ── Autofill ─────────────────────────────────────────────────────────
+   Browsers paint an autofilled field pale yellow, and Safari on iOS keeps
+   it after the value is cleared: that is how the address search on the
+   business form sat empty and bright yellow (owner review, 2026-11-22).
+   An inset shadow in the field's own colour covers the paint, the text keeps
+   the theme's colour, and any focus ring still draws outside the inset.
+   A field on another background sets --autofill-bg (marketing .site-field). */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill,
+select:-webkit-autofill:hover,
+select:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--autofill-fg, var(--color-text-primary));
+  caret-color: var(--autofill-fg, var(--color-text-primary));
+  -webkit-box-shadow:
+    var(--tw-ring-offset-shadow, 0 0 #0000),
+    var(--tw-ring-shadow, 0 0 #0000),
+    0 0 0 1000px var(--autofill-bg, var(--color-navy)) inset;
+  box-shadow:
+    var(--tw-ring-offset-shadow, 0 0 #0000),
+    var(--tw-ring-shadow, 0 0 #0000),
+    0 0 0 1000px var(--autofill-bg, var(--color-navy)) inset;
+  transition: background-color 600000s 0s, color 600000s 0s;
+}
+select:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 2px var(--color-ice-blue), 0 0 0 1000px var(--autofill-bg, var(--color-navy)) inset;
+  box-shadow: 0 0 0 2px var(--color-ice-blue), 0 0 0 1000px var(--autofill-bg, var(--color-navy)) inset;
+}
+
+/* ── Phone text size ──────────────────────────────────────────────────
+   iOS Safari zooms the page into any field under 16px when it is focused,
+   and stays zoomed after the keyboard closes. Fields are 14px (text-sm), so
+   every tap into a form on a phone zoomed it. 16px below the sm breakpoint
+   stops that without disabling pinch zoom; sm and up keep their size.
+   xterm's hidden input is left alone: it is positioned by the terminal. */
+@media (max-width: 639.98px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  select,
+  textarea:not(.xterm-helper-textarea) {
+    font-size: 16px;
+  }
+}
 
 /* ── Number input, hide native spin buttons, replace with clean look */
 input[type="number"] {
