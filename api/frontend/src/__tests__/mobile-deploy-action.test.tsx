@@ -59,10 +59,31 @@ describe("MobileDeployAction", () => {
     expect(screen.getByText("dash.mobile.action_idle_instances")).toBeInTheDocument();
   });
 
-  it.each(["/dashboard/hosts/host-id", "/dashboard/settings"])("keeps editable forms clear on %s", (pathname) => {
+  it.each([
+    "/dashboard/hosts/host-id",
+    "/dashboard/settings",
+    // An instance's logs and terminal: the dock covered the Terminal card.
+    "/dashboard/instances/925934a5",
+  ])("keeps editable forms clear on %s", (pathname) => {
     navigation.pathname = pathname;
     const { container } = render(<MobileDeployAction serverlessEnabled canWrite />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it.each(["/dashboard/instances", "/dashboard/instances/new", "/dashboard"])(
+    "stays on %s, where launching is the point",
+    (pathname) => {
+      navigation.pathname = pathname;
+      render(<MobileDeployAction serverlessEnabled canWrite />);
+      expect(screen.getByText("dash.mobile.action_idle")).toBeInTheDocument();
+    },
+  );
+
+  it("sits just above the browser bar, not lifted mid-screen", () => {
+    const { container } = render(<MobileDeployAction serverlessEnabled canWrite />);
+    const dock = container.querySelector(".fixed") as HTMLElement;
+    expect(dock.className).toContain("bottom-0");
+    expect(dock.className).not.toMatch(/5\.5rem|4rem/);
   });
 
   it("hides when user cannot write", () => {

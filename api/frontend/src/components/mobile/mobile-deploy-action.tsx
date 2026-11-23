@@ -28,6 +28,20 @@ const DOCK_CLEARANCE_VAR = "--mobile-dock-clearance";
  * cover their fields and Save buttons.
  */
 const DOCKLESS_PATHS = ["/dashboard/ai", "/dashboard/mcp", "/dashboard/hosts", "/dashboard/settings"];
+/**
+ * One instance's page: its logs and web terminal fill the screen, and the dock
+ * sat over the Terminal card (prod, 2026-11-22). Launching another machine is
+ * not what that page is for; the instance list keeps the dock.
+ */
+const DOCKLESS_PATTERNS = [/^\/dashboard\/instances\/(?!new(?:\/|$))[^/]+/];
+
+export function isDocklessPath(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  return (
+    DOCKLESS_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
+    DOCKLESS_PATTERNS.some((pattern) => pattern.test(pathname))
+  );
+}
 const ARM_TAP_GRACE_MS = 400;
 const ARMED_IDLE_MS = 45_000;
 const TOAST_COOLDOWN_MS = 2_500;
@@ -231,7 +245,7 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
   // the end of every page, Save buttons included, could never be scrolled
   // clear of it. Its real footprint is measured rather than guessed: it grows
   // when armed, and is display:none on desktop, where it must reserve nothing.
-  const dockless = DOCKLESS_PATHS.some((p) => pathname === p || pathname?.startsWith(`${p}/`));
+  const dockless = isDocklessPath(pathname);
 
   useEffect(() => {
     const el = dockRef.current;
@@ -269,9 +283,10 @@ export function MobileDeployAction({ canWrite, serverlessEnabled }: MobileDeploy
         ref={dockRef}
         className={cn(
           "pointer-events-none fixed inset-x-0 z-[48] flex justify-center",
-          showOnMobile
-            ? "bottom-0 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
-            : "bottom-0 pb-[max(5.5rem,calc(1.25rem+4rem))] max-md:pb-[max(5.5rem,calc(1.25rem+4rem))]",
+          // Just above the browser's own bar. `bottom-0` already ends where the
+          // browser chrome begins; the old extra 4rem reserved room for a bottom
+          // nav the dashboard does not have, and lifted the dock mid-screen.
+          "bottom-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
           showOnMobile ? "flex" : "hidden max-md:flex",
           modalOpen && "opacity-0 pointer-events-none",
         )}
