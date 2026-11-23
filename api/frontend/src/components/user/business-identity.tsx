@@ -41,7 +41,11 @@ export function BusinessTriggerIdentity({
   const personName = person.name || person.email;
   return (
     <>
-      <span className="relative shrink-0">
+      {/* As a block, the inline-flex logo sits on a text line: an image logo
+          gets the line's descender space under it, 47px tall for a 40px logo,
+          and on a phone the round trigger around it drew a tall oval. Flex has
+          no line box. sm and up keep the block, so desktop is unchanged. */}
+      <span className="relative flex shrink-0 sm:block">
         <BusinessLogo business={business} size="md" src={logo?.src} tile={logo?.tile} />
         <UserAvatar
           user={person}
