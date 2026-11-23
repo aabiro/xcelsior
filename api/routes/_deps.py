@@ -1935,9 +1935,19 @@ def _consume_ws_ticket(
     purpose: str = "websocket",
     target: str = "",
 ) -> dict | None:
-    """Consume a previously issued WebSocket ticket exactly once."""
+    """Consume a previously issued WebSocket ticket exactly once.
+
+    The ticket is pinned to the address that asked for it. A socket from another
+    address is accepted only when it carries the issuer's own session cookie:
+    iCloud Private Relay gives every connection a new exit address, so on an
+    iPhone the ticket POST and the WebSocket never share one, and every web
+    terminal was refused (prod, 2026-11-22). Someone holding the issuer's
+    session could mint a ticket of their own, so that admits nobody new; a
+    leaked ticket alone still works only from the address it was issued to.
+    """
     now = time.time()
     ws_ip = _get_ws_client_ip(websocket)
+    session_user_id = _ws_session_user_id(websocket)
     shared_ok, shared_user = _shared_state_update(
         _WS_TICKET_STATE_NAMESPACE,
         lambda: {"tickets": {}},
@@ -1948,6 +1958,7 @@ def _consume_ws_ticket(
             target=target,
             ws_ip=ws_ip,
             now=now,
+            session_user_id=session_user_id,
         ),
     )
     res_user = None
@@ -1963,9 +1974,7 @@ def _consume_ws_ticket(
                 return None
             if target and payload.get("target") not in ("", target):
                 return None
-            pinned_ip = payload.get("ip_address", "unknown")
-            if pinned_ip not in ("", "unknown", ws_ip):
-                _log_ws_ticket_ip_mismatch(purpose, pinned_ip, ws_ip)
+            if not _ws_ticket_address_ok(payload, purpose, ws_ip, session_user_id):
                 return None
             _WS_TICKETS.pop(ticket, None)
             res_user = dict(payload.get("user") or {})
@@ -1981,6 +1990,47 @@ def _consume_ws_ticket(
         return refresh_stream_principal(res_user)
     except HTTPException:
         return None
+
+
+def _ws_session_user_id(websocket: WebSocket) -> str:
+    """The user behind the socket's own session cookie, or "" when there is none.
+
+    Only the cookie: a query token or an Authorization header on the upgrade is
+    not what a browser sends, and is not evidence of the same browser session.
+    """
+    cookies = getattr(websocket, "cookies", None) or {}
+    token = str(cookies.get(_AUTH_COOKIE_NAME, "") or "").strip()
+    if not token:
+        return ""
+    from types import SimpleNamespace
+    from typing import cast
+
+    request = cast(
+        Request, SimpleNamespace(headers={"authorization": "Bearer " + token}, cookies={})
+    )
+    try:
+        user = _get_current_user(request)
+    except HTTPException:
+        return ""
+    return str((user or {}).get("user_id") or "")
+
+
+def _ws_ticket_address_ok(payload: dict, purpose: str, ws_ip: str, session_user_id: str) -> bool:
+    """Same address as the issue, or another address with the issuer's session."""
+    pinned_ip = payload.get("ip_address", "unknown")
+    if pinned_ip in ("", "unknown", ws_ip):
+        return True
+    issuer = str((payload.get("user") or {}).get("user_id") or "")
+    if session_user_id and issuer and session_user_id == issuer:
+        log.info(
+            "ws.ticket.address_changed purpose=%s issued_ip=%s ws_ip=%s session=issuer",
+            purpose,
+            pinned_ip,
+            ws_ip,
+        )
+        return True
+    _log_ws_ticket_ip_mismatch(purpose, pinned_ip, ws_ip)
+    return False
 
 
 def _log_ws_ticket_ip_mismatch(purpose: str, pinned_ip: str, ws_ip: str) -> None:
@@ -2016,6 +2066,7 @@ def _mutate_shared_ws_tickets_consume(
     target: str,
     ws_ip: str,
     now: float,
+    session_user_id: str = "",
 ) -> tuple[dict, dict | None]:
     tickets = _purge_shared_ws_tickets(state.get("tickets"), now)
     payload = tickets.get(ticket)
@@ -2025,9 +2076,7 @@ def _mutate_shared_ws_tickets_consume(
         return {"tickets": tickets, "updated_at": now}, None
     if target and payload.get("target") not in ("", target):
         return {"tickets": tickets, "updated_at": now}, None
-    pinned_ip = payload.get("ip_address", "unknown")
-    if pinned_ip not in ("", "unknown", ws_ip):
-        _log_ws_ticket_ip_mismatch(purpose, pinned_ip, ws_ip)
+    if not _ws_ticket_address_ok(payload, purpose, ws_ip, session_user_id):
         return {"tickets": tickets, "updated_at": now}, None
     tickets.pop(ticket, None)
     return {"tickets": tickets, "updated_at": now}, dict(payload.get("user") or {})

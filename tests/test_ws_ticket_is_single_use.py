@@ -152,3 +152,63 @@ def test_a_refused_replay_does_not_consume_a_second_ticket(path):
     assert (
         _consume(second["ticket"]) is not None
     ), f"[{path}] consuming one ticket invalidated another"
+
+
+# ── Another address, the same browser session ────────────────────────
+#
+# Prod, 2026-11-22: an iPhone behind iCloud Private Relay asked for a terminal
+# ticket from one relay address and opened the WebSocket from another, every
+# time. The pin refused every web terminal and every live log stream. A socket
+# that carries the issuer's own session cookie is that same browser; it is
+# admitted from a new address. A leaked ticket alone still is not.
+
+
+class _CookieWebSocket(_FakeWebSocket):
+    def __init__(self, ip: str, session: str = ""):
+        super().__init__(ip)
+        self.cookies = {"xcelsior_session": session} if session else {}
+
+
+@pytest.fixture
+def sessions(monkeypatch):
+    """Session token -> user id, standing in for the real session store."""
+    from fastapi import HTTPException
+
+    from routes import _deps
+
+    table = {"tok-issuer": "u1", "tok-other": "u2"}
+
+    def fake_current_user(request):
+        token = request.headers.get("authorization", "")[7:]
+        if token not in table:
+            raise HTTPException(401, "expired")
+        return {"user_id": table[token], "email": f"{table[token]}@example.com"}
+
+    monkeypatch.setattr(_deps, "_get_current_user", fake_current_user)
+    return table
+
+
+def _consume_from(ticket: str, ws) -> dict | None:
+    from routes._deps import _consume_ws_ticket
+
+    return _consume_ws_ticket(ticket, ws, purpose="terminal", target="job-1")
+
+
+def test_the_issuers_session_from_another_address_is_accepted(path, sessions):
+    issued = _issue()
+    user = _consume_from(issued["ticket"], _CookieWebSocket("198.51.100.4", "tok-issuer"))
+    assert user is not None and user.get("user_id") == "u1", f"[{path}] relay address refused"
+    # Still single-use.
+    assert _consume_from(issued["ticket"], _CookieWebSocket("198.51.100.4", "tok-issuer")) is None
+
+
+def test_another_users_session_from_another_address_is_refused(path, sessions):
+    issued = _issue()
+    assert _consume_from(issued["ticket"], _CookieWebSocket("198.51.100.4", "tok-other")) is None
+    # The refusal did not spend it: the issuer, from its own address, still can.
+    assert _consume(issued["ticket"]) is not None
+
+
+def test_an_expired_session_from_another_address_is_refused(path, sessions):
+    issued = _issue()
+    assert _consume_from(issued["ticket"], _CookieWebSocket("198.51.100.4", "tok-gone")) is None
