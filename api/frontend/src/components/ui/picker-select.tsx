@@ -124,7 +124,8 @@ export function PickerSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
-        aria-labelledby={labelledBy}
+        // Its label, then its own text: "GPU type, RTX 3060".
+        aria-labelledby={labelledBy && id ? `${labelledBy} ${id}` : labelledBy}
         disabled={inert}
         onClick={() => setOpen((value) => !value)}
         className={cn(
