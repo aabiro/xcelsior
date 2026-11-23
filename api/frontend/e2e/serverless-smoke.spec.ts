@@ -62,6 +62,10 @@ async function installServerlessRouteMocks(ctx: BrowserContext, baseURL: string)
     const url = request.url();
     const method = request.method();
 
+    if (url.includes("/api/v2/serverless/enabled")) {
+      return route.fulfill(jsonResponse({ ok: true, enabled: true }));
+    }
+
     if (url.includes("/api/auth/me")) {
       return route.fulfill(jsonResponse({ ok: true, user: mockUser }));
     }
@@ -187,12 +191,13 @@ test.describe("serverless dashboard", () => {
       await page.goto("/dashboard/inference", { waitUntil: "domcontentloaded" });
       await expect(page).toHaveURL(/\/dashboard\/inference/, { timeout: 15_000 });
       await authResponse;
-      await expect(
-        page.getByRole("link", { name: /Deploy Studio|dash\.serverless\.open_studio/i }).first(),
-      ).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByText("smoke-llama")).toBeVisible({ timeout: 15_000 });
-
-      await page.getByRole("link", { name: /Deploy Studio|dash\.serverless\.open_studio/i }).first().click();
+      await expect(page.getByRole("button", { name: /ENDPOINT/ }).first()).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText("smoke-llama").first()).toBeVisible({ timeout: 15_000 });
+      await page.getByRole("button", { name: /ENDPOINT/ }).first().click();
+      await expect(page.getByRole("dialog", { name: "Create endpoint" })).toBeVisible();
+      await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
+      // Quick Deploy's full-studio link targets this real standalone route.
+      await page.goto("/dashboard/inference/new");
       await expect(page).toHaveURL(/\/dashboard\/inference\/new/);
 
       const continueBtn = page.getByRole("button", { name: /Continue|Continuer|dash\.serverless\.continue/i });
@@ -204,7 +209,7 @@ test.describe("serverless dashboard", () => {
       await continueBtn.click();
       await page.getByRole("button", { name: /Deploy endpoint|Déployer|dash\.serverless\.deploy/i }).click();
 
-      await expect(page).toHaveURL(new RegExp(`/dashboard/inference/${ENDPOINT_ID}$`));
+      await expect(page).toHaveURL(new RegExp(`/dashboard/inference\\?endpoint=${ENDPOINT_ID}$`));
       await page.getByRole("button", { name: /API keys|Clés API|dash\.serverless\.tab_keys/i }).click();
       await page.getByRole("button", { name: /Create key|Créer une clé|dash\.serverless\.key_create/i }).click();
       await expect(page.getByText("xcel_secret_once")).toBeVisible();

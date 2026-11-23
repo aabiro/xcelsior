@@ -55,7 +55,7 @@ export function HostingTab({ user, onUpdated }: { user: User; onUpdated: () => P
               description={t("dash.hosting.payout_desc")}
               accent="emerald"
             >
-              <ProviderProfileForm onSaved={() => { void onUpdated(); }} />
+              <ProviderProfileForm showHeading={false} onSaved={() => { void onUpdated(); }} />
             </SettingsSection>
           </StaggerItem>
         )}

@@ -197,6 +197,23 @@
   color: #fff;
 }
 
+/* Native controls (date pickers, select menus, scrollbars) follow the
+   dashboard's theme rather than the device's. */
+.dashboard-shell[data-theme="dark"] :is(input, select, textarea) {
+  color-scheme: dark;
+}
+
+.dashboard-shell[data-theme="light"] :is(input, select, textarea) {
+  color-scheme: light;
+}
+
+/* A form's submit button is a full 44 px touch target on a phone. */
+@media (max-width: 639px) {
+  .dashboard-shell form button[type="submit"] {
+    min-height: 44px;
+  }
+}
+
 .dashboard-shell-frame {
   position: relative;
   z-index: 1;

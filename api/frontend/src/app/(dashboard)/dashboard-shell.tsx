@@ -204,8 +204,28 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         setSupportPopoutOpen(false);
       }
     }
-    if (profileOpen || gearOpen) document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    // Escape closes an open menu and gives focus back to its button.
+    function handleKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (profileOpen) {
+        setProfileOpen(false);
+        profileRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+      }
+      if (gearOpen) {
+        setGearOpen(false);
+        setOnboardingOpen(false);
+        setSupportPopoutOpen(false);
+        gearRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+      }
+    }
+    if (profileOpen || gearOpen) {
+      document.addEventListener("mousedown", handleClick);
+      document.addEventListener("keydown", handleKey);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
   }, [profileOpen, gearOpen]);
 
   useEffect(() => {

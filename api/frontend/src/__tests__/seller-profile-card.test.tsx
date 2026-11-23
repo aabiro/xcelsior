@@ -186,4 +186,25 @@ describe("SellerProfileCard", () => {
     expect(apiMocks.saveSellerProfile).toHaveBeenCalledOnce();
     expect(saveBtn).toBeDisabled();
   });
+
+  // From the Codex review branch: a tax identifier on file is for its own type,
+  // and a saved one counts as on file without a reload.
+  it("requires a fresh identifier when changing its type", async () => {
+    const user = userEvent.setup();
+    render(<SellerProfileCard provider={{ legal_name: "Ada Lovelace", tax_id_kind: "sin", tax_id_last4: "2544" }} onSaved={vi.fn()} />);
+    await user.click(screen.getByText("dash.earnings.seller_tax_bn"));
+    expect(screen.getByRole("button", { name: "dash.earnings.seller_save" })).toBeDisabled();
+  });
+
+  it("can edit legal name after saving a new identifier without entering it again", async () => {
+    apiMocks.saveSellerProfile.mockResolvedValue({ ok: true, profile: { tax_id_kind: "sin", tax_id_last4: "2544" } });
+    const user = userEvent.setup();
+    render(<SellerProfileCard provider={provider} onSaved={vi.fn()} />);
+    await user.click(screen.getByText("dash.earnings.seller_tax_sin"));
+    await user.type(screen.getByLabelText("dash.earnings.seller_tax_id"), "130692544");
+    await user.click(screen.getByRole("button", { name: "dash.earnings.seller_save" }));
+    await user.type(screen.getByLabelText("dash.earnings.seller_legal_name"), " Review");
+    expect(screen.getByRole("button", { name: "dash.earnings.seller_save" })).toBeEnabled();
+    expect(screen.getByLabelText("dash.earnings.seller_tax_id")).toHaveValue("");
+  });
 });

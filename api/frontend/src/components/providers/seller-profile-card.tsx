@@ -72,10 +72,12 @@ export function ProviderProfileForm({
   onSaved,
   mode = "settings",
   onEditAddress,
+  showHeading = true,
 }: {
   onSaved: () => void | Promise<void>;
   mode?: "onboarding" | "settings";
   onEditAddress?: () => void;
+  showHeading?: boolean;
 }) {
   const [profile, setProfile] = useState<SellerFields | null>(null);
   const [loading, setLoading] = useState(true);
@@ -96,7 +98,7 @@ export function ProviderProfileForm({
   }, []);
   if (loading) return <p role="status" className="text-sm text-text-secondary">Loading provider details…</p>;
   if (error) return <p role="alert" className="text-sm text-red-400">{error}</p>;
-  return <SellerProfileCard provider={profile} onSaved={onSaved} mode={mode} onEditAddress={onEditAddress} />;
+  return <SellerProfileCard provider={profile} onSaved={onSaved} mode={mode} onEditAddress={onEditAddress} showHeading={showHeading} />;
 }
 
 export function SellerProfileCard({
@@ -104,11 +106,13 @@ export function SellerProfileCard({
   onSaved,
   mode = "settings",
   onEditAddress,
+  showHeading = true,
 }: {
   provider: SellerFields | null;
   onSaved: () => void | Promise<void>;
   mode?: "onboarding" | "settings";
   onEditAddress?: () => void;
+  showHeading?: boolean;
 }) {
   const { t } = useLocale();
   const { user } = useAuth();
@@ -124,14 +128,16 @@ export function SellerProfileCard({
     kind: provider?.tax_id_kind || "",
     gst: (provider?.gst_hst_number || "").trim(),
   }));
+  const [storedTax, setStoredTax] = useState({ kind: provider?.tax_id_kind || "", last4: provider?.tax_id_last4 || "" });
+  const hasStoredTax = storedTax.kind === kind && Boolean(storedTax.last4);
   const onboarding = mode === "onboarding";
   const address = accountAddress(user, provider);
   const readyAddress = addressReady(address);
-  const effectiveGst = kind === "gst" ? taxId.trim() : kind === "sin" || kind === "bn" ? gst.trim() : "";
+  const effectiveGst = kind === "gst" ? taxId.trim() || (hasStoredTax ? savedState.gst : "") : kind === "sin" || kind === "bn" ? gst.trim() : "";
   const fieldsFilled =
     legalName.trim().length >= 2 &&
     Boolean(kind) &&
-    Boolean(taxId.trim() || provider?.tax_id_last4);
+    Boolean(taxId.trim() || hasStoredTax);
   const isDirty =
     legalName.trim() !== savedState.legalName ||
     kind !== savedState.kind ||
@@ -148,7 +154,7 @@ export function SellerProfileCard({
       setError(t("dash.earnings.seller_kind_error"));
       return;
     }
-    if (!taxId.trim() && !provider?.tax_id_last4) {
+    if (!taxId.trim() && !hasStoredTax) {
       setError(t("dash.earnings.seller_id_error"));
       return;
     }
@@ -159,8 +165,8 @@ export function SellerProfileCard({
     setSaving(true);
     setError("");
     try {
-      const gstNumber = kind === "gst" ? taxId.trim() : kind === "sin" || kind === "bn" ? gst.trim() : "";
-      await api.saveSellerProfile({
+      const gstNumber = effectiveGst;
+      const result = await api.saveSellerProfile({
         legal_name: name,
         ...address,
         tax_id_kind: kind,
@@ -174,6 +180,7 @@ export function SellerProfileCard({
         gst: gstNumber,
       });
       setTaxId("");
+      if (result.profile) setStoredTax({ kind: result.profile.tax_id_kind || kind, last4: result.profile.tax_id_last4 || "" });
       toast.success(t("dash.earnings.seller_saved"));
       await onSaved();
     } catch (err) {
@@ -185,8 +192,8 @@ export function SellerProfileCard({
   };
 
   return (
-    <form className={cn("space-y-7", !onboarding && "border-t border-border/50 pt-6")} noValidate onSubmit={(event) => { event.preventDefault(); void save(); }}>
-      {!onboarding && (
+    <form className={cn("space-y-7", !onboarding && showHeading && "border-t border-border/50 pt-6")} noValidate onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      {!onboarding && showHeading && (
         <div className="space-y-1">
           <h3 className="text-base font-semibold tracking-tight">{t("dash.earnings.seller_title")}</h3>
           <p className="text-sm text-text-secondary">{t("dash.earnings.seller_desc")}</p>
@@ -216,7 +223,7 @@ export function SellerProfileCard({
         autoComplete="off"
         name="tax-id"
         placeholder=""
-        hint={[kind === "gst" ? t("dash.earnings.seller_gst_example") : "", provider?.tax_id_last4 ? `${t("dash.earnings.seller_on_file")} ${provider.tax_id_last4}` : ""].filter(Boolean).join(" ") || undefined}
+        hint={[kind === "gst" ? t("dash.earnings.seller_gst_example") : "", hasStoredTax ? `${t("dash.earnings.seller_on_file")} ${storedTax.last4}` : ""].filter(Boolean).join(" ") || undefined}
         className="[&_input]:font-mono [&_input]:tracking-wide"
       />
       {(kind === "sin" || kind === "bn") && (
