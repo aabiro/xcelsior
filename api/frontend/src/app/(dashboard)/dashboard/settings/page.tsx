@@ -32,7 +32,7 @@ import { FadeIn, StaggerList, StaggerItem } from "@/components/ui/motion";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { describePasskeyRegistrationError } from "@/lib/passkeys";
-import { applyActiveTeamSwitch, getTeamContext } from "@/lib/team-context";
+import { getTeamContext } from "@/lib/team-context";
 import { TeamContextBanner } from "@/components/team/team-context-banner";
 import { AccountProfileForm } from "@/components/ui/province-selector";
 import { ProviderProfileForm } from "@/components/providers/seller-profile-card";
@@ -294,24 +294,16 @@ export default function SettingsPage() {
     } catch { /* no teams yet */ }
   }, [user?.team_id]);
 
-  const selectTeam = async (team: TeamInfo) => {
+  // Which team this tab manages. Choosing one here does not change the active
+  // workspace: that is the top bar's switcher, the one place it is shown.
+  const viewTeam = async (team: TeamInfo) => {
+    setActiveTeam(team);
     try {
-      await applyActiveTeamSwitch(team.team_id, refreshUser);
-      setActiveTeam(team);
       const detail = await api.fetchTeam(team.team_id);
       setTeamMembers(detail.members || []);
-      toast.success(t("dash.team.switch_success", { name: team.name }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("dash.team.switch_failed"));
-    }
-  };
-
-  const selectPersonalWorkspace = async () => {
-    try {
-      await applyActiveTeamSwitch(null, refreshUser);
-      toast.success(t("dash.team.switch_personal_success"));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("dash.team.switch_failed"));
+      setTeamMembers([]);
+      toast.error(err instanceof Error ? err.message : t("dash.settings.team_load_failed"));
     }
   };
 
@@ -877,7 +869,6 @@ export default function SettingsPage() {
             <TeamTab
               t={t} email={email}
               teams={teams} activeTeam={activeTeam} teamMembers={teamMembers}
-              activeTeamId={user?.team_id || null}
               newTeamName={newTeamName} setNewTeamName={setNewTeamName}
               inviteEmail={inviteEmail} setInviteEmail={setInviteEmail}
               inviteRole={inviteRole} setInviteRole={setInviteRole}
@@ -885,7 +876,7 @@ export default function SettingsPage() {
               removeTarget={removeTarget} setRemoveTarget={setRemoveTarget}
               deletingTeam={deletingTeam}
               deleteTeamConfirm={deleteTeamConfirm} setDeleteTeamConfirm={setDeleteTeamConfirm}
-              onSelectTeam={selectTeam} onSelectPersonal={selectPersonalWorkspace}
+              onViewTeam={viewTeam}
               onCreateTeam={handleCreateTeam}
               onInvite={handleInvite} onRemoveMember={handleRemoveMember}
               onDeleteTeam={handleDeleteTeam} onRoleChange={handleRoleChange}
@@ -1997,18 +1988,17 @@ function SshKeyCard({
 // ══════════════════════════════════��═════════════════════════════════
 
 function TeamTab({
-  t, email, teams, activeTeam, teamMembers, activeTeamId,
+  t, email, teams, activeTeam, teamMembers,
   newTeamName, setNewTeamName, inviteEmail, setInviteEmail,
   inviteRole, setInviteRole, creatingTeam, inviting,
   removeTarget, setRemoveTarget, deletingTeam,
   deleteTeamConfirm, setDeleteTeamConfirm,
-  onSelectTeam, onSelectPersonal, onCreateTeam, onInvite, onRemoveMember,
+  onViewTeam, onCreateTeam, onInvite, onRemoveMember,
   onDeleteTeam, onRoleChange,
 }: {
   t: (k: string, vars?: Record<string, string>) => string;
   email: string;
   teams: TeamInfo[]; activeTeam: TeamInfo | null; teamMembers: TeamMember[];
-  activeTeamId: string | null;
   newTeamName: string; setNewTeamName: (v: string) => void;
   inviteEmail: string; setInviteEmail: (v: string) => void;
   inviteRole: string; setInviteRole: (v: string) => void;
@@ -2016,8 +2006,7 @@ function TeamTab({
   removeTarget: string | null; setRemoveTarget: (v: string | null) => void;
   deletingTeam: boolean;
   deleteTeamConfirm: boolean; setDeleteTeamConfirm: (v: boolean) => void;
-  onSelectTeam: (t: TeamInfo) => void;
-  onSelectPersonal: () => void;
+  onViewTeam: (t: TeamInfo) => void;
   onCreateTeam: () => void;
   onInvite: () => void; onRemoveMember: (e: string) => void;
   onDeleteTeam: () => void; onRoleChange: (e: string, r: string) => void;
@@ -2048,54 +2037,29 @@ function TeamTab({
               </div>
             ) : (
               <>
-                {teams.length >= 1 && (
+                {/* No "Active workspace" block: the top bar's switcher is the one
+                    place the workspace is shown and changed. Someone in more than
+                    one team picks which to manage here, without switching. */}
+                {teams.length > 1 && (
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
-                      {t("dash.team.active_workspace")}
-                    </p>
-                    <div className="flex gap-1.5 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={onSelectPersonal}
-                        className={cn(
-                          "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                          !activeTeamId
-                            ? "bg-accent-cyan/10 text-accent-cyan ring-1 ring-accent-cyan/20"
-                            : "bg-surface-hover text-text-muted hover:text-text-primary",
-                        )}
-                      >
-                        {t("dash.team.personal_workspace")}
-                      </button>
+                    <Label htmlFor="settings-team-manage">{t("dash.settings.team_manage")}</Label>
+                    <Select
+                      id="settings-team-manage"
+                      value={activeTeam?.team_id || ""}
+                      onChange={(e) => {
+                        const next = teams.find((team) => team.team_id === e.target.value);
+                        if (next) onViewTeam(next);
+                      }}
+                    >
                       {teams.map((team) => (
-                        <button
-                          key={team.team_id}
-                          type="button"
-                          onClick={() => onSelectTeam(team)}
-                          className={cn(
-                            "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                            activeTeamId === team.team_id
-                              ? "bg-accent-cyan/10 text-accent-cyan ring-1 ring-accent-cyan/20"
-                              : "bg-surface-hover text-text-muted hover:text-text-primary",
-                          )}
-                        >
-                          {team.name}
-                        </button>
+                        <option key={team.team_id} value={team.team_id}>{team.name}</option>
                       ))}
-                    </div>
+                    </Select>
                   </div>
                 )}
 
                 {activeTeam && (
                   <div className="space-y-4">
-                    {(() => {
-                      const myRole = teamMembers.find((m) => m.email === email)?.role;
-                      const roleKey = myRole ? `dash.team.role_${myRole}` : "";
-                      return roleKey ? (
-                        <p className="rounded-lg border border-accent-cyan/20 bg-accent-cyan/5 px-3 py-2 text-xs text-text-secondary">
-                          {t(roleKey)}
-                        </p>
-                      ) : null;
-                    })()}
                     <div className="flex items-center justify-between rounded-lg border border-border/60 bg-navy-light/30 p-3">
                       <div>
                         <p className="text-sm font-medium">{activeTeam.name}</p>

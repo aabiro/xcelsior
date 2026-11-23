@@ -1929,6 +1929,8 @@ const fr: Record<string, string> = {
   "dash.settings.team_none": "Vous n'êtes dans aucune équipe pour l'instant.",
   "dash.settings.team_name_placeholder": "Nom de l'équipe",
   "dash.settings.team_members": "Membres",
+  "dash.settings.team_manage": "Équipe",
+  "dash.settings.team_load_failed": "Impossible de charger les membres de cette équipe",
   "dash.settings.team_owner_badge": "Propriétaire",
   "dash.settings.team_role_admin": "Admin",
   "dash.settings.team_role_member": "Membre",

@@ -641,9 +641,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   {/* min-w-0 down to the text: when the bar is full the name
                       truncates instead of pushing the trigger off the edge. */}
                   <div className="relative min-w-0" ref={profileRef}>
+                    {/* Equal padding on a phone, where the trigger is only the
+                        avatar: 6px by 8px made its open ring an oval around a circle. */}
                     <button
                       onClick={() => setProfileOpen(!profileOpen)}
-                      className="dashboard-site-profile-trigger flex min-w-0 max-w-full items-center gap-2 rounded-full px-1.5 py-2 sm:px-3"
+                      className="dashboard-site-profile-trigger flex min-w-0 max-w-full items-center gap-2 rounded-full p-1.5 sm:px-3 sm:py-2"
                       title={showBusiness && user ? businessName(user) : undefined}
                       aria-expanded={profileOpen}
                       aria-label={showBusiness && user

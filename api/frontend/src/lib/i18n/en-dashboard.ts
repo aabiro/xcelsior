@@ -1265,6 +1265,8 @@ const en_dashboard: Record<string, string> = {
   "dash.settings.team_none": "You're not on a team yet.",
   "dash.settings.team_name_placeholder": "Team name",
   "dash.settings.team_members": "Members",
+  "dash.settings.team_manage": "Team",
+  "dash.settings.team_load_failed": "Couldn't load that team's members",
   "dash.settings.team_owner_badge": "Owner",
   "dash.settings.team_role_admin": "Admin",
   "dash.settings.team_role_member": "Member",
