@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { CopyableText } from "./copyable-text";
@@ -150,7 +150,7 @@ export function StepRail({
                   !active && !done && "bg-surface-hover text-text-muted",
                 )}
               >
-                {done && !active ? "✓" : i + 1}
+                {done && !active ? <Check className="h-3 w-3" aria-hidden /> : i + 1}
               </span>
               <span className="hidden sm:inline">{label(s.labelKey)}</span>
             </button>

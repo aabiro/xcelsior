@@ -391,7 +391,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
 
           case "error":
             serverErrorRef.current = msg.message ?? "Error";
-            t.write(`\r\n\x1b[31m⚠ ${msg.message ?? "Error"}\x1b[0m\r\n`);
+            t.write(`\r\n\x1b[31m${msg.message ?? "Error"}\x1b[0m\r\n`);
             setConnState("error");
             setStatusMsg(msg.message ?? "Error");
             break;

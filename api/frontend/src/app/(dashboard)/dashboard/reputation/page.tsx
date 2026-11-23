@@ -9,6 +9,7 @@ import Link from "next/link";
 import {
   Star, RefreshCw, Users, Trophy, TrendingUp, BarChart3, ShieldCheck, ShieldOff, Sparkles,
   CheckCircle2, ArrowRight, Lock,
+  Circle, Medal, Gem, Crown, Mail, Smartphone, IdCard, Microscope, Building2, Warehouse, FileText, Rocket, Flame, Server, type LucideIcon,
 } from "lucide-react";
 import { useApi } from "@/lib/use-api";
 import * as apiLib from "@/lib/api";
@@ -26,7 +27,7 @@ const TIERS = [
   {
     key: "new_user",
     label: "New User",
-    icon: "🔘",
+    icon: Circle,
     threshold: 0,
     nextThreshold: 100,
     color: "#64748b",
@@ -40,7 +41,7 @@ const TIERS = [
   {
     key: "bronze",
     label: "Bronze",
-    icon: "🥉",
+    icon: Medal,
     threshold: 100,
     nextThreshold: 250,
     color: "#cd7f32",
@@ -54,7 +55,7 @@ const TIERS = [
   {
     key: "silver",
     label: "Silver",
-    icon: "🥈",
+    icon: Medal,
     threshold: 250,
     nextThreshold: 450,
     color: "#c0c0c0",
@@ -68,7 +69,7 @@ const TIERS = [
   {
     key: "gold",
     label: "Gold",
-    icon: "🥇",
+    icon: Medal,
     threshold: 450,
     nextThreshold: 650,
     color: "#f59e0b",
@@ -82,7 +83,7 @@ const TIERS = [
   {
     key: "platinum",
     label: "Platinum",
-    icon: "💎",
+    icon: Gem,
     threshold: 650,
     nextThreshold: 850,
     color: "#38bdf8",
@@ -96,7 +97,7 @@ const TIERS = [
   {
     key: "diamond",
     label: "Diamond",
-    icon: "👑",
+    icon: Crown,
     threshold: 850,
     nextThreshold: null,
     color: "#a78bfa",
@@ -111,17 +112,33 @@ const TIERS = [
 
 type TierKey = (typeof TIERS)[number]["key"];
 
+/** A tier's mark, drawn in its colour at the size of the text around it. */
+function TierMark({ tier }: { tier: { icon: LucideIcon; color: string } }) {
+  const Icon = tier.icon;
+  return <Icon className="h-[0.8em] w-[0.8em]" style={{ color: tier.color }} aria-hidden />;
+}
+
+/** Milestone marks by id; the API's own emoji are not shown. */
+const MILESTONE_ICONS: Record<string, LucideIcon> = {
+  verify_email: Mail,
+  verify_phone: Smartphone,
+  complete_profile: FileText,
+  first_launch: Rocket,
+  five_sessions: Flame,
+  become_provider: Server,
+};
+
 const TIER_MAP = Object.fromEntries(TIERS.map((t) => [t.key, t])) as Record<TierKey, (typeof TIERS)[number]>;
 
 // ── Verification badge config ─────────────────────────────────────────────
 
 const VERIFICATION_TYPES = [
-  { key: "email", label: "Email", icon: "✉️" },
-  { key: "phone", label: "Phone", icon: "📱" },
-  { key: "gov_id", label: "Gov ID", icon: "🪪" },
-  { key: "hardware_audit", label: "Hardware Audit", icon: "🔬" },
-  { key: "incorporation", label: "Incorporation", icon: "🏢" },
-  { key: "data_center", label: "Data Center", icon: "🏗️" },
+  { key: "email", label: "Email", icon: Mail },
+  { key: "phone", label: "Phone", icon: Smartphone },
+  { key: "gov_id", label: "Gov ID", icon: IdCard },
+  { key: "hardware_audit", label: "Hardware Audit", icon: Microscope },
+  { key: "incorporation", label: "Incorporation", icon: Building2 },
+  { key: "data_center", label: "Data Center", icon: Warehouse },
 ] as const;
 
 // ── Tier tooltip ──────────────────────────────────────────────────────────
@@ -143,7 +160,7 @@ function TierTooltip({ tier, visible, position }: { tier: (typeof TIERS)[number]
       style={{ backgroundColor: "#0f172a" }}
     >
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-lg">{tier.icon}</span>
+        <span className="flex text-lg"><TierMark tier={tier} /></span>
         <span className="font-semibold text-sm" style={{ color: tier.color }}>{tier.label}</span>
         <span className="ml-auto text-text-muted font-mono">{tier.threshold}+ pts</span>
       </div>
@@ -217,7 +234,7 @@ function TierTrack({ currentTier }: { currentTier: TierKey }) {
                 boxShadow: isCurrent ? `0 0 12px 2px ${tier.color}55` : undefined,
               }}
             >
-              {tier.icon}
+              <TierMark tier={tier} />
             </button>
             <span
               className="text-[10px] font-medium"
@@ -295,8 +312,8 @@ export default function ReputationPage() {
         const total = res.newly_granted.reduce((sum, g) => sum + g.points, 0);
         toast.success(
           res.newly_granted.length === 1
-            ? `${res.newly_granted[0].title} complete, +${total} reputation! 🎉`
-            : `${res.newly_granted.length} milestones complete, +${total} reputation! 🎉`,
+            ? `${res.newly_granted[0].title} complete, +${total} reputation.`
+            : `${res.newly_granted.length} milestones complete, +${total} reputation.`,
         );
         load({ refresh: false });
       } else {
@@ -465,7 +482,7 @@ export default function ReputationPage() {
                     boxShadow: `0 0 24px 4px ${tierCfg.color}44`,
                   }}
                 >
-                  {tierCfg.icon}
+                  <TierMark tier={tierCfg} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
@@ -497,7 +514,7 @@ export default function ReputationPage() {
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-text-muted">Maximum tier achieved 🎉</p>
+                    <p className="text-xs text-text-muted">Maximum tier reached</p>
                   )}
                 </div>
                 {/* Current perks grid */}
@@ -588,7 +605,7 @@ export default function ReputationPage() {
                             : "border-border bg-surface text-text-muted opacity-60",
                         )}
                       >
-                        <span className="text-base">{v.icon}</span>
+                        <v.icon className="h-4 w-4 shrink-0" aria-hidden />
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{v.label}</div>
                           {earned ? (
@@ -705,7 +722,7 @@ export default function ReputationPage() {
                           >
                             {i + 1}
                           </span>
-                          <span className="text-base">{entryTierCfg.icon}</span>
+                          <span className="flex text-base"><TierMark tier={entryTierCfg} /></span>
                           <span className="text-sm font-medium">
                             {entry.user_id || entry.entity_id}
                           </span>
@@ -793,7 +810,10 @@ function MilestoneJourney({
                 )}
               >
                 <div className="flex items-start gap-3">
-                  <span className="text-2xl leading-none mt-0.5">{m.icon}</span>
+                  {(() => {
+                    const Mark = MILESTONE_ICONS[m.id] ?? Star;
+                    return <Mark className="mt-0.5 h-6 w-6 shrink-0 text-accent-gold" aria-hidden />;
+                  })()}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="font-semibold text-sm truncate">{m.title}</p>

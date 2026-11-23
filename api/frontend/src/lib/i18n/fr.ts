@@ -19,7 +19,7 @@ const fr: Record<string, string> = {
   "nav.get_started": "Commencer",
 
   /* ── Page d'accueil ──────────────────────────────────────────────────── */
-  "home.badge": "⚡ Tarifs au comptant affichés · sans enchères · MCP intégré",
+  "home.badge": "Tarifs au comptant affichés · sans enchères · MCP intégré",
   "home.hero_line1": "Des GPU au comptant à prix affiché.",
   "home.hero_line2": "Aucune",
   "home.hero_accent": "enchère.",
@@ -118,7 +118,7 @@ const fr: Record<string, string> = {
   "features.telemetry_title": "Télémétrie GPU en direct",
   "features.telemetry_desc": "La page de votre instance affiche l'utilisation, la mémoire, la température et la puissance de votre propre GPU, en direct et sur toute l'exécution. Chaque hôte est aussi surveillé pour les erreurs ECC et le minage.",
   "features.trust_title": "Confiance et réputation",
-  "features.trust_desc": "Système de réputation à 6 niveaux : Nouveau → Bronze → Argent → Or → Platine → Diamant. Audits matériels et badges de vérification.",
+  "features.trust_desc": "Système de réputation à 6 niveaux : Nouveau, Bronze, Argent, Or, Platine et Diamant. Audits matériels et badges de vérification.",
   "features.sla_title": "Garanties ENS",
   "features.sla_desc": "Communautaire 99,0 %, Sécurisé 99,5 %, Premium 99,9 % de disponibilité. Crédits automatiques en cas de violation.",
   "features.compliance_title": "Automatisation de la conformité",
@@ -1740,7 +1740,7 @@ const fr: Record<string, string> = {
   "gear.step_instance": "Lancer votre première instance",
   "gear.step_instance_desc": "Démarrez une instance GPU et commencez à calculer en quelques minutes.",
   "gear.progress": "{done} de {total} terminé(s)",
-  "gear.all_done": "Vous êtes prêt(e) ! 🎉",
+  "gear.all_done": "Vous êtes prêt(e)",
   "gear.collapse": "Réduire la barre latérale",
   "gear.expand": "Agrandir la barre latérale",
   "gear.support": "Assistance",

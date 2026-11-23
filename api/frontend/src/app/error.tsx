@@ -1,5 +1,6 @@
 "use client";
 
+import { TriangleAlert } from "lucide-react";
 import { useEffect } from "react";
 
 export default function GlobalError({
@@ -17,7 +18,7 @@ export default function GlobalError({
     <div className="flex min-h-screen flex-col items-center justify-center bg-navy px-4 text-center">
       <div className="mx-auto max-w-md">
         <div className="mb-6 flex h-16 w-16 mx-auto items-center justify-center rounded-2xl bg-accent-red/20">
-          <span className="text-3xl">⚠</span>
+          <TriangleAlert className="h-8 w-8 text-accent-red" aria-hidden />
         </div>
         <h1 className="text-2xl font-bold text-text-primary">Something went wrong</h1>
         <p className="mt-2 text-text-secondary">

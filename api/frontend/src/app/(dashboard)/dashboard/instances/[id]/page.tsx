@@ -1197,7 +1197,7 @@ export default function InstanceDetailPage() {
                             <>
                               Add a public key at{" "}
                               <Link href="/dashboard/settings#api-keys" className="underline">
-                                Settings → SSH Keys
+                                Settings, API &amp; SSH
                               </Link>
                               . The web terminal below works without a key.
                             </>

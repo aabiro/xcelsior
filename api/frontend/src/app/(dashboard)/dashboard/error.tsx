@@ -1,5 +1,6 @@
 "use client";
 
+import { TriangleAlert } from "lucide-react";
 import { useEffect } from "react";
 
 export default function DashboardError({
@@ -17,7 +18,7 @@ export default function DashboardError({
     <div className="flex flex-col items-center justify-center py-24 text-center">
       <div className="mx-auto max-w-md">
         <div className="mb-6 flex h-14 w-14 mx-auto items-center justify-center rounded-xl bg-accent-red/20">
-          <span className="text-2xl">⚠</span>
+          <TriangleAlert className="h-7 w-7 text-accent-red" aria-hidden />
         </div>
         <h2 className="text-xl font-bold text-text-primary">Dashboard Error</h2>
         <p className="mt-2 text-sm text-text-secondary">

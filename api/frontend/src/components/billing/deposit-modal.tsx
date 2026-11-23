@@ -453,7 +453,7 @@ function DepositPaymentStep({
           </div>
         </div>
         <p className="text-[11px] text-text-muted leading-relaxed">
-          Tax uses your account country/province (Settings → profile). Wallet receives credits only;
+          Tax uses your account country/province (Settings, Account tab). Wallet receives credits only;
           tax is remitted via Stripe Tax.
         </p>
       </div>

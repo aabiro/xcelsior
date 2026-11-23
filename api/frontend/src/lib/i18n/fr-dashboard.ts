@@ -938,7 +938,7 @@ const fr_dashboard: Record<string, string> = {
   "gear.step_instance": "Lancer votre première instance",
   "gear.step_instance_desc": "Démarrez une instance GPU et commencez à calculer en quelques minutes.",
   "gear.progress": "{done} de {total} terminé(s)",
-  "gear.all_done": "Vous êtes prêt(e) ! 🎉",
+  "gear.all_done": "Vous êtes prêt(e)",
   "gear.collapse": "Réduire la barre latérale",
   "gear.expand": "Agrandir la barre latérale",
   "gear.support": "Assistance",

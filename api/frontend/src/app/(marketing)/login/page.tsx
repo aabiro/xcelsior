@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Eye, EyeOff, Key, Loader2, Shield } from "lucide-react";
+import { Eye, EyeOff, Key, Loader2, Shield, ArrowLeft } from "lucide-react";
 import { ProviderLogo } from "@/components/ui/provider-logo";
 import { SiteAuthAlert, SiteAuthCard, SiteAuthDivider, SiteAuthHeader } from "@/components/marketing/SiteAuthShell";
 import {
@@ -513,8 +513,9 @@ function LoginPageContent() {
                 setError("");
               }}
               className="site-auth-text-button site-auth-centered-copy"
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
             >
-              ← {t("auth.login_title")}
+              <ArrowLeft size="1em" aria-hidden /> {t("auth.login_title")}
             </button>
           </div>
         </>

@@ -17,6 +17,7 @@ import {
   Server, Plus, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown, Terminal,
   Cpu, Check, DollarSign, Activity, Zap, ChevronRight, Info, AlertCircle,
   HardDrive, Globe, Shield, ShieldAlert, Package, Code2, Clipboard, ArrowRight, ArrowLeft, Trash2, Gift,
+  X,
 } from "lucide-react";
 import { DeleteHostDialog } from "@/components/hosts/delete-host-dialog";
 import { deleteHost } from "@/lib/api";
@@ -1144,8 +1145,9 @@ function ProviderTipsCard({ hosts }: { hosts: Host[] }) {
             onClick={dismiss}
             className="text-text-muted hover:text-text-secondary text-xs shrink-0 mt-1 opacity-60 hover:opacity-100 transition-opacity"
             title="Dismiss tips"
+            aria-label="Dismiss tips"
           >
-            ✕
+            <X className="h-3.5 w-3.5" aria-hidden />
           </button>
         </div>
 

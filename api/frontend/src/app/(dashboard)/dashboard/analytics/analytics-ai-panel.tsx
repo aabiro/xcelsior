@@ -9,6 +9,7 @@ import {
   TrendingUp, TrendingDown, BarChart3, DollarSign, Cpu,
   ChevronDown, Brain, Zap, Clock, Database, ArrowUpRight,
   RotateCcw, Maximize2, Minimize2,
+  TriangleAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -773,7 +774,7 @@ export function AnalyticsAiPanel({
                 animate={{ opacity: 1, scale: 1 }}
                 className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-accent-red/5 border border-accent-red/20 text-xs text-accent-red"
               >
-                <span className="shrink-0">⚠</span>
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
                 <span>{error}</span>
                 <button onClick={() => setError(null)} className="ml-auto text-accent-red/60 hover:text-accent-red">
                   <X className="h-3 w-3" />

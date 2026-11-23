@@ -405,7 +405,7 @@ export default function EarningsPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-emerald">
-                            {justConnected ? "Stripe Connected Successfully! 🎉" : "Stripe Account Connected"}
+                            {justConnected ? "Stripe connected" : "Stripe Account Connected"}
                           </p>
                           <p className="text-xs text-text-secondary mt-0.5">
                             {justConnected

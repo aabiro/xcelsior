@@ -14,6 +14,7 @@ import {
   DollarSign,
   ArrowRight,
   Check,
+  X,
 } from "lucide-react";
 import { m } from "@/components/marketing/motion";
 import { Button } from "@/components/ui/button";
@@ -283,13 +284,13 @@ function CompRow({
         {isCheck(xcelsior) ? <Check className="inline h-4 w-4 text-emerald" aria-label="Yes" /> : xcelsior}
       </td>
       <td className="py-3.5 px-4 text-center">
-        {isCheck(aws) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(aws) ? <span className="text-accent-red" aria-label="No">✗</span> : aws}
+        {isCheck(aws) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(aws) ? <X className="inline h-4 w-4 text-accent-red" aria-label="No" /> : aws}
       </td>
       <td className="py-3.5 px-4 text-center">
-        {isCheck(vast) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(vast) ? <span className="text-accent-red" aria-label="No">✗</span> : vast}
+        {isCheck(vast) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(vast) ? <X className="inline h-4 w-4 text-accent-red" aria-label="No" /> : vast}
       </td>
       <td className="py-3.5 px-4 text-center">
-        {isCheck(runpod) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(runpod) ? <span className="text-accent-red" aria-label="No">✗</span> : runpod}
+        {isCheck(runpod) ? <Check className="inline h-4 w-4 text-text-muted" aria-label="Yes" /> : isX(runpod) ? <X className="inline h-4 w-4 text-accent-red" aria-label="No" /> : runpod}
       </td>
     </tr>
   );

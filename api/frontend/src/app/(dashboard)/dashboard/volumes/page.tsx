@@ -868,8 +868,8 @@ export default function VolumesPage() {
                                 <Button size="sm" className="h-8" onClick={() => handleAttach(vol.volume_id)} disabled={!selectedInstance}>
                                   <Link className="h-3.5 w-3.5" /> Go
                                 </Button>
-                                <Button variant="ghost" size="sm" className="h-8" onClick={() => { setAttachingId(null); setSelectedInstance(""); }}>
-                                  ✕
+                                <Button variant="ghost" size="sm" className="h-8" aria-label="Cancel" onClick={() => { setAttachingId(null); setSelectedInstance(""); }}>
+                                  <X className="h-4 w-4" aria-hidden />
                                 </Button>
                               </div>
                               {selectedInstance && attachRegionMismatch(vol.volume_id, selectedInstance) && (
