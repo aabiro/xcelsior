@@ -92,8 +92,10 @@ export function CreditsButton() {
             formatted
           )}
         </span>
+        {/* The pill is the control on a phone; the bar has no room for the
+            chevron beside the account menu. */}
         <ChevronDown
-          className={cn("h-4 w-4 transition-transform", open && "rotate-180")}
+          className={cn("hidden h-4 w-4 transition-transform sm:block", open && "rotate-180")}
         />
       </button>
 

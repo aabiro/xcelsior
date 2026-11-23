@@ -639,10 +639,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   </div>
                   <div className="h-7 w-px bg-[var(--line)] hidden sm:block" />
                   {/* min-w-0 down to the text: when the bar is full the name
-                      truncates instead of pushing the trigger off the edge. */}
-                  <div className="relative min-w-0" ref={profileRef}>
-                    {/* Equal padding on a phone, where the trigger is only the
-                        avatar: 6px by 8px made its open ring an oval around a circle. */}
+                      truncates instead of pushing the trigger off the edge. On a
+                      phone the trigger is only the avatar and has no text to give
+                      up, so it keeps its width: shrunk to 37px of a 56px circle,
+                      its open ring drew a tall oval beside the avatar (owner
+                      review, 2026-11-22). The wallet and workspace controls drop
+                      their chevrons on a phone to make the room. */}
+                  <div className="relative shrink-0 sm:min-w-0 sm:shrink" ref={profileRef}>
+                    {/* Equal padding on a phone, so the ring is a circle. */}
                     <button
                       onClick={() => setProfileOpen(!profileOpen)}
                       className="dashboard-site-profile-trigger flex min-w-0 max-w-full items-center gap-2 rounded-full p-1.5 sm:px-3 sm:py-2"

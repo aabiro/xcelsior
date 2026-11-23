@@ -128,7 +128,7 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
           // everything beside it in the app bar whenever the workspace changed.
           // On a phone it is the icon alone: at 11rem it pushed the wallet and
           // the account menu off the right edge of a 390px bar.
-          compact && "w-auto sm:w-[11rem]",
+          compact && "w-auto min-w-11 justify-center sm:w-[11rem] sm:justify-start",
         )}
         aria-expanded={open}
         aria-haspopup="listbox"
@@ -145,7 +145,7 @@ export function TeamSwitcher({ className, compact = false }: TeamSwitcherProps) 
         {switching ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-text-muted" />
         ) : (
-          <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-text-muted transition-transform", open && "rotate-180")} />
+          <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-text-muted transition-transform", compact && "hidden sm:block", open && "rotate-180")} />
         )}
       </button>
 
