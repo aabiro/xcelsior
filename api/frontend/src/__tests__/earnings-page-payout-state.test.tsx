@@ -292,6 +292,31 @@ it("does not ask in settings how the account will be used", async () => {
 });
 
 
+it("names every account field for the phone's AutoFill", async () => {
+  // Safari on iOS offers contact AutoFill from a field's name as much as its
+  // autocomplete token; with generated ids alone it never offered the
+  // business name (owner review, 2026-11-22).
+  authState.user = { name: "", account_type: "business", business_name: "", country: "CA", province: "ON" };
+  render(<AccountProfileForm settings />);
+  await screen.findByRole("option", { name: "Ontario" });
+  const expected: Array<[string | RegExp, string]> = [
+    ["Name", "name"],
+    ["Legal business name", "organization"],
+    ["Country", "country"],
+    [/Province|State/, "address-level1"],
+    ["Street address", "address-line1"],
+    ["Apartment, suite, or unit (optional)", "address-line2"],
+    [/City|locality/i, "address-level2"],
+    [/Postal|ZIP/i, "postal-code"],
+  ];
+  for (const [label, token] of expected) {
+    const field = screen.getByLabelText(label);
+    expect(field, String(label)).toHaveAttribute("autocomplete", token);
+    expect(field, String(label)).toHaveAttribute("name", token);
+  }
+  expect(screen.getByLabelText("GST/HST registration number (optional)")).toHaveAttribute("autocomplete", "off");
+});
+
 it("saving profile details preserves a separately edited name and clears hidden business data", async () => {
   authState.user = { name:"Original Name", country:"CA", province:"ON", address_line1:"1 Test Street", address_line2:"", city:"London", postal_code:"N6A 1A1", account_type:"individual", onboarding_intent:"rent", business_name:"Old Company", gst_hst_number:"123456789RT0001" };
   apiMocks.updateProfile.mockResolvedValue({ok:true});

@@ -144,7 +144,27 @@ describe("SellerProfileCard", () => {
     render(<ProviderProfileForm mode="onboarding" onSaved={vi.fn()} />);
     const input = await screen.findByLabelText("dash.earnings.seller_legal_name");
     expect(input).toHaveValue("");
-    expect(input).toHaveAttribute("autocomplete", "off");
+    // Not prefilled from the display name, but the phone may offer the legal
+    // name from the owner's contact card (owner review, 2026-11-22).
+    expect(input).toHaveAttribute("autocomplete", "name");
+  });
+
+  it("offers the organization name for a business account's legal name", async () => {
+    authState.user = {
+      name: "Probe Placeholder",
+      account_type: "business",
+      business_name: "Probe Co",
+      address_line1: "1 Test Street",
+      city: "Toronto",
+      province: "ON",
+      postal_code: "M5V 2T6",
+      country: "CA",
+    };
+    apiMocks.apiFetch.mockResolvedValue({ profile: { legal_name: "", tax_id_kind: "" } });
+    render(<ProviderProfileForm mode="onboarding" onSaved={vi.fn()} />);
+    const input = await screen.findByLabelText("dash.earnings.seller_legal_name");
+    expect(input).toHaveValue("");
+    expect(input).toHaveAttribute("autocomplete", "organization");
   });
 
   it("keeps the settings save button disabled until a field changes and disables it again after saving", async () => {

@@ -136,7 +136,7 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="space-y-1.5">
         <Label htmlFor={`${id}-country`}>Country</Label>
-        <Select id={`${id}-country`} autoComplete="country" required value={selectedCountry}
+        <Select id={`${id}-country`} name="country" autoComplete="country" required value={selectedCountry}
           aria-invalid={countryInvalid ? "true" : "false"}
           aria-describedby={countryInvalid ? `${id}-country-error` : undefined}
           className={cn(countryInvalid && "border-red-400/60 focus:ring-red-400/40")}
@@ -154,7 +154,7 @@ export function LocationFields({ country, province, onCountryChange, onProvinceC
       </div>
       <div className="space-y-1.5">
         <Label htmlFor={`${id}-province`}>{provinceLabel}{provinceOptional ? " (optional)" : ""}</Label>
-        <Select id={`${id}-province`} autoComplete="address-level1" required={provinceRequired}
+        <Select id={`${id}-province`} name="address-level1" autoComplete="address-level1" required={provinceRequired}
           value={selectedProvince} disabled={provinceUnavailable}
           aria-invalid={provinceInvalid ? "true" : "false"}
           aria-describedby={provinceInvalid ? `${id}-province-error` : undefined}
@@ -358,6 +358,9 @@ export function AddressLookup({ country, onSelect, editRevision = 0 }: {
   </div>;
 }
 
+// Each field carries an autocomplete token and a matching name. Safari on iOS
+// offers contact AutoFill from the name as much as the token; with only a
+// generated id it never offered the business name (owner review, 2026-11-22).
 export function AccountProfileForm({ step = "address", onSaved, settings = false }: {
   step?: "account" | "address"; onSaved?: () => void | Promise<void>; settings?: boolean;
 }) {
@@ -514,7 +517,7 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
     }}>
       {accountFields && <>
         {!user?.name?.trim() && <div className="space-y-1.5"><Label htmlFor={`${id}-name`}>Name</Label>
-          <Input id={`${id}-name`} autoComplete="name" value={name} required maxLength={64}
+          <Input id={`${id}-name`} name="name" autoComplete="name" value={name} required maxLength={64}
             aria-invalid={nameInvalid ? "true" : "false"}
             aria-describedby={nameInvalid ? `${id}-name-error` : undefined}
             className={cn(nameInvalid && "border-red-400/60 focus:ring-red-400/40")}
@@ -544,7 +547,7 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
         </div>
         {accountType === "business" && <>
           <div className="space-y-1.5"><Label htmlFor={`${id}-business`}>Legal business name</Label>
-            <Input id={`${id}-business`} autoComplete="organization" required maxLength={200} value={businessName}
+            <Input id={`${id}-business`} name="organization" autoComplete="organization" required maxLength={200} value={businessName}
               aria-invalid={businessInvalid ? "true" : "false"}
               aria-describedby={businessInvalid ? `${id}-business-error` : undefined}
               className={cn(businessInvalid && "border-red-400/60 focus:ring-red-400/40")}
@@ -553,7 +556,7 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
             {businessInvalid && <p id={`${id}-business-error`} className="text-xs text-red-400">Enter your legal business name.</p>}
           </div>
           <div className="space-y-1.5"><Label htmlFor={`${id}-gst`}>GST/HST registration number (optional)</Label>
-            <Input id={`${id}-gst`} maxLength={20} value={gst} onChange={(event) => setGst(event.target.value)} /></div>
+            <Input id={`${id}-gst`} name="gst-hst-number" autoComplete="off" maxLength={20} value={gst} onChange={(event) => setGst(event.target.value)} /></div>
         </>}
       </>}
       {addressFields && <>
@@ -567,7 +570,7 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
           onCountryChange={(value) => { setReview(null); setCountry(value); }}
           onProvinceChange={(value) => manual(setProvince, value)} onRequirementsChange={setRequiredFields} />
         <div className="space-y-1.5"><Label htmlFor={`${id}-line1`}>Street address</Label>
-          <Input id={`${id}-line1`} autoComplete="address-line1" required={line1Required} maxLength={200} value={line1}
+          <Input id={`${id}-line1`} name="address-line1" autoComplete="address-line1" required={line1Required} maxLength={200} value={line1}
             aria-invalid={line1Invalid ? "true" : "false"}
             aria-describedby={line1Invalid ? `${id}-line1-error` : undefined}
             className={cn(line1Invalid && "border-red-400/60 focus:ring-red-400/40")}
@@ -576,10 +579,10 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
           {line1Invalid && <p id={`${id}-line1-error`} className="text-xs text-red-400">Enter your street address.</p>}
         </div>
         <div className="space-y-1.5"><Label htmlFor={`${id}-line2`}>Apartment, suite, or unit (optional)</Label>
-          <Input id={`${id}-line2`} autoComplete="address-line2" maxLength={200} value={line2} onChange={(event) => manual(setLine2, event.target.value)} /></div>
+          <Input id={`${id}-line2`} name="address-line2" autoComplete="address-line2" maxLength={200} value={line2} onChange={(event) => manual(setLine2, event.target.value)} /></div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5"><Label htmlFor={`${id}-city`}>{cityLabel}</Label>
-            <Input id={`${id}-city`} autoComplete="address-level2" required={cityRequired} maxLength={80} value={city}
+            <Input id={`${id}-city`} name="address-level2" autoComplete="address-level2" required={cityRequired} maxLength={80} value={city}
               aria-invalid={cityInvalid ? "true" : "false"}
               aria-describedby={cityInvalid ? `${id}-city-error` : undefined}
               className={cn(cityInvalid && "border-red-400/60 focus:ring-red-400/40")}
@@ -588,7 +591,7 @@ export function AccountProfileForm({ step = "address", onSaved, settings = false
             {cityInvalid && <p id={`${id}-city-error`} className="text-xs text-red-400">Enter your {cityLabel.toLowerCase()}.</p>}
           </div>
           <div className="space-y-1.5"><Label htmlFor={`${id}-postal`}>{postalLabel}</Label>
-            <Input id={`${id}-postal`} autoComplete="postal-code" required={postalRequired} maxLength={32} value={postal}
+            <Input id={`${id}-postal`} name="postal-code" autoComplete="postal-code" required={postalRequired} maxLength={32} value={postal}
               aria-invalid={postalInvalid ? "true" : "false"}
               aria-describedby={postalInvalid ? `${id}-postal-error` : undefined}
               className={cn(postalInvalid && "border-red-400/60 focus:ring-red-400/40")}

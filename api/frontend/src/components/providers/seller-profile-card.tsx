@@ -192,7 +192,8 @@ export function SellerProfileCard({
           <p className="text-sm text-text-secondary">{t("dash.earnings.seller_desc")}</p>
         </div>
       )}
-      <Field label={t("dash.earnings.seller_legal_name")} value={legalName} onChange={setLegalName} autoComplete="off" placeholder="" />
+      <Field label={t("dash.earnings.seller_legal_name")} value={legalName} onChange={setLegalName}
+        autoComplete={user?.account_type === "business" ? "organization" : "name"} name="legal-name" placeholder="" />
       <fieldset className="space-y-3">
         <legend className="text-sm font-medium text-text-secondary">{t("dash.earnings.seller_tax_kind")}</legend>
         <div className="grid grid-cols-2 gap-2">
@@ -213,6 +214,7 @@ export function SellerProfileCard({
         value={taxId}
         onChange={setTaxId}
         autoComplete="off"
+        name="tax-id"
         placeholder=""
         hint={[kind === "gst" ? t("dash.earnings.seller_gst_example") : "", provider?.tax_id_last4 ? `${t("dash.earnings.seller_on_file")} ${provider.tax_id_last4}` : ""].filter(Boolean).join(" ") || undefined}
         className="[&_input]:font-mono [&_input]:tracking-wide"
@@ -223,6 +225,7 @@ export function SellerProfileCard({
           value={gst}
           onChange={setGst}
           autoComplete="off"
+          name="gst-hst-number"
           placeholder=""
           optional={t("dash.earnings.seller_gst_hint")}
           hint={t("dash.earnings.seller_gst_example")}
@@ -271,6 +274,7 @@ function Field({
   hint,
   optional,
   autoComplete,
+  name,
   placeholder,
   className,
 }: {
@@ -280,6 +284,7 @@ function Field({
   hint?: string;
   optional?: string;
   autoComplete?: string;
+  name?: string;
   placeholder?: string;
   className?: string;
 }) {
@@ -290,7 +295,7 @@ function Field({
         <Label htmlFor={id}>{label}</Label>
         {optional && <span className="text-xs text-text-muted">{optional}</span>}
       </div>
-      <Input id={id} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} autoComplete={autoComplete} className="h-11" />
+      <Input id={id} name={name} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} autoComplete={autoComplete} className="h-11" />
       {hint && <p className="text-xs leading-relaxed text-text-muted">{hint}</p>}
     </div>
   );

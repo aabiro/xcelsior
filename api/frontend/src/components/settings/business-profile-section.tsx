@@ -418,6 +418,7 @@ export function BusinessProfileSection({
           >
             <Input
               id={`${id}-name`}
+              name="organization"
               value={displayName}
               maxLength={DISPLAY_NAME_MAX}
               placeholder={user.business_name || ""}
@@ -436,6 +437,7 @@ export function BusinessProfileSection({
           >
             <Input
               id={`${id}-website`}
+              name="url"
               value={website}
               inputMode="url"
               autoComplete="url"
@@ -461,6 +463,8 @@ export function BusinessProfileSection({
             >
               <Input
                 id={`${id}-tagline`}
+                name="business-tagline"
+                autoComplete="off"
                 value={tagline}
                 maxLength={TAGLINE_MAX}
                 placeholder={t("dash.business.tagline_placeholder")}
