@@ -534,17 +534,25 @@ def test_the_payout_tool_publishes_the_idempotency_this_file_proves():
     advertises "retrying is free" when it is not is the defect that put seven
     tools in the Unreleased changelog's Breaking section.
     """
-    import json
     import pathlib
+    import re
 
-    surface = json.loads(
-        (
-            pathlib.Path(__file__).resolve().parent.parent / "api" / "mcp" / "tool-surface.json"
-        ).read_text(encoding="utf-8")
+    # Read from the contract, not tool-surface.json: since 2026-11-24 the
+    # public connector does not publish this tool (Connectors Directory money
+    # rule). It is still served on the operator profile and to agent keys that
+    # hold providers:write, with this contract.
+    mcp = pathlib.Path(__file__).resolve().parent.parent / "api" / "mcp" / "src"
+    row = re.search(
+        r"^  request_provider_payout: \{([^}]*)\}",
+        (mcp / "tools" / "contracts.ts").read_text(encoding="utf-8"),
+        re.M,
     )
-    tool = next(t for t in surface["tools"] if t["name"] == "request_provider_payout")
-    assert tool["idempotency"] == "keyed", (
-        f"the payout tool now publishes idempotency {tool['idempotency']!r}, "
+    assert row, "request_provider_payout has no row in contracts.ts"
+    assert 'idempotency: "keyed"' in row[1], (
+        f"the payout tool's contract now says {row[1].strip()!r}, "
         "which disagrees with the settlement guarantees this file asserts"
     )
-    assert tool["requiredScopes"] == ["providers:write"], tool["requiredScopes"]
+    scopes = (mcp / "auth" / "scopes.ts").read_text(encoding="utf-8")
+    assert re.search(
+        r"request_provider_payout:[^\n]*providers:write", scopes
+    ), "request_provider_payout no longer requires providers:write"

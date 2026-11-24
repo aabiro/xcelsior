@@ -39,6 +39,39 @@ export const CONNECTOR_WITHHELD_SCOPES: ReadonlySet<string> = new Set([
   "reputation:write",
 ]);
 
+/**
+ * Tools the public connector does not serve, decided 2026-11-24 for the
+ * Connectors Directory. Its policy does not accept connectors that "transfer
+ * money, cryptocurrency, or other financial assets", and "we do not generally
+ * allow cryptocurrency software". `request_provider_payout` creates Stripe
+ * transfers, PayPal orders and Wise payouts. The deposit tools are the Bitcoin
+ * and Lightning rails, and the two status reads go with them: each one's
+ * description says to use it after its create tool. Card top-ups stay. They
+ * are flagged destructive, so Claude confirms the amount first. The operator
+ * profile keeps all five.
+ */
+export const CUSTOMER_EXCLUDED_TOOLS: ReadonlySet<string> = new Set([
+  "request_provider_payout",
+  "create_crypto_deposit",
+  "get_crypto_deposit",
+  "create_lightning_deposit",
+  "get_lightning_deposit",
+]);
+
+/**
+ * A customer tool that needs a scope connectors are never granted.
+ *
+ * Such a tool could only ever answer insufficient_scope to a connector, and a
+ * directory reviewer fails any tool that does not succeed with valid input.
+ * So it is registered only for a principal that holds the scope (an agent key
+ * that carries it), and left out of the published surface.
+ */
+function needsWithheldScope(name: string, principalScopes?: string[]): boolean {
+  const needed = (TOOL_CONTRACTS[name]?.requiredScopes ?? []).filter((s) => CONNECTOR_WITHHELD_SCOPES.has(s));
+  if (!needed.length) return false;
+  return !principalScopes || !needed.every((s) => principalScopes.includes(s));
+}
+
 export function isOperatorTool(name: string): boolean {
   return TOOL_CONTRACTS[name]?.tenantClass === "operator";
 }
@@ -63,7 +96,10 @@ export function toolIsVisible(
   principalScopes: string[] | undefined,
 ): boolean {
   if (!TOOL_CONTRACTS[name]) return false;
-  if (!isOperatorTool(name)) return true;
+  if (!isOperatorTool(name)) {
+    if (profile === "operator") return true;
+    return !CUSTOMER_EXCLUDED_TOOLS.has(name) && !needsWithheldScope(name, principalScopes);
+  }
   if (profile !== "operator") return false;
   // `undefined` scopes means "not resolved" (stdio with no token yet), which
   // must not be read as operator authority.
@@ -95,6 +131,9 @@ export function toolsInProfile(
 ): string[] {
   return Object.keys(TOOL_CONTRACTS)
     .filter((name) => profile === "operator" || !isOperatorTool(name))
+    // The published surface describes what a connector sees: no excluded tool,
+    // and nothing that needs a scope a connector cannot hold.
+    .filter((name) => profile === "operator" || (!CUSTOMER_EXCLUDED_TOOLS.has(name) && !needsWithheldScope(name)))
     .filter((name) => options.companyKnowledge || !COMPANY_KNOWLEDGE_TOOLS.has(name))
     .sort();
 }

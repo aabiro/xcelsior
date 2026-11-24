@@ -339,7 +339,7 @@ describe("hosted Streamable HTTP MCP", () => {
     expect(JSON.stringify(createAudits[0])).not.toContain("secret-do-not-audit");
     expect(createAudits[0]).toMatchObject({
       tool_name: "create_instance",
-      tool_version: "2.0.0",
+      tool_version: "2.1.0",
       tenant_id: "tenant-a",
       api_route: "/api/v1/launch-plans",
       api_status: 200,

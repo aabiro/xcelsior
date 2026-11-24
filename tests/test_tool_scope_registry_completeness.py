@@ -337,6 +337,21 @@ def test_the_registry_holds_the_baseline_number_of_tools():
     )
 
 
+#: Left off the public connector on 2026-11-24 for the Connectors Directory:
+#: its policy refuses connectors that transfer money or are crypto software.
+#: Mirrors CUSTOMER_EXCLUDED_TOOLS in api/mcp/src/tools/profiles.ts.
+CONNECTOR_EXCLUDED_TOOLS = {
+    "request_provider_payout",
+    "create_crypto_deposit",
+    "get_crypto_deposit",
+    "create_lightning_deposit",
+    "get_lightning_deposit",
+}
+#: Need providers:write or reputation:write, which no connector is granted, so
+#: they could only ever refuse. Served to agent keys that hold the scope.
+CONNECTOR_WITHHELD_SCOPE_TOOLS = {"register_provider", "claim_reputation_milestones"}
+
+
 def test_the_customer_snapshot_is_the_total_minus_its_stated_exclusions():
     """Explains the 30-vs-39 difference instead of leaving it to be rediscovered.
 
@@ -345,11 +360,17 @@ def test_the_customer_snapshot_is_the_total_minus_its_stated_exclusions():
     vanishing from the snapshot for any other reason fails here.
     """
     all_tools = set(_tool_scope_entries())
-    expected_customer = all_tools - OPERATOR_TOOLS - COMPANY_KNOWLEDGE_TOOLS
+    expected_customer = (
+        all_tools
+        - OPERATOR_TOOLS
+        - COMPANY_KNOWLEDGE_TOOLS
+        - CONNECTOR_EXCLUDED_TOOLS
+        - CONNECTOR_WITHHELD_SCOPE_TOOLS
+    )
     published = _registered_tool_names()
     assert published == expected_customer, (
-        "the customer snapshot is not the total minus operator and "
-        "company-knowledge tools:\n"
+        "the customer snapshot is not the total minus operator, "
+        "company-knowledge, directory-excluded and withheld-scope tools:\n"
         f"  published but not expected: {sorted(published - expected_customer)}\n"
         f"  expected but not published: {sorted(expected_customer - published)}"
     )

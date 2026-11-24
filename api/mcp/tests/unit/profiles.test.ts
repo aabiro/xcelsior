@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TOOL_CONTRACTS } from "../../src/tools/contracts.js";
+import { IRREVERSIBLE_TOOLS, TOOL_CONTRACTS } from "../../src/tools/contracts.js";
 import {
   CONNECTOR_WITHHELD_SCOPES,
   isOperatorTool,
@@ -130,40 +130,25 @@ describe("annotation accuracy", () => {
     ].sort());
   });
 
-  it("marks exactly the non-undoable tools as destructive", () => {
-    const destructive = Object.entries(TOOL_CONTRACTS)
-      .filter(([, contract]) => contract.annotations.destructiveHint)
-      .map(([name]) => name)
-      .sort();
-    // drain_host is absent deliberately: the versioned endpoint it calls stops
-    // new placements and leaves running workloads alone. See contracts.ts.
-    // `delete_volume` joins them: a deleted volume's contents cannot be
-    // recovered. `detach_volume` deliberately does not — it is confirm-gated
-    // because it disrupts a running job, but re-attaching restores the mount,
-    // and `destructiveHint` is a claim about undoability rather than about
-    // needing care. See the reasoning in contracts.ts.
-    // The serverless exits join them. Deleting an endpoint stops its id
-    // resolving — a replacement is a new deployment, not the same one back.
-    // Cancelling an inference job ends it; there is no resume, only a new job,
-    // which is the same shape as cancel_instance.
-    // `delete_user_image` joins them: the record cannot be brought back through
-    // the API, and anything that referenced the image — a past sweep, a launch
-    // worth reproducing — can no longer be launched from it. Re-snapshotting
-    // produces a *new* image from whatever the instance holds now, which is not
-    // the same bytes.
-    // `cancel_hpc_job` joins them for the same reason as cancel_instance: a
-    // cancelled Slurm job is not resumed, only resubmitted as a new run.
-    expect(destructive).toEqual([
-      "cancel_hpc_job", "cancel_instance", "cancel_serverless_job",
-      // Funding, payouts and unattended spending carry irreversible money effects.
-      "configure_auto_topup", "delete_serverless_endpoint",
-      "delete_user_image", "delete_volume", "evict_host_workloads", "request_provider_payout",
-      // `restore_volume_snapshot` joins them: it replaces the volume with an
-      // older capture, so anything written since is gone. Sorted, so it lands
-      // after `evict_host_workloads` — the list is `.sort()`ed above.
-      "restore_volume_snapshot",
-      "terminate_instance", "top_up_wallet",
-    ]);
+  it("flags every customer write destructive, and operator writes only when irreversible", () => {
+    // The Connectors Directory requires destructiveHint on any tool that
+    // modifies or deletes data, so on the public surface every write carries
+    // it. Operator tools are never published there and keep the narrower
+    // reading: drain_host stops new placements and leaves running work alone,
+    // so it is not flagged. See the note above TOOL_POLICY in contracts.ts.
+    const wrong: string[] = [];
+    for (const [name, c] of Object.entries(TOOL_CONTRACTS)) {
+      if (c.annotations.readOnlyHint) continue;
+      const want = name === "request_permission" ? false : c.tenantClass === "tenant" ? true : IRREVERSIBLE_TOOLS.has(name as never);
+      if (c.annotations.destructiveHint !== want) wrong.push(`${name}: ${c.annotations.destructiveHint}`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("keeps every irreversible tool flagged destructive", () => {
+    for (const name of IRREVERSIBLE_TOOLS) {
+      expect(TOOL_CONTRACTS[name].annotations.destructiveHint, name).toBe(true);
+    }
   });
 
   it("never marks a tool both read-only and destructive", () => {

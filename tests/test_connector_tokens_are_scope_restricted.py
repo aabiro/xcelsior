@@ -282,23 +282,14 @@ def test_the_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
     # decision rather than as a refusal in production.
     assert unsatisfiable == {
         "top_up_wallet",
-        # `billing:topup` too. A deposit request moves no money, but it locks a
-        # rate and belongs to the same lever as topping up. An OAuth connector
-        # may be granted `billing:topup` on its consent page; this token, issued
-        # without one, is not.
-        "create_crypto_deposit",
-        "create_lightning_deposit",
         "configure_auto_topup",
         "list_ssh_keys",
         "delete_ssh_key",
-        # `reputation:write` grants points and verification badges — it moves a
-        # provider's tier, and tier sets the commission they pay. The reputation
-        # reads are reachable; changing standing is not.
-        "claim_reputation_milestones",
-        # `providers:write`: enrolling a payout destination and settling money
-        # out of it. The provider reads are reachable; these are not.
-        "register_provider",
-        "request_provider_payout",
+        # Not here since 2026-11-24, because they are no longer published at
+        # all: the crypto deposit tools and request_provider_payout (removed for
+        # the Connectors Directory's money and crypto rules), and
+        # register_provider and claim_reputation_milestones (they need
+        # providers:write or reputation:write, which no connector is granted).
     }, (
         f"the set of published tools a Quick Connect token cannot use is "
         f"{sorted(unsatisfiable)}. Adding to it widens what a connector agent "

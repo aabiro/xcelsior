@@ -141,7 +141,7 @@ export function registerComputeTools(
       }).passthrough(),
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: false,
       },
@@ -256,7 +256,7 @@ export function registerComputeTools(
           .optional()
           .describe("A label for this key, e.g. 'laptop'. Defaults to 'default'."),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ public_key, name }) => {
       const denied = scopeDenied("register_ssh_key", user);
@@ -342,7 +342,7 @@ export function registerComputeTools(
           .default(false)
           .describe("false returns a preview of the key that would be removed"),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ key_id, confirm }) => {
       const denied = scopeDenied("delete_ssh_key", user);
@@ -398,7 +398,7 @@ export function registerComputeTools(
               "prefers ssh when the instance publishes a port.",
           ),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async ({ job_id, method }) => {
       const denied = scopeDenied("open_instance_access", user);

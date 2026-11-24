@@ -74,7 +74,7 @@ export function registerVolumeTools(
         region: z.string().max(64).default("").describe("Omit for any region"),
         encrypted: z.boolean().default(true),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async (args) => {
       const denied = scopeDenied("create_volume", user);
@@ -115,7 +115,7 @@ export function registerVolumeTools(
           .describe("Where it appears inside the container. The API accepts only these shapes."),
         mode: z.enum(["rw", "ro"]).default("rw"),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (args) => {
       const denied = scopeDenied("attach_volume", user);
@@ -148,7 +148,7 @@ export function registerVolumeTools(
         volume_id: z.string().min(1).max(160),
         confirm: z.boolean().default(false),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ volume_id, confirm }) => {
       const denied = scopeDenied("detach_volume", user);
@@ -228,7 +228,7 @@ export function registerVolumeTools(
         volume_id: z.string().min(1).max(160),
         name: z.string().max(128).optional(),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async ({ volume_id, name }) => {
       const denied = scopeDenied("snapshot_volume", user);
@@ -354,7 +354,7 @@ export function registerVolumeTools(
               "copy already running instead of starting a second one.",
           ),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ job_id, volume_id, idempotency_key }) => {
       const denied = scopeDenied("promote_artifact_to_volume", user);

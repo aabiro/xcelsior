@@ -97,7 +97,7 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
   server.registerTool("claim_reputation_milestones", {
     inputSchema: z.object({}),
     outputSchema: output,
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, diagnosticHandler(user, "claim_reputation_milestones", () => client.post("/api/reputation/me/claim", {})));
 
   server.registerTool("get_reputation_leaderboard", {
@@ -137,7 +137,7 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
       gst_hst_number: z.string().max(40).default(""),
     }),
     outputSchema: output,
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, diagnosticHandler(user, "register_provider", async a => {
     const data = await client.post("/api/providers/register", {
       // The API derives the provider identity from the credential and ignores

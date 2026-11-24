@@ -126,6 +126,19 @@ export type ToolPolicy =
  * does not exist fails the same way. The 37-vs-39 drift that motivated this is
  * no longer something a test has to notice; it is not expressible.
  */
+// ## Every customer write that changes data is `destructive: true`
+//
+// Until 2026-11-24 `destructive` meant "not undone by acting again", so 24
+// customer writes said false — `delete_ssh_key`, `detach_volume`, and every
+// tool that launches billed work. That is not the question clients ask.
+// The MCP spec defines `destructiveHint: false` as "only additive updates", and
+// the Connectors Directory review requires `destructiveHint: true` on any tool
+// that modifies or deletes data. Claude reads it to decide when to ask the user
+// before calling. So on the public surface every write is flagged (except
+// `request_permission`, which changes nothing), and the
+// reasoning beside each row is about what the write does, not about the flag.
+// `tests/unit/annotations-reach-the-wire.test.ts` pins the rule. Operator rows
+// keep the narrower reading; they are never published to the directory.
 const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   list_available_gpus: { readOnly: true, destructive: false, audience: "customer", openWorld: true },
   get_spot_prices: { readOnly: true, destructive: false, audience: "customer", openWorld: true },
@@ -136,63 +149,57 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   get_host_evidence: { readOnly: true, destructive: false, audience: "customer" },
   list_tiers: { readOnly: true, destructive: false, audience: "customer" },
   get_permissions: { readOnly: true, destructive: false, audience: "customer" },
-  // Repeat-safe: asking again for the same permissions returns the same
-  // pending request and link. Not destructive: it changes no permission.
+  // The one customer write that is not flagged. It modifies no account data:
+  // it returns an approval link, and only the user, in the dashboard, can
+  // grant anything. Repeat-safe: asking again returns the same pending request.
   request_permission: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
   list_instances: { readOnly: true, destructive: false, audience: "customer" },
   get_instance: { readOnly: true, destructive: false, audience: "customer" },
   get_instance_logs: { readOnly: true, destructive: false, audience: "customer" },
-  create_instance: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  create_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   cancel_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   terminate_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   should_i_run_this: { readOnly: true, destructive: false, audience: "customer" },
-  run_training_job: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", version: "2.1.0" },
-  schedule_under_budget: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", openWorld: true, version: "2.2.0" },
+  run_training_job: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.2.0" },
+  schedule_under_budget: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", openWorld: true, version: "2.3.0" },
   // The one long timeout: it holds a connection open while an instance changes
   // state, so the 15s default would end every useful call.
   watch_instance: { readOnly: true, destructive: false, audience: "customer", timeoutMs: 3_600_000 },
-  register_ssh_key: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  register_ssh_key: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   list_ssh_keys: { readOnly: true, destructive: false, audience: "customer" },
-  // **Not** destructive, on the same reasoning as `detach_volume`: the question
-  // `destructiveHint` asks is whether the effect is undone by acting again, and
-  // the user holds the private key — re-registering the public half restores
-  // access. What it does disrupt is any live session the key authorised, which
-  // is why it previews before acting rather than why it is flagged.
-  delete_ssh_key: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  // Revokes shell access and disconnects live sessions. Re-registering the
+  // public half restores access, but only for whoever holds the private key.
+  delete_ssh_key: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   list_volumes: { readOnly: true, destructive: false, audience: "customer" },
   get_volume: { readOnly: true, destructive: false, audience: "customer" },
-  create_volume: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", version: "2.1.0" },
-  promote_artifact_to_volume: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  create_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.2.0" },
+  promote_artifact_to_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   get_promotion_status: { readOnly: true, destructive: false, audience: "customer" },
-  run_pipeline: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", version: "2.1.0" },
+  run_pipeline: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.2.0" },
   // Idempotent by the service's own contract — revoking a revoked plan returns
-  // the same result marked `idempotent`. Not destructive: nothing has run yet,
-  // so nothing is lost, and a withdrawn plan is replaced by quoting again.
-  revoke_launch_plan: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  // the same result marked `idempotent`. Nothing has run yet, so nothing is
+  // lost, and a withdrawn plan is replaced by quoting again.
+  revoke_launch_plan: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   get_pipeline_status: { readOnly: true, destructive: false, audience: "customer" },
-  attach_volume: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
-  // **Not** destructive, and this was reconsidered rather than assumed. It is
-  // confirm-gated because the plan puts detach behind approval — it can disrupt
-  // a running workload — but `destructiveHint` asks a narrower question: is the
-  // effect undoable? Re-attaching restores the mount. What is lost is whatever
-  // was mid-write, a consequence of timing rather than of irreversibility.
-  // Approval gating and `destructiveHint` are different claims, kept that way.
-  detach_volume: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  attach_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
+  // Confirm-gated: it can disrupt a running workload. Re-attaching restores
+  // the mount; what is lost is whatever was mid-write.
+  detach_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   // Destroys the volume's contents; they cannot be recovered.
   delete_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
-  snapshot_volume: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", version: "2.1.0" },
+  snapshot_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.2.0" },
   list_volume_snapshots: { readOnly: true, destructive: false, audience: "customer" },
   // Destructive: it replaces what is on the volume now with what was captured.
   restore_volume_snapshot: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   get_artifact_expiry: { readOnly: true, destructive: false, audience: "customer" },
-  open_instance_access: { readOnly: false, destructive: false, audience: "customer", idempotency: "none", version: "2.1.0" },
+  open_instance_access: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.2.0" },
   list_serverless_endpoints: { readOnly: true, destructive: false, audience: "customer" },
-  create_serverless_endpoint: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  create_serverless_endpoint: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   should_i_run_pel_job: { readOnly: true, destructive: false, audience: "customer" },
   // A resubmitted inference job is a new job, so replaying the call is not a
   // no-op and must not be advertised as one. It was the only tool declaring
   // this; six others were relying on a default that claimed the opposite.
-  run_serverless_job: { readOnly: false, destructive: false, audience: "customer", idempotency: "none" },
+  run_serverless_job: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.1.0" },
   get_serverless_job_status: { readOnly: true, destructive: false, audience: "customer" },
   get_serverless_endpoint: { readOnly: true, destructive: false, audience: "customer" },
   get_serverless_endpoint_health: { readOnly: true, destructive: false, audience: "customer" },
@@ -220,13 +227,13 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   get_reputation_history: { readOnly: true, destructive: false, audience: "customer" },
   // `keyed` in the sense the type documents: repeating genuinely has no further
   // effect, because the engine skips already-claimed milestones.
-  claim_reputation_milestones: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  claim_reputation_milestones: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   get_paypal_status: { readOnly: true, destructive: false, audience: "customer" },
   get_wise_status: { readOnly: true, destructive: false, audience: "customer" },
   // `keyed` in the sense the type documents: the provider identity resolves
   // from the caller, so a repeat regenerates a link rather than creating a
   // second account.
-  register_provider: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  register_provider: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   // `keyed` and genuinely so: `settlement_key` is `provider-job:{job_id}` with
   // ON CONFLICT DO NOTHING, and the rail gets `provider-settlement:{job_id}`.
   // Settlement is repeat-safe per job, but an external transfer cannot be
@@ -251,8 +258,8 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // host) — which would have removed the customer's own "did my launch get
   // approved?" tool from the public profile.
   get_mcp_action_status: { readOnly: true, destructive: false, audience: "customer" },
-  retry_instance: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
-  reconcile_instance: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  retry_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
+  reconcile_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   // Deliberately **not** destructive. The tool posts to
   // `/api/v1/hosts/{id}/drain`, which stops *new* placements and returns
   // "running workloads untouched"; the destructive counterpart is a separate
@@ -272,9 +279,9 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // `keyed` in the strict sense: the route reads an Idempotency-Key header and
   // 409s a reused key carrying a different amount, so a retry cannot quietly
   // become a second deposit.
-  create_crypto_deposit: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  create_crypto_deposit: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   get_crypto_deposit: { readOnly: true, destructive: false, audience: "customer" },
-  create_lightning_deposit: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  create_lightning_deposit: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   get_lightning_deposit: { readOnly: true, destructive: false, audience: "customer" },
   get_spend_envelope: { readOnly: true, destructive: false, audience: "customer" },
   estimate_job_cost: { readOnly: true, destructive: false, audience: "customer" },
@@ -294,7 +301,7 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // Repeat-safe by nature rather than by key: a second snapshot of the same
   // `name:tag` 409s with "already exists (delete it first to overwrite)", so
   // calling twice has no additional effect. Same shape as `register_ssh_key`.
-  create_instance_snapshot: { readOnly: false, destructive: false, audience: "customer", idempotency: "keyed" },
+  create_instance_snapshot: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   list_user_images: { readOnly: true, destructive: false, audience: "customer" },
   // Destructive: the record cannot be brought back through the API, and a
   // sweep or launch that referenced the image stops being reproducible.
@@ -303,11 +310,33 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // awaiting approval — the same shape as `run_pipeline`, and classified the
   // same way. Executing an approved plan *is* repeat-safe; that is the execute
   // route's `mark_consumed`, not this tool.
-  create_image_sweep: { readOnly: false, destructive: false, audience: "customer", idempotency: "none" },
+  create_image_sweep: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.1.0" },
   get_image_sweep: { readOnly: true, destructive: false, audience: "customer" },
   search: { readOnly: true, destructive: false, audience: "company-knowledge", openWorld: true },
   fetch: { readOnly: true, destructive: false, audience: "company-knowledge", openWorld: true },
 };
+
+/**
+ * Writes whose effect cannot be taken back: data destroyed, work ended with no
+ * resume, or money moved. A narrower set than `destructiveHint`, which every
+ * customer write now carries. This is the set whose descriptions must say the
+ * effect is irreversible (`tests/unit/descriptions.test.ts`). Before
+ * 2026-11-24 it was what `destructive` meant.
+ */
+export const IRREVERSIBLE_TOOLS: ReadonlySet<ToolName> = new Set<ToolName>([
+  "cancel_hpc_job",
+  "cancel_instance",
+  "cancel_serverless_job",
+  "configure_auto_topup",
+  "delete_serverless_endpoint",
+  "delete_user_image",
+  "delete_volume",
+  "evict_host_workloads",
+  "request_provider_payout",
+  "restore_volume_snapshot",
+  "terminate_instance",
+  "top_up_wallet",
+]);
 
 export const COMPANY_KNOWLEDGE_TOOL_NAMES: ReadonlySet<string> = new Set(
   Object.entries(TOOL_POLICY).filter(([, p]) => p.audience === "company-knowledge").map(([n]) => n),

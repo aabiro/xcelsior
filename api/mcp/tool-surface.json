@@ -26,7 +26,7 @@
   "tools": [
     {
       "name": "attach_volume",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:read",
@@ -36,7 +36,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -127,24 +127,6 @@
       "hasOutputSchema": true
     },
     {
-      "name": "claim_reputation_milestones",
-      "version": "2.0.0",
-      "tenantClass": "tenant",
-      "requiredScopes": [
-        "reputation:write"
-      ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "input": {},
-      "hasOutputSchema": true
-    },
-    {
       "name": "configure_auto_topup",
       "version": "2.1.0",
       "tenantClass": "tenant",
@@ -184,39 +166,8 @@
       "hasOutputSchema": true
     },
     {
-      "name": "create_crypto_deposit",
-      "version": "2.0.0",
-      "tenantClass": "tenant",
-      "requiredScopes": [
-        "billing:topup"
-      ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "input": {
-        "amount_cad": {
-          "type": "number",
-          "optional": false
-        },
-        "customer_id": {
-          "type": "string",
-          "optional": true
-        },
-        "idempotency_key": {
-          "type": "string",
-          "optional": true
-        }
-      },
-      "hasOutputSchema": true
-    },
-    {
       "name": "create_image_sweep",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:write"
@@ -225,7 +176,7 @@
       "retry": "none",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false
       },
@@ -275,7 +226,7 @@
     },
     {
       "name": "create_instance",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:write"
@@ -284,7 +235,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -371,7 +322,7 @@
     },
     {
       "name": "create_instance_snapshot",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:write"
@@ -380,7 +331,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -405,39 +356,8 @@
       "hasOutputSchema": true
     },
     {
-      "name": "create_lightning_deposit",
-      "version": "2.0.0",
-      "tenantClass": "tenant",
-      "requiredScopes": [
-        "billing:topup"
-      ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "input": {
-        "amount_cad": {
-          "type": "number",
-          "optional": false
-        },
-        "customer_id": {
-          "type": "string",
-          "optional": true
-        },
-        "idempotency_key": {
-          "type": "string",
-          "optional": true
-        }
-      },
-      "hasOutputSchema": true
-    },
-    {
       "name": "create_serverless_endpoint",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "inference:write"
@@ -446,7 +366,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -496,7 +416,7 @@
     },
     {
       "name": "create_volume",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "volumes:write"
@@ -505,7 +425,7 @@
       "retry": "none",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false
       },
@@ -558,7 +478,7 @@
     },
     {
       "name": "delete_ssh_key",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "ssh:read",
@@ -568,7 +488,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -640,7 +560,7 @@
     },
     {
       "name": "detach_volume",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "volumes:write"
@@ -649,7 +569,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -809,29 +729,6 @@
         "openWorldHint": false
       },
       "input": {},
-      "hasOutputSchema": true
-    },
-    {
-      "name": "get_crypto_deposit",
-      "version": "2.0.0",
-      "tenantClass": "tenant",
-      "requiredScopes": [
-        "billing:read"
-      ],
-      "idempotency": "read",
-      "retry": "safe",
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "input": {
-        "deposit_id": {
-          "type": "string",
-          "optional": false
-        }
-      },
       "hasOutputSchema": true
     },
     {
@@ -1005,29 +902,6 @@
       },
       "input": {
         "job_id": {
-          "type": "string",
-          "optional": false
-        }
-      },
-      "hasOutputSchema": true
-    },
-    {
-      "name": "get_lightning_deposit",
-      "version": "2.0.0",
-      "tenantClass": "tenant",
-      "requiredScopes": [
-        "billing:read"
-      ],
-      "idempotency": "read",
-      "retry": "safe",
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "input": {
-        "deposit_id": {
           "type": "string",
           "optional": false
         }
@@ -1908,7 +1782,7 @@
     },
     {
       "name": "open_instance_access",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:connect",
@@ -1918,7 +1792,7 @@
       "retry": "none",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false
       },
@@ -1941,7 +1815,7 @@
     },
     {
       "name": "promote_artifact_to_volume",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "artifacts:read",
@@ -1951,7 +1825,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -1973,7 +1847,7 @@
     },
     {
       "name": "reconcile_instance",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:operate"
@@ -1982,7 +1856,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -2003,59 +1877,8 @@
       "hasOutputSchema": true
     },
     {
-      "name": "register_provider",
-      "version": "2.0.0",
-      "tenantClass": "tenant",
-      "requiredScopes": [
-        "providers:write"
-      ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "input": {
-        "provider_type": {
-          "type": "enum",
-          "optional": true,
-          "values": [
-            "company",
-            "individual"
-          ]
-        },
-        "legal_name": {
-          "type": "string",
-          "optional": true
-        },
-        "province": {
-          "type": "string",
-          "optional": true
-        },
-        "country": {
-          "type": "string",
-          "optional": true
-        },
-        "corporation_name": {
-          "type": "string",
-          "optional": true
-        },
-        "business_number": {
-          "type": "string",
-          "optional": true
-        },
-        "gst_hst_number": {
-          "type": "string",
-          "optional": true
-        }
-      },
-      "hasOutputSchema": true
-    },
-    {
       "name": "register_ssh_key",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "ssh:write"
@@ -2064,7 +1887,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -2125,42 +1948,6 @@
       "hasOutputSchema": true
     },
     {
-      "name": "request_provider_payout",
-      "version": "2.1.0",
-      "tenantClass": "tenant",
-      "requiredScopes": [
-        "providers:write"
-      ],
-      "idempotency": "keyed",
-      "retry": "idempotent",
-      "annotations": {
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": false
-      },
-      "input": {
-        "provider_id": {
-          "type": "string",
-          "optional": false
-        },
-        "job_id": {
-          "type": "string",
-          "optional": false
-        },
-        "payment_rail": {
-          "type": "enum",
-          "optional": true,
-          "values": [
-            "paypal",
-            "stripe",
-            "wise"
-          ]
-        }
-      },
-      "hasOutputSchema": true
-    },
-    {
       "name": "restore_volume_snapshot",
       "version": "2.0.0",
       "tenantClass": "tenant",
@@ -2193,7 +1980,7 @@
     },
     {
       "name": "retry_instance",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:operate"
@@ -2202,7 +1989,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -2224,7 +2011,7 @@
     },
     {
       "name": "revoke_launch_plan",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "inference:write",
@@ -2234,7 +2021,7 @@
       "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -2252,7 +2039,7 @@
     },
     {
       "name": "run_pipeline",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:write"
@@ -2261,7 +2048,7 @@
       "retry": "none",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false
       },
@@ -2279,7 +2066,7 @@
     },
     {
       "name": "run_serverless_job",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "inference:write"
@@ -2288,7 +2075,7 @@
       "retry": "none",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false
       },
@@ -2310,7 +2097,7 @@
     },
     {
       "name": "run_training_job",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "billing:read",
@@ -2320,7 +2107,7 @@
       "retry": "none",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false
       },
@@ -2382,7 +2169,7 @@
     },
     {
       "name": "schedule_under_budget",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "gpu:read",
@@ -2393,7 +2180,7 @@
       "retry": "none",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": true
       },
@@ -2588,7 +2375,7 @@
     },
     {
       "name": "snapshot_volume",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "volumes:write"
@@ -2597,7 +2384,7 @@
       "retry": "none",
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": false,
+        "destructiveHint": true,
         "idempotentHint": false,
         "openWorldHint": false
       },

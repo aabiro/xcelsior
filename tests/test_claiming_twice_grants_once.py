@@ -40,6 +40,7 @@ is what the tool calls and what the contract describes.
 from __future__ import annotations
 
 import json
+import re
 import pathlib
 import uuid
 
@@ -150,9 +151,14 @@ def test_the_surface_still_publishes_the_promise_this_proves():
     """If the contract is changed to `none`, this file's subject is gone and it
     should be deleted deliberately rather than left asserting a property nobody
     relies on."""
-    surface = json.loads((ROOT / "api" / "mcp" / "tool-surface.json").read_text(encoding="utf-8"))
-    tool = next(t for t in surface["tools"] if t["name"] == "claim_reputation_milestones")
-    assert tool["idempotency"] == "keyed", (
-        f"the tool now publishes idempotency {tool['idempotency']!r}; this file "
-        "exists to back the 'keyed' claim"
+    # Read from the contract, not tool-surface.json: since 2026-11-24 the
+    # public connector leaves this tool out (it needs reputation:write, which no
+    # connector is granted). Agent keys holding the scope still get it.
+    contracts = (ROOT / "api" / "mcp" / "src" / "tools" / "contracts.ts").read_text(
+        encoding="utf-8"
     )
+    row = re.search(r"^  claim_reputation_milestones: \{([^}]*)\}", contracts, re.M)
+    assert row, "claim_reputation_milestones has no row in contracts.ts"
+    assert (
+        'idempotency: "keyed"' in row[1]
+    ), f"the contract now says {row[1].strip()!r}; this file exists to back the 'keyed' claim"

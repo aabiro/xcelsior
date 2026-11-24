@@ -51,7 +51,7 @@ export function registerServerlessTools(
         idempotency_key: z.string().uuid().optional(),
       }),
       outputSchema: z.object({ preview: z.boolean().optional(), plan_id: z.string().optional() }).passthrough(),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (args) => {
       const denied = scopeDenied("create_serverless_endpoint", user);
@@ -117,7 +117,7 @@ export function registerServerlessTools(
         input: z.record(z.string(), z.unknown()).default({}),
         webhook: z.string().url().optional(),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async ({ endpoint_id, input, webhook }) => {
       const denied = scopeDenied("run_serverless_job", user);

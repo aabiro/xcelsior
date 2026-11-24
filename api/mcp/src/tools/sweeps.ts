@@ -66,7 +66,7 @@ export function registerSweepTools(
           message: z.string().optional(),
         })
         .passthrough(),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async (args: Record<string, unknown>) => {
       if (!userHasScope(user?.scopes, TOOL_SCOPES.create_image_sweep)) {
@@ -122,7 +122,7 @@ export function registerSweepTools(
         description: z.string().max(512).default(""),
       }),
       outputSchema: z.object({}).passthrough(),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async (args: Record<string, unknown>) => {
       if (!userHasScope(user?.scopes, TOOL_SCOPES.create_instance_snapshot)) {

@@ -74,11 +74,36 @@ describe("tool annotations reach the wire", () => {
     }
     // Payout retries use the completed job as a stable settlement identity.
     expect(recorded.get("request_provider_payout")?.annotations).toMatchObject({ idempotentHint: true });
-    // Preparing a deposit/invoice moves no money; its separate payment is
-    // outside the tool. Preserve this meaningful distinction.
+    // Preparing a deposit/invoice is repeat-safe under its key.
     for (const name of ["create_crypto_deposit", "create_lightning_deposit"]) {
-      expect(recorded.get(name)?.annotations, name).toMatchObject({ destructiveHint: false, idempotentHint: true });
+      expect(recorded.get(name)?.annotations, name).toMatchObject({ idempotentHint: true });
     }
+  });
+
+  it("flags every customer write destructive, as the Connectors Directory requires", () => {
+    // The review requires `destructiveHint: true` on any tool that modifies or
+    // deletes data, and Claude uses it to decide when to ask first. Until
+    // 2026-11-24, 24 customer writes said false, including delete_ssh_key and
+    // every tool that launches billed work.
+    const recorded = registerAsProductionDoes();
+    const unflagged = [...recorded]
+      .filter(([name]) => TOOL_CONTRACTS[name]?.tenantClass === "tenant")
+      // It returns an approval link and modifies no data. See contracts.ts.
+      .filter(([name]) => name !== "request_permission")
+      .filter(([, config]) => {
+        const a = config.annotations as Record<string, boolean>;
+        return a.readOnlyHint === false && a.destructiveHint !== true;
+      })
+      .map(([name]) => name);
+    expect(unflagged).toEqual([]);
+  });
+
+  it("gives every tool a title", () => {
+    const recorded = registerAsProductionDoes();
+    const untitled = [...recorded]
+      .filter(([, config]) => typeof config.title !== "string" || !(config.title as string).trim())
+      .map(([name]) => name);
+    expect(untitled).toEqual([]);
   });
 
   it("registers every tool in the contract registry", () => {

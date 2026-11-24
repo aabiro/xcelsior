@@ -13,13 +13,13 @@ export function registerOperatorTools(server: McpServer, client: XcelsiorApiClie
   server.registerTool("retry_instance", {
     inputSchema: z.object({ job_id: z.string().min(1).max(160), ...base }),
     outputSchema: output,
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, async (args) => mutate("retry_instance", `/api/v1/instances/${encodeURIComponent(args.job_id)}/retry`, args));
 
   server.registerTool("reconcile_instance", {
     inputSchema: z.object({ job_id: z.string().min(1).max(160), ...base }),
     outputSchema: output,
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, async (args) => mutate("reconcile_instance", `/api/v1/instances/${encodeURIComponent(args.job_id)}/reconcile`, args));
 
   server.registerTool("drain_host", {

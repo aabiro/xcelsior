@@ -15,6 +15,45 @@ reflected here and version-bumped fails the build.
 
 ### Breaking
 
+- **Seven tools are no longer published at `mcp.xcelsior.ca/mcp`** (2026-11-24).
+  They stay on the operator profile.
+
+  - `request_provider_payout`, `create_crypto_deposit`, `get_crypto_deposit`,
+    `create_lightning_deposit` and `get_lightning_deposit` were removed for the
+    Claude Connectors Directory. Its policy does not accept connectors that
+    transfer money, and does not generally allow cryptocurrency software.
+  - `register_provider` and `claim_reputation_milestones` need `providers:write`
+    or `reputation:write`. No connector is ever granted those scopes, so for a
+    connector these tools could only refuse. `request_provider_payout` was in
+    the same position.
+
+  **No 90-day notice, by owner decision.** This departs from §3. Three of the
+  seven never worked for any connector. Bitcoin and Lightning deposits still
+  work from the dashboard's billing page, and `list_funding_options` now says
+  so. An agent key that holds `providers:write` or `reputation:write` still
+  gets `register_provider` and `claim_reputation_milestones`.
+
+- **23 write tools now carry `destructiveHint: true`.** Each gets a version
+  bump: `2.0.0 → 2.1.0`, or one minor up where the tool had already moved. The
+  tools are `create_instance`, `run_training_job`, `schedule_under_budget`,
+  `register_ssh_key`, `delete_ssh_key`, `create_volume`,
+  `promote_artifact_to_volume`, `run_pipeline`, `revoke_launch_plan`,
+  `attach_volume`, `detach_volume`, `snapshot_volume`, `open_instance_access`,
+  `create_serverless_endpoint`, `run_serverless_job`, `retry_instance`,
+  `reconcile_instance`, `create_instance_snapshot` and `create_image_sweep`.
+  The remaining four (`claim_reputation_milestones`, `register_provider` and
+  the two deposit tools) are unpublished above.
+
+  **The old value was wrong, so this is a correction under §2.** The MCP spec
+  defines `destructiveHint: false` as "only additive updates". These tools
+  delete, revoke, detach, or launch billed work. The Connectors Directory
+  requires the hint on any tool that modifies data. Claude now asks before
+  calling them. `request_permission` stays unflagged: it changes nothing and
+  only returns an approval link.
+
+- **Every tool now has a `title`**, the name a client shows in its confirmation
+  prompt. This is additive, so it is not breaking.
+
 - **Seven tools no longer claim that repeating a call is free.** `run_training_job`,
   `schedule_under_budget`, `create_volume`, `snapshot_volume`, `run_pipeline` and
   `open_instance_access` move to `idempotency: "none"` and

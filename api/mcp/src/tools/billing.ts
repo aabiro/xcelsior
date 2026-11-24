@@ -127,7 +127,7 @@ export function registerBillingTools(
           .optional()
           .describe("Reuse the same key to retry safely; a new amount under an old key is refused"),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ amount_cad, customer_id, idempotency_key }) => {
       const denied = scopeDenied("create_crypto_deposit", user);
@@ -183,7 +183,7 @@ export function registerBillingTools(
           .optional()
           .describe("Reuse the same key to retry safely; a new amount under an old key is refused"),
       }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ amount_cad, customer_id, idempotency_key }) => {
       const denied = scopeDenied("create_lightning_deposit", user);

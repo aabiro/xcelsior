@@ -734,9 +734,9 @@ const DESCRIPTIONS: Record<ToolName, string> = {
   list_funding_options:
     "List the ways this account can add funds, and which are working right now: card, Bitcoin, " +
     "Lightning and PayPal, with the current BTC rate when crypto is available. Use when a card " +
-    "is declined or the user has none on file, and before telling anyone they must visit the " +
-    "dashboard — the crypto and Lightning rails need no browser at all, so a refused charge is " +
-    "usually not a dead end. A rail can be configured and still be unavailable, so report what " +
+    "is declined or the user has none on file: another rail may be open, so a refused charge is " +
+    "usually not a dead end. Bitcoin and Lightning deposits are made from the dashboard's billing " +
+    "page. A rail can be configured and still be unavailable, so report what " +
     "`available` says rather than what `enabled` says. Read-only and free; it creates no " +
     "deposit and moves no money.",
 

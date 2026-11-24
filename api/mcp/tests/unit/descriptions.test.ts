@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TOOL_CONTRACTS } from "../../src/tools/contracts.js";
+import { TOOL_CONTRACTS, IRREVERSIBLE_TOOLS } from "../../src/tools/contracts.js";
 import { TOOL_DESCRIPTIONS } from "../../src/tools/descriptions.js";
 
 const NAMES = Object.keys(TOOL_CONTRACTS).sort();
@@ -46,10 +46,12 @@ describe("tool descriptions", () => {
     }
   });
 
-  it("warns explicitly on every destructive tool", () => {
+  it("warns explicitly on every irreversible tool", () => {
+    // Not every destructiveHint tool: since 2026-11-24 every customer write
+    // carries the hint. The warning belongs to effects that cannot be undone.
     for (const name of NAMES) {
-      if (!TOOL_CONTRACTS[name].annotations.destructiveHint) continue;
-      expect(TOOL_DESCRIPTIONS[name], `${name} is destructive but reads as routine`)
+      if (!IRREVERSIBLE_TOOLS.has(name as never)) continue;
+      expect(TOOL_DESCRIPTIONS[name], `${name} is irreversible but reads as routine`)
         .toMatch(IRREVERSIBILITY);
     }
   });

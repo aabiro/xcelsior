@@ -129,10 +129,15 @@ def test_ssh_read_is_reachable_by_a_connector_and_consent_names_it():
     assert not any("SSH" in line for line in without), without
 
 
-def test_only_the_payout_and_badge_tools_need_a_credential_other_than_a_connector():
+def test_no_published_tool_needs_a_credential_other_than_a_connector():
+    # Until 2026-11-24 the payout and badge tools were published and answered
+    # insufficient_scope to every connector. A directory reviewer fails a tool
+    # that cannot succeed, so the customer profile now leaves out any tool that
+    # needs a withheld scope (`needsWithheldScope` in profiles.ts).
     tools = {tool["name"]: set(tool["requiredScopes"]) for tool in _surface()["tools"]}
     blocked = {name for name, scopes in tools.items() if scopes & CONNECTOR_WITHHELD}
-    assert blocked == TOOLS_NEEDING_ANOTHER_CREDENTIAL
+    assert blocked == set()
+    assert not TOOLS_NEEDING_ANOTHER_CREDENTIAL & set(tools)
     assert not CONNECTOR_WITHHELD & set(CONNECTOR_ALLOWED_SCOPES)
     # The two the ceiling change opened up.
     for name in ("list_ssh_keys", "delete_ssh_key"):

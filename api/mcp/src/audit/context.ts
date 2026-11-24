@@ -10,6 +10,7 @@ import { scrubResponse, scrubText } from "../lib/hygiene.js";
 import { traced } from "../observability/tracing.js";
 import { DEFAULT_OUTPUT_SCHEMA, TOOL_CONTRACTS } from "../tools/contracts.js";
 import { TOOL_DESCRIPTIONS } from "../tools/descriptions.js";
+import { TOOL_TITLES } from "../tools/titles.js";
 import { toolIsVisible, type ToolProfile } from "../tools/profiles.js";
 import { withApiCapture, type ApiCallRecord } from "../client/request-context.js";
 
@@ -146,6 +147,9 @@ export function installToolAudit(
     assertAnnotationsMatchContract(name, config.annotations, contract.annotations);
     return original(name, {
       ...config,
+      // The directory requires a title on every tool, and it is what a client
+      // shows in a confirmation prompt. One source, like the description.
+      title: TOOL_TITLES[name],
       description,
       outputSchema: config.outputSchema ?? DEFAULT_OUTPUT_SCHEMA,
       // The contract wins. Annotations are what a directory reviewer checks
