@@ -339,7 +339,7 @@ include that mount in the host capacity alerts.
 
 What keeps `/` in check without anyone cleaning by hand:
 - `prod-docker-gc.timer` (Sunday 04:00) runs `/usr/local/sbin/prod-docker-gc` (`api/scripts/prod_docker_gc.sh`). It removes unused images older than 14 days, dangling layers and build cache older than 7 days. It keeps rollback tags (`cutover-*`, `rollout-backup*`, `*preserved-live*`, `before-security-hold*`, `*-blue`), never touches volumes, and skips while a deploy or build runs. Preview with `prod-docker-gc --dry-run`.
-- journald is capped at 200 MB (`api/infra/systemd/journald-90-xcelsior.conf`, matching `/etc/systemd/journald.conf`).
+- journald is capped at 8 GB, about 17 days at the measured ~450 MB a day, and stops growing while `/` has less than 30 GB free (`api/infra/systemd/journald-90-xcelsior.conf`; the drop-in overrides the 200M still in `/etc/systemd/journald.conf`). Check with `journalctl --disk-usage` and `journalctl -u systemd-journald -n 3`.
 - `api/infra/docker/daemon.json` sets bounded defaults for new container logs
   and BuildKit cache. Follow the [Docker maintenance procedure](../../runbooks/prod-hetzner.md#docker-maintenance).
 
