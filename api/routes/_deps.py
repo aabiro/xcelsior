@@ -172,6 +172,11 @@ PUBLIC_PATHS = {
     "/api/transparency/report",
     "/api/providers/webhook",
     "/.well-known/oauth-authorization-server",
+    # Not served: we publish RFC 8414 metadata, not OIDC discovery. It is listed
+    # so the route lookup answers 404. Otherwise this middleware answers 401, and
+    # MCP clients probe this URL as the second step of authorization-server
+    # discovery, where "unauthorized" reads as a broken server, not "absent".
+    "/.well-known/openid-configuration",
     # JWKS must be publicly fetchable — clients and the MCP server verify
     # RS256 access tokens against it without presenting a token themselves.
     "/.well-known/jwks.json",
