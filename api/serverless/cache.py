@@ -52,6 +52,7 @@ def resolve_cache_volume(
             size_gb=size_gb,
             region=region,
             storage_type="nfs",
+            platform_cache=True,
         )
         return str(created.get("volume_id") or "")
     except Exception as e:

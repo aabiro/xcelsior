@@ -25,6 +25,14 @@ VOLUME_PRICE_PER_GB_MONTH_CAD = 0.03
 MAX_VOLUME_SIZE_GB = int(os.environ.get("XCELSIOR_MAX_VOLUME_GB", "2000"))
 MAX_TOTAL_STORAGE_GB = int(os.environ.get("XCELSIOR_MAX_TOTAL_STORAGE_GB", "2000"))
 MAX_VOLUMES_PER_OWNER = int(os.environ.get("XCELSIOR_MAX_VOLUMES_PER_OWNER", "50"))
+
+# Model-weight caches the platform provisions for serverless presets
+# (serverless/cache.py). The user never asked for one, so it does not count
+# against their own volume quota: a single 50 GB cache was leaving a 100 GB
+# account with "0GB available" before it had created anything. Bounded anyway:
+# one per (model, revision, region). The prefix is reserved, so a user cannot
+# name a volume this way to slip past the quota.
+PLATFORM_CACHE_PREFIX = "slvr-cache-"
 MANAGED_VOLUME_HOST_DIR = "/mnt/xcelsior-volumes"
 DEFAULT_MOUNT_PATH = "/workspace"
 HOT_MOUNT_POLL_TIMEOUT_SEC = int(os.environ.get("XCELSIOR_HOT_MOUNT_TIMEOUT_SEC", "45"))
@@ -632,10 +640,19 @@ class VolumeEngine:
         with self._conn() as conn:
             return self._check_new_volume(conn, owner_id, name, size_gb)
 
-    def _check_new_volume(self, conn, owner_id: str, name: str, size_gb: int) -> str:
+    def _check_new_volume(
+        self, conn, owner_id: str, name: str, size_gb: int, *, platform_cache: bool = False
+    ) -> str:
         if not name or not name.strip():
             raise ValueError("Volume name is required")
         name = name.strip()
+        if name.startswith(PLATFORM_CACHE_PREFIX) != platform_cache:
+            raise ValueError(
+                f"Volume names starting with '{PLATFORM_CACHE_PREFIX}' are reserved for "
+                "serverless model caches"
+                if not platform_cache
+                else f"A platform cache volume's name must start with '{PLATFORM_CACHE_PREFIX}'"
+            )
         if len(name) > 128:
             raise ValueError("Volume name must be 128 characters or fewer")
         if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", name):
@@ -647,18 +664,20 @@ class VolumeEngine:
         if size_gb < 1:
             raise ValueError("Volume size must be at least 1GB")
         vol_count = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM volumes WHERE owner_id = %s AND status != 'deleted'",
+            "SELECT COUNT(*) AS cnt FROM volumes WHERE owner_id = %s AND status != 'deleted' "
+            "AND name NOT LIKE 'slvr-cache-%%'",
             (owner_id,),
         ).fetchone()
-        if vol_count["cnt"] >= MAX_VOLUMES_PER_OWNER:
+        if not platform_cache and vol_count["cnt"] >= MAX_VOLUMES_PER_OWNER:
             raise ValueError(
                 f"Volume count limit reached ({MAX_VOLUMES_PER_OWNER} volumes per owner)"
             )
         total = conn.execute(
-            "SELECT COALESCE(SUM(size_gb), 0) AS total FROM volumes WHERE owner_id = %s AND status != 'deleted'",
+            "SELECT COALESCE(SUM(size_gb), 0) AS total FROM volumes WHERE owner_id = %s "
+            "AND status != 'deleted' AND name NOT LIKE 'slvr-cache-%%'",
             (owner_id,),
         ).fetchone()
-        if total["total"] + size_gb > MAX_TOTAL_STORAGE_GB:
+        if not platform_cache and total["total"] + size_gb > MAX_TOTAL_STORAGE_GB:
             remaining = MAX_TOTAL_STORAGE_GB - total["total"]
             raise ValueError(
                 f"Insufficient storage capacity. Requested {size_gb}GB but only {remaining}GB available "
@@ -681,6 +700,8 @@ class VolumeEngine:
         region: str = "",
         province: str = "",
         encrypted: bool = True,
+        *,
+        platform_cache: bool = False,
     ) -> dict:
         """Create a new persistent volume.
 
@@ -696,7 +717,9 @@ class VolumeEngine:
                 "SELECT volume_id FROM volumes WHERE owner_id = %s AND status != 'deleted' FOR UPDATE",
                 (owner_id,),
             )
-            name = self._check_new_volume(conn, owner_id, name, size_gb)
+            name = self._check_new_volume(
+                conn, owner_id, name, size_gb, platform_cache=platform_cache
+            )
 
             conn.execute(
                 """INSERT INTO volumes
