@@ -1,6 +1,7 @@
 {
   "name": "@xcelsior-gpu/mcp-server",
   "version": "4.0.0",
+  "private": true,
   "description": "Hosted Model Context Protocol server for Xcelsior GPU platform",
   "license": "BUSL-1.1",
   "type": "module",
