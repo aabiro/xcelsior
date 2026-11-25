@@ -252,7 +252,20 @@ tokens remain valid until refresh or expiry, and an existing VS Code session
 can retain its old label until it receives a new token. Do not clear credentials
 just to hide the picker.
 
-The registry identity is `io.github.aabiro/xcelsior`. It is separate from the
+The server has two official-registry identities, published from `api/mcp/`:
+
+- `ca.xcelsior/gpu-cloud` (`server.json`), proven by the `v=MCPv1` TXT record
+  on xcelsior.ca. Log in with `mcp-publisher login dns --domain xcelsior.ca`
+  and the Ed25519 key in `~/.config/mcp-secrets/mcp-registry-xcelsior-ca-ed25519.pem`
+  (the private key is the hex of `openssl pkey -in <pem> -noout -text`'s
+  `priv:` block). Remote only: the npm package's `mcpName` names the other one.
+- `io.github.aabiro/xcelsior` (`server.github.json`), via
+  `mcp-publisher login github`. Kept because the dashboard's VS Code install
+  link (`MCP_REGISTRY_NAME`) uses it as the gallery identity, and
+  `@xcelsior-gpu/mcp` declares it.
+
+Publish both with the version in `package.json`; `registry-listings.test.ts`
+fails if they drift. Each identity is separate from the
 runtime server title and from an installed gallery card's display name. Check
 GitHub's gallery endpoint directly before claiming catalog branding is live;
 publication in the official MCP Registry alone does not prove downstream
