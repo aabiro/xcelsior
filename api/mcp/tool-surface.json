@@ -27,7 +27,7 @@
   "tools": [
     {
       "name": "attach_volume",
-      "version": "2.1.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:read",
@@ -65,6 +65,10 @@
             "ro",
             "rw"
           ]
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
         }
       },
       "hasOutputSchema": true
@@ -323,7 +327,7 @@
     },
     {
       "name": "create_instance_snapshot",
-      "version": "2.1.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:write"
@@ -351,6 +355,10 @@
         },
         "description": {
           "type": "string",
+          "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
           "optional": true
         }
       },
@@ -417,7 +425,7 @@
     },
     {
       "name": "create_volume",
-      "version": "2.2.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "volumes:write"
@@ -444,6 +452,10 @@
           "optional": true
         },
         "encrypted": {
+          "type": "boolean",
+          "optional": true
+        },
+        "confirm": {
           "type": "boolean",
           "optional": true
         }
@@ -1782,7 +1794,7 @@
     },
     {
       "name": "open_instance_access",
-      "version": "2.2.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:connect",
@@ -1809,13 +1821,17 @@
             "ssh",
             "terminal"
           ]
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
         }
       },
       "hasOutputSchema": true
     },
     {
       "name": "promote_artifact_to_volume",
-      "version": "2.1.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "artifacts:read",
@@ -1841,13 +1857,17 @@
         "idempotency_key": {
           "type": "string",
           "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
         }
       },
       "hasOutputSchema": true
     },
     {
       "name": "reconcile_instance",
-      "version": "2.1.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:operate"
@@ -1872,13 +1892,17 @@
         "idempotency_key": {
           "type": "string",
           "optional": false
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
         }
       },
       "hasOutputSchema": true
     },
     {
       "name": "register_provider",
-      "version": "2.2.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "providers:onboard"
@@ -1923,13 +1947,17 @@
         "gst_hst_number": {
           "type": "string",
           "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
         }
       },
       "hasOutputSchema": true
     },
     {
       "name": "register_ssh_key",
-      "version": "2.1.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "ssh:write"
@@ -1949,6 +1977,10 @@
         },
         "name": {
           "type": "string",
+          "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
           "optional": true
         }
       },
@@ -2031,7 +2063,7 @@
     },
     {
       "name": "retry_instance",
-      "version": "2.1.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "instances:operate"
@@ -2056,6 +2088,10 @@
         "idempotency_key": {
           "type": "string",
           "optional": false
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
         }
       },
       "hasOutputSchema": true
@@ -2117,7 +2153,7 @@
     },
     {
       "name": "run_serverless_job",
-      "version": "2.1.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "inference:write"
@@ -2141,6 +2177,10 @@
         },
         "webhook": {
           "type": "string",
+          "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
           "optional": true
         }
       },
@@ -2442,7 +2482,7 @@
     },
     {
       "name": "snapshot_volume",
-      "version": "2.2.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "volumes:write"
@@ -2462,6 +2502,10 @@
         },
         "name": {
           "type": "string",
+          "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
           "optional": true
         }
       },
@@ -2496,7 +2540,7 @@
     },
     {
       "name": "top_up_wallet",
-      "version": "2.1.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "billing:topup"
@@ -2528,6 +2572,10 @@
         },
         "idempotency_key": {
           "type": "string",
+          "optional": true
+        },
+        "confirm": {
+          "type": "boolean",
           "optional": true
         }
       },

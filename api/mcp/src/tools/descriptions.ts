@@ -164,7 +164,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "matching private key can open a shell on the user's instances and read the data on them, " +
     "so confirm before adding a key the user did not just name. The key is pushed into running " +
     "interactive instances, so it takes effect without a relaunch. Registering a key that is " +
-    "already on the account changes nothing and is safe to repeat.",
+    "already on the account changes nothing and is safe to repeat." +
+    " Call it with confirm:false (the default) first: that previews the key's type and its SHA256 fingerprint (what `ssh-keygen -lf` prints), and adds nothing, and changes nothing. Then call again with confirm:true to act.",
 
   list_ssh_keys:
     "Show which SSH public keys can currently open a shell on this account's instances, with " +
@@ -194,7 +195,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "costs — the instance goes on billing at its hourly rate whether or not anyone connects. " +
     "SSH needs a key the account has already registered; if the connection is refused, " +
     "register_ssh_key is the fix." +
-    " Not idempotent: every call mints a new single-use ticket and does not return the previous one. Request it once and use it.",
+    " Not idempotent: every call mints a new single-use ticket and does not return the previous one. Request it once and use it." +
+    " Call it with confirm:false (the default) first: that previews whether it would return the SSH endpoint or mint a terminal ticket, and mints nothing, and changes nothing. Then call again with confirm:true to act.",
 
   cancel_serverless_job:
     "Cancel an inference job that is still running on a serverless endpoint. Use when the user " +
@@ -227,7 +229,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "relaunch — checkpoints, datasets, model weights — because an instance's own disk is " +
     "destroyed with it. Creates storage that bills per GB-month from the moment it exists, " +
     "attached or not, so size it for what is needed rather than rounding up." +
-    " Not idempotent: calling it twice creates two volumes, both billed per GB-month. Check list_volumes before retrying.",
+    " Not idempotent: calling it twice creates two volumes, both billed per GB-month. Check list_volumes before retrying." +
+    " Call it with confirm:false (the default) first: that previews the volume and its monthly cost, through the same checks a create runs, and creates nothing, and changes nothing. Then call again with confirm:true to act.",
 
   attach_volume:
     "Attach a volume to a running instance at a mount path. Use after launching, so the job " +
@@ -242,7 +245,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "first: that returns a preview naming the instance that would lose its filesystem. " +
     "Detaching pulls the mount out from under anything writing to it, so unwritten data is " +
     "lost even though the volume itself is not destroyed — and the volume keeps billing per " +
-    "GB-month either way, so detaching saves nothing.",
+    "GB-month either way, so detaching saves nothing." +
+    " Call it with confirm:false (the default) first: that previews which volume would mount on which instance, and where, and changes nothing. Then call again with confirm:true to act.",
 
   delete_volume:
     "Permanently delete a volume and everything stored on it. Use only when the user says the " +
@@ -285,7 +289,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     + "A large checkpoint takes minutes; say it is running and check get_promotion_status before "
     + "telling anyone their files are safe. Asking twice for the same job does not copy twice." +
     " Returns a promotion_id; the copy is still running when this returns, so pass that id to " +
-    "get_promotion_status before telling the user their files are on the volume.",
+    "get_promotion_status before telling the user their files are on the volume." +
+    " Call it with confirm:false (the default) first: that previews which run's outputs would be copied onto which volume, and changes nothing. Then call again with confirm:true to act.",
 
   get_promotion_status:
     "Reports whether a promotion started by promote_artifact_to_volume has finished, and how "
@@ -297,7 +302,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "later. Use before anything destructive — a delete, a risky job, a version bump — and when " +
     "the user wants a checkpoint they can return to. The snapshot is new stored data and bills " +
     "per GB-month like the volume it came from." +
-    " Not idempotent: each call creates another snapshot and snapshots are billed for storage. List the volume's snapshots before retrying.",
+    " Not idempotent: each call creates another snapshot and snapshots are billed for storage. List the volume's snapshots before retrying." +
+    " Call it with confirm:false (the default) first: that previews which volume would be snapshotted and its size, and changes nothing. Then call again with confirm:true to act.",
 
   list_volume_snapshots:
     "List a volume's snapshots, with when each was taken. Use before restoring, to choose which " +
@@ -360,7 +366,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "handle. Use when the user wants inference from a model already deployed; create the " +
     "endpoint first if there is none. Bills per million tokens processed. Not idempotent — " +
     "calling it twice enqueues two jobs and bills for both, so do not retry a call whose outcome " +
-    "you did not see.",
+    "you did not see." +
+    " Call it with confirm:false (the default) first: that previews the endpoint the job would run on, and runs nothing, and changes nothing. Then call again with confirm:true to act.",
 
   get_serverless_endpoint:
     "Get one serverless endpoint by id: its model, scaling settings, status and URL. Use when you " +
@@ -531,7 +538,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "identity and bank details are entered in the browser, so send them to the earnings page " +
     "afterwards and use get_provider_account to see what is still outstanding. Needs " +
     "providers:onboard, which a connector asks for on its consent page; it never sets where " +
-    "payouts go.",
+    "payouts go." +
+    " Call it with confirm:false (the default) first: that previews the details it would register, and changes nothing. Then call again with confirm:true to act.",
 
   request_provider_payout:
     "Settle one completed job and pay or queue the provider's share, creating a Stripe transfer, " +
@@ -646,7 +654,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "it to run again. Requires expected_version, the `version` get_instance returns, and an " +
     "idempotency key, so a " +
     "repeated call cannot produce a second attempt. Starts hourly billing again once the new " +
-    "attempt runs.",
+    "attempt runs." +
+    " Call it with confirm:false (the default) first: that previews the instance and its current state, and changes nothing. Then call again with confirm:true to act.",
 
   reconcile_instance:
     "Force reconciliation of one instance so its recorded state is re-derived from what the host " +
@@ -654,7 +663,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "in our records but gone on the host. Requires expected_version (the `version` get_instance " +
     "returns) and an idempotency key. " +
     "Corrects bookkeeping only: it does not start, stop, or move the workload, and it changes " +
-    "nothing about what the instance is billing.",
+    "nothing about what the instance is billing." +
+    " Call it with confirm:false (the default) first: that previews the instance and its current state, and changes nothing. Then call again with confirm:true to act.",
 
   drain_host:
     "Stop new placements on a platform host. Operator tool. Use before maintenance, or to stop " +
@@ -821,7 +831,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "whether that was ever done, which a balance check cannot tell you. " +
     "The wallet is credited when the payment processor confirms, moments later — not when this " +
     "returns, so do not report a new balance you have not read. A completed charge is " +
-    "irreversible through this tool; any refund is a separate authorized action.",
+    "irreversible through this tool; any refund is a separate authorized action." +
+    " Call it with confirm:false (the default) first: that previews the card the server would charge and the amount, and charges nothing, and changes nothing. Then call again with confirm:true to act.",
 
   list_payment_methods:
     "List the cards already saved on the account: brand, last four digits, expiry, and which one " +
@@ -848,7 +859,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "packages again on a fresh instance is what this avoids. The image is built on the host in " +
     "the background and is not usable until it reports ready; list_user_images shows the " +
     "status. Costs storage while it exists, and taking the same name and tag twice is refused " +
-    "rather than overwriting, so an existing image must be deleted first.",
+    "rather than overwriting, so an existing image must be deleted first." +
+    " Call it with confirm:false (the default) first: that previews which instance would be saved under which image name, and changes nothing. Then call again with confirm:true to act.",
 
   list_user_images:
     "List the saved images this account can launch from, with their status, size, and the job " +

@@ -424,12 +424,38 @@ export function registerBillingTools(
               "pass the SAME key you sent the first time. Omitting it is safe: one is " +
               "generated per call, so asking twice tops up twice and a retry does not.",
           ),
+        confirm: z.boolean().default(false).describe("false (the default) previews and changes nothing; true acts"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    async ({ amount_cad, card_last4, card_brand, payment_method_id, idempotency_key }) => {
+    async ({ amount_cad, card_last4, card_brand, payment_method_id, idempotency_key, confirm }) => {
       const denied = scopeDenied("top_up_wallet", user);
       if (denied) return denied;
+      if (!confirm) {
+        // The server resolves the card exactly as the charge would and charges
+        // nothing, so the preview names the card that will really be charged.
+        try {
+          const data = (await client.post("/api/v2/billing/top-up", {
+            amount_cad,
+            card_last4: card_last4 ?? "",
+            card_brand: card_brand ?? "",
+            payment_method_id: payment_method_id ?? "",
+            preview: true,
+          })) as Record<string, unknown>;
+          const card = (data.payment_method ?? {}) as Record<string, unknown>;
+          return jsonText({
+            ...data,
+            ok: true,
+            preview: true,
+            message:
+              `Would charge $${Number(amount_cad).toFixed(2)} to ${card.brand ?? "the card"} ` +
+              `ending ${card.last4 ?? "????"}. Nothing has been charged. Confirm the amount and ` +
+              "card with the user, then call again with confirm:true.",
+          });
+        } catch (e) {
+          return jsonText({ preview: true, error: formatApiError(e) });
+        }
+      }
       try {
         const data = await client.post(
           "/api/v2/billing/top-up",

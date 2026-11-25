@@ -105,11 +105,21 @@ describe("register_ssh_key", () => {
 
   it("sends a public key to the account's key endpoint", async () => {
     const { call, posts } = harness(["ssh:write"]);
-    const result = await call("register_ssh_key", { public_key: PUBLIC_ED25519, name: "laptop" });
+    const result = await call("register_ssh_key", { public_key: PUBLIC_ED25519, name: "laptop", confirm: true });
     expect(posts).toEqual([
       { path: "/api/ssh/keys", body: { public_key: PUBLIC_ED25519, name: "laptop" } },
     ]);
     expect(result.ok).toBe(true);
+  });
+
+  it("previews the key by the fingerprint ssh-keygen -lf prints, and adds nothing", async () => {
+    const { call, posts } = harness(["ssh:write"]);
+    const result = await call("register_ssh_key", { public_key: PUBLIC_ED25519, name: "laptop" });
+    expect(posts).toEqual([]);
+    expect(result.preview).toBe(true);
+    expect(result.key_type).toBe("ssh-ed25519");
+    // `ssh-keygen -lf` on this key prints exactly this.
+    expect(result.fingerprint).toBe("SHA256:F94EVGtAxZSk+0cJssc7Qb4JNhM3kLcRm/sP+J8JudQ");
   });
 
   it("does not send a private key anywhere", async () => {

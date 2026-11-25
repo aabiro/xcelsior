@@ -622,6 +622,56 @@ class VolumeEngine:
             created_by="volume-engine",
         )
 
+    def check_new_volume(self, owner_id: str, name: str, size_gb: int) -> str:
+        """Run every check `create_volume` runs, and create nothing.
+
+        A preview that skipped these would tell the caller a volume can be
+        created when the real call refuses it, so preview and create share one
+        function. Returns the name as it would be stored.
+        """
+        with self._conn() as conn:
+            return self._check_new_volume(conn, owner_id, name, size_gb)
+
+    def _check_new_volume(self, conn, owner_id: str, name: str, size_gb: int) -> str:
+        if not name or not name.strip():
+            raise ValueError("Volume name is required")
+        name = name.strip()
+        if len(name) > 128:
+            raise ValueError("Volume name must be 128 characters or fewer")
+        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", name):
+            raise ValueError(
+                "Volume name must start with alphanumeric and contain only letters, digits, hyphens, underscores, and dots"
+            )
+        if size_gb > MAX_VOLUME_SIZE_GB:
+            raise ValueError(f"Volume size {size_gb}GB exceeds max {MAX_VOLUME_SIZE_GB}GB")
+        if size_gb < 1:
+            raise ValueError("Volume size must be at least 1GB")
+        vol_count = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM volumes WHERE owner_id = %s AND status != 'deleted'",
+            (owner_id,),
+        ).fetchone()
+        if vol_count["cnt"] >= MAX_VOLUMES_PER_OWNER:
+            raise ValueError(
+                f"Volume count limit reached ({MAX_VOLUMES_PER_OWNER} volumes per owner)"
+            )
+        total = conn.execute(
+            "SELECT COALESCE(SUM(size_gb), 0) AS total FROM volumes WHERE owner_id = %s AND status != 'deleted'",
+            (owner_id,),
+        ).fetchone()
+        if total["total"] + size_gb > MAX_TOTAL_STORAGE_GB:
+            remaining = MAX_TOTAL_STORAGE_GB - total["total"]
+            raise ValueError(
+                f"Insufficient storage capacity. Requested {size_gb}GB but only {remaining}GB available "
+                f"(total limit: {MAX_TOTAL_STORAGE_GB}GB)"
+            )
+        existing = conn.execute(
+            "SELECT volume_id FROM volumes WHERE owner_id = %s AND name = %s AND status != 'deleted'",
+            (owner_id, name),
+        ).fetchone()
+        if existing:
+            raise ValueError(f"Volume name '{name}' already exists")
+        return name
+
     def create_volume(
         self,
         owner_id: str,
@@ -637,20 +687,6 @@ class VolumeEngine:
         Provisions storage on the NFS server (creates directory, sets quota),
         then records metadata in the database.
         """
-        if not name or not name.strip():
-            raise ValueError("Volume name is required")
-        name = name.strip()
-        if len(name) > 128:
-            raise ValueError("Volume name must be 128 characters or fewer")
-        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", name):
-            raise ValueError(
-                "Volume name must start with alphanumeric and contain only letters, digits, hyphens, underscores, and dots"
-            )
-        if size_gb > MAX_VOLUME_SIZE_GB:
-            raise ValueError(f"Volume size {size_gb}GB exceeds max {MAX_VOLUME_SIZE_GB}GB")
-        if size_gb < 1:
-            raise ValueError("Volume size must be at least 1GB")
-
         now = time.time()
         volume_id = f"vol-{uuid.uuid4().hex[:12]}"
 
@@ -660,32 +696,7 @@ class VolumeEngine:
                 "SELECT volume_id FROM volumes WHERE owner_id = %s AND status != 'deleted' FOR UPDATE",
                 (owner_id,),
             )
-            vol_count = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM volumes WHERE owner_id = %s AND status != 'deleted'",
-                (owner_id,),
-            ).fetchone()
-            if vol_count["cnt"] >= MAX_VOLUMES_PER_OWNER:
-                raise ValueError(
-                    f"Volume count limit reached ({MAX_VOLUMES_PER_OWNER} volumes per owner)"
-                )
-            total = conn.execute(
-                "SELECT COALESCE(SUM(size_gb), 0) AS total FROM volumes WHERE owner_id = %s AND status != 'deleted'",
-                (owner_id,),
-            ).fetchone()
-            if total["total"] + size_gb > MAX_TOTAL_STORAGE_GB:
-                remaining = MAX_TOTAL_STORAGE_GB - total["total"]
-                raise ValueError(
-                    f"Insufficient storage capacity. Requested {size_gb}GB but only {remaining}GB available "
-                    f"(total limit: {MAX_TOTAL_STORAGE_GB}GB)"
-                )
-
-            # Check name uniqueness for this owner
-            existing = conn.execute(
-                "SELECT volume_id FROM volumes WHERE owner_id = %s AND name = %s AND status != 'deleted'",
-                (owner_id, name),
-            ).fetchone()
-            if existing:
-                raise ValueError(f"Volume name '{name}' already exists")
+            name = self._check_new_volume(conn, owner_id, name, size_gb)
 
             conn.execute(
                 """INSERT INTO volumes

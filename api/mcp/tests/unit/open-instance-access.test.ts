@@ -76,7 +76,7 @@ describe("open_instance_access", () => {
 
   it("returns the public gateway, never the tailnet address", async () => {
     const { call } = harness(RUNNING);
-    const result = await call({ job_id: "job-1", method: "ssh" });
+    const result = await call({ job_id: "job-1", method: "ssh", confirm: true });
     expect(result.ok).toBe(true);
     expect(result.port).toBe(30022);
     expect(String(result.host)).not.toBe("100.64.0.9");
@@ -90,14 +90,14 @@ describe("open_instance_access", () => {
     // saying nothing would let a model claim the connection is verified, so
     // the absence is stated in the payload.
     const { call } = harness(RUNNING);
-    const result = await call({ job_id: "job-1", method: "ssh" });
+    const result = await call({ job_id: "job-1", method: "ssh", confirm: true });
     expect(result).toHaveProperty("host_key_fingerprint", null);
     expect(String(result.host_key_note)).toMatch(/does not yet publish/i);
   });
 
   it("mints no ticket for an instance that is not running", async () => {
     const { call, posts } = harness({ ...RUNNING, status: "starting" });
-    const result = await call({ job_id: "job-1", method: "terminal" });
+    const result = await call({ job_id: "job-1", method: "terminal", confirm: true });
     expect(posts, "a ticket was minted for an instance that cannot accept it").toEqual([]);
     expect(result.ok).toBe(false);
     expect(result.error).toBe("instance_not_running");
@@ -106,7 +106,7 @@ describe("open_instance_access", () => {
 
   it("mints a single-use ticket when asked, and says it is single-use", async () => {
     const { call, posts } = harness(RUNNING);
-    const result = await call({ job_id: "job-1", method: "terminal" });
+    const result = await call({ job_id: "job-1", method: "terminal", confirm: true });
     expect(posts).toEqual([{ path: "/api/terminal/ticket", body: { instance_id: "job-1" } }]);
     expect(result.ticket).toBe("tkt-abc123");
     expect(result.expires_in_seconds).toBe(60);
@@ -116,29 +116,40 @@ describe("open_instance_access", () => {
 
   it("auto prefers ssh, so the default path spends no credential", async () => {
     const { call, posts } = harness(RUNNING);
-    const result = await call({ job_id: "job-1" });
+    const result = await call({ job_id: "job-1", confirm: true });
     expect(result.method).toBe("ssh");
     expect(posts).toEqual([]);
   });
 
   it("auto falls back to a ticket when the instance publishes no port", async () => {
     const { call, posts } = harness({ ...RUNNING, ssh_port: null });
-    const result = await call({ job_id: "job-1" });
+    const result = await call({ job_id: "job-1", confirm: true });
     expect(result.method).toBe("terminal");
     expect(posts).toHaveLength(1);
   });
 
   it("explains rather than mints when ssh is asked for and unavailable", async () => {
     const { call, posts } = harness({ ...RUNNING, ssh_port: null });
-    const result = await call({ job_id: "job-1", method: "ssh" });
+    const result = await call({ job_id: "job-1", method: "ssh", confirm: true });
     expect(posts).toEqual([]);
     expect(result.error).toBe("no_ssh_endpoint");
     expect(String(result.message)).toMatch(/terminal/);
   });
 
+  it("previews without minting anything, and says which method it would use", async () => {
+    for (const [instance, method] of [[RUNNING, "ssh"], [{ ...RUNNING, ssh_port: null }, "terminal"]] as const) {
+      const { call, posts } = harness(instance);
+      const result = await call({ job_id: "job-1" });
+      expect(posts, "the preview minted a credential").toEqual([]);
+      expect(result.preview).toBe(true);
+      expect(result.method).toBe(method);
+      expect(String(result.message)).toMatch(/confirm:true/);
+    }
+  });
+
   it("refuses without instances:connect, before reading anything", async () => {
     const { call, gets, posts } = harness(RUNNING, ["instances:read"]);
-    const result = await call({ job_id: "job-1", method: "ssh" });
+    const result = await call({ job_id: "job-1", method: "ssh", confirm: true });
     expect(gets).toEqual([]);
     expect(posts).toEqual([]);
     expect(JSON.stringify(result)).toMatch(/instances:connect/);

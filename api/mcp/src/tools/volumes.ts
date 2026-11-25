@@ -74,14 +74,34 @@ export function registerVolumeTools(
         size_gb: z.number().int().min(1).max(2000).default(50),
         region: z.string().max(64).default("").describe("Omit for any region"),
         encrypted: z.boolean().default(true),
+        confirm: z.boolean().default(false).describe("false (the default) previews and changes nothing; true acts"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async (args) => {
       const denied = scopeDenied("create_volume", user);
       if (denied) return denied;
+      const { confirm, ...spec } = args;
+      if (!confirm) {
+        // Every check a create runs, and the price, from the server; nothing
+        // is created.
+        try {
+          const data = (await client.post("/api/v2/volumes", { ...spec, preview: true })) as Record<string, unknown>;
+          return jsonText({
+            ...data,
+            ok: true,
+            preview: true,
+            message:
+              `Would create ${spec.size_gb} GB volume ${spec.name}, billed about ` +
+              `$${data.estimated_monthly_cost_cad ?? "?"}/month whether or not it is attached. ` +
+              "Nothing has been created. Call again with confirm:true.",
+          });
+        } catch (e) {
+          return jsonText({ preview: true, error: formatApiError(e) });
+        }
+      }
       try {
-        const data = (await client.post("/api/v2/volumes", args)) as Record<string, unknown>;
+        const data = (await client.post("/api/v2/volumes", spec)) as Record<string, unknown>;
         return jsonText({
           ...data,
           note:
@@ -115,6 +135,7 @@ export function registerVolumeTools(
           .default("/workspace")
           .describe("Where it appears inside the container. The API accepts only these shapes."),
         mode: z.enum(["rw", "ro"]).default("rw"),
+        confirm: z.boolean().default(false).describe("false (the default) previews and changes nothing; true acts"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -126,6 +147,34 @@ export function registerVolumeTools(
         return jsonText({
           error: "missing_instance",
           message: "attach_volume needs job_id — the instance id from list_instances.",
+        });
+      }
+      if (!args.confirm) {
+        const volume = await readPreviewTarget(
+          () => client.get(`/api/v2/volumes/${encodeURIComponent(args.volume_id)}`),
+          `volume ${args.volume_id}`,
+          "list_volumes",
+        );
+        if (!volume.found) return volume.result;
+        const instance = await readPreviewTarget(
+          () => client.get(`/api/v1/instances/${encodeURIComponent(target)}`),
+          `instance ${target}`,
+          "list_instances",
+        );
+        if (!instance.found) return instance.result;
+        const vol = (volume.value.volume ?? volume.value) as Record<string, unknown>;
+        const inst = (instance.value.instance ?? instance.value.job ?? instance.value) as Record<string, unknown>;
+        return jsonText({
+          ok: true,
+          preview: true,
+          volume_id: args.volume_id,
+          job_id: target,
+          mount_path: args.mount_path,
+          mode: args.mode,
+          message:
+            `Would attach ${vol.name ?? args.volume_id} (${vol.size_gb ?? "?"} GB) to ` +
+            `${inst.name ?? target} at ${args.mount_path}, ${args.mode === "ro" ? "read-only" : "read-write"}. ` +
+            "Nothing has changed. Call again with confirm:true.",
         });
       }
       try {
@@ -237,12 +286,32 @@ export function registerVolumeTools(
       inputSchema: z.object({
         volume_id: z.string().min(1).max(160),
         name: z.string().max(128).optional(),
+        confirm: z.boolean().default(false).describe("false (the default) previews and changes nothing; true acts"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    async ({ volume_id, name }) => {
+    async ({ volume_id, name, confirm }) => {
       const denied = scopeDenied("snapshot_volume", user);
       if (denied) return denied;
+      if (!confirm) {
+        const target = await readPreviewTarget(
+          () => client.get(`/api/v2/volumes/${encodeURIComponent(volume_id)}`),
+          `volume ${volume_id}`,
+          "list_volumes",
+        );
+        if (!target.found) return target.result;
+        const vol = (target.value.volume ?? target.value) as Record<string, unknown>;
+        return jsonText({
+          ok: true,
+          preview: true,
+          volume_id,
+          size_gb: vol.size_gb ?? null,
+          price_per_gb_month_cad: vol.price_per_gb_month_cad ?? null,
+          message:
+            `Would snapshot ${vol.name ?? volume_id} (${vol.size_gb ?? "?"} GB). The snapshot is ` +
+            "stored and billed until it is deleted. Nothing has changed. Call again with confirm:true.",
+        });
+      }
       try {
         return jsonText(
           await client.post(
@@ -363,12 +432,39 @@ export function registerVolumeTools(
               "resolve to the same promotion, so a retry after a timeout joins the " +
               "copy already running instead of starting a second one.",
           ),
+        confirm: z.boolean().default(false).describe("false (the default) previews and changes nothing; true acts"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
-    async ({ job_id, volume_id, idempotency_key }) => {
+    async ({ job_id, volume_id, idempotency_key, confirm }) => {
       const denied = scopeDenied("promote_artifact_to_volume", user);
       if (denied) return denied;
+      if (!confirm) {
+        const volume = await readPreviewTarget(
+          () => client.get(`/api/v2/volumes/${encodeURIComponent(volume_id)}`),
+          `volume ${volume_id}`,
+          "list_volumes",
+        );
+        if (!volume.found) return volume.result;
+        const instance = await readPreviewTarget(
+          () => client.get(`/api/v1/instances/${encodeURIComponent(job_id)}`),
+          `instance ${job_id}`,
+          "list_instances",
+        );
+        if (!instance.found) return instance.result;
+        const vol = (volume.value.volume ?? volume.value) as Record<string, unknown>;
+        const inst = (instance.value.instance ?? instance.value.job ?? instance.value) as Record<string, unknown>;
+        return jsonText({
+          ok: true,
+          preview: true,
+          job_id,
+          volume_id,
+          message:
+            `Would copy the outputs of ${inst.name ?? job_id} onto ${vol.name ?? volume_id}, ` +
+            "where they count toward the volume's billed size. Nothing has changed. " +
+            "Call again with confirm:true.",
+        });
+      }
       try {
         const data = (await client.post(
           `/api/v2/volumes/${encodeURIComponent(volume_id)}/promotions`,

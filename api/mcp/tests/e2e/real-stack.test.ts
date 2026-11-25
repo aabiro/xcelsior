@@ -418,10 +418,15 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
       plan_id: endpointPlan.plan_id,
       idempotency_key: randomUUID(),
     });
-    const invocation = await call(clientA, "run_serverless_job", {
+    const serverlessArgs = {
       endpoint_id: endpoint.endpoint_id ?? endpoint.endpoint?.endpoint_id,
       input: { prompt: "health check" },
-    });
+    };
+    // The first call previews: it names the endpoint and runs nothing.
+    const invocationPreview = await call(clientA, "run_serverless_job", serverlessArgs);
+    expect(invocationPreview.preview).toBe(true);
+    expect(JSON.stringify(invocationPreview)).not.toMatch(/sjob-/);
+    const invocation = await call(clientA, "run_serverless_job", { ...serverlessArgs, confirm: true });
     expect(invocation.error).toBeUndefined();
     expect(JSON.stringify(invocation)).toMatch(/sjob-|IN_QUEUE|enqueued/i);
     expect(invocation.approval_required).not.toBe(true);

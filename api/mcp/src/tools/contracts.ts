@@ -166,15 +166,15 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // The one long timeout: it holds a connection open while an instance changes
   // state, so the 15s default would end every useful call.
   watch_instance: { readOnly: true, destructive: false, audience: "customer", timeoutMs: 3_600_000 },
-  register_ssh_key: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
+  register_ssh_key: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "3.0.0" },
   list_ssh_keys: { readOnly: true, destructive: false, audience: "customer" },
   // Revokes shell access and disconnects live sessions. Re-registering the
   // public half restores access, but only for whoever holds the private key.
   delete_ssh_key: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   list_volumes: { readOnly: true, destructive: false, audience: "customer" },
   get_volume: { readOnly: true, destructive: false, audience: "customer" },
-  create_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.2.0" },
-  promote_artifact_to_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
+  create_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "3.0.0" },
+  promote_artifact_to_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "3.0.0" },
   get_promotion_status: { readOnly: true, destructive: false, audience: "customer" },
   run_pipeline: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.2.0" },
   // Idempotent by the service's own contract — revoking a revoked plan returns
@@ -182,25 +182,25 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // lost, and a withdrawn plan is replaced by quoting again.
   revoke_launch_plan: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   get_pipeline_status: { readOnly: true, destructive: false, audience: "customer" },
-  attach_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
+  attach_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "3.0.0" },
   // Confirm-gated: it can disrupt a running workload. Re-attaching restores
   // the mount; what is lost is whatever was mid-write.
   detach_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   // Destroys the volume's contents; they cannot be recovered.
   delete_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
-  snapshot_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.2.0" },
+  snapshot_volume: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "3.0.0" },
   list_volume_snapshots: { readOnly: true, destructive: false, audience: "customer" },
   // Destructive: it replaces what is on the volume now with what was captured.
   restore_volume_snapshot: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   get_artifact_expiry: { readOnly: true, destructive: false, audience: "customer" },
-  open_instance_access: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.2.0" },
+  open_instance_access: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "3.0.0" },
   list_serverless_endpoints: { readOnly: true, destructive: false, audience: "customer" },
   create_serverless_endpoint: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   should_i_run_pel_job: { readOnly: true, destructive: false, audience: "customer" },
   // A resubmitted inference job is a new job, so replaying the call is not a
   // no-op and must not be advertised as one. It was the only tool declaring
   // this; six others were relying on a default that claimed the opposite.
-  run_serverless_job: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.1.0" },
+  run_serverless_job: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "3.0.0" },
   get_serverless_job_status: { readOnly: true, destructive: false, audience: "customer" },
   get_serverless_endpoint: { readOnly: true, destructive: false, audience: "customer" },
   get_serverless_endpoint_health: { readOnly: true, destructive: false, audience: "customer" },
@@ -234,7 +234,7 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // `keyed` in the sense the type documents: the provider identity resolves
   // from the caller, so a repeat regenerates a link rather than creating a
   // second account.
-  register_provider: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.2.0" },
+  register_provider: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "3.0.0" },
   // `keyed` and genuinely so: `settlement_key` is `provider-job:{job_id}` with
   // ON CONFLICT DO NOTHING, and the rail gets `provider-settlement:{job_id}`.
   // Settlement is repeat-safe per job, but an external transfer cannot be
@@ -259,8 +259,8 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // host) — which would have removed the customer's own "did my launch get
   // approved?" tool from the public profile.
   get_mcp_action_status: { readOnly: true, destructive: false, audience: "customer" },
-  retry_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
-  reconcile_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
+  retry_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "3.0.0" },
+  reconcile_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "3.0.0" },
   // Deliberately **not** destructive. The tool posts to
   // `/api/v1/hosts/{id}/drain`, which stops *new* placements and returns
   // "running workloads untouched"; the destructive counterpart is a separate
@@ -293,7 +293,7 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // A missing key generates a fresh key per invocation. HTTP retries within
   // one invocation remain safe, but repeating the same tool arguments can
   // create a second real charge. Advertise the least-safe supported form.
-  top_up_wallet: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.1.0" },
+  top_up_wallet: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "3.0.0" },
   // An approved widening can enable unattended charges. Without plan_id,
   // repeated widening calls may create separate approval plans.
   configure_auto_topup: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.1.0" },
@@ -302,7 +302,7 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // Repeat-safe by nature rather than by key: a second snapshot of the same
   // `name:tag` 409s with "already exists (delete it first to overwrite)", so
   // calling twice has no additional effect. Same shape as `register_ssh_key`.
-  create_instance_snapshot: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
+  create_instance_snapshot: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "3.0.0" },
   // 2.1.0: scope takes mine|public. "team" was always refused by the API and
   // "all" is admin-only, so neither ever worked here; "public" was missing.
   list_user_images: { readOnly: true, destructive: false, audience: "customer", version: "2.1.0" },

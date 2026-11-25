@@ -32,6 +32,8 @@ class VolumeCreate(BaseModel):
     size_gb: int = Field(default=50, ge=1, le=2000)
     region: str = ""
     encrypted: bool = True
+    # Run every check a create runs and report the price; create nothing.
+    preview: bool = False
 
 
 @router.post("/api/v2/volumes", tags=["Volumes"])
@@ -47,6 +49,23 @@ def api_volume_create(body: VolumeCreate, request: Request):
     owner_id = _volume_scope_owner_id(user)
     ve = get_volume_engine()
     try:
+        if body.preview:
+            name = ve.check_new_volume(owner_id, body.name, body.size_gb)
+            return {
+                "ok": True,
+                "preview": True,
+                "created": False,
+                "volume": {
+                    "name": name,
+                    "size_gb": body.size_gb,
+                    "region": body.region,
+                    "encrypted": body.encrypted,
+                },
+                "price_per_gb_month_cad": VOLUME_PRICE_PER_GB_MONTH_CAD,
+                "estimated_monthly_cost_cad": round(
+                    body.size_gb * VOLUME_PRICE_PER_GB_MONTH_CAD, 2
+                ),
+            }
         created = ve.create_volume(
             owner_id=owner_id,
             name=body.name,

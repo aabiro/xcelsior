@@ -258,11 +258,15 @@ The server has two official-registry identities, published from `api/mcp/`:
   on xcelsior.ca. Log in with `mcp-publisher login dns --domain xcelsior.ca`
   and the Ed25519 key in `~/.config/mcp-secrets/mcp-registry-xcelsior-ca-ed25519.pem`
   (the private key is the hex of `openssl pkey -in <pem> -noout -text`'s
-  `priv:` block). Remote only: the npm package's `mcpName` names the other one.
+  `priv:` block). Lists the remote and the npm package `@xcelsior-gpu/mcp`,
+  whose `mcpName` names this listing (since 0.2.0; the registry refuses a
+  package under any other name, so the package appears only here).
 - `io.github.aabiro/xcelsior` (`server.github.json`), via
   `mcp-publisher login github`. Kept because the dashboard's VS Code install
-  link (`MCP_REGISTRY_NAME`) uses it as the gallery identity, and
-  `@xcelsior-gpu/mcp` declares it.
+  link (`MCP_REGISTRY_NAME`) uses it as the gallery identity. Remote only.
+
+Moving `mcpName` does not change how the package installs: it stays
+`npx -y @xcelsior-gpu/mcp`. `mcpName` only says which listing owns it.
 
 Publish both with the version in `package.json`; `registry-listings.test.ts`
 fails if they drift. Each identity is separate from the

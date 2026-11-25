@@ -15,6 +15,27 @@ reflected here and version-bumped fails the build.
 
 ### Breaking
 
+- **Twelve more tools that act preview first** (each **→ 3.0.0**,
+  2026-11-25): `top_up_wallet`, `create_volume`, `attach_volume`,
+  `snapshot_volume`, `promote_artifact_to_volume`, `create_instance_snapshot`,
+  `register_ssh_key`, `open_instance_access`, `retry_instance`,
+  `reconcile_instance`, `register_provider`, `run_serverless_job`. Each acted on
+  its first call, while the server instructions told agents that tools which act
+  need `confirm:true`. Each now takes `confirm` (default `false`): without it
+  the call reads what it would act on and returns a preview, and changes
+  nothing. Callers that relied on one-call acting must pass `confirm:true`.
+
+  The two previews that depend on account state come from the server, so they
+  cannot disagree with the real call. `POST /api/v2/billing/top-up` takes
+  `preview: true`: it resolves the card exactly as the charge does (and refuses
+  an ambiguous one the same way), then returns it without charging.
+  `POST /api/v2/volumes` takes `preview: true`: it runs every check create runs
+  (name rules, size, volume count, total storage, duplicate name), through one
+  shared function, and returns the price without creating anything.
+
+  A unit test (`every-act-is-previewed`) now fails the build if any tool marked
+  destructive in the surface takes neither `confirm` nor `plan_id`.
+
 - **`run_training_job` and `schedule_under_budget` launch only through an
   approved launch plan** (**2.2.0 → 3.0.0** and **2.3.0 → 3.0.0**, 2026-11-24).
   Both POSTed `/instance` on `confirm:true`, so an agent could launch and bill a

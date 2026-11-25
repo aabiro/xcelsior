@@ -117,12 +117,32 @@ export function registerServerlessTools(
         endpoint_id: z.string(),
         input: z.record(z.string(), z.unknown()).default({}),
         webhook: z.string().url().optional(),
+        confirm: z.boolean().default(false).describe("false (the default) previews and changes nothing; true acts"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    async ({ endpoint_id, input, webhook }) => {
+    async ({ endpoint_id, input, webhook, confirm }) => {
       const denied = scopeDenied("run_serverless_job", user);
       if (denied) return denied;
+      if (!confirm) {
+        const target = await readPreviewTarget(
+          () => client.get(`/api/v2/serverless/endpoints/${encodeURIComponent(endpoint_id)}`),
+          `endpoint ${endpoint_id}`,
+          "list_serverless_endpoints",
+        );
+        if (!target.found) return target.result;
+        const endpoint = (target.value.endpoint ?? target.value) as Record<string, unknown>;
+        return jsonText({
+          ok: true,
+          preview: true,
+          endpoint_id,
+          name: endpoint.name ?? null,
+          status: endpoint.status ?? null,
+          message:
+            `Would run one job on ${endpoint.name ?? endpoint_id} (${endpoint.status ?? "status unknown"}), ` +
+            "billed for the work it does. Nothing has run. Call again with confirm:true.",
+        });
+      }
       try {
         const body: Record<string, unknown> = { input };
         if (webhook) body.webhook = webhook;

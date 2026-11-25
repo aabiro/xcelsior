@@ -122,6 +122,7 @@ export function registerSweepTools(
         name: z.string().min(1).max(63).describe("Lowercase repository name"),
         tag: z.string().max(63).default("latest"),
         description: z.string().max(512).default(""),
+        confirm: z.boolean().default(false).describe("false (the default) previews and changes nothing; true acts"),
       }),
       outputSchema: z.object({}).passthrough(),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
@@ -130,7 +131,22 @@ export function registerSweepTools(
       if (!userHasScope(user?.scopes, TOOL_SCOPES.create_instance_snapshot)) {
         return denied("create_instance_snapshot");
       }
-      const { job_id, ...body } = args;
+      const { job_id, confirm, ...body } = args;
+      if (!confirm) {
+        const target = await readPreviewTarget(
+          () => client.get(`/api/v1/instances/${encodeURIComponent(String(job_id))}`),
+          `instance ${job_id}`,
+          "list_instances",
+        );
+        if (!target.found) return target.result;
+        const inst = (target.value.instance ?? target.value.job ?? target.value) as Record<string, unknown>;
+        return structuredResult(
+          { ok: true, preview: true, job_id, image: `${body.name}:${body.tag ?? "latest"}`, status: inst.status ?? null },
+          `Would save ${inst.name ?? job_id} (${inst.status ?? "status unknown"}) as image ` +
+            `${body.name}:${body.tag ?? "latest"}, stored on the account until deleted. ` +
+            "Nothing has changed. Call again with confirm:true.",
+        );
+      }
       try {
         const data = await client.post<Record<string, unknown>>(
           `/instances/${encodeURIComponent(String(job_id))}/snapshot`,

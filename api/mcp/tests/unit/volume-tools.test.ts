@@ -118,8 +118,18 @@ describe("volume tools", () => {
 
   it("says what a new volume costs, since it bills whether attached or not", async () => {
     const { call } = harness();
-    const result = await call("create_volume", { name: "weights", size_gb: 100 });
+    const result = await call("create_volume", { name: "weights", size_gb: 100, confirm: true });
     expect(String(result.note)).toMatch(/per GB-month/i);
+  });
+
+  it("previews a new volume through the server's own checks and creates nothing", async () => {
+    const { call, posts } = harness();
+    const result = await call("create_volume", { name: "weights", size_gb: 100 });
+    expect(posts).toHaveLength(1);
+    expect(posts[0].path).toBe("/api/v2/volumes");
+    expect(posts[0].body).toMatchObject({ name: "weights", size_gb: 100, preview: true });
+    expect(posts[0].body).not.toHaveProperty("confirm");
+    expect(result.preview).toBe(true);
   });
 
   it("the retention clock tells the user to move work somewhere without one", async () => {

@@ -2392,6 +2392,9 @@ class ManualTopupRequest(BaseModel):
     payment_method_id: str = ""
     card_last4: str = ""
     card_brand: str = ""
+    # Resolve the card this charge would use, exactly as the charge does, and
+    # charge nothing. A client-side guess could name a different card.
+    preview: bool = False
 
 
 @router.get("/api/v2/billing/pending-verification", tags=["Billing"])
@@ -2631,6 +2634,19 @@ def api_billing_manual_topup(body: ManualTopupRequest, request: Request):
     stripe_customer_id = (wallet.get("stripe_customer_id") or "").strip()
     if not stripe_customer_id:
         raise HTTPException(409, {"charged": False, "reason": "no_stripe_customer"})
+
+    if body.preview:
+        return {
+            "ok": True,
+            "preview": True,
+            "charged": False,
+            "amount_cad": round(float(body.amount_cad), 2),
+            "payment_method": {
+                key: method.get(key)
+                for key in ("id", "brand", "last4", "exp_month", "exp_year", "is_default")
+                if key in method
+            },
+        }
 
     amount_micros = cad_to_micros(body.amount_cad)
 

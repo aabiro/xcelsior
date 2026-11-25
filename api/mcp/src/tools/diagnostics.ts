@@ -136,10 +136,25 @@ export function registerDiagnosticTools(server: McpServer, client: XcelsiorApiCl
       corporation_name: z.string().max(200).default("").describe("Required for provider_type=company"),
       business_number: z.string().max(40).default(""),
       gst_hst_number: z.string().max(40).default(""),
+      confirm: z.boolean().default(false).describe("false (the default) previews and changes nothing; true acts"),
     }),
     outputSchema: output,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, diagnosticHandler(user, "register_provider", async a => {
+    if (!a.confirm) {
+      return {
+        ok: true,
+        preview: true,
+        provider_type: String(a.provider_type ?? "individual"),
+        legal_name: String(a.legal_name ?? ""),
+        province: String(a.province ?? ""),
+        country: String(a.country ?? ""),
+        message:
+          "Would register this account as a provider and open its payout account with Stripe, " +
+          "under the details above. Onboarding then finishes in the browser. Nothing has " +
+          "changed. Check the details with the user, then call again with confirm:true.",
+      };
+    }
     const data = await client.post("/api/providers/register", {
       // The API derives the provider identity from the credential and ignores
       // any id sent, so none is sent. `email` must match the caller's own or

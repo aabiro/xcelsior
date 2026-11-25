@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
@@ -276,10 +277,11 @@ export function registerComputeTools(
           .string()
           .optional()
           .describe("A label for this key, e.g. 'laptop'. Defaults to 'default'."),
+        confirm: z.boolean().default(false).describe("false (the default) previews and changes nothing; true acts"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
-    async ({ public_key, name }) => {
+    async ({ public_key, name, confirm }) => {
       const denied = scopeDenied("register_ssh_key", user);
       if (denied) return denied;
 
@@ -297,6 +299,27 @@ export function registerComputeTools(
         });
       }
 
+      if (!confirm) {
+        // Standing access: anyone with the matching private key gets a shell
+        // on the user's instances. Say which key, by the fingerprint the user
+        // can compare with `ssh-keygen -lf`, before adding it.
+        const [type, blob] = inspection.key.split(/\s+/);
+        const fingerprint = `SHA256:${createHash("sha256")
+          .update(Buffer.from(blob ?? "", "base64"))
+          .digest("base64")
+          .replace(/=+$/, "")}`;
+        return jsonText({
+          ok: true,
+          preview: true,
+          key_type: type,
+          fingerprint,
+          name: name ?? "default",
+          message:
+            `Would register ${type} key ${fingerprint} as '${name ?? "default"}'. Anyone holding ` +
+            "its private key could open a shell on this account's running instances. Nothing " +
+            "has changed. Check the fingerprint with the user, then call again with confirm:true.",
+        });
+      }
       try {
         const data = await client.post("/api/ssh/keys", {
           public_key: inspection.key,
@@ -418,10 +441,11 @@ export function registerComputeTools(
               "'terminal' mints a single-use browser/websocket ticket. 'auto' " +
               "prefers ssh when the instance publishes a port.",
           ),
+        confirm: z.boolean().default(false).describe("false (the default) previews and changes nothing; true acts"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    async ({ job_id, method }) => {
+    async ({ job_id, method, confirm }) => {
       const denied = scopeDenied("open_instance_access", user);
       if (denied) return denied;
 
@@ -460,6 +484,20 @@ export function registerComputeTools(
           ? rawFingerprint
           : null;
       const useSsh = method === "ssh" || (method === "auto" && sshPort !== null);
+
+      if (!confirm) {
+        return jsonText({
+          ok: true,
+          preview: true,
+          job_id,
+          method: useSsh ? "ssh" : "terminal",
+          message: useSsh
+            ? `Would return the SSH endpoint for ${instance?.name ?? job_id}; nothing is minted. ` +
+              "Call again with confirm:true."
+            : `Would mint a single-use browser terminal ticket for ${instance?.name ?? job_id}: a ` +
+              "short-lived credential that opens a shell. Nothing has been issued. Call again with confirm:true.",
+        });
+      }
 
       if (useSsh) {
         if (sshPort === null) {

@@ -1,7 +1,7 @@
 {
   "name": "@xcelsior-gpu/mcp",
-  "version": "0.1.2",
-  "mcpName": "io.github.aabiro/xcelsior",
+  "version": "0.2.0",
+  "mcpName": "ca.xcelsior/gpu-cloud",
   "description": "Stdio MCP client for the Xcelsior GPU platform — use with npx @xcelsior-gpu/mcp",
   "homepage": "https://docs.xcelsior.ca",
   "bugs": {

@@ -6,9 +6,10 @@ import { readFileSync } from "node:fs";
  *
  * `server.json` is `ca.xcelsior/gpu-cloud`, proven by a DNS record on
  * xcelsior.ca, so the listing is not tied to the monorepo root's README.
- * `server.github.json` is the original `io.github.aabiro/xcelsior`, kept
+ * It also lists the npm package, whose `mcpName` points at it. The original
+ * `io.github.aabiro/xcelsior` (`server.github.json`) is kept, remote only,
  * because the dashboard's VS Code install link names it as its gallery
- * identity and the npm package's `mcpName` points at it.
+ * identity.
  *
  * They must not drift: same version as package.json (what the live server
  * reports), same remote, same title and description.

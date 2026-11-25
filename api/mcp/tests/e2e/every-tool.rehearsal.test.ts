@@ -184,6 +184,7 @@ const REHEARSALS: Record<string, Rehearsal> = {
 
   // ── SSH keys ────────────────────────────────────────────────────────
   register_ssh_key: {
+    confirm: true,
     args: (ctx) => ({ public_key: (ctx.sshKey = sshPublicKey()), name: `${marker}-key` }),
     then: (r, ctx) => {
       ctx.sshKeyId = need(pick(r, "key_id", "id", "key.id", "key.key_id"), "key id", r);
@@ -237,8 +238,9 @@ const REHEARSALS: Record<string, Rehearsal> = {
   get_event_history: { args: (ctx) => ({ entity_type: "job", entity_id: ctx.jobId }) },
   get_host_evidence: { args: (ctx) => ({ host_id: ctx.hostId }) },
   get_artifact_expiry: { args: (ctx) => ({ job_id: ctx.jobId }) },
-  open_instance_access: { args: (ctx) => ({ job_id: ctx.jobId, method: "auto" }) },
+  open_instance_access: { confirm: true, args: (ctx) => ({ job_id: ctx.jobId, method: "auto" }) },
   reconcile_instance: {
+    confirm: true,
     args: (ctx) => ({
       job_id: ctx.jobId,
       expected_version: ctx.jobVersion,
@@ -261,15 +263,17 @@ const REHEARSALS: Record<string, Rehearsal> = {
   // ── Volumes ─────────────────────────────────────────────────────────
   list_volumes: { args: () => ({}) },
   create_volume: {
+    confirm: true,
     args: () => ({ name: `${marker}-vol`, size_gb: 10 }),
     then: (r, ctx) => {
       ctx.volumeId = need(pick(r, "volume.volume_id", "volume_id", "volume.id", "id"), "volume id", r);
     },
   },
   get_volume: { args: (ctx) => ({ volume_id: ctx.volumeId }) },
-  attach_volume: { args: (ctx) => ({ volume_id: ctx.volumeId, job_id: ctx.jobId }) },
+  attach_volume: { confirm: true, args: (ctx) => ({ volume_id: ctx.volumeId, job_id: ctx.jobId }) },
   detach_volume: { confirm: true, args: (ctx) => ({ volume_id: ctx.volumeId }) },
   snapshot_volume: {
+    confirm: true,
     args: (ctx) => ({ volume_id: ctx.volumeId, name: `${marker}-snap` }),
     then: (r, ctx) => {
       ctx.snapshotId = need(
@@ -285,6 +289,7 @@ const REHEARSALS: Record<string, Rehearsal> = {
     args: (ctx) => ({ volume_id: ctx.volumeId, snapshot_id: ctx.snapshotId }),
   },
   promote_artifact_to_volume: {
+    confirm: true,
     // A job has artifacts once something was uploaded for it. Upload one
     // through the routes the dashboard and the worker SDK use.
     before: async (ctx) => {
@@ -320,6 +325,7 @@ const REHEARSALS: Record<string, Rehearsal> = {
 
   // ── Images ──────────────────────────────────────────────────────────
   create_instance_snapshot: {
+    confirm: true,
     before: async () => {
       fixture("registry-up");
     },
@@ -373,6 +379,7 @@ const REHEARSALS: Record<string, Rehearsal> = {
   get_serverless_endpoint: { args: (ctx) => ({ endpoint_id: ctx.endpointId }) },
   get_serverless_endpoint_health: { args: (ctx) => ({ endpoint_id: ctx.endpointId }) },
   run_serverless_job: {
+    confirm: true,
     args: (ctx) => ({ endpoint_id: ctx.endpointId, input: { prompt: "rehearsal" } }),
     then: (r, ctx) => {
       ctx.serverlessJobId = need(pick(r, "job_id", "id", "job.job_id", "job.id"), "serverless job id", r);
@@ -427,6 +434,7 @@ const REHEARSALS: Record<string, Rehearsal> = {
 
   // ── Provider sign-up and payouts status ─────────────────────────────
   register_provider: {
+    confirm: true,
     // The tool never takes an address or tax id: those stay out of model
     // context, and the user enters them in the dashboard. Do that step first,
     // through the route the dashboard uses.
@@ -461,6 +469,7 @@ const REHEARSALS: Record<string, Rehearsal> = {
 
   // ── Money in ────────────────────────────────────────────────────────
   top_up_wallet: {
+    confirm: true,
     // Cards are added in the dashboard, never through MCP. Do what the
     // dashboard does, in Stripe test mode: create a SetupIntent and confirm it
     // with Stripe's test card.
@@ -483,6 +492,7 @@ const REHEARSALS: Record<string, Rehearsal> = {
     args: (ctx) => ({ job_id: ctx.jobId }),
   },
   retry_instance: {
+    confirm: true,
     // Refreshes the version: reconcile above may have moved it.
     before: async (ctx) => {
       const r = await call("get_instance", { job_id: ctx.jobId });
@@ -734,7 +744,7 @@ const VARIANTS: Variant[] = [
   ...(["ssh", "terminal"] as const).map((method) => ({
     tool: "open_instance_access",
     label: `method=${method}`,
-    run: () => call("open_instance_access", { job_id: ctx.jobId, method }),
+    run: () => callConfirmed("open_instance_access", { job_id: ctx.jobId, method }),
   })),
   // Launch variants are priced, not launched: the preview is where the
   // pricing mode and tier change the answer, and one launch per variant would
@@ -784,7 +794,7 @@ const VARIANTS: Variant[] = [
     tool: "attach_volume",
     label: "mode=ro",
     run: async () => {
-      await call("attach_volume", { volume_id: ctx.volumeId, job_id: ctx.jobId, mode: "ro" });
+      await callConfirmed("attach_volume", { volume_id: ctx.volumeId, job_id: ctx.jobId, mode: "ro" });
       await callConfirmed("detach_volume", { volume_id: ctx.volumeId });
     },
   },
@@ -807,7 +817,7 @@ const VARIANTS: Variant[] = [
           accepted_terms: true,
         }),
       });
-      await call(
+      await callConfirmed(
         "register_provider",
         {
           provider_type: "company",
@@ -1054,8 +1064,13 @@ describe.runIf(enabled)("live rehearsal of every published tool", () => {
       it(
         tool,
         record(tool, "unapproved", async () => {
-          const preview = await call(tool, previewArgs(tool));
-          const planId = pick(preview, "plan_id", "plan.plan_id");
+          // The happy path already ran, so a preview may now be refused for
+          // what it would collide with (create_volume: the name is taken).
+          // That refusal must still be an answer, not a fault; with no plan
+          // there is nothing to confirm without approval.
+          const preview = await attempt(client, tool, previewArgs(tool));
+          if (FAULT.test(preview.text)) throw new Error(`preview faulted: ${preview.text.slice(0, 700)}`);
+          const planId = pick(preview.body, "plan_id", "plan.plan_id");
           if (!planId) return; // Its confirm needs no plan: the preview is the check.
           await refused(
             client,
