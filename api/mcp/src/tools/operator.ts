@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AuthUser } from "../auth/bearer.js";
+import { scopeDenial } from "../auth/denial.js";
 import { TOOL_SCOPES, userHasScope } from "../auth/scopes.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import { apiProblem } from "../client/errors.js";
@@ -50,7 +51,7 @@ export function registerOperatorTools(server: McpServer, client: XcelsiorApiClie
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, async (args) => {
     const required = TOOL_SCOPES.evict_host_workloads;
-    if (!userHasScope(user?.scopes, required)) return structuredResult({ ok: false, code: "insufficient_scope", required });
+    if (!userHasScope(user?.scopes, required)) return structuredResult({ ok: false, code: "insufficient_scope", ...scopeDenial("evict_host_workloads", user) });
     try {
       if (!args.confirm || !args.plan_id) {
         const plan = await client.post<Record<string, unknown>>(
@@ -77,7 +78,7 @@ export function registerOperatorTools(server: McpServer, client: XcelsiorApiClie
 
   async function mutate(name: keyof typeof TOOL_SCOPES, path: string, args: Record<string, unknown>) {
     const required = TOOL_SCOPES[name];
-    if (!userHasScope(user?.scopes, required)) return structuredResult({ ok: false, code: "insufficient_scope", required });
+    if (!userHasScope(user?.scopes, required)) return structuredResult({ ok: false, code: "insufficient_scope", ...scopeDenial(name, user) });
     try {
       const body = { ...args }; delete body.job_id; delete body.host_id; delete body.idempotency_key;
       const data = await client.post<Record<string, unknown>>(path, body, { idempotencyKey: String(args.idempotency_key), retry: "idempotent" });

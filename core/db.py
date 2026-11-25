@@ -707,7 +707,7 @@ class DatabaseOps:
                 "'job_id',job_id,'owner',owner_id,'owner_id',owner_id,"
                 "'tenant_id',tenant_id,'team_id',team_id,'status',status,'host_id',host_id,"
                 "'phase',phase,'desired_state',desired_state,'error_message',error_message,"
-                "'exit_code',exit_code,'wallet_hold_id',wallet_hold_id) AS payload "
+                "'exit_code',exit_code,'wallet_hold_id',wallet_hold_id,'version',version) AS payload "
                 "FROM jobs WHERE job_id=%s",
                 (job_id,),
             ).fetchone()

@@ -622,3 +622,18 @@ def test_an_approved_extra_can_be_kept_or_dropped_but_never_ticked_back():
     assert _set_permissions(token, preset="write").json()["approved_extras"] == []
     back = _set_permissions(token, preset="custom", scopes=["gpu:read", "billing:topup"])
     assert back.status_code == 400
+
+
+def test_a_connector_missing_a_connector_scope_is_told_to_reconnect():
+    from routes.auth import McpPermissionRequestCreate, _permissions_for_a_connector
+
+    # A directory connector signs in through OAuth, so it has no Quick Connect
+    # key to attach a request to. This was a 403, which made request_permission
+    # fail for every connector; it now says what reconnecting would grant.
+    answer = _permissions_for_a_connector(
+        {"auth_type": "oauth_access_token", "scopes": ["instances:read"]},
+        McpPermissionRequestCreate(scopes=["instances:write", "hosts:evict"]),
+    )
+    assert answer["status"] == "reconnect_required"
+    assert [item["scope"] for item in answer["grant_on_reconnect"]] == ["instances:write"]
+    assert [item["scope"] for item in answer["not_available_to_connectors"]] == ["hosts:evict"]

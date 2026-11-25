@@ -4270,6 +4270,13 @@ def _sweep_plan_principal(user: dict):
     )
 
 
+def _sweep_trace_id(request: Request) -> str | None:
+    """The plan's trace id: NULL or 32 hex digits, as ck_action_plans_trace_id requires."""
+    from routes.action_plans import _request_trace_id
+
+    return _request_trace_id(request)
+
+
 @router.post("/api/v1/image-sweeps", tags=["Instances"])
 def api_create_image_sweep(body: _SweepIn, request: Request):
     """Quote a sweep and persist it as one approvable plan. Nothing launches here.
@@ -4359,7 +4366,9 @@ def api_create_image_sweep(body: _SweepIn, request: Request):
             required_scopes=["instances:write"],
             approval_mode=decision.approval_mode,
             ttl_sec=plan_ttl_sec(),
-            trace_id="",
+            # NULL or a 32-hex W3C id (ck_action_plans_trace_id). "" made every
+            # sweep preview a 500; the live rehearsal found it.
+            trace_id=_sweep_trace_id(request),
         )
 
     plan_id = str(plan["plan_id"])

@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import { ApiError, apiProblem, formatApiError } from "../client/errors.js";
 import { jsonText, structuredResult } from "../lib/format.js";
+import { notOnThisAccount, readPreviewTarget } from "../lib/preview-target.js";
 import { inspectSshKeyInput } from "../lib/ssh-key.js";
 import { loadConfig } from "../config.js";
 import { scopeDenial } from "../auth/denial.js";
@@ -197,10 +198,20 @@ export function registerComputeTools(
       const denied = scopeDenied("cancel_instance", user);
       if (denied) return denied;
       if (!confirm) {
+        const target = await readPreviewTarget(
+          () => client.get(`/api/v1/instances/${encodeURIComponent(job_id)}`),
+          `instance ${job_id}`,
+          "list_instances",
+        );
+        if (!target.found) return target.result;
+        const instance = (target.value.instance ?? target.value.job ?? target.value) as Record<string, unknown>;
         return jsonText({
+          ok: true,
           preview: true,
-          message: "Set confirm:true to cancel this instance.",
+          message: `Set confirm:true to cancel ${instance.name ?? job_id} (${instance.status ?? "status unknown"}).`,
           job_id,
+          name: instance.name ?? null,
+          status: instance.status ?? null,
         });
       }
       try {
@@ -225,10 +236,20 @@ export function registerComputeTools(
       const denied = scopeDenied("terminate_instance", user);
       if (denied) return denied;
       if (!confirm) {
+        const target = await readPreviewTarget(
+          () => client.get(`/api/v1/instances/${encodeURIComponent(job_id)}`),
+          `instance ${job_id}`,
+          "list_instances",
+        );
+        if (!target.found) return target.result;
+        const instance = (target.value.instance ?? target.value.job ?? target.value) as Record<string, unknown>;
         return jsonText({
+          ok: true,
           preview: true,
-          message: "Set confirm:true to permanently terminate this instance.",
+          message: `Set confirm:true to permanently terminate ${instance.name ?? job_id} (${instance.status ?? "status unknown"}).`,
           job_id,
+          name: instance.name ?? null,
+          status: instance.status ?? null,
         });
       }
       try {
@@ -355,16 +376,16 @@ export function registerComputeTools(
           const listing = (await client.get("/api/ssh/keys")) as Record<string, unknown>;
           const keys = (listing.keys as Array<Record<string, unknown>>) ?? [];
           const match = keys.find((k) => String(k.key_id ?? k.id) === key_id);
+          if (!match) return notOnThisAccount(`key ${key_id}`, "list_ssh_keys");
           return jsonText({
             ok: true,
             preview: true,
             confirm_required: true,
-            key: match ?? null,
-            message: match
-              ? `Would remove ${match.name ?? key_id} (${match.fingerprint ?? "no fingerprint"}). ` +
-                "Shell access is revoked on running instances too, disconnecting anyone " +
-                "using it. Call again with confirm:true."
-              : `No key ${key_id} is on this account — list_ssh_keys shows what is.`,
+            key: match,
+            message:
+              `Would remove ${match.name ?? key_id} (${match.fingerprint ?? "no fingerprint"}). ` +
+              "Shell access is revoked on running instances too, disconnecting anyone " +
+              "using it. Call again with confirm:true.",
           });
         } catch (e) {
           return jsonText({ error: formatApiError(e) });

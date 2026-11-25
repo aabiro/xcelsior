@@ -106,6 +106,28 @@ def test_instance_detail_is_returned(job_with_secrets) -> None:
     assert r.json()["instance"], "no instance in the response"
 
 
+def test_instance_detail_carries_the_version_retry_and_reconcile_check(job_with_secrets) -> None:
+    """retry and reconcile take an expected_version and compare it with the
+    job's. Until 2026-11-24 neither the detail nor that comparison read the
+    row's version, so the instance showed none and the check compared with 0:
+    an agent could only pass by guessing 0, and the guard guarded nothing."""
+    from db import _get_pg_pool
+
+    job_id, _ = job_with_secrets
+    with _get_pg_pool().connection() as conn:
+        version = conn.execute("SELECT version FROM jobs WHERE job_id=%s", (job_id,)).fetchone()[0]
+        conn.execute("UPDATE jobs SET version = version + 3 WHERE job_id=%s", (job_id,))
+        conn.commit()
+    shown = client.get(f"/api/v1/instances/{job_id}", headers=_admin_headers()).json()["instance"]
+    assert shown["version"] == version + 3
+    stale = client.post(
+        f"/api/v1/instances/{job_id}/reconcile",
+        json={"expected_version": version},
+        headers=_admin_headers(),
+    )
+    assert stale.status_code == 409, stale.text[:300]
+
+
 def test_instance_detail_redacts_every_credential_field(job_with_secrets) -> None:
     """The redaction that had no test.
 

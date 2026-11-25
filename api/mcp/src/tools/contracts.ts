@@ -302,7 +302,9 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // `name:tag` 409s with "already exists (delete it first to overwrite)", so
   // calling twice has no additional effect. Same shape as `register_ssh_key`.
   create_instance_snapshot: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
-  list_user_images: { readOnly: true, destructive: false, audience: "customer" },
+  // 2.1.0: scope takes mine|public. "team" was always refused by the API and
+  // "all" is admin-only, so neither ever worked here; "public" was missing.
+  list_user_images: { readOnly: true, destructive: false, audience: "customer", version: "2.1.0" },
   // Destructive: the record cannot be brought back through the API, and a
   // sweep or launch that referenced the image stops being reproducible.
   delete_user_image: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },

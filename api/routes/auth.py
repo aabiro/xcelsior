@@ -2182,13 +2182,53 @@ class McpPermissionRequestCreate(BaseModel):
     reason: str = Field(default="", max_length=240)
 
 
+def _permissions_for_a_connector(user: dict, body: McpPermissionRequestCreate) -> dict:
+    """What a connector (a client registered by DCR or CIMD) can do to get a permission.
+
+    Until 2026-11-24 this was a 403, so `request_permission` failed for every
+    directory connector, and the directory requires every tool to work. There
+    is no approval link to give: such a connection holds what its user approved
+    on the consent screen, and it can only hold scopes within the connector
+    ceiling. So the answer says which permissions reconnecting would grant and
+    which no connector can hold.
+    """
+    from oauth_registration import CONNECTOR_ALLOWED_SCOPES
+
+    asked = sorted({str(s).strip() for s in body.scopes if str(s).strip()})
+    held = {str(s) for s in (user.get("scopes") or [])}
+    missing = [scope for scope in asked if scope not in held]
+    if not missing:
+        return {"ok": True, "status": "already_granted", "scopes": asked}
+    on_reconnect = [scope for scope in missing if scope in CONNECTOR_ALLOWED_SCOPES]
+    never = [scope for scope in missing if scope not in CONNECTOR_ALLOWED_SCOPES]
+    return {
+        "ok": True,
+        "status": "reconnect_required" if on_reconnect else "not_available_to_connectors",
+        "grant_on_reconnect": _describe_scopes(on_reconnect),
+        "not_available_to_connectors": _describe_scopes(never),
+        "manage_url": f"{_public_base_url()}/dashboard",
+    }
+
+
 @router.post("/api/mcp/permission-requests", tags=["Auth"])
 def api_mcp_request_permissions(body: McpPermissionRequestCreate, request: Request):
     """Ask the key's owner for permissions the key lacks. Grants nothing.
 
     Returns a link for the agent to show its user. The permissions arrive only
     if that user, signed in to the dashboard, approves on the page behind it.
+
+    A connector (a Connectors Directory listing, for one) gets its permissions
+    on the consent screen instead, so it is told how to get them rather than
+    refused.
     """
+    caller = _require_auth(request)
+    if str(caller.get("auth_type") or "") == "oauth_access_token":
+        from db import OAuthStore
+        from oauth_service import is_connector_client
+
+        connector = OAuthStore.get_client(str(caller.get("client_id") or ""))
+        if connector and is_connector_client(connector):
+            return _permissions_for_a_connector(caller, body)
     user, client, surface = _require_quick_connect_key(request)
     from db import McpPermissionRequestStore
     from oauth_service import (

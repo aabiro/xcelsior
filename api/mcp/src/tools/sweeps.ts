@@ -2,8 +2,10 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import type { AuthUser } from "../auth/bearer.js";
+import { scopeDenial } from "../auth/denial.js";
 import { TOOL_SCOPES, userHasScope, describeScopeRequirement } from "../auth/scopes.js";
 import { structuredResult } from "../lib/format.js";
+import { notOnThisAccount, readPreviewTarget } from "../lib/preview-target.js";
 import { formatApiError } from "../client/errors.js";
 
 /**
@@ -29,7 +31,7 @@ export function registerSweepTools(
   function denied(tool: string) {
     const required = TOOL_SCOPES[tool];
     return structuredResult(
-      { ok: false, code: "insufficient_scope", required },
+      { ok: false, code: "insufficient_scope", ...scopeDenial(tool, user) },
       `Access denied: requires ${describeScopeRequirement(required)}.`,
     );
   }
@@ -152,7 +154,13 @@ export function registerSweepTools(
     "list_user_images",
     {
       inputSchema: z.object({
-        scope: z.enum(["mine", "team", "all"]).default("mine"),
+        scope: z
+          .enum(["mine", "public"])
+          .default("mine")
+          .describe(
+            "mine: this account's images (the team's, when working in a team). " +
+              "public: images other users have published.",
+          ),
         q: z.string().max(200).default("").describe("Filter by name substring"),
         limit: z.number().int().min(1).max(500).default(100),
       }),
@@ -207,16 +215,16 @@ export function registerSweepTools(
           });
           const images = (listing.images as Array<Record<string, unknown>>) ?? [];
           const match = images.find((i) => String(i.image_id) === imageId);
+          if (!match) return notOnThisAccount(`image ${imageId}`, "list_user_images");
           return structuredResult(
             {
               ok: true,
               preview: true,
               confirm_required: true,
-              image: match ?? null,
-              message: match
-                ? `Would delete ${match.name}:${match.tag}. This cannot be undone — ` +
-                  "call again with confirm:true."
-                : `No image ${imageId} is visible on this account.`,
+              image: match,
+              message:
+                `Would delete ${match.name}:${match.tag}. This cannot be undone — ` +
+                "call again with confirm:true.",
             },
             "Preview only — nothing was deleted.",
           );

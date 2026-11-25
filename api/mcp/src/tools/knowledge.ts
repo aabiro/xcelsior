@@ -24,6 +24,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AuthUser } from "../auth/bearer.js";
+import { scopeDenial } from "../auth/denial.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import { TOOL_SCOPES, userHasScope, scopeUnion, describeScopeRequirement } from "../auth/scopes.js";
 import { structuredResult } from "../lib/format.js";
@@ -220,7 +221,7 @@ export function registerKnowledgeTools(
     return userHasScope(user?.scopes, required)
       ? null
       : structuredResult(
-          { ok: false, code: "insufficient_scope", required: scopeUnion(required) },
+          { ok: false, code: "insufficient_scope", ...scopeDenial(tool, user) },
           `Access denied: requires ${describeScopeRequirement(required)}.`,
         );
   };

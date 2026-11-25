@@ -110,6 +110,10 @@ describe("get_permissions", () => {
     expect(out.summary).toContain("cannot: Launch and terminate GPU instances");
     expect(out.summary).toContain("https://xcelsior.ca/dashboard/mcp");
     expect((out.unavailable_tools as Record<string, string[]>)["instances:write"]).toContain("create_instance");
+    // Under a name response hygiene keeps: `credential` was stripped before
+    // the model saw it.
+    expect(out.connection_type).toBe("quick_connect");
+    expect(out).not.toHaveProperty("credential");
   });
 });
 

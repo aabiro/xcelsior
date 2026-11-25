@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
-import { formatApiError } from "../client/errors.js";
+import { ApiError, formatApiError } from "../client/errors.js";
+import { notOnThisAccount } from "../lib/preview-target.js";
 import { jsonText, structuredResult } from "../lib/format.js";
 import { scopeDenial } from "../auth/denial.js";
 import type { AuthUser } from "../auth/bearer.js";
@@ -52,6 +53,17 @@ export function registerMonitoringTools(
               cursor: nextCursor, limit: 100,
             }),
           ]);
+
+          // A job that is not there, or not the caller's, will not appear by
+          // waiting. Polling it for the whole window held a watch slot for up
+          // to an hour and then answered ok with no status.
+          if (
+            instRes.status === "rejected" &&
+            instRes.reason instanceof ApiError &&
+            (instRes.reason.status === 404 || instRes.reason.status === 403)
+          ) {
+            return notOnThisAccount(`instance ${job_id}`, "list_instances");
+          }
 
           const instance =
             instRes.status === "fulfilled"

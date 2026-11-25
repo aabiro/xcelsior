@@ -433,6 +433,32 @@ def _deterministic_job_id(plan_id: str) -> str:
     return "job-" + hashlib.sha256(plan_id.encode()).hexdigest()[:12]
 
 
+def _submit_refusal(exc: Exception) -> LaunchPlanError | None:
+    """The typed refusal for a submit failure ``/instance`` already maps.
+
+    ``submit_job`` refuses some launches with plain exceptions, and the
+    ``/instance`` route turns them into 402, 503 and 409. Plan execution let
+    them through, so an approved plan answered 500 "Internal Server Error" to
+    every MCP caller: found 2026-11-24 by the live rehearsal, launching with the
+    scheduler paused. Same statuses here, so both paths report a refusal the
+    same way. Anything else is a real fault and stays a 500.
+    """
+    from service_tier_pricing import (
+        TierFundingRequired,
+        TierPricingUnavailable,
+        TierSchedulingUnavailable,
+    )
+    from control_plane.spot_admission import SpotAdmissionRejected
+
+    if isinstance(exc, TierFundingRequired):
+        return LaunchPlanError("tier_funding_required", str(exc), status=402)
+    if isinstance(exc, TierSchedulingUnavailable):
+        return LaunchPlanError("scheduling_unavailable", str(exc), status=503, retryable=True)
+    if isinstance(exc, (TierPricingUnavailable, SpotAdmissionRejected)):
+        return LaunchPlanError("launch_refused", str(exc), status=409)
+    return None
+
+
 def _submit_from_spec(
     spec: dict[str, Any],
     *,
@@ -618,7 +644,7 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
                         owner=tenant_id,
                         trace_id=plan.get("trace_id"),
                     )
-                except Exception:
+                except Exception as exc:
                     # Match /instance: a failed submit releases the hold rather
                     # than stranding funds until expiry.
                     try:
@@ -629,6 +655,9 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
                         pass
                     if spend_reservation is not None:
                         spend_counters.release(spend_reservation)
+                    refusal = _submit_refusal(exc)
+                    if refusal is not None:
+                        raise refusal from exc
                     raise
                 updated = plans_repo.mark_consumed(
                     conn,

@@ -101,13 +101,26 @@ export function registerWorkflowTools(
           logs = { note: "logs not yet available" };
         }
 
+        // A launch that is still starting when the wait ends has not failed.
+        // Answering ok:false for it invited the retry the description warns
+        // launches and bills a second instance. Only a run that ended in
+        // failure is not ok.
         return jsonText({
-          ok: wait.ok,
+          ok: wait.ok || wait.timedOut,
+          launched: true,
           job_id: jobId,
           status: wait.instance.status,
           timed_out: wait.timedOut,
           instance: wait.instance,
           logs,
+          ...(wait.timedOut
+            ? {
+                next_step:
+                  "The instance is launched and still starting. Follow it with watch_instance " +
+                  "and this job_id. Do not call run_training_job again: that launches, and " +
+                  "bills, a second instance.",
+              }
+            : {}),
         });
       } catch (e) {
         return jsonText({ error: formatApiError(e) });
@@ -161,8 +174,10 @@ export function registerWorkflowTools(
           .sort((a, b) => a.hourly_cad - b.hourly_cad);
 
         if (!candidates.length) {
+          // Nothing under the budget is an answer, not a failure.
           return jsonText({
-            ok: false,
+            ok: true,
+            found: false,
             message: `No GPUs found under $${args.max_hourly_cad.toFixed(2)} CAD/hr`,
             max_hourly_cad: args.max_hourly_cad,
           });

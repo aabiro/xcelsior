@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import { formatApiError } from "../client/errors.js";
 import { jsonText } from "../lib/format.js";
+import { notOnThisAccount, readPreviewTarget } from "../lib/preview-target.js";
 import { scopeDenial } from "../auth/denial.js";
 import type { AuthUser } from "../auth/bearer.js";
 
@@ -157,17 +158,16 @@ export function registerVolumeTools(
         // Preview before acting, per the plan: a detach can disrupt a running
         // workload. The preview names the instance so the user is told *what*
         // is about to lose its filesystem, not merely that something will.
-        let attachedTo: unknown = null;
-        try {
-          const vol = (await client.get(
-            `/api/v2/volumes/${encodeURIComponent(volume_id)}`,
-          )) as Record<string, unknown>;
-          const record = (vol?.volume ?? vol) as Record<string, unknown>;
-          attachedTo = record?.attached_instance_id ?? record?.instance_id ?? null;
-        } catch {
-          // A preview that cannot read the volume still refuses to act.
-        }
+        const target = await readPreviewTarget(
+          () => client.get(`/api/v2/volumes/${encodeURIComponent(volume_id)}`),
+          `volume ${volume_id}`,
+          "list_volumes",
+        );
+        if (!target.found) return target.result;
+        const record = (target.value.volume ?? target.value) as Record<string, unknown>;
+        const attachedTo = record?.attached_instance_id ?? record?.instance_id ?? null;
         return jsonText({
+          ok: true,
           preview: true,
           volume_id,
           attached_to: attachedTo,
@@ -202,9 +202,19 @@ export function registerVolumeTools(
       const denied = scopeDenied("delete_volume", user);
       if (denied) return denied;
       if (!confirm) {
+        const target = await readPreviewTarget(
+          () => client.get(`/api/v2/volumes/${encodeURIComponent(volume_id)}`),
+          `volume ${volume_id}`,
+          "list_volumes",
+        );
+        if (!target.found) return target.result;
+        const record = (target.value.volume ?? target.value) as Record<string, unknown>;
         return jsonText({
+          ok: true,
           preview: true,
           volume_id,
+          name: record.name ?? null,
+          size_gb: record.size_gb ?? null,
           message:
             "Deleting a volume destroys its contents. This is the tool that " +
             "loses work permanently — snapshot it first if the data matters. " +
@@ -281,19 +291,19 @@ export function registerVolumeTools(
         // what they are about to lose, not that something will happen. Naming
         // the snapshot's own age is what makes "restore" concrete: putting back
         // a week-old capture is a different decision from an hour-old one.
-        let snapshot: unknown = null;
-        try {
-          const listed = (await client.get(
-            `/api/v2/volumes/${encodeURIComponent(volume_id)}/snapshots`,
-          )) as { snapshots?: Array<Record<string, unknown>> };
-          snapshot =
-            (listed?.snapshots ?? []).find(
-              (s) => String(s?.snapshot_id ?? s?.id ?? "") === String(snapshot_id),
-            ) ?? null;
-        } catch {
-          // A preview that cannot read the snapshot still refuses to act.
-        }
+        const target = await readPreviewTarget(
+          () => client.get(`/api/v2/volumes/${encodeURIComponent(volume_id)}/snapshots`),
+          `volume ${volume_id}`,
+          "list_volumes",
+        );
+        if (!target.found) return target.result;
+        const snapshots = (target.value.snapshots ?? []) as Array<Record<string, unknown>>;
+        const snapshot = snapshots.find(
+          (s) => String(s?.snapshot_id ?? s?.id ?? "") === String(snapshot_id),
+        );
+        if (!snapshot) return notOnThisAccount(`snapshot ${snapshot_id} of ${volume_id}`, "list_volume_snapshots");
         return jsonText({
+          ok: true,
           preview: true,
           volume_id,
           snapshot_id,

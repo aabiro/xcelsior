@@ -25,6 +25,26 @@ from control_plane.scheduler.service import SchedulerService
 from db import _get_pg_pool
 
 
+def _why_not(job_id: str, host_id: str) -> object:
+    """The scheduler's own filter verdict for this job on this host."""
+    from control_plane.scheduler.filters import FilterContext, filter_hosts
+    from control_plane.scheduler.snapshot import take_snapshot
+
+    with _get_pg_pool().connection() as conn:
+        snapshot = take_snapshot(conn)
+        conn.rollback()
+    job = next((j for j in snapshot.jobs if j.get("job_id") == job_id), None)
+    if job is None:
+        return "not in the queue snapshot (phase, desired_state or spec version)"
+    hosts = [h for h in snapshot.hosts if h.get("host_id") == host_id]
+    if not hosts:
+        return f"host not in the fleet snapshot; stale={host_id in snapshot.stale_host_ids}"
+    _eligible, rejections = filter_hosts(
+        job, hosts, FilterContext(stale_host_ids=snapshot.stale_host_ids)
+    )
+    return {h: [(r.code, r.message) for r in rs] for h, rs in rejections.items()} or "eligible"
+
+
 def place(job_id: str, gpu_model: str) -> None:
     marker = uuid.uuid4().hex[:10]
     host_id = f"mcp-e2e-host-{marker}"
@@ -63,12 +83,16 @@ def place(job_id: str, gpu_model: str) -> None:
             )
         # The launch job already exists. Pin its requested model to the isolated
         # fixture host so no concurrent CI fleet row can steal this placement.
+        # The claim ranks by priority plus an age boost, then by queued_at, and
+        # recomputes effective_priority itself. The test database is shared,
+        # so older queued jobs of the same model (left by other suites) win a
+        # tie. The top unpaid priority (979, the claim's cap) on this job alone
+        # puts it first without touching anyone else's rows.
         conn.execute(
             """
             UPDATE jobs
                SET payload = jsonb_set(payload, '{gpu_model}', to_jsonb(%s::text), true),
-                   effective_priority = 9223372036854775806,
-                   fair_share_finish = -1,
+                   priority = 979,
                    queued_at = clock_timestamp() - interval '1 day',
                    schedule_claim_owner = NULL,
                    schedule_claim_token = NULL,
@@ -91,6 +115,15 @@ def place(job_id: str, gpu_model: str) -> None:
     if not report.placements:
         raise RuntimeError(f"scheduler did not place {job_id}: {report}")
     reservation = report.placements[0]
+    if reservation.job_id != job_id:
+        # The test database is shared, so another queued job of the same model
+        # can win the tick. Placing it would hand the caller a lease for a job
+        # it never launched, which the claim then rejects for a reason that
+        # does not name the cause.
+        raise RuntimeError(
+            f"scheduler placed {reservation.job_id}, not {job_id}; "
+            f"why not {job_id} on {host_id}: {_why_not(job_id, host_id)}"
+        )
     with pool.connection() as conn:
         command = conn.execute(
             """
@@ -279,6 +312,31 @@ def cleanup(prefix: str) -> None:
     print(json.dumps({"ok": True, "jobs": len(job_ids)}))
 
 
+def registry_up() -> None:
+    """Record a healthy probe of the configured registry, as bg_worker would.
+
+    The rehearsal runs with background tasks off, so nothing probes. Snapshots
+    read the probe result to decide between "pending" and
+    "queued_registry_down". Nothing is pushed: the worker is the rehearsal's.
+    """
+    from registry_health import _configured_registry, _write_probe_to_db
+
+    registry = _configured_registry()
+    if not registry:
+        raise RuntimeError("XCELSIOR_REGISTRY_URL is not set")
+    _write_probe_to_db(
+        {
+            "registry": registry,
+            "reachable": True,
+            "last_probe_at": time.time(),
+            "latency_ms": 1.0,
+            "status_code": 401,
+            "error": None,
+        }
+    )
+    print(json.dumps({"ok": True, "registry": registry}))
+
+
 def authorize_operator(customer_id: str) -> None:
     """Elevate only this isolated journey's synthetic operator account."""
     with _get_pg_pool().connection() as conn:
@@ -309,6 +367,7 @@ def main() -> None:
     trace_parser = sub.add_parser("trace-chain")
     trace_parser.add_argument("job_id")
     sub.add_parser("spend-counter-check")
+    sub.add_parser("registry-up")
     cleanup_parser = sub.add_parser("cleanup")
     cleanup_parser.add_argument("prefix")
     args = parser.parse_args()
@@ -324,6 +383,8 @@ def main() -> None:
         trace_chain(args.job_id)
     elif args.command == "spend-counter-check":
         spend_counter_check()
+    elif args.command == "registry-up":
+        registry_up()
     else:
         cleanup(args.prefix)
 

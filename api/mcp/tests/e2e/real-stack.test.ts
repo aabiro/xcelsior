@@ -336,7 +336,7 @@ describe.runIf(enabled)("§26.4 real MCP + API + PostgreSQL + Redis", () => {
       plan_id: preview.plan_id,
       idempotency_key: idempotency,
     });
-    expect(executed.ok).toBe(true);
+    expect(executed.ok, JSON.stringify(executed)).toBe(true);
     const replay = await call(clientA, "create_instance", {
       name: `${marker}-instance`,
       gpu_model: "RTX 4090",

@@ -1012,9 +1012,17 @@ def _require_entity_event_access(user: dict, entity_type: str, entity_id: str) -
         _check_job_access(user, eid)
         return
     if et == "host":
-        if eid in _caller_owner_ids(user):
+        # The owner is on the host row. Comparing the host id itself with the
+        # caller's owner ids (as this did) matched nothing, so no provider
+        # could read their own host's events. Same rule as the host routes,
+        # and 404 like them: a 403 would confirm someone else's host exists.
+        from routes.hosts import visible_hosts
+        from scheduler import list_hosts
+
+        host = next((h for h in list_hosts(active_only=False) if h.get("host_id") == eid), None)
+        if host and visible_hosts(user, [host]):
             return
-        raise HTTPException(403, "Forbidden")
+        raise HTTPException(404, "Host not found")
     raise HTTPException(403, "Forbidden")
 
 

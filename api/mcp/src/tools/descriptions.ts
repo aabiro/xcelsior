@@ -639,14 +639,16 @@ const DESCRIPTIONS: Record<ToolName, string> = {
   retry_instance:
     "Retry a failed instance, creating a fresh fenced attempt while preserving the job's " +
     "identity and history. Use when an instance failed for a transient reason and the user wants " +
-    "it to run again. Requires the instance's expected_version and an idempotency key, so a " +
+    "it to run again. Requires expected_version, the `version` get_instance returns, and an " +
+    "idempotency key, so a " +
     "repeated call cannot produce a second attempt. Starts hourly billing again once the new " +
     "attempt runs.",
 
   reconcile_instance:
     "Force reconciliation of one instance so its recorded state is re-derived from what the host " +
     "actually reports. Use when an instance's status looks wrong or stale — for example, running " +
-    "in our records but gone on the host. Requires expected_version and an idempotency key. " +
+    "in our records but gone on the host. Requires expected_version (the `version` get_instance " +
+    "returns) and an idempotency key. " +
     "Corrects bookkeeping only: it does not start, stop, or move the workload, and it changes " +
     "nothing about what the instance is billing.",
 
@@ -693,7 +695,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "task done; pass that refusal's `missing` permissions. Do not use it speculatively or for " +
     "permissions the task does not need. It grants nothing and costs nothing by itself: only the " +
     "user can approve, signed in to their dashboard, and they can remove the permission later. " +
-    "Asking again for the same permissions returns the same link.",
+    "Asking again for the same permissions returns the same link. A connection made by signing " +
+    "in gets no link: the answer says to reconnect and approve on the consent screen instead.",
 
   // ── Billing ─────────────────────────────────────────────────────────────
   get_wallet_balance:

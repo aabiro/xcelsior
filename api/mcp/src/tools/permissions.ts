@@ -82,8 +82,13 @@ export function registerPermissionTools(
       try {
         const data = await client.get<PermissionsResponse>("/api/mcp/permissions");
         const granted = (data.granted ?? []).map((item) => item.scope);
+        // `credential` names the kind of connection ("quick_connect", "other"),
+        // not a secret, but response hygiene strips any field called that, so
+        // the model never saw it. The same value under a name it keeps:
+        const { credential, ...rest } = data;
         return jsonText({
-          ...data,
+          ...rest,
+          connection_type: credential ?? "other",
           summary: summarize(data),
           unavailable_tools: toolsLockedBy(granted),
           tell_the_user:
@@ -126,6 +131,27 @@ export function registerPermissionTools(
         });
         if (data.status === "already_granted") {
           return jsonText({ ...data, next_step: "This connection already holds these. Retry the tool." });
+        }
+        // A connection made by signing in (a directory connector) has no
+        // approval link: its permissions are chosen on the consent screen.
+        if (data.status === "reconnect_required") {
+          return jsonText({
+            ...data,
+            next_step:
+              "This connection was set up by signing in, so it cannot be sent an approval link. " +
+              "Tell the user that to allow the permissions in grant_on_reconnect they disconnect " +
+              "Xcelsior in this app and connect again, then approve on the consent screen. Retry " +
+              "the tool after they have. Anything in not_available_to_connectors can only be " +
+              "done in the dashboard at manage_url.",
+          });
+        }
+        if (data.status === "not_available_to_connectors") {
+          return jsonText({
+            ...data,
+            next_step:
+              "No connector can hold these permissions. Tell the user this step is done in the " +
+              "dashboard at manage_url, and do not retry the tool.",
+          });
         }
         return jsonText({
           ...data,

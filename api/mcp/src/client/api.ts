@@ -10,6 +10,12 @@ export interface ApiClientOptions {
   bearer: string;
   defaultTimeoutMs?: number;
   maxReadRetries?: number;
+  /**
+   * The caller's X-Forwarded-For chain with this server's peer appended, as a
+   * proxy sends it. Without it every MCP user reaches the API from this
+   * server's address and shares one per-address rate limit.
+   */
+  forwardedFor?: string;
 }
 
 export class XcelsiorApiClient {
@@ -19,7 +25,11 @@ export class XcelsiorApiClient {
   constructor(private readonly opts: ApiClientOptions) {
     this.v1 = createClient<paths>({
       baseUrl: opts.baseUrl,
-      headers: { Authorization: `Bearer ${opts.bearer}`, Accept: "application/json" },
+      headers: {
+        Authorization: `Bearer ${opts.bearer}`,
+        Accept: "application/json",
+        ...(opts.forwardedFor ? { "X-Forwarded-For": opts.forwardedFor } : {}),
+      },
     });
   }
 
@@ -108,6 +118,7 @@ export class XcelsiorApiClient {
         headers: {
           Authorization: `Bearer ${this.opts.bearer}`,
           Accept: "application/json",
+          ...(this.opts.forwardedFor ? { "X-Forwarded-For": this.opts.forwardedFor } : {}),
           ...(toolParent ? { traceparent: toolParent } : {}),
           ...(options.traceparent ? { traceparent: options.traceparent } : {}),
           ...traceHeaders,

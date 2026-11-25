@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AuthUser } from "../auth/bearer.js";
+import { scopeDenial } from "../auth/denial.js";
 import { TOOL_SCOPES, userHasScope, describeScopeRequirement } from "../auth/scopes.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import { apiProblem } from "../client/errors.js";
@@ -22,7 +23,7 @@ function diagnosticHandler(
   return async (args: Record<string, unknown>) => {
     const required = TOOL_SCOPES[name];
     if (!userHasScope(user?.scopes, required)) {
-      return structuredResult({ ok: false, code: "insufficient_scope", required }, `Access denied: requires ${describeScopeRequirement(required)}.`);
+      return structuredResult({ ok: false, code: "insufficient_scope", ...scopeDenial(name, user) }, `Access denied: requires ${describeScopeRequirement(required)}.`);
     }
     try {
       const value = await request(args) as Record<string, unknown>;

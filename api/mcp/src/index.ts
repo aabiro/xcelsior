@@ -5,7 +5,13 @@ import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 import { PACKAGE_VERSION } from "./version.js";
 import { acceptedAudiences, loadConfig } from "./config.js";
 import { createMcpServer } from "./server.js";
-import { createApiClient, extractBearer, validateBearer } from "./auth/bearer.js";
+import {
+  TokenCheckUnavailable,
+  createApiClient,
+  extractBearer,
+  forwardedFor,
+  validateBearer,
+} from "./auth/bearer.js";
 import { buildWwwAuthenticate } from "./auth/challenge.js";
 import { acquireWatchSlot, checkRateLimit, checkToolLimit, rateLimitReady, recordAuthFailure } from "./rate-limit.js";
 import { createHash } from "node:crypto";
@@ -83,7 +89,24 @@ async function handleMcp(
     return;
   }
 
-  const user = await validateBearer(config.apiUrl, bearer, acceptedAudiences(config));
+  const forwarded = forwardedFor(req);
+  let user: Awaited<ReturnType<typeof validateBearer>>;
+  try {
+    user = await validateBearer(config.apiUrl, bearer, acceptedAudiences(config), forwarded);
+  } catch (error) {
+    if (!(error instanceof TokenCheckUnavailable)) throw error;
+    // Not a verdict on the token: say so, and when to retry.
+    json(
+      res,
+      503,
+      {
+        error: "temporarily_unavailable",
+        message: "The token could not be checked just now. Retry shortly; it has not been rejected.",
+      },
+      { "Retry-After": String(error.retryAfterSec) },
+    );
+    return;
+  }
   if (!user) {
     authFailures.inc();
     const abuse = await recordAuthFailure(createHash("sha256").update(bearer).digest("hex").slice(0, 24), config.rateLimit);
@@ -135,7 +158,7 @@ async function handleMcp(
     return;
   }
 
-  const client = createApiClient(config.apiUrl, bearer);
+  const client = createApiClient(config.apiUrl, bearer, forwarded);
   const mcp = createMcpServer(client, user, "streamable_http", config.toolProfile, {
     companyKnowledge: config.companyKnowledge
       ? { siteUrl: config.siteUrl, docsUrl: config.docsUrl }

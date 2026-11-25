@@ -15,6 +15,12 @@ reflected here and version-bumped fails the build.
 
 ### Breaking
 
+- **`list_user_images` takes `scope: mine | public`** (**2.0.0 → 2.1.0**,
+  2026-11-24). It advertised `mine | team | all`: the API refuses `team`, and
+  `all` is for administrators only, so neither ever worked through a connector,
+  and `public` (images other users have published) was missing. `mine` already
+  covers the team's images when the caller works in a team.
+
 - **Six tools are no longer published at `mcp.xcelsior.ca/mcp`** (2026-11-24).
   They stay on the operator profile.
 
@@ -92,6 +98,58 @@ reflected here and version-bumped fails the build.
   **Action:** if you retry these tools on timeout, check state first —
   `list_instances`, `list_volumes`, or the volume's snapshots — rather than
   calling again. Each tool's description now says so.
+
+### Fixed
+
+Found on 2026-11-24 by the live rehearsal of every tool
+(`api/mcp/scripts/rehearse-live.sh`), which calls each published tool through a
+real connector: its happy path, input that breaks its schema, a connection with
+one permission, an unknown id, another tenant's id, a confirm without an
+approved plan, an unfunded tenant, and every value of every option.
+
+- **A throttled token check no longer reads as an invalid token.** The MCP
+  server reached the API from its own address, so every MCP user shared the
+  API's per-address limit; when it filled, the token check got a 429 and the
+  server answered `invalid_token`, which tells a connector to discard a good
+  token. The server now forwards the caller's `X-Forwarded-For` chain, so each
+  user is limited on their own address, and a check the API could not answer
+  (429, 5xx, no answer) gets a `503` with `Retry-After` instead.
+- **Destructive previews check that the target exists and is the caller's.**
+  `cancel_instance`, `terminate_instance`, `delete_volume`, `detach_volume`,
+  `restore_volume_snapshot`, `cancel_serverless_job`,
+  `delete_serverless_endpoint`, `delete_ssh_key` and `delete_user_image`
+  previewed an action on an id that did not exist, or belonged to another
+  account, as if it would happen. They now answer `not_found` at the preview,
+  and a found target is named in the preview.
+- **`watch_instance` stops at once on an instance that is not there** or not the
+  caller's. It polled for the whole window (up to an hour, holding a watch
+  slot) and then answered `ok` with no status.
+- **Every permission refusal says what is missing and how to fix it.** Tools
+  in the diagnostics, sweeps, knowledge and operator groups answered
+  `insufficient_scope` with only the requirement; they now carry `missing` and
+  `how_to_fix` like the rest.
+- **`create_image_sweep` previews work.** Every preview failed with a 500: the
+  plan was stored with an empty trace id, which the plan table refuses.
+- **`get_event_history` with `entity_type: host` reaches the host's owner.** The
+  API compared the host id with the caller's owner ids, so only administrators
+  could read host events. Another account now gets `404`.
+- **`get_permissions` shows the kind of connection** as `connection_type`. It
+  came back as `credential`, which response hygiene strips by name, so the
+  model never saw it.
+- **`request_permission` from a signed-in connector says to reconnect** and
+  approve the permission on the consent page, rather than refusing: a connector
+  has no Quick Connect key to send a request from.
+- **`run_training_job` answers `ok: true, launched: true` when its wait ends
+  before the instance is running**, with `next_step` pointing at
+  `watch_instance`. `ok: false` invited the retry that launches and bills a
+  second instance. `schedule_under_budget` with nothing under the budget answers
+  `ok: true, found: false`.
+- **`get_instance` returns the instance's `version`**, which `retry_instance`
+  and `reconcile_instance` require as `expected_version`. No tool returned it,
+  so neither could be called correctly.
+- **Launch-plan execution keeps the API's refusal.** A launch the scheduler
+  refused (paused, unfunded tier, no price) came back as a 500; it now has the
+  same 402, 503 or 409 `/instance` gives.
 
 ### Deprecated
 

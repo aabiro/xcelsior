@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { XcelsiorApiClient } from "../client/api.js";
 import { apiProblem, formatApiError } from "../client/errors.js";
 import { jsonText, structuredResult } from "../lib/format.js";
+import { notOnThisAccount, readPreviewTarget } from "../lib/preview-target.js";
 import { TOOL_SCOPES } from "../auth/scopes.js";
 import { scopeDenial } from "../auth/denial.js";
 import type { AuthUser } from "../auth/bearer.js";
@@ -245,8 +246,19 @@ export function registerServerlessTools(
       const denied = scopeDenied("cancel_serverless_job", user);
       if (denied) return denied;
       if (!confirm) {
+        const target = await readPreviewTarget(
+          () =>
+            client.get(
+              `/v1/serverless/${encodeURIComponent(endpoint_id)}/status/${encodeURIComponent(job_id)}`,
+            ),
+          `inference job ${job_id} on ${endpoint_id}`,
+          "list_serverless_endpoint_jobs",
+        );
+        if (!target.found) return target.result;
         return jsonText({
+          ok: true,
           preview: true,
+          status: target.value.status ?? null,
           endpoint_id,
           job_id,
           message:
@@ -285,8 +297,17 @@ export function registerServerlessTools(
       const denied = scopeDenied("delete_serverless_endpoint", user);
       if (denied) return denied;
       if (!confirm) {
+        const target = await readPreviewTarget(
+          () => client.get(`/api/v2/serverless/endpoints/${encodeURIComponent(endpoint_id)}`),
+          `endpoint ${endpoint_id}`,
+          "list_serverless_endpoints",
+        );
+        if (!target.found) return target.result;
+        const endpoint = (target.value.endpoint ?? target.value) as Record<string, unknown>;
         return jsonText({
+          ok: true,
           preview: true,
+          name: endpoint.name ?? null,
           endpoint_id,
           message:
             "Set confirm:true to delete this endpoint. It stops the endpoint " +
