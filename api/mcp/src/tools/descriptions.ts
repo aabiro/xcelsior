@@ -526,7 +526,8 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "province first, and corporation_name for a company. It does not finish onboarding: " +
     "identity and bank details are entered in the browser, so send them to the earnings page " +
     "afterwards and use get_provider_account to see what is still outstanding. Needs " +
-    "providers:write, which the default connector does not carry.",
+    "providers:onboard, which a connector asks for on its consent page; it never sets where " +
+    "payouts go.",
 
   request_provider_payout:
     "Settle one completed job and pay or queue the provider's share, creating a Stripe transfer, " +

@@ -109,6 +109,13 @@ CONNECTOR_ALLOWED_SCOPES: tuple[str, ...] = (
     # Optional on the consent page, never in the default set, and never on the
     # Quick Connect key, which is issued without that page.
     "billing:topup",
+    # Starting the user's own provider sign-up (`register_provider`). It
+    # creates their Stripe Connect account and returns the hosted onboarding
+    # link. Identity and bank details are entered by the user on Stripe's page,
+    # so the connector never sets where money goes. Payouts and disconnecting
+    # stay on `providers:write`, which connectors are never granted. Optional
+    # on the consent page, not in the default set, not on the Quick Connect key.
+    "providers:onboard",
 )
 
 #: What a client that asks for nothing in particular gets. Read-biased on

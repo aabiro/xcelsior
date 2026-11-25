@@ -149,6 +149,10 @@ SYSTEM_ALLOWED_SCOPES = frozenset(
         # contains it. Being grantable here does not put it on the Quick Connect
         # key — that is `MCP_QUICK_CONNECT_SCOPES`, which leaves it out.
         "billing:topup",
+        # Same reason: `register_provider` on a self-registered connector. It
+        # starts the user's own provider sign-up, and is narrower than
+        # `providers:write`, which contains it and is not grantable here.
+        "providers:onboard",
         "openid",
         "profile",
         "email",

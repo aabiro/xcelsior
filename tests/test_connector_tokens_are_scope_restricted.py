@@ -285,11 +285,15 @@ def test_the_tools_quick_connect_cannot_satisfy_are_the_expected_ones():
         "configure_auto_topup",
         "list_ssh_keys",
         "delete_ssh_key",
+        # `providers:onboard`: an OAuth connector can be granted it on its
+        # consent page. This token is issued without that page, so it does not
+        # start provider sign-up on the user's behalf.
+        "register_provider",
         # Not here since 2026-11-24, because they are no longer published at
         # all: the crypto deposit tools and request_provider_payout (removed for
         # the Connectors Directory's money and crypto rules), and
-        # register_provider and claim_reputation_milestones (they need
-        # providers:write or reputation:write, which no connector is granted).
+        # claim_reputation_milestones (it needs reputation:write, which no
+        # connector is granted).
     }, (
         f"the set of published tools a Quick Connect token cannot use is "
         f"{sorted(unsatisfiable)}. Adding to it widens what a connector agent "

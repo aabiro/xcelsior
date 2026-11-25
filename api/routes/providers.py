@@ -85,7 +85,10 @@ def api_register_provider(req: ProviderRegisterRequest, request: Request):
     4. Tax Compliance (GST/HST auto-collected per province)
     """
     user = _require_auth(request)
-    _require_scope(user, "providers:write")
+    # `providers:onboard`, which `providers:write` contains (IMPLIED_SCOPES).
+    # Registering creates the caller's own Connect account and an onboarding
+    # link; bank details are entered on Stripe's page by the user.
+    _require_scope(user, "providers:onboard")
     caller_email = str(user.get("email") or "").strip().lower()
     if not caller_email:
         raise HTTPException(401, "Not authenticated")

@@ -2963,7 +2963,7 @@ def send_email(subject, body, to_email=None):
     try:
         recipient = to_email or cfg["email_to"]
         msg = MIMEText(body)
-        msg["Subject"] = f"[Xcelsior] {subject}"
+        msg["Subject"] = subject
         msg["From"] = cfg["email_from"]
         msg["To"] = recipient
         if cfg.get("reply_to"):

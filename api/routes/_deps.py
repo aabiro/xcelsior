@@ -1703,6 +1703,12 @@ def _is_interactive_human(user: dict) -> bool:
 #: `tests/test_connector_wallet_topup_scope.py` fails if the two differ.
 IMPLIED_SCOPES: dict[str, frozenset[str]] = {
     "billing:write": frozenset({"billing:topup"}),
+    # `providers:onboard` is the part of `providers:write` that only starts the
+    # caller's own provider sign-up. It creates the Stripe Connect account and
+    # returns the hosted onboarding link. The payout destination is entered by
+    # the user on Stripe's page, never through us. So a connector can hold it
+    # without the payout and disconnect half of `providers:write`.
+    "providers:write": frozenset({"providers:onboard"}),
 }
 
 

@@ -15,23 +15,30 @@ reflected here and version-bumped fails the build.
 
 ### Breaking
 
-- **Seven tools are no longer published at `mcp.xcelsior.ca/mcp`** (2026-11-24).
+- **Six tools are no longer published at `mcp.xcelsior.ca/mcp`** (2026-11-24).
   They stay on the operator profile.
 
   - `request_provider_payout`, `create_crypto_deposit`, `get_crypto_deposit`,
     `create_lightning_deposit` and `get_lightning_deposit` were removed for the
     Claude Connectors Directory. Its policy does not accept connectors that
     transfer money, and does not generally allow cryptocurrency software.
-  - `register_provider` and `claim_reputation_milestones` need `providers:write`
-    or `reputation:write`. No connector is ever granted those scopes, so for a
-    connector these tools could only refuse. `request_provider_payout` was in
-    the same position.
+  - `claim_reputation_milestones` needs `reputation:write`, which no connector
+    is ever granted, so for a connector it could only refuse.
 
-  **No 90-day notice, by owner decision.** This departs from §3. Three of the
-  seven never worked for any connector. Bitcoin and Lightning deposits still
-  work from the dashboard's billing page, and `list_funding_options` now says
-  so. An agent key that holds `providers:write` or `reputation:write` still
-  gets `register_provider` and `claim_reputation_milestones`.
+  **No 90-day notice, by owner decision.** This departs from §3. Two of the six
+  never worked for any connector. Bitcoin and Lightning deposits still work from
+  the dashboard's billing page, and `list_funding_options` now says so.
+
+- **`register_provider` now needs `providers:onboard` instead of
+  `providers:write`** (**2.1.0 → 2.2.0**), and a connector can be granted it on
+  its consent page. Before this, the tool was published but refused every
+  connector, because connectors are never granted `providers:write`. The new
+  scope only starts the caller's own provider sign-up: it creates their Stripe
+  Connect account and returns the onboarding link. The user enters identity and
+  bank details on Stripe's page, so a connector never sets where money goes.
+  `providers:write` contains `providers:onboard`, so every credential that
+  could register before still can. It stays off the Quick Connect key, which is
+  issued without a consent page.
 
 - **23 write tools now carry `destructiveHint: true`.** Each gets a version
   bump: `2.0.0 → 2.1.0`, or one minor up where the tool had already moved. The
@@ -41,8 +48,9 @@ reflected here and version-bumped fails the build.
   `attach_volume`, `detach_volume`, `snapshot_volume`, `open_instance_access`,
   `create_serverless_endpoint`, `run_serverless_job`, `retry_instance`,
   `reconcile_instance`, `create_instance_snapshot` and `create_image_sweep`.
-  The remaining four (`claim_reputation_milestones`, `register_provider` and
-  the two deposit tools) are unpublished above.
+  `register_provider` is covered above. The other three
+  (`claim_reputation_milestones` and the two deposit tools) are unpublished
+  above.
 
   **The old value was wrong, so this is a correction under §2.** The MCP spec
   defines `destructiveHint: false` as "only additive updates". These tools

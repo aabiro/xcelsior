@@ -23,6 +23,7 @@ export type McpScope =
   | "inference:read"
   | "inference:write"
   | "providers:read"
+  | "providers:onboard"
   | "reputation:read"
   | "reputation:write"
   | "providers:write";
@@ -303,7 +304,7 @@ const TOOL_SCOPE_REGISTRY = {
   // existing row and regenerates a link.
   //
   // Outside Quick Connect: `providers:write` creates a payout destination.
-  register_provider: { allOf: ["providers:write"] },
+  register_provider: { allOf: ["providers:onboard"] },
   // P6's last step. The gate's wording is "a payout is bound to job, amount,
   // currency, destination state, and idempotency key. Replay produces one
   // payout" — and the API already holds every clause: the caller names a job
@@ -360,6 +361,8 @@ export const TOOL_SCOPES: Record<string, ScopeRequirement> = TOOL_SCOPE_REGISTRY
  */
 export const IMPLIED_SCOPES: Readonly<Partial<Record<McpScope, readonly McpScope[]>>> = {
   "billing:write": ["billing:topup"],
+  // Starting your own provider sign-up, without payouts. See _deps.py.
+  "providers:write": ["providers:onboard"],
 };
 
 /**

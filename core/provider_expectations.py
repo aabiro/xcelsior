@@ -198,8 +198,11 @@ def provider_welcome_email_text(display_name: str) -> str:
     gold_delta = _gold_keep_delta()
     uptime_weight = round(RELIABILITY_WEIGHTS["uptime_pct"] * 100)
     sla = abs(PENALTY_POINTS[PenaltyType.SLA_BREACH])
+    # An account saved with an empty name must not read "Hi ,".
+    name = (display_name or "").strip()
+    greeting = f"Hi {name}," if name else "Hi there,"
     return (
-        f"Hi {display_name},\n\n"
+        f"{greeting}\n\n"
         "Welcome — and thanks for putting your GPU on Xcelsior. Here's exactly "
         "what we expect and exactly how you get paid more for it, straight out, "
         "so there are no surprises.\n\n"

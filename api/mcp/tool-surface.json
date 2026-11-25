@@ -16,6 +16,7 @@
     "instances:write",
     "marketplace:read",
     "profile",
+    "providers:onboard",
     "providers:read",
     "reputation:read",
     "ssh:read",
@@ -1872,6 +1873,57 @@
         "idempotency_key": {
           "type": "string",
           "optional": false
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
+      "name": "register_provider",
+      "version": "2.2.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "providers:onboard"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "provider_type": {
+          "type": "enum",
+          "optional": true,
+          "values": [
+            "company",
+            "individual"
+          ]
+        },
+        "legal_name": {
+          "type": "string",
+          "optional": true
+        },
+        "province": {
+          "type": "string",
+          "optional": true
+        },
+        "country": {
+          "type": "string",
+          "optional": true
+        },
+        "corporation_name": {
+          "type": "string",
+          "optional": true
+        },
+        "business_number": {
+          "type": "string",
+          "optional": true
+        },
+        "gst_hst_number": {
+          "type": "string",
+          "optional": true
         }
       },
       "hasOutputSchema": true

@@ -2036,6 +2036,10 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
         "See your provider account — earnings, payout state and onboarding " "progress"
     ),
     "providers:write": ("Change your provider account and request payouts of your earnings"),
+    "providers:onboard": (
+        "Start your provider sign-up so you can be paid for hosting. You enter "
+        "identity and bank details on Stripe's page yourself"
+    ),
     "marketplace:write": ("List your own GPU capacity on the marketplace, and remove listings"),
     "verification:write": "Submit evidence to have your hosts verified",
     "autoscale:read": "See how serverless capacity scales with demand",
@@ -2098,7 +2102,14 @@ def summarize_consent_scopes(scopes: list[str]) -> list[str]:
         bullets.append("View your account profile and email address")
 
     if manage_scopes:
-        bullets.append("Launch and manage GPU instances, serverless jobs, and volumes")
+        bullets.append(
+            "Launch and manage GPU instances, serverless jobs, and volumes, and start "
+            "provider sign-up"
+            if "providers:onboard" in scope_set
+            else "Launch and manage GPU instances, serverless jobs, and volumes"
+        )
+    elif "providers:onboard" in scope_set:
+        bullets.append("Start provider sign-up for your GPUs")
 
     if has_operator:
         bullets.append(

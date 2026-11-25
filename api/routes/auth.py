@@ -65,7 +65,7 @@ from reputation import get_reputation_engine
 import hashlib as _hashlib
 import httpx as _httpx
 import urllib.parse as _urllib_parse
-from routes.teams import _send_team_email
+from routes.teams import _send_team_email, greeting_name, hi_line
 from oauth_service import (
     revoke_access_token,
     revoke_client_credentials_jwt,
@@ -684,6 +684,8 @@ def oauth_authorization_server_metadata(request: Request):
             # In the connector ceiling for the same reason: the top-up tools
             # need it, and VS Code only learns about it here.
             "billing:topup",
+            # register_provider. Same reason as the two above.
+            "providers:onboard",
         ],
         "service_documentation": f"{_OAUTH_BASE_URL.rstrip('/')}/docs",
         "jwks_uri": f"{base_url}/.well-known/jwks.json",
@@ -2587,11 +2589,10 @@ def api_auth_register(body: RegisterRequest, request: Request):
     base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     verify_url = f"{base_url}/verify-email?token={verification_token}"
     try:
-        display_name = user["name"]
         _send_team_email(
             email,
-            f"Verify your email, {display_name}",
-            f"Hi {display_name},\n\n"
+            "Verify your email",
+            f"{hi_line(greeting_name(user))}\n\n"
             "Thanks for signing up for Xcelsior — the global GPU compute marketplace.\n\n"
             "Please verify your email address by clicking the button below. This link expires in 24 hours.\n\n"
             f"{verify_url}\n\n"
@@ -4048,7 +4049,7 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
     # whole network (dropping a job). Copy is derived from the real reputation
     # engine via provider_expectations, so it can never overstate the rewards.
     try:
-        display_name = user.get("name", email.split("@")[0])
+        display_name = greeting_name(user)
         if user.get("role") == "provider":
             from provider_expectations import provider_welcome_email_text
 
@@ -4062,11 +4063,11 @@ def api_auth_verify_email(req: VerifyEmailRequest, request: Request):
         else:
             _send_team_email(
                 email,
-                f"Welcome to Xcelsior, {display_name}!",
-                f"Hi {display_name},\n\n"
+                f"Welcome to Xcelsior, {display_name}!" if display_name else "Welcome to Xcelsior!",
+                f"{hi_line(display_name)}\n\n"
                 "Your email is verified and your account is active.\n\n"
                 "From your dashboard you can browse available GPU hosts, "
-                "launch compute instances, and track your usage — all billed in CAD.\n\n"
+                "launch compute instances, and track your usage.\n\n"
                 "We're currently in early access, so if you run into anything or have questions, just reply to this email. "
                 "We'd love to hear from you.",
                 cta_url="https://xcelsior.ca/dashboard",
@@ -4110,11 +4111,10 @@ def api_auth_resend_verification(req: ResendVerificationRequest, request: Reques
     base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     verify_url = f"{base_url}/verify-email?token={verification_token}"
     try:
-        display_name = user.get("name", email.split("@")[0])
         _send_team_email(
             email,
-            f"Verify your email, {display_name}",
-            f"Hi {display_name},\n\n"
+            "Verify your email",
+            f"{hi_line(greeting_name(user))}\n\n"
             "Please verify your email address by clicking the button below. This link expires in 24 hours.\n\n"
             f"{verify_url}\n\n"
             "If you didn't create this account, you can safely ignore this email.",
@@ -4215,12 +4215,11 @@ def api_auth_email_change(body: EmailChangeRequest, request: Request):
 
     base_url = os.environ.get("XCELSIOR_BASE_URL", "https://xcelsior.ca")
     confirm_url = f"{base_url}/verify-email-change?token={token}"
-    display_name = user.get("name") or new_email.split("@")[0]
     try:
         _send_team_email(
             new_email,
             "Confirm your new Xcelsior email",
-            f"Hi {display_name},\n\n"
+            f"{hi_line(greeting_name(user))}\n\n"
             f"We received a request to change the email on your Xcelsior account to {new_email}.\n\n"
             "Click the button below to confirm. This link expires in 24 hours, and your account "
             "keeps using your current email until you confirm.\n\n"

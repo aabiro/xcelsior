@@ -347,9 +347,10 @@ CONNECTOR_EXCLUDED_TOOLS = {
     "create_lightning_deposit",
     "get_lightning_deposit",
 }
-#: Need providers:write or reputation:write, which no connector is granted, so
-#: they could only ever refuse. Served to agent keys that hold the scope.
-CONNECTOR_WITHHELD_SCOPE_TOOLS = {"register_provider", "claim_reputation_milestones"}
+#: Needs reputation:write, which no connector is granted, so it could only
+#: refuse. Served to agent keys that hold the scope. (register_provider was
+#: here until it moved to providers:onboard, which connectors can be granted.)
+CONNECTOR_WITHHELD_SCOPE_TOOLS = {"claim_reputation_milestones"}
 
 
 def test_the_customer_snapshot_is_the_total_minus_its_stated_exclusions():

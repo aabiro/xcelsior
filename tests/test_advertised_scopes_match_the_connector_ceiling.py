@@ -63,7 +63,6 @@ AUTHORIZATION_SERVER_ONLY = {"billing:write", "hosts:read", "hosts:write"}
 #: needs `billing:write` any more: the four that top up need `billing:topup`.
 CONNECTOR_WITHHELD = {"billing:write", "providers:write", "reputation:write"}
 TOOLS_NEEDING_ANOTHER_CREDENTIAL = {
-    "register_provider",
     "request_provider_payout",
     "claim_reputation_milestones",
 }

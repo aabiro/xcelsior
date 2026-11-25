@@ -29,6 +29,20 @@ router = APIRouter()
 _MAILER_UNCONFIGURED_LOGGED = False
 
 
+def greeting_name(user: dict | None) -> str:
+    """The account's name for a greeting, or "" when it has none.
+
+    `user.get("name", fallback)` returned "" for accounts saved with an empty
+    name, because the key exists. The emails then read "Hi ," and
+    "Welcome to Xcelsior, !". Callers greet without a name when this is empty.
+    """
+    return str((user or {}).get("name") or "").strip()
+
+
+def hi_line(name: str) -> str:
+    return f"Hi {name}," if name else "Hi there,"
+
+
 def _send_team_email(
     to_email: str,
     subject: str,
@@ -86,7 +100,7 @@ def _send_team_email(
 <body style="background-color:#0f172a;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0">
 <div style="max-width:600px;margin:0 auto;padding:40px 24px">
   <div style="margin-bottom:32px">
-    <img src="https://xcelsior.ca/site-assets/assets/png/app-gradient-rounded-512.png" width="40" height="40" style="vertical-align:middle;border-radius:8px" alt="Xcelsior"/>
+    <img src="https://xcelsior.ca/site-assets/assets/png/app-gradient-rounded-512.png" width="40" height="40" style="vertical-align:middle;border-radius:8px" alt=""/>
     <a href="https://xcelsior.ca" style="font-size:22px;font-weight:700;color:#f8fafc;text-decoration:none;vertical-align:middle;margin-left:12px">Xcelsior</a>
   </div>
   <h1 style="color:#f8fafc;font-size:24px;font-weight:700;line-height:1.3;margin:0 0 16px">{subject}</h1>
@@ -104,7 +118,9 @@ def _send_team_email(
     def _do_send():
         try:
             msg = MIMEMultipart("alternative")
-            msg["Subject"] = f"[Xcelsior] {subject}"
+            # No "[Xcelsior]" prefix: the sender name already says who it is from,
+            # and the subject is also the email's heading.
+            msg["Subject"] = subject
             msg["From"] = cfg["email_from"]
             msg["To"] = to_email
             if cfg.get("reply_to"):

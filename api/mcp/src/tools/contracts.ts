@@ -233,7 +233,7 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   // `keyed` in the sense the type documents: the provider identity resolves
   // from the caller, so a repeat regenerates a link rather than creating a
   // second account.
-  register_provider: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
+  register_provider: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.2.0" },
   // `keyed` and genuinely so: `settlement_key` is `provider-job:{job_id}` with
   // ON CONFLICT DO NOTHING, and the rail gets `provider-settlement:{job_id}`.
   // Settlement is repeat-safe per job, but an external transfer cannot be
