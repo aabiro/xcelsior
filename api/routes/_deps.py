@@ -941,6 +941,20 @@ def _require_customer_access(
         raise HTTPException(401, "Not authenticated")
     if funds_wallet:
         _require_scope(user, "billing:topup")
+        # Bitcoin and Lightning deposits are made in the dashboard. Agents
+        # (connectors, agent keys) hold billing:topup to charge a saved card,
+        # and the MCP crypto tools were withdrawn on 2026-11-24, but these
+        # routes still answered their tokens, so get_permissions and the
+        # consent page told users an agent could create crypto deposits.
+        if _is_agent_launch_credential(user):
+            raise HTTPException(
+                403,
+                {
+                    "code": "dashboard_only",
+                    "message": "Bitcoin and Lightning deposits are made in the dashboard, "
+                    "not by an agent: https://xcelsior.ca/dashboard/billing",
+                },
+            )
     else:
         _require_scope(user, "billing:write" if billing_write else "billing:read")
     if _is_platform_admin(user):
@@ -1704,7 +1718,8 @@ def _is_agent_launch_credential(user: dict) -> bool:
     Deliberately narrower than `_is_interactive_human`: the wizard's device-flow
     token is also a delegated token, and it is a person at a terminal launching
     their own instance. Only the MCP resource audience and agent keys mark a
-    credential as an agent's.
+    credential as an agent's. The crypto deposit routes use the same test
+    (`_require_customer_access(funds_wallet=True)`): those are dashboard-only.
     """
     if user.get("auth_type") == "agent_api_key":
         return True

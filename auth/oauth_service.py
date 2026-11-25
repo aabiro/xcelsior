@@ -1956,10 +1956,7 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     # Says "charge your saved card" in those words: it is the one connector
     # permission that spends money, and the consent page shows this line, not
     # the scope name, as what the user is agreeing to.
-    "billing:topup": (
-        "Charge your saved card to top up your wallet, create Bitcoin and "
-        "Lightning deposits, and change auto top-up"
-    ),
+    "billing:topup": ("Charge your saved card to top up your wallet, and change auto top-up"),
     "gpu:read": "See available GPUs and pricing",
     "marketplace:read": "Search the marketplace and read live spot prices",
     "inference:read": "See your serverless endpoints and job status",

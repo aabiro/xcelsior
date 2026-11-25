@@ -7,6 +7,7 @@ import { jsonText } from "../lib/format.js";
 import { TOOL_SCOPES, satisfiesScope, scopeUnion } from "../auth/scopes.js";
 import { scopeDenial } from "../auth/denial.js";
 import { TOOL_CONTRACTS } from "./contracts.js";
+import { toolsInProfile } from "./profiles.js";
 
 /**
  * What this connection may do, and how its owner can change that.
@@ -38,13 +39,19 @@ interface PermissionsResponse {
 /**
  * Customer tools this credential cannot use, grouped by the permission that
  * would unlock them. Built from the scope registry so it cannot disagree with
- * what the tools themselves enforce.
+ * what the tools themselves enforce, and limited to the published customer
+ * surface: a tool withdrawn from it (the payout and crypto tools) or one that
+ * needs a permission no connector can hold is not "locked", it does not exist
+ * for this user, and listing it promised a permission that unlocks nothing.
  */
+const PUBLISHED_TOOLS: ReadonlySet<string> = new Set(toolsInProfile("customer"));
+
 export function toolsLockedBy(scopes: string[]): Record<string, string[]> {
   const held = new Set(scopes);
   const locked: Record<string, string[]> = {};
   for (const [name, contract] of Object.entries(TOOL_CONTRACTS)) {
     if (contract.tenantClass !== "tenant") continue;
+    if (!PUBLISHED_TOOLS.has(name)) continue;
     const required = TOOL_SCOPES[name];
     if (satisfiesScope(scopes, required)) continue;
     // A tool needing two permissions is listed under each one it lacks.

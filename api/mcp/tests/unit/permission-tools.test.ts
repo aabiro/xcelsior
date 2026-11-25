@@ -86,6 +86,21 @@ describe("toolsLockedBy", () => {
     expect(Object.values(locked).flat()).not.toContain("drain_host");
   });
 
+  it("never lists a tool the customer surface does not publish", () => {
+    // The live connector listed request_provider_payout and
+    // claim_reputation_milestones as locked: withdrawn or unreachable tools,
+    // so the permission it named would have unlocked nothing.
+    const locked = Object.values(toolsLockedBy(READ_KEY.scopes!)).flat();
+    for (const tool of [
+      "request_provider_payout",
+      "claim_reputation_milestones",
+      "create_crypto_deposit",
+      "create_lightning_deposit",
+    ]) {
+      expect(locked).not.toContain(tool);
+    }
+  });
+
   it("is empty of customer permissions for a key that holds them all", () => {
     const everything = [...new Set(Object.values(TOOL_SCOPES).flatMap((r) => [...(r.allOf ?? []), ...(r.anyOf ?? [])]))];
     expect(toolsLockedBy(everything)).toEqual({});
