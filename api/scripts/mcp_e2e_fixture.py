@@ -111,7 +111,25 @@ def place(job_id: str, gpu_model: str) -> None:
         lease_claim_ttl_sec=600,
         tick_max_placements=1,
     )
-    report = SchedulerService(config).tick()
+    # The priority pin above only ranks an unpaid job. A launch-plan job is a
+    # paid one (it carries a service-tier quote), and the claim ranks paid jobs
+    # by tier with no age boost, so any same-model unpaid job another suite left
+    # queued in the shared database outranks it. The claim takes its job with
+    # FOR UPDATE SKIP LOCKED, so holding row locks on those competitors for the
+    # length of this one tick makes it skip them without changing their rows.
+    with pool.connection() as hold:
+        hold.execute(
+            """
+            SELECT job_id FROM jobs
+             WHERE phase = 'pending' AND desired_state = 'running'
+               AND lower(COALESCE(spec->>'gpu_model', '')) = lower(%s)
+               AND job_id <> %s
+               FOR UPDATE SKIP LOCKED
+            """,
+            (gpu_model, job_id),
+        ).fetchall()
+        report = SchedulerService(config).tick()
+        hold.rollback()
     if not report.placements:
         raise RuntimeError(f"scheduler did not place {job_id}: {report}")
     reservation = report.placements[0]

@@ -33,6 +33,7 @@ from routes._deps import (
     _consume_ws_ticket,
     _filter_jobs_for_user,
     _get_current_user,
+    _is_agent_launch_credential,
     _is_platform_admin,
     _issue_ws_ticket,
     _require_admin,
@@ -690,6 +691,20 @@ def api_submit_instance(j: JobIn, request: Request):
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _require_team_instance_write(user)
+    if _is_agent_launch_credential(user):
+        # An agent launches through a plan the user approves, never directly.
+        from routes.problem import ProblemException
+
+        raise ProblemException(
+            status=409,
+            code="launch_plan_required",
+            detail=(
+                "Agent credentials launch instances through an approved launch plan: "
+                "POST /api/v1/launch-plans, have the user approve it, then POST "
+                "/api/v1/launch-plans/{plan_id}/execute."
+            ),
+            extra={"launch_plans": "/api/v1/launch-plans"},
+        )
     # CVP-01 T-01: a customer's storage is `volume_ids`, which the server
     # validates for ownership and whose NFS address the server selects. The
     # legacy shared-dataset fields name an arbitrary export on an arbitrary

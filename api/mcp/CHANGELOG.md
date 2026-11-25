@@ -15,6 +15,31 @@ reflected here and version-bumped fails the build.
 
 ### Breaking
 
+- **`run_training_job` and `schedule_under_budget` launch only through an
+  approved launch plan** (**2.2.0 → 3.0.0** and **2.3.0 → 3.0.0**, 2026-11-24).
+  Both POSTed `/instance` on `confirm:true`, so an agent could launch and bill a
+  GPU the user never saw a plan for, while both descriptions said approval
+  applied. Now a call without an approved `plan_id` only prepares a plan (spec,
+  estimate, `approval_url`) and allocates nothing; `confirm:true` with the
+  approved `plan_id` executes it. Both take `plan_id` and `idempotency_key`, and
+  both are now repeat-safe: executing the same plan again returns the same job.
+  `schedule_under_budget` checks the plan's quote against the budget and
+  withdraws a plan quoted above it; the approved plan launches exactly the GPU
+  it names, without searching again.
+
+  `schedule_under_budget` also **never found a GPU before this**: it read
+  `price_cad` and `spot_cad`, which neither `/api/v2/gpu/available`
+  (`price_per_hour_cad`) nor the spot feed (`rate_cad`) returns, so every price
+  was 0 and every GPU was filtered out. It answered `found: false`, which counts
+  as success, so the rehearsal passed it until it was made to assert a launch.
+
+  The API now holds the rule for every agent, not only these tools:
+  `POST /instance` refuses MCP-bound tokens and agent keys with
+  `409 launch_plan_required`, and `/api/v1/launch-plans/{id}/approve` no longer
+  counts an agent key or connector token as the human approver (it counted
+  every credential but client-credentials as a person, so an agent could
+  approve its own plan).
+
 - **`list_user_images` takes `scope: mine | public`** (**2.0.0 → 2.1.0**,
   2026-11-24). It advertised `mine | team | all`: the API refuses `team`, and
   `all` is for administrators only, so neither ever worked through a connector,

@@ -135,19 +135,23 @@ const DESCRIPTIONS: Record<ToolName, string> = {
 
   // ── Workflows ───────────────────────────────────────────────────────────
   run_training_job:
-    "End-to-end training launch: prepares a launch plan from a git repo and init script, waits " +
-    "for the instance to reach running, and returns connection details plus a log tail. Use when " +
-    "the user wants a repo trained on a GPU in one step rather than orchestrating create + poll " +
-    "themselves. Spends money exactly as create_instance does — the same plan preparation and " +
-    "approval apply — and blocks for up to several minutes while the instance starts." +
-    " Not idempotent: no idempotency key is sent, so calling it again after a timeout launches a second instance and bills for both. If a call seems to have failed, check list_instances before retrying.",
+    "End-to-end training launch from a git repo and init script. Use when the user wants a " +
+    "repo trained on a GPU in one step rather than orchestrating create + poll themselves. " +
+    "Called without a plan_id it only *prepares* a launch plan — the canonical spec, a cost " +
+    "estimate and an approval URL — and nothing is allocated or billed. Executing needs that " +
+    "plan_id, approved by the user; confirm:true expresses intent and never substitutes for " +
+    "approval. Executing starts hourly billing, waits up to wait_timeout_seconds for the " +
+    "instance to reach running, and returns connection details plus a log tail. Repeating the " +
+    "execute call with the same plan_id returns the same job; it never launches a second.",
 
   schedule_under_budget:
-    "Find available capacity at or below a maximum CAD hourly rate and, optionally, launch it. " +
-    "Use when price is the binding constraint and the user has not picked a specific host. " +
-    "Searching is read-only and free; launching spends money through the same plan-and-approval " +
-    "path as create_instance, so nothing is allocated without it." +
-    " Not idempotent: no idempotency key is sent, so a retry launches a second billed instance. Check list_instances before calling again.",
+    "Find the cheapest available GPU at or below a maximum hourly rate per GPU and prepare a " +
+    "launch plan for it. Use when price is the binding constraint and the user has not picked " +
+    "a specific host. Called without a plan_id it searches (read-only, free) and prepares a " +
+    "plan whose quote is checked against the budget — a quote above it is withdrawn, not " +
+    "offered. Nothing is allocated or billed until the user approves the plan and you call " +
+    "again with confirm:true and that plan_id; the approved plan launches exactly the GPU and " +
+    "price it names, and repeating that call returns the same job.",
 
   // ── Access ──────────────────────────────────────────────────────────────
   register_ssh_key:

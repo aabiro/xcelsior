@@ -146,10 +146,11 @@ def test_the_guard_refuses_every_machine_caller(principal: dict, label: str):
 def test_the_connector_token_case_is_the_one_the_weaker_predicate_would_admit():
     """Named separately because it is the whole reason for the new predicate.
 
-    `routes.action_plans._is_human` asks only whether the grant was
-    `client_credentials`, so it counts a third-party connector token as a
+    `routes.action_plans._is_human` asked only whether the grant was
+    `client_credentials`, so it counted a third-party connector token as a
     person. Had this guard used it, the delegation hole would have survived the
-    fix intended to close it.
+    fix intended to close it. Since 2026-11-24 `_is_human` delegates to
+    `_is_interactive_human`, so the launch-plan approver refuses it too.
     """
     from routes._deps import _is_interactive_human
     from routes.action_plans import _is_human
@@ -159,5 +160,5 @@ def test_the_connector_token_case_is_the_one_the_weaker_predicate_would_admit():
         "session_type": "browser",
         "client_id": "third-party-agent",
     }
-    assert _is_human(connector) is True
     assert _is_interactive_human(connector) is False
+    assert _is_human(connector) is False

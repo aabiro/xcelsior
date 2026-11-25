@@ -162,19 +162,19 @@ def test_an_agent_is_not_a_human_approver():
 def test_a_connector_token_is_not_a_human_approver():
     """The loophole this gate would have had if it used the weaker predicate.
 
-    `routes.action_plans._is_human` returns True here, because it only asks
-    whether the grant was `client_credentials`. Asserting the two disagree is
-    the point: if `_is_interactive_human` ever starts agreeing with it, an agent
-    holding a connector token can approve its own spend-cap increase.
+    `routes.action_plans._is_human` used to return True here, because it only
+    asked whether the grant was `client_credentials`; an agent holding a
+    connector token could approve its own plans. Fixed 2026-11-24: it now
+    delegates to `_is_interactive_human`, so the two agree, and both refuse.
     """
     from routes._deps import _is_interactive_human
     from routes.action_plans import _is_human
 
     connector = _connector()
     assert _is_interactive_human(connector) is False
-    assert _is_human(connector) is True, (
-        "the weaker predicate no longer counts a connector token as human — if "
-        "that was fixed, say so here; if it drifted, this gate depended on it"
+    assert _is_human(connector) is False, (
+        "the launch-plan approver counts a connector token as a person again: "
+        "an agent can approve its own plan"
     )
 
 

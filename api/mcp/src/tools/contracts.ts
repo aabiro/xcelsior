@@ -88,9 +88,10 @@ interface ToolPolicyBase {
  *    required on the write arm. It used to default to `"keyed"` for anything
  *    not read-only, which published `idempotentHint: true` — *"calling this
  *    again has no additional effect"* — for **25 tools when only 4 sent an
- *    idempotency key**. `run_training_job` and `schedule_under_budget` both
- *    POST `/instance` with no key, so a model told the retry was free would
- *    launch a second billed GPU; `open_instance_access` mints a fresh
+ *    idempotency key**. `run_training_job` and `schedule_under_budget` then
+ *    POSTed `/instance` with no key, so a model told the retry was free would
+ *    launch a second billed GPU (both now execute an approved launch plan,
+ *    which is exactly-once per plan_id); `open_instance_access` mints a fresh
  *    single-use credential per call. The default was the dangerous claim, and
  *    a default that is only right for some tools is how the annotation stops
  *    meaning anything.
@@ -160,8 +161,8 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   cancel_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   terminate_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   should_i_run_this: { readOnly: true, destructive: false, audience: "customer" },
-  run_training_job: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", version: "2.2.0" },
-  schedule_under_budget: { readOnly: false, destructive: true, audience: "customer", idempotency: "none", openWorld: true, version: "2.3.0" },
+  run_training_job: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "3.0.0" },
+  schedule_under_budget: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", openWorld: true, version: "3.0.0" },
   // The one long timeout: it holds a connection open while an instance changes
   // state, so the 15s default would end every useful call.
   watch_instance: { readOnly: true, destructive: false, audience: "customer", timeoutMs: 3_600_000 },

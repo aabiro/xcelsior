@@ -145,6 +145,7 @@ Public endpoints (no auth): `/`, `/docs`, `/openapi.json`, `/dashboard`,
 
 ### Instances (Jobs)
 - `POST /instance` — Submit an instance (fields: name, vram_needed_gb, gpu_model, pricing_mode, git_repo, init_script)
+- Agents (MCP tokens and `xcel_ai_` agent keys) cannot use `POST /instance`; it answers `409 launch_plan_required`. Launch through a plan instead: `POST /api/v1/launch-plans` (same fields; free, allocates nothing), the user approves it in the dashboard at its `approval_url` (an agent credential cannot approve), then `POST /api/v1/launch-plans/{plan_id}/execute`. Execute is exactly-once per plan.
 - `GET /instances` — List instances
 - `GET /instance/{job_id}` — Get instance details
 - `GET /api/instances/{job_id}/telemetry` — GPU telemetry for running instance

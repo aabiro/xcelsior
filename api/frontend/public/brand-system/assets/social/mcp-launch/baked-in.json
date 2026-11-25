@@ -19,7 +19,7 @@
       "screenshots/mcp-tools-list-1270x760"
     ],
     "printedDate": "24 NOV 2026",
-    "checkedAgainstLive": "not yet: run again with --live after deploying"
+    "checkedAgainstLive": "24 NOV 2026"
   },
   "capturedOnly": {
     "$comment": "A verbatim capture of the live service on the date given. It is dated, not a claim about now, so no test holds it to the current version.",

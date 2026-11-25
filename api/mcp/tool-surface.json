@@ -2148,18 +2148,18 @@
     },
     {
       "name": "run_training_job",
-      "version": "2.2.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "billing:read",
         "instances:write"
       ],
-      "idempotency": "none",
-      "retry": "none",
+      "idempotency": "keyed",
+      "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
-        "idempotentHint": false,
+        "idempotentHint": true,
         "openWorldHint": false
       },
       "input": {
@@ -2207,6 +2207,14 @@
           "type": "boolean",
           "optional": true
         },
+        "plan_id": {
+          "type": "string",
+          "optional": true
+        },
+        "idempotency_key": {
+          "type": "string",
+          "optional": true
+        },
         "wait_timeout_seconds": {
           "type": "number",
           "optional": true
@@ -2220,19 +2228,19 @@
     },
     {
       "name": "schedule_under_budget",
-      "version": "2.3.0",
+      "version": "3.0.0",
       "tenantClass": "tenant",
       "requiredScopes": [
         "gpu:read",
         "instances:write",
         "marketplace:read"
       ],
-      "idempotency": "none",
-      "retry": "none",
+      "idempotency": "keyed",
+      "retry": "idempotent",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
-        "idempotentHint": false,
+        "idempotentHint": true,
         "openWorldHint": true
       },
       "input": {
@@ -2266,6 +2274,14 @@
         },
         "confirm": {
           "type": "boolean",
+          "optional": true
+        },
+        "plan_id": {
+          "type": "string",
+          "optional": true
+        },
+        "idempotency_key": {
+          "type": "string",
           "optional": true
         }
       },

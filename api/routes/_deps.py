@@ -1681,15 +1681,39 @@ def _is_interactive_human(user: dict) -> bool:
 
     This is the predicate for "the approval already happened" — a human clicking
     save *is* the approval, and asking them to approve their own click is
-    ceremony. It is deliberately **not** `routes.action_plans._is_human`, which
-    tests only `auth_type != "client_credentials"` and therefore counts a
-    connector token as a person.
+    ceremony. `routes.action_plans._is_human` once tested only
+    `auth_type != "client_credentials"`, counting a connector token as a
+    person; since 2026-11-24 it delegates here.
     """
     if user.get("grant_type") == "client_credentials":
         return False
     if user.get("auth_type") in _MACHINE_AUTH_TYPES:
         return False
     return not _is_delegated_connector_token(user)
+
+
+def _is_agent_launch_credential(user: dict) -> bool:
+    """True for a credential issued to an agent: an MCP-bound token or an agent key.
+
+    These launch GPUs only through an approved launch plan. Every MCP launch
+    tool prepares a plan and executes it once the user approves; an agent that
+    POSTs `/instance` directly would skip the approval the user was promised.
+    `run_training_job` and `schedule_under_budget` did exactly that until
+    2026-11-24, so the API refuses the shortcut instead of trusting each tool.
+
+    Deliberately narrower than `_is_interactive_human`: the wizard's device-flow
+    token is also a delegated token, and it is a person at a terminal launching
+    their own instance. Only the MCP resource audience and agent keys mark a
+    credential as an agent's.
+    """
+    if user.get("auth_type") == "agent_api_key":
+        return True
+    if user.get("auth_type") != "oauth_access_token":
+        return False
+    from oauth_service import accepted_mcp_audiences
+
+    audience = str(user.get("audience") or "").strip().rstrip("/")
+    return bool(audience) and audience in accepted_mcp_audiences()
 
 
 #: Scopes a broader scope already contains. Exactly one entry, and it is narrow

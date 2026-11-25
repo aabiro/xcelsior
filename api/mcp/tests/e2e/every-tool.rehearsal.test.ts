@@ -247,9 +247,15 @@ const REHEARSALS: Record<string, Rehearsal> = {
   },
 
   // Needs a host on the marketplace, which placing the instance created.
+  // The preview prepares a plan; callConfirmed approves it as the user, and
+  // the confirm executes that plan, not a fresh search.
   schedule_under_budget: {
     confirm: true,
     args: () => ({ name: `${marker}-budget`, max_hourly_cad: 50, ...instanceSpec }),
+    then: (r) => {
+      expect(r.launched, JSON.stringify(r).slice(0, 400)).toBe(true);
+      need(pick(r, "job_id", "job.job_id"), "budget job id", r);
+    },
   },
 
   // ── Volumes ─────────────────────────────────────────────────────────

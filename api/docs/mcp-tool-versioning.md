@@ -76,8 +76,9 @@ enforces, and it is derived by diffing the committed surface snapshot
   the harm is live, and every day of notice is another day a client can act on
   something untrue. On 2026-08-14 six tools advertised `idempotentHint: true`
   while sending no idempotency key; `run_training_job` and
-  `schedule_under_budget` both POST `/instance`, so a client retrying a call
-  that appeared to time out launched a second billed instance. Holding that
+  `schedule_under_budget` both POSTed `/instance`, so a client retrying a call
+  that appeared to time out launched a second billed instance. (Since
+  2026-11-24 both execute an approved launch plan, exactly once per plan.) Holding that
   correction for a notice period would have protected nobody and billed
   somebody.
 

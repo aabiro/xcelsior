@@ -50,8 +50,17 @@ def _request_trace_id(request: Request) -> str | None:
 
 
 def _is_human(user: dict) -> bool:
-    """Interactive humans only — a machine client is never a human approver."""
-    return str(user.get("auth_type", "")) != "client_credentials"
+    """Interactive humans only — no agent credential is ever a human approver.
+
+    This used to test only `auth_type != "client_credentials"`, so an agent key
+    or an MCP connector token counted as a person: an agent could prepare a
+    plan, approve it here itself, and execute it, and "approval" meant nothing.
+    `_is_interactive_human` refuses every machine and delegated credential;
+    only a person in the dashboard approves.
+    """
+    from routes._deps import _is_interactive_human
+
+    return _is_interactive_human(user)
 
 
 def _resolve_principal(request: Request) -> tuple[dict, Principal]:
