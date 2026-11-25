@@ -57,6 +57,19 @@ from fastapi.testclient import TestClient
 from api import app
 import db as db_mod
 
+
+def _age_rotation(refresh_token: str, *, seconds: float) -> None:
+    """Pretend a refresh token was rotated `seconds` ago."""
+    from db import auth_connection
+    from oauth_service import hash_token
+
+    with auth_connection() as conn:
+        conn.execute(
+            "UPDATE oauth_refresh_tokens SET consumed_at = consumed_at - %s WHERE token_hash = %s",
+            (seconds, hash_token(refresh_token)),
+        )
+
+
 db_mod.AUTH_DB_FILE = os.path.join(_tmpdir, "auth.db")
 
 client = TestClient(app)
@@ -1964,6 +1977,8 @@ class TestOAuthServer:
         new_refresh = client.cookies.get("xcelsior_refresh")
         assert new_refresh and new_refresh != old_refresh
 
+        # A replay after the race window is theft. Move the rotation back past it.
+        _age_rotation(old_refresh, seconds=3600)
         stale = TestClient(app)
         stale.cookies.set("xcelsior_refresh", old_refresh)
         replay = stale.post("/api/auth/refresh")
@@ -1973,6 +1988,32 @@ class TestOAuthServer:
         current = client.post("/api/auth/refresh")
         assert current.status_code == 401
         assert current.json()["error"] == "invalid_grant"
+
+    def test_a_refresh_racing_its_own_rotation_keeps_the_family(self):
+        """Two processes sharing one token file refresh together: one rotates,
+        the other arrives with the token just consumed. That is not theft, and
+        signing every process out for it is what broke the MCP connector."""
+        reg = client.post(
+            "/api/auth/register",
+            json={"email": "racer@xcelsior.ca", "password": "testpass123"},
+        )
+        assert reg.status_code == 200
+        old_refresh = client.cookies.get("xcelsior_refresh")
+
+        rotated = client.post("/api/auth/refresh")
+        assert rotated.status_code == 200
+        new_refresh = client.cookies.get("xcelsior_refresh")
+
+        late = TestClient(app)
+        late.cookies.set("xcelsior_refresh", old_refresh)
+        raced = late.post("/api/auth/refresh")
+        assert raced.status_code == 409, raced.text
+        assert raced.json()["code"] == "refresh_token_just_rotated"
+
+        # The winner's token still works: nothing was revoked.
+        holder = TestClient(app)
+        holder.cookies.set("xcelsior_refresh", new_refresh)
+        assert holder.post("/api/auth/refresh").status_code == 200
 
     def test_client_credentials_cannot_call_user_profile(self):
         reg = client.post(

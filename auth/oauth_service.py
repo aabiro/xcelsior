@@ -72,6 +72,15 @@ MCP_ACCESS_TOKEN_TTL_SEC = int(os.environ.get("XCELSIOR_MCP_ACCESS_TTL_SEC", "36
 # The refresh token still governs the 30-day "remember me" window.
 BROWSER_SESSION_TTL_SEC = int(os.environ.get("XCELSIOR_BROWSER_SESSION_TTL_SEC", str(60 * 60 * 12)))
 REFRESH_TOKEN_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_REFRESH_TTL_SEC", str(86400 * 30)))
+# A rotated refresh token presented again this soon after its rotation is a
+# race between the holder's own processes, not theft. mcp-remote starts one
+# process per client session, all sharing one token file and one expiry, so
+# they refresh together: one rotates, and the rest arrive with the token it
+# just consumed. Revoking the family for that signed every connector out at
+# once. Inside the window the late caller gets the same 409 as a refresh still
+# in flight (it falls back to the token the winner stored) and the family
+# survives; a replay after the window is still treated as theft.
+REFRESH_REUSE_GRACE_SEC = float(os.environ.get("XCELSIOR_OAUTH_REFRESH_REUSE_GRACE_SEC", "60"))
 AUTH_CODE_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_CODE_TTL_SEC", "300"))
 DEVICE_CODE_TTL_SEC = int(os.environ.get("XCELSIOR_OAUTH_DEVICE_TTL_SEC", "900"))
 DEVICE_CODE_INTERVAL_SEC = int(os.environ.get("XCELSIOR_OAUTH_DEVICE_INTERVAL_SEC", "5"))
@@ -2677,7 +2686,16 @@ def rotate_refresh_token(refresh_token: str, request) -> dict[str, Any]:
                 "invalid_grant", "Refresh token is revoked or expired", status_code=401
             )
 
-        if current.get("consumed_at"):
+        consumed_at = float(current.get("consumed_at") or 0)
+        if consumed_at and now - consumed_at <= REFRESH_REUSE_GRACE_SEC:
+            _oauth_refresh_events.labels("raced").inc()
+            raise OAuthGrantError(
+                "temporarily_unavailable",
+                "This refresh token was just rotated by a concurrent request; use the newer one",
+                status_code=409,
+                extra={"code": "refresh_token_just_rotated"},
+            )
+        if consumed_at:
             OAuthStore.revoke_refresh_family(str(current["family_id"]), reuse_detected=True)
             _oauth_refresh_events.labels("reused").inc()
             raise OAuthGrantError(
