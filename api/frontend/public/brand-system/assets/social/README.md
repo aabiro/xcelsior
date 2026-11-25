@@ -72,7 +72,11 @@ the Product Hunt package ("Your agent rents the GPU. You approve the bill."). Th
 MCP tool count is drawn into the X header, GitHub preview, gallery 4 and
 `screenshots/mcp-tools-list`. [`mcp-launch/baked-in.json`](mcp-launch/baked-in.json)
 records the value those images show, and `tests/test_release_facts.py` fails when the
-published surface moves away from it: re-cut the images, then update that file.
+published surface moves away from it. Re-cut them with
+`node scripts/build-mcp-launch-kit.mjs --date "DD MON YYYY" [--live tools.json]`
+(from `api/frontend`), which redraws those regions and updates that file. Pass `--live`
+with a saved `tools/list` from the deployed service; without it, `baked-in.json` records
+that the list has not been checked against live yet.
 
 These images are seen far smaller than their pixel size: X shows the 1500px header
 at about 600px wide on desktop and 390px on a phone (40% / 26%), a link preview or
@@ -106,7 +110,7 @@ appear, so they stay accurate while supply changes.
 |---|---|
 | `mcp-handshake-oauth-1270x760` | `/mcp/health` (server and protocol version as captured; see `baked-in.json`), the 401 + `WWW-Authenticate` OAuth challenge on `initialize`, and the protected-resource metadata |
 | `mcp-registry-listing-1270x760` | The official MCP registry entry `io.github.aabiro/xcelsior`: streamable-http remote, status active |
-| `mcp-tools-list-1270x760` | Every tool from the live `tools/list`, split into read-only, preview-then-confirm and other actions (counts in `baked-in.json`) |
+| `mcp-tools-list-1270x760` | Every published tool, split by annotation into read-only, destructive (`destructiveHint`) and other (counts in `baked-in.json`). Redrawn from `api/mcp/tool-surface.json` on 24 Nov 2026; checked against live only when re-cut with `--live` |
 
 ## Runtime copy
 

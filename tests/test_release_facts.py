@@ -179,18 +179,19 @@ def test_version_literals_live_only_in_their_manifests() -> None:
 
 
 def test_launch_kit_images_show_the_current_count() -> None:
-    """Pixels cannot read a file. When this fails, re-cut the images named in
-    baked-in.json from the design canvas, then update the value there."""
+    """Pixels cannot read a file. When this fails, run
+    api/frontend/scripts/build-mcp-launch-kit.mjs, which re-cuts the images
+    named in baked-in.json and updates the values there."""
     baked = json.loads((LAUNCH_KIT / "baked-in.json").read_text())
     tools = json.loads((ROOT / "api/mcp/tool-surface.json").read_text())["tools"]
     assert baked["mcpToolCount"]["value"] == len(tools), baked["mcpToolCount"]["images"]
     read_only = sum(1 for t in tools if t["annotations"].get("readOnlyHint"))
-    confirm = sum(1 for t in tools if t["annotations"].get("destructiveHint"))
+    destructive = sum(1 for t in tools if t["annotations"].get("destructiveHint"))
     split = baked["toolsListSplit"]
-    assert (split["readOnly"], split["previewThenConfirm"], split["otherActions"]) == (
+    assert (split["readOnly"], split["destructive"], split["other"]) == (
         read_only,
-        confirm,
-        len(tools) - read_only - confirm,
+        destructive,
+        len(tools) - read_only - destructive,
     ), split["images"]
     for section in ("mcpToolCount", "toolsListSplit", "capturedOnly"):
         for image in baked[section]["images"]:

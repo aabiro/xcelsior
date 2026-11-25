@@ -11,9 +11,15 @@
  *
  *   node scripts/build-mcp-launch-kit.mjs --date "22 NOV 2026" [--live tools.json]
  *
- * --date is the day the tools/list screenshot's list was checked against the
- * live service. --live is a saved tools/list result; when given, its tool
- * names must equal the surface's or nothing is written.
+ * --date is the day printed on the tools/list screenshot. --live is a saved
+ * tools/list result; when given, its tool names must equal the surface's or
+ * nothing is written, and baked-in.json records the date as checked against
+ * the live service. Without it, baked-in.json says the check is still owed.
+ *
+ * The screenshot's legend counts tools by their annotations: read-only,
+ * destructive (destructiveHint), and the rest. Until 2026-11-24 the middle
+ * group was labelled "confirm first", which stopped being true when every
+ * customer write was marked destructive: not all of them take `confirm`.
  *
  * Run from api/frontend. CHROME_PATH overrides the Chromium binary.
  */
@@ -38,7 +44,7 @@ function arg(name) {
 
 const date = arg("--date");
 if (!date || !/^\d{2} [A-Z]{3} \d{4}$/.test(date)) {
-  console.error('Pass --date "DD MON YYYY", the day the list was checked against the live service.');
+  console.error('Pass --date "DD MON YYYY", the day printed on the tools/list screenshot.');
   process.exit(2);
 }
 
@@ -55,20 +61,18 @@ if (live) {
   }
 }
 const kind = (t) =>
-  t.annotations?.readOnlyHint ? "readOnly" : t.annotations?.destructiveHint ? "confirm" : "other";
+  t.annotations?.readOnlyHint ? "readOnly" : t.annotations?.destructiveHint ? "destructive" : "other";
 const count = tools.length;
-const split = { readOnly: 0, confirm: 0, other: 0 };
+const split = { readOnly: 0, destructive: 0, other: 0 };
 for (const t of tools) split[kind(t)] += 1;
-for (const v of Object.values(split)) {
-  if (v < 10 || v > 99) throw new Error("the header split is laid out for two-digit counts");
-}
+if (count > 999) throw new Error("the headline is laid out for at most three digits");
 
 // Every coordinate is in @2x pixels, measured from the originals; 1x halves them.
 const SANS = "GeistKit";
 const MONO = "GeistMonoKit";
 const SLATE = "rgb(132,146,166)";
 const ROWS = 23;
-const DOT = { readOnly: "rgb(0,212,255)", confirm: "rgb(245,158,11)", other: "rgb(70,86,111)" };
+const DOT = { readOnly: "rgb(0,212,255)", destructive: "rgb(245,158,11)", other: "rgb(70,86,111)" };
 
 const IMAGES = [
   {
@@ -91,18 +95,23 @@ const IMAGES = [
     erase: [
       [975, 84, 1300, 128], // capture date
       [80, 155, 1310, 265], // headline
-      [1588, 332, 1642, 372], // read-only count
-      [1978, 332, 2030, 372], // confirm-first count
-      [2366, 332, 2420, 372], // other-actions count
+      [1360, 330, 2430, 376], // the legend
       [120, 425, 2420, 1405], // the grid
     ],
     text: [
       { s: date, x: 983, y: 119, font: [400, 37, MONO], ls: 6, color: SLATE },
       { s: `${count} tools`, x: 88, y: 240, font: [600, 96, SANS], ls: -4, color: "rgb(232,237,245)", then: { s: " your agent can call.", color: SLATE } },
-      { s: String(split.readOnly), x: 1595, y: 362, font: [400, 32, MONO], color: "rgb(183,194,211)" },
-      { s: String(split.confirm), x: 1984, y: 362, font: [400, 32, MONO], color: "rgb(183,194,211)" },
-      { s: String(split.other), x: 2374, y: 362, font: [400, 32, MONO], color: "rgb(183,194,211)" },
     ],
+    // Right-aligned to where the original legend ended.
+    legend: {
+      right: 2410,
+      y: 362,
+      items: [
+        { s: `read-only ${split.readOnly}`, dot: DOT.readOnly },
+        { s: `destructive ${split.destructive}`, dot: DOT.destructive },
+        { s: `other ${split.other}`, dot: DOT.other },
+      ],
+    },
     grid: tools.map((t) => ({ name: t.name, dot: DOT[kind(t)] })),
   },
 ];
@@ -171,6 +180,25 @@ for (const image of IMAGES) {
         };
         for (const item of image.text) draw(item);
 
+        if (image.legend) {
+          const font = [400, 32, "GeistMonoKit"];
+          ctx.font = `400 ${32 * k}px GeistMonoKit`;
+          ctx.letterSpacing = "0px";
+          // Measured from the original: dot centre to text 27, text end to the
+          // next dot centre 58, dot radius 7, dot centre 11.5 above the baseline.
+          const widths = image.legend.items.map((item) => ctx.measureText(item.s).width / k);
+          const total = widths.reduce((a, w) => a + 27 + w, 0) + 58 * (widths.length - 1);
+          let x = image.legend.right - total;
+          image.legend.items.forEach((item, i) => {
+            ctx.fillStyle = item.dot;
+            ctx.beginPath();
+            ctx.arc(x * k, (image.legend.y - 11.5) * k, 7 * k, 0, Math.PI * 2);
+            ctx.fill();
+            draw({ s: item.s, x: x + 27, y: image.legend.y, font, color: "rgb(183,194,211)" });
+            x += 27 + widths[i] + 58;
+          });
+        }
+
         if (image.grid) {
           const columns = [166, 756, 1362, 1951];
           image.grid.forEach((tool, i) => {
@@ -196,9 +224,14 @@ await browser.close();
 const bakedPath = path.join(KIT, "baked-in.json");
 const baked = JSON.parse(fs.readFileSync(bakedPath, "utf8"));
 baked.mcpToolCount.value = count;
-baked.toolsListSplit.readOnly = split.readOnly;
-baked.toolsListSplit.previewThenConfirm = split.confirm;
-baked.toolsListSplit.otherActions = split.other;
-baked.toolsListSplit.checkedAgainstLive = date;
+baked.toolsListSplit = {
+  readOnly: split.readOnly,
+  destructive: split.destructive,
+  other: split.other,
+  source: baked.toolsListSplit.source,
+  images: baked.toolsListSplit.images,
+  printedDate: date,
+  checkedAgainstLive: live ? date : "not yet: run again with --live after deploying",
+};
 fs.writeFileSync(bakedPath, `${JSON.stringify(baked, null, 2)}\n`);
-console.log(`baked-in.json: ${count} tools, split ${split.readOnly}/${split.confirm}/${split.other}`);
+console.log(`baked-in.json: ${count} tools, split ${split.readOnly}/${split.destructive}/${split.other}`);
