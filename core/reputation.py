@@ -632,20 +632,38 @@ class ReputationEngine:
         return self.compute_score(entity_id)
 
     def get_leaderboard(self, entity_type: str = "host", limit: int = 20) -> list:
-        """Top-N hosts/users by reputation score."""
-        with self.store._conn() as conn:
-            rows = conn.execute(
-                """SELECT r.entity_id, r.final_score AS score, r.tier,
+        """Top-N hosts/users by reputation score.
+
+        Membership comes from the hosts and users tables, not from
+        reputation_scores.entity_type: `_ensure_entity` defaults that column to
+        "host", so every account whose score was ever computed was stored as a
+        host, and test ids written straight into the table were too. On prod on
+        2026-11-25 only 2 of the 17 "host" rows were registered hosts. A host
+        board lists registered hosts; a user board lists accounts that exist.
+        """
+        if entity_type == "user":
+            query = """SELECT r.entity_id, r.final_score AS score, r.tier,
+                          r.jobs_completed, r.reliability_score,
+                          r.search_boost, r.pricing_premium_pct,
+                          NULL AS gpu_model
+                   FROM reputation_scores r
+                   WHERE EXISTS (SELECT 1 FROM users u
+                                 WHERE u.user_id = r.entity_id
+                                    OR u.customer_id = r.entity_id)
+                     AND NOT EXISTS (SELECT 1 FROM hosts h WHERE h.host_id = r.entity_id)
+                   ORDER BY r.final_score DESC, r.entity_id
+                   LIMIT %s"""
+        else:
+            query = """SELECT r.entity_id, r.final_score AS score, r.tier,
                           r.jobs_completed, r.reliability_score,
                           r.search_boost, r.pricing_premium_pct,
                           h.payload->>'gpu_model' AS gpu_model
                    FROM reputation_scores r
-                   LEFT JOIN hosts h ON h.host_id = r.entity_id
-                   WHERE r.entity_type = %s
-                   ORDER BY r.final_score DESC
-                   LIMIT %s""",
-                (entity_type, limit),
-            ).fetchall()
+                   JOIN hosts h ON h.host_id = r.entity_id
+                   ORDER BY r.final_score DESC, r.entity_id
+                   LIMIT %s"""
+        with self.store._conn() as conn:
+            rows = conn.execute(query, (limit,)).fetchall()
             return [dict(r) for r in rows]
 
     def _ensure_entity(self, entity_id: str, entity_type: str = "host"):
