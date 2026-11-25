@@ -265,6 +265,17 @@ The server has two official-registry identities, published from `api/mcp/`:
   `mcp-publisher login github`. Kept because the dashboard's VS Code install
   link (`MCP_REGISTRY_NAME`) uses it as the gallery identity. Remote only.
 
+**Changing `scopes_supported` signs out every running mcp-remote.** It is
+derived from the tool registry, so a tool with a new scope changes it.
+mcp-remote snapshots the list when a process starts and deletes any shared
+token stamped with a different list, so processes started before the deploy
+keep deleting the sign-ins newer ones save (2026-11-25, after
+`providers:onboard`). `advertised-scopes-are-pinned.test.ts` makes the change
+deliberate. When it does change, tell users to restart their MCP clients
+after the deploy. If you're locked out locally, stop every
+`mcp-remote https://mcp.xcelsior.ca/mcp` process started before the deploy,
+then sign in once.
+
 Moving `mcpName` does not change how the package installs: it stays
 `npx -y @xcelsior-gpu/mcp`. `mcpName` only says which listing owns it.
 
