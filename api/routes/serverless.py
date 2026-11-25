@@ -585,6 +585,14 @@ def api_v1_serverless_endpoint_plan(body: ServerlessEndpointCreate, request: Req
     _require_scope(user, "inference:write")
     _require_team_instance_write(user)
     principal = _serverless_plan_principal(user)
+    try:
+        # A plan for a GPU that cannot hold the model would be approved, then
+        # fail every worker boot; refuse it while the user is still deciding.
+        ServerlessService.check_gpu_fits(
+            _body_to_endpoint_create(body, principal.principal_id, env_already_encrypted=True)
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     canonical = body.model_dump()
     canonical["env"] = encrypt_env_for_storage(body.env)
@@ -676,7 +684,12 @@ def api_v1_execute_serverless_endpoint_plan(plan_id: str, request: Request):
         env_already_encrypted=True,
         action_plan_id=plan_id,
     )
-    ep = _svc().create_endpoint(spec)
+    try:
+        ep = _svc().create_endpoint(spec)
+    except WalletPreflightError as e:
+        raise HTTPException(e.status_code, e.message)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     response = {"ok": True, "endpoint": _serialize_endpoint(ep), "plan_id": plan_id}
     with control_plane_transaction() as conn:
         locked = plans_repo.get_plan_for_update(conn, plan_id)

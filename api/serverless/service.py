@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -143,6 +144,31 @@ def _preset_startup_command(
     return cmd
 
 
+# "8b", "1.5b", "70b" in a model name; not the "4b" of "4bit".
+_PARAMS_RE = re.compile(r"(?<![a-z0-9.])(\d+(?:\.\d+)?)b(?![a-z0-9])")
+# Mixture of experts: "8x7b" holds 8 x 7B of weights.
+_MOE_PARAMS_RE = re.compile(r"(?<![a-z0-9.])(\d+)x(\d+(?:\.\d+)?)b(?![a-z0-9])")
+_FOUR_BIT_TAGS = ("awq", "gptq", "int4", "4bit", "4-bit", "nf4", "bnb")
+_EIGHT_BIT_TAGS = ("fp8", "int8", "8bit", "8-bit", "w8a8")
+
+
+def _catalog_vram_gb(gpu_model: str) -> float | None:
+    """The largest VRAM the pricing catalog lists for *gpu_model*, or None."""
+    try:
+        from db import _get_pg_pool
+
+        with _get_pg_pool().connection() as conn:
+            row = conn.execute(
+                "SELECT MAX(vram_gb) FROM gpu_pricing WHERE gpu_model = %s",
+                (gpu_model.strip(),),
+            ).fetchone()
+    except Exception:
+        log.warning("gpu catalog lookup failed for %s", gpu_model, exc_info=True)
+        return None
+    value = (list(row.values())[0] if isinstance(row, dict) else row[0]) if row else None
+    return float(value) if value else None
+
+
 @dataclass
 class WalletPreflightError(Exception):
     message: str
@@ -212,20 +238,52 @@ class ServerlessService:
 
     @staticmethod
     def estimate_vram_gb(model_ref: str) -> float:
+        """GPU memory a preset needs: its weights at their precision, plus 20 %.
+
+        Presets are served unquantized (bf16, 2 bytes a parameter) unless the
+        model name says otherwise. This used to return 6 GB for any "8b" model,
+        the 4-bit size, so Qwen3-8B (about 16 GB of bf16 weights) was placed on
+        12 GB RTX 3060s where it could never load (2026-11-25).
+        """
         m = model_ref.lower()
-        if "70b" in m:
-            return 40.0
-        if "34b" in m:
-            return 20.0
-        if "13b" in m:
-            return 10.0
-        if "8b" in m or "7b" in m:
-            return 6.0
-        if "3b" in m:
-            return 3.0
-        if "1b" in m or "1.5b" in m:
-            return 2.0
-        return 8.0
+        moe = _MOE_PARAMS_RE.search(m)
+        size = _PARAMS_RE.search(m)
+        if moe:
+            params_b = float(moe.group(1)) * float(moe.group(2))
+        elif size:
+            params_b = float(size.group(1))
+        else:
+            return 8.0
+        if any(tag in m for tag in _FOUR_BIT_TAGS):
+            bytes_per_param = 0.5
+        elif any(tag in m for tag in _EIGHT_BIT_TAGS):
+            bytes_per_param = 1.0
+        else:
+            bytes_per_param = 2.0
+        return max(1.0, round(params_b * bytes_per_param * 1.2, 1))
+
+    @staticmethod
+    def check_gpu_fits(spec: EndpointCreate) -> None:
+        """Refuse a preset whose GPU cannot hold the model.
+
+        A worker on too small a GPU fails every boot, the reaper marks the
+        endpoint `error`, and the user is told nothing about why. The GPU's
+        memory comes from the pricing catalog; an unknown GPU is not refused
+        here (placement still filters by VRAM).
+        """
+        if spec.mode != "preset" or not (spec.gpu_tier or "").strip():
+            return
+        need = spec.vram_required_gb or ServerlessService.estimate_vram_gb(spec.model_ref)
+        have_one = _catalog_vram_gb(spec.gpu_tier)
+        if have_one is None:
+            return
+        have = have_one * max(1, int(spec.gpu_count or 1))
+        if have < need:
+            raise ValueError(
+                f"{spec.model_ref} needs about {need:g} GB of GPU memory; "
+                f"{max(1, int(spec.gpu_count or 1))}x {spec.gpu_tier} has {have:g} GB. "
+                "Choose a GPU with more memory, more GPUs, or a quantized model."
+            )
 
     # ── Endpoint lifecycle ────────────────────────────────────────────
 
@@ -240,6 +298,7 @@ class ServerlessService:
             spec.image_ref = _preset_image_for_engine(spec.managed_engine)
         if spec.mode == "preset" and spec.vram_required_gb <= 0:
             spec.vram_required_gb = self.estimate_vram_gb(spec.model_ref)
+        self.check_gpu_fits(spec)
         if spec.mode == "preset" and not spec.startup_command:
             from serverless.registry_models import ensure_preset_model_local
 
