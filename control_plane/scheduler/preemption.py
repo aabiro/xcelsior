@@ -17,6 +17,7 @@ from control_plane.job_specs import validate_execution_spec
 from control_plane.scheduler.fairness import lock_team_policy, require_team_quota, QuotaExceeded
 from control_plane.scheduler.filters import (
     SCHEDULABLE_DEVICE_HEALTH,
+    device_outside_use,
     evaluate_host,
     gpu_model_matches,
     is_physical_gpu_uuid,
@@ -135,10 +136,13 @@ def create_plan(
         # as if it were free. The filters then answer "could this host ever
         # carry the nominee", with the same per-device model/VRAM rule the
         # reservation applies.
+        # Preempting Xcelsior jobs cannot free a GPU the host is using itself.
         physical = [
             d
             for d in devices
-            if is_physical_gpu_uuid(d["gpu_uuid"]) and d["health"] in SCHEDULABLE_DEVICE_HEALTH
+            if is_physical_gpu_uuid(d["gpu_uuid"])
+            and d["health"] in SCHEDULABLE_DEVICE_HEALTH
+            and device_outside_use(d.get("outside_processes")) is None
         ]
         summarize_devices(
             host_view,

@@ -4084,6 +4084,8 @@ export interface HostEvidence {
     host_fault_failures: number;
     success_rate: number | null;
   };
+  /** GPUs running compute processes outside Xcelsior (agent 2.4.0+); null when none. */
+  outside_use?: { gpus: number; processes: number; vram_mb: number } | null;
 }
 
 export interface MarketplaceListing {

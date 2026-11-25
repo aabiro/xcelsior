@@ -405,3 +405,117 @@ def test_repeated_unclaimed_offers_back_a_host_off(fleet):
     host, _ = _fleet_host(host_id)
     assert "lease_claim_backoff" not in host
     assert [r.job_id for r in _tick(model, [host_id]).placements] == [job_id]
+
+
+# ── 5. a GPU the host is using for its own work ─────────────────────────
+
+
+def _observed(*items):
+    """A complete agent report; each item is (uuid, model, outside processes, outside MiB)."""
+    return [
+        dict(
+            gpu_uuid=u,
+            device_index=i,
+            model=m,
+            total_vram_mb=24576,
+            outside_use={"processes": n, "vram_mb": mb},
+        )
+        for i, (u, m, n, mb) in enumerate(items)
+    ]
+
+
+def _sync(host_id, inventory):
+    with _pool.connection() as conn:
+        sync_physical_inventory(conn, host_id=host_id, inventory=inventory)
+        conn.commit()
+
+
+def test_a_gpu_in_outside_use_is_counted_but_never_offered(fleet):
+    """Prod 2026-11-25: the tower's 3060 was listed as a free 12 GB GPU while the
+    owner's own processes held 2.9 GB of it."""
+    model = f"RTX 3060 outside-{_marker()}"
+    host_id = _host(fleet, models=[model, model])
+    shared, idle = f"GPU-{host_id}-0", f"GPU-{host_id}-1"
+    _sync(host_id, _observed((shared, model, 8, 2908), (idle, model, 0, 0)))
+
+    host, _ = _fleet_host(host_id)
+    assert (host["gpu_count"], host["free_gpu_count"]) == (2, 1)
+
+    first = _reserve(_job(fleet, model.lower()), model.lower(), host_id)
+    with _pool.connection() as conn:
+        (bound,) = conn.execute(
+            """SELECT d.gpu_uuid FROM gpu_device_allocations a
+               JOIN host_gpu_devices d USING(gpu_device_id) WHERE a.attempt_id=%s""",
+            (first.attempt_id,),
+        ).fetchone()
+    assert bound == idle
+    with pytest.raises(CapacityConflict):
+        _reserve(_job(fleet, model.lower()), model.lower(), host_id)
+
+    # The owner's work stops: the next observation offers the GPU again.
+    _sync(host_id, _observed((shared, model, 0, 0), (idle, model, 0, 0)))
+    host, _ = _fleet_host(host_id)
+    assert host["free_gpu_count"] == 1
+
+
+def test_the_reservation_rereads_outside_use_under_the_device_lock(fleet):
+    """A snapshot taken before the owner started a process must not bind the GPU."""
+    model = f"RTX 3060 race-{_marker()}"
+    host_id = _host(fleet, models=[model])
+    gpu = f"GPU-{host_id}-0"
+    _sync(host_id, _observed((gpu, model, 0, 0)))
+    host, _ = _fleet_host(host_id)
+    assert host["free_gpu_count"] == 1
+    _sync(host_id, _observed((gpu, model, 1, 512)))
+    with pytest.raises(CapacityConflict):
+        _reserve(_job(fleet, model.lower()), model.lower(), host_id)
+
+
+def test_an_agent_that_does_not_report_outside_use_clears_it(fleet):
+    model = f"RTX 3060 old-agent-{_marker()}"
+    host_id = _host(fleet, models=[model])
+    gpu = f"GPU-{host_id}-0"
+    _sync(host_id, _observed((gpu, model, 3, 900)))
+    assert _fleet_host(host_id)[0]["free_gpu_count"] == 0
+    _sync(host_id, _inventory((gpu, model)))  # 2.3.0 sends no outside_use
+    assert _fleet_host(host_id)[0]["free_gpu_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "outside_use",
+    [
+        {"processes": -1, "vram_mb": 0},
+        {"processes": "2", "vram_mb": 0},
+        {"processes": True, "vram_mb": 0},
+        {"processes": 1},
+        {"processes": 1, "vram_mb": 2, "pids": [9]},
+        [1, 2],
+    ],
+)
+def test_a_malformed_outside_use_rejects_the_report(outside_use):
+    from control_plane.physical_inventory import validate_inventory
+
+    item = dict(gpu_uuid="GPU-x", device_index=0, model="RTX 3060", total_vram_mb=12288)
+    validate_inventory([item])
+    with pytest.raises(ValueError):
+        validate_inventory([{**item, "outside_use": outside_use}])
+
+
+def test_host_evidence_says_when_a_gpu_is_in_outside_use(fleet):
+    from psycopg.rows import dict_row
+
+    from host_evidence import host_evidence
+
+    model = f"RTX 3060 evidence-{_marker()}"
+    host_id = _host(fleet, models=[model, model])
+    _sync(
+        host_id,
+        _observed((f"GPU-{host_id}-0", model, 5, 2000), (f"GPU-{host_id}-1", model, 3, 908)),
+    )
+    with _pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        evidence = host_evidence(cur, [host_id])[host_id]
+    assert evidence["outside_use"] == {"gpus": 2, "processes": 8, "vram_mb": 2908}
+
+    _sync(host_id, _observed((f"GPU-{host_id}-0", model, 0, 0), (f"GPU-{host_id}-1", model, 0, 0)))
+    with _pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        assert host_evidence(cur, [host_id])[host_id]["outside_use"] is None

@@ -1,6 +1,6 @@
 {
   "name": "@xcelsior-gpu/wizard",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Xcelsior interactive CLI wizard — Ink-based setup & onboarding",
   "homepage": "https://docs.xcelsior.ca",
   "repository": {

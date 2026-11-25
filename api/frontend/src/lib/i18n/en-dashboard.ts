@@ -361,6 +361,7 @@ const en_dashboard: Record<string, string> = {
   "dash.evidence.next_check": "next check {date}",
   "dash.evidence.benchmarked": "Benchmarked {date}",
   "dash.evidence.no_benchmark": "No benchmark yet",
+  "dash.evidence.outside_use": "Not rented out while this host runs its own GPU work: {processes} process(es) outside Xcelsior hold {vram} GB of GPU memory. It is benchmarked again once they stop.",
   "dash.evidence.verdict_pass": "Pass",
   "dash.evidence.verdict_fail": "Fail",
   "dash.evidence.verdict_unknown": "Incomplete",

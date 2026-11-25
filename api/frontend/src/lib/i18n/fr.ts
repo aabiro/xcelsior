@@ -1088,6 +1088,7 @@ const fr: Record<string, string> = {
   "dash.evidence.next_check": "prochaine le {date}",
   "dash.evidence.benchmarked": "Mesuré le {date}",
   "dash.evidence.no_benchmark": "Aucune mesure pour l’instant",
+  "dash.evidence.outside_use": "Non proposé à la location tant que cet hôte utilise son GPU pour lui-même : {processes} processus hors Xcelsior occupent {vram} Go de mémoire GPU. Il sera remesuré quand ils s’arrêteront.",
   "dash.evidence.verdict_pass": "Réussi",
   "dash.evidence.verdict_fail": "Échec",
   "dash.evidence.verdict_unknown": "Incomplet",

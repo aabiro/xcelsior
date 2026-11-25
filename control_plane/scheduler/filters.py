@@ -18,7 +18,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-FILTER_POLICY_VERSION = "filters/v8"
+FILTER_POLICY_VERSION = "filters/v9"
 
 # Only these device rows can carry placement: a physical NVML identity (the
 # same shape the lease claim requires before it grants a device) in a
@@ -30,6 +30,21 @@ _PHYSICAL_GPU_UUID = re.compile(r"GPU-[A-Za-z0-9-]{1,100}")
 
 def is_physical_gpu_uuid(value: Any) -> bool:
     return isinstance(value, str) and _PHYSICAL_GPU_UUID.fullmatch(value) is not None
+
+
+def device_outside_use(processes: Any, vram_mb: Any = 0) -> dict[str, int] | None:
+    """Compute processes the host runs on a GPU outside Xcelsior, as last observed.
+
+    The device row's ``outside_processes`` and ``outside_vram_mb`` (migration
+    170, written by ``physical_inventory.sync_physical_inventory`` from agent
+    2.4.0). A GPU with outside use is never offered (filters/v9): a renter buys
+    the whole GPU, and would share its memory and compute with a process
+    nobody admitted. None when there is none, or the agent does not report it.
+    """
+    count = int(processes or 0)
+    if count <= 0:
+        return None
+    return {"processes": count, "vram_mb": int(vram_mb or 0)}
 
 
 @dataclass(frozen=True)

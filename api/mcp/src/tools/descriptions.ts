@@ -70,9 +70,10 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "Get one host's evidence in full: verification state and freshness (last check, next check, " +
     "overdue), the latest xcelsior-bench run with its sustained-load numbers and the dates and " +
     "verdicts of up to ten earlier runs, reputation tier and score, and the 30-day job success " +
-    "rate with the counts behind it. The same read model the marketplace listings show. Use to " +
-    "compare two hosts or to check a host before launching on it. Returns 404 for an unknown " +
-    "host. Read-only and free.",
+    "rate with the counts behind it, plus outside_use when the host is running its own compute " +
+    "on a GPU (such a GPU is not offered until that stops). The same read model the marketplace " +
+    "listings show. Use to compare two hosts or to check a host before launching on it. Returns " +
+    "404 for an unknown host. Read-only and free.",
 
   list_tiers:
     "List Standard, Premium and Dedicated service tiers and their queue and isolation policies. " +

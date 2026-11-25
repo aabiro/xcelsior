@@ -96,7 +96,10 @@ from psycopg import Connection
 # email sweep claims and reads.
 # 169 adds `receipt_shares`, which the receipt share routes write and the
 # public workload pages read.
-REQUIRED_MIN_REVISION = "169"
+# 170 records each GPU's outside use (`host_gpu_devices.outside_processes`,
+# `outside_vram_mb`), which every inventory sync writes and placement reads.
+# A database at 169 refuses that upsert.
+REQUIRED_MIN_REVISION = "170"
 REQUIRED_MAX_REVISION: str | None = None
 
 

@@ -138,6 +138,21 @@ export function HostEvidenceCard({ evidence }: { evidence: HostEvidence | null |
         </span>
       </div>
 
+      {evidence.outside_use && (
+        <p
+          data-testid="host-evidence-outside-use"
+          className="mb-3 flex items-start gap-2 rounded-lg bg-accent-gold/10 px-3 py-2 text-sm text-accent-gold"
+        >
+          <Activity className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {t("dash.evidence.outside_use", {
+              processes: evidence.outside_use.processes,
+              vram: num(evidence.outside_use.vram_mb / 1024, 1),
+            })}
+          </span>
+        </p>
+      )}
+
       {bench ? (
         <>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">

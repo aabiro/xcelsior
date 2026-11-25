@@ -353,6 +353,12 @@ def test_worker_reports_measured_inventory_and_capabilities(monkeypatch):
     monkeypatch.setattr(worker_agent, "_v2_enabled", True)
     monkeypatch.setattr(worker_agent, "is_nvml_available", lambda: True)
     monkeypatch.setattr(nvml_telemetry, "collect_gpu_inventory", lambda: [device()])
+    # Never this machine's real GPU processes: the owner holds 512 MB outside Xcelsior.
+    monkeypatch.setattr(
+        worker_agent,
+        "gpu_outside_use",
+        lambda: {"GPU-physical-proof": {"processes": 1, "vram_mb": 512}},
+    )
     monkeypatch.setattr(egress_isolation, "isolation_ready", lambda: True)
     # An unmanaged host: GPU UUID binding only, no paid isolation scopes.
     monkeypatch.delenv("XCELSIOR_MANAGED_HARDWARE_ONLY", raising=False)
@@ -364,14 +370,19 @@ def test_worker_reports_measured_inventory_and_capabilities(monkeypatch):
         worker_agent, "_v2_post", lambda path, body, **_: (posted.append(body) or 200, {})
     )
     assert worker_agent.report_observations_v2(force=True)
-    assert posted[0]["gpu_inventory"] == [device()]
+    assert posted[0]["gpu_inventory"] == [
+        {**device(), "outside_use": {"processes": 1, "vram_mb": 512}}
+    ]
     assert posted[0]["capabilities"] == {
         "egress_isolation": True,
         "gpu_uuid_binding": True,
         "gpu_exclusivity": False,
         "dedicated_host": False,
     }
-    assert posted[0]["conditions"] == {"gpu_inventory": "reported"}
+    assert posted[0]["conditions"] == {
+        "gpu_inventory": "reported",
+        "gpu_outside_use": "reported",
+    }
 
 
 def test_native_terminal_report_records_observed_exit_without_allowing_stale_overwrite():

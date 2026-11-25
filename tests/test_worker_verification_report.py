@@ -9,6 +9,7 @@ code the server could tell apart from a renter's crash.
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
 import threading
@@ -180,6 +181,9 @@ def idle_agent(monkeypatch, tmp_path):
     monkeypatch.setattr(worker_agent, "_reverify_running", threading.Event())
     monkeypatch.setattr(worker_agent, "_reverify_pending", threading.Event())
     monkeypatch.setattr(worker_agent, "_REVERIFY_PENDING_PATH", str(tmp_path / "reverify-pending"))
+    # Nothing outside Xcelsior on the GPU unless a test says so; never this machine's GPU.
+    monkeypatch.setattr(worker_agent, "gpu_outside_use", lambda: {})
+    monkeypatch.setattr(worker_agent, "_outside_use_deferred_at", None)
     return worker_agent
 
 
@@ -238,6 +242,160 @@ def test_nothing_pending_starts_nothing(idle_agent):
     with mock.patch.object(idle_agent.threading, "Thread") as thread:
         assert idle_agent._run_pending_reverification() is False
     thread.assert_not_called()
+
+
+def test_a_gpu_in_outside_use_defers_the_benchmark_instead_of_failing_it(idle_agent, monkeypatch):
+    """Prod 2026-11-25: the tower's 3060 failed every hourly benchmark with
+    allocatable_vram_below_listing (10 of 12 GB) because the owner's own
+    processes held 2.9 GB, and was de-verified for it. The card was sound."""
+    outside = {"GPU-tower": {"processes": 8, "vram_mb": 2908}}
+    asked = []
+
+    def listing():
+        asked.append(1)
+        return outside
+
+    monkeypatch.setattr(idle_agent, "gpu_outside_use", listing)
+    with mock.patch.object(idle_agent.threading, "Thread") as thread:
+        assert idle_agent._start_reverification() is False
+        assert idle_agent._reverify_pending.is_set()
+        assert not idle_agent._reverify_running.is_set()  # jobs may start again
+        # The main loop runs every few seconds; the GPU is asked again only
+        # once per observation interval.
+        assert idle_agent._run_pending_reverification() is False
+        assert len(asked) == 1
+        thread.assert_not_called()
+
+        monkeypatch.setattr(idle_agent, "_outside_use_deferred_at", None)
+        outside = {}
+        assert idle_agent._run_pending_reverification() is True
+        thread.assert_called_once()
+    assert not idle_agent._reverify_pending.is_set()
+
+
+def test_an_unknown_gpu_process_list_does_not_hold_the_benchmark(idle_agent, monkeypatch):
+    """Without a process list the benchmark runs; its allocatable-VRAM check still
+    catches memory held by something the agent cannot see."""
+    monkeypatch.setattr(idle_agent, "gpu_outside_use", lambda: None)
+    with mock.patch.object(idle_agent.threading, "Thread") as thread:
+        assert idle_agent._start_reverification() is True
+        thread.assert_called_once()
+
+
+# ── GPU use outside Xcelsior ──────────────────────────────────────────
+
+_OWN_CID, _OTHER_CID = "a" * 64, "b" * 64
+
+
+@pytest.fixture
+def gpu_processes(monkeypatch):
+    """nvidia-smi, docker ps and /proc as the agent reads them, from a table."""
+    state = {
+        "apps": "",
+        "apps_rc": 0,
+        "docker": f"{_OWN_CID}\txcl-job-1\t\n{_OTHER_CID}\tsomeones-db\t\n",
+        "docker_rc": 0,
+        "docker_calls": 0,
+    }
+    procs: dict[int, dict] = {}
+
+    def run(cmd, **_kwargs):
+        if cmd[0] == "nvidia-smi":
+            return subprocess.CompletedProcess(cmd, state["apps_rc"], state["apps"], "")
+        if cmd[:2] == ["docker", "ps"]:
+            state["docker_calls"] += 1
+            return subprocess.CompletedProcess(cmd, state["docker_rc"], state["docker"], "")
+        raise AssertionError(f"unexpected command {cmd}")
+
+    def proc_text(pid, name):
+        entry = procs.get(pid)
+        if entry is None:
+            raise FileNotFoundError(pid)
+        if entry.get("unreadable"):
+            raise PermissionError(pid)
+        if name == "cgroup":
+            return entry["cgroup"]
+        return f"{pid} (python3 (worker)) S {entry['ppid']} {pid} {pid} 0 -1\n"
+
+    monkeypatch.setattr(worker_agent.subprocess, "run", run)
+    monkeypatch.setattr(worker_agent, "_proc_text", proc_text)
+    return state, procs
+
+
+def _user(ppid=1):
+    return {"cgroup": "0::/user.slice/user-1000.slice/session-2.scope\n", "ppid": ppid}
+
+
+def _container(cid):
+    return {"cgroup": f"0::/system.slice/docker-{cid}.scope\n", "ppid": 1}
+
+
+def test_outside_use_counts_only_processes_the_agent_did_not_start(gpu_processes):
+    state, procs = gpu_processes
+    state["apps"] = (
+        "GPU-a, 11, 1000\n"  # a job container (xcl-*)
+        "GPU-a, 12, 318\n"  # the owner's own script
+        "GPU-a, 13, [N/A]\n"  # another project's container
+        "GPU-b, 14, 2000\n"  # the benchmark, run in the agent's own Python
+        "GPU-b, 15, 500\n"  # exited since nvidia-smi listed it
+    )
+    procs.update(
+        {
+            11: _container(_OWN_CID),
+            12: _user(),
+            13: _container(_OTHER_CID),
+            14: {"cgroup": "0::/system.slice/xcelsior-worker.service\n", "ppid": os.getpid()},
+        }
+    )
+    assert worker_agent.gpu_outside_use() == {"GPU-a": {"processes": 2, "vram_mb": 318}}
+
+
+def test_a_gpu_with_no_compute_processes_has_no_outside_use(gpu_processes):
+    state, _ = gpu_processes
+    assert worker_agent.gpu_outside_use() == {}
+    assert state["docker_calls"] == 0
+
+
+def test_a_process_list_that_cannot_be_read_is_unknown_not_empty(gpu_processes):
+    state, _ = gpu_processes
+    state["apps_rc"] = 9
+    assert worker_agent.gpu_outside_use() is None
+    state["apps_rc"], state["apps"] = 0, "Failed to initialize NVML\n"
+    assert worker_agent.gpu_outside_use() is None
+
+
+def test_whose_process_it_is_falls_to_outside_when_it_cannot_be_read(gpu_processes):
+    state, procs = gpu_processes
+    state["apps"] = "GPU-a, 11, 1000\nGPU-a, 12, 50\n"
+    procs.update({11: _container(_OWN_CID), 12: {**_user(), "unreadable": True}})
+    state["docker_rc"] = 1  # Docker cannot say which containers are ours
+    assert worker_agent.gpu_outside_use() == {"GPU-a": {"processes": 2, "vram_mb": 1050}}
+
+
+def test_each_observed_gpu_carries_its_outside_use(monkeypatch):
+    monkeypatch.setattr(worker_agent, "is_nvml_available", lambda: True)
+    monkeypatch.setattr(
+        nvml_telemetry,
+        "collect_gpu_inventory",
+        lambda: [
+            {"gpu_uuid": "GPU-a", "device_index": 0, "model": "RTX 3060", "total_vram_mb": 12288},
+            {"gpu_uuid": "GPU-b", "device_index": 1, "model": "RTX 3060", "total_vram_mb": 12288},
+        ],
+    )
+    monkeypatch.setattr(
+        worker_agent, "gpu_outside_use", lambda: {"GPU-a": {"processes": 3, "vram_mb": 900}}
+    )
+    inventory, conditions = worker_agent._observation_inventory()
+    assert [item["outside_use"] for item in inventory] == [
+        {"processes": 3, "vram_mb": 900},
+        {"processes": 0, "vram_mb": 0},
+    ]
+    assert conditions == {"gpu_inventory": "reported", "gpu_outside_use": "reported"}
+
+    monkeypatch.setattr(worker_agent, "gpu_outside_use", lambda: None)
+    inventory, conditions = worker_agent._observation_inventory()
+    assert all("outside_use" not in item for item in inventory)
+    assert conditions["gpu_outside_use"] == "unavailable"
 
 
 # ── Host-fault failures carry a code the server classifies ───────────

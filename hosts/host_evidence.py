@@ -86,6 +86,7 @@ def host_evidence(
     ``cur`` is a dict-row cursor. ``history`` > 0 adds the dates (and verdicts)
     of up to that many earlier benchmark runs.
     """
+    from control_plane.scheduler.filters import device_outside_use
     from reputation import score_to_tier
     from verification import verification_freshness
 
@@ -140,6 +141,21 @@ def host_evidence(
             (ids, since),
         ).fetchall()
     }
+    # GPUs the host is using for its own work, as its agent last observed them
+    # (agent 2.4.0+). Placement does not offer them; the benchmark waits.
+    outside: dict[str, dict] = {}
+    for r in cur.execute(
+        """SELECT host_id, outside_processes, outside_vram_mb FROM host_gpu_devices
+            WHERE host_id = ANY(%s) AND retired_at IS NULL AND outside_processes > 0""",
+        (ids,),
+    ).fetchall():
+        use = device_outside_use(r["outside_processes"], r["outside_vram_mb"])
+        if use is None:
+            continue
+        entry = outside.setdefault(r["host_id"], {"gpus": 0, "processes": 0, "vram_mb": 0})
+        entry["gpus"] += 1
+        entry["processes"] += use["processes"]
+        entry["vram_mb"] += use["vram_mb"]
 
     out: dict[str, dict] = {}
     for host_id in ids:
@@ -177,6 +193,8 @@ def host_evidence(
                 "host_fault_failures": n_faults,
                 "success_rate": round(1 - n_faults / n_ended, 4) if n_ended else None,
             },
+            # None, or how many GPUs run compute processes outside Xcelsior.
+            "outside_use": outside.get(host_id),
         }
         if history:
             evidence["benchmark_history"] = [

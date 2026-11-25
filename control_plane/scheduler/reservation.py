@@ -422,7 +422,7 @@ def reserve_and_bind(
     devices = conn.execute(
         """
         SELECT d.gpu_device_id, d.gpu_uuid, d.allocation_mode, d.health,
-               d.allocatable_vram_mb, d.model, d.total_vram_mb
+               d.allocatable_vram_mb, d.model, d.total_vram_mb, d.outside_processes
           FROM host_gpu_devices d
          WHERE d.host_id = %s
            AND d.retired_at IS NULL
@@ -435,6 +435,7 @@ def reserve_and_bind(
     # compatibility slot (or an unhealthy device) can never carry an offer.
     from control_plane.scheduler.filters import (
         SCHEDULABLE_DEVICE_HEALTH,
+        device_outside_use,
         gpu_model_matches,
         is_physical_gpu_uuid,
     )
@@ -527,6 +528,11 @@ def reserve_and_bind(
             or device_id in held
             or (nomination and device_id not in nominated)
         ):
+            continue
+        # Re-read under the device lock, so a GPU the host started using after
+        # the snapshot is still refused. Dedicated needs every GPU free, so
+        # outside use on any one of them refuses it too.
+        if device_outside_use(_one(row, "outside_processes", 7)) is not None:
             continue
         if requested_vram_mb and int(_one(row, "allocatable_vram_mb", 4)) < requested_vram_mb:
             continue

@@ -123,6 +123,7 @@ def read_fleet(
     from control_plane.scheduler.filters import (
         PHYSICAL_GPU_UUID_PATTERN,
         SCHEDULABLE_DEVICE_HEALTH,
+        device_outside_use,
     )
 
     now = conn.execute("SELECT statement_timestamp() AS now_ts").fetchone()
@@ -148,7 +149,8 @@ def read_fleet(
                              AND a.released_at IS NULL) AS allocated,
                   (SELECT n.plan_id FROM preemption_plan_devices n
                     WHERE n.gpu_device_id=d.gpu_device_id AND n.held
-                    ORDER BY n.plan_id LIMIT 1) AS held_by_plan, d.total_vram_mb
+                    ORDER BY n.plan_id LIMIT 1) AS held_by_plan, d.total_vram_mb,
+                  d.outside_processes, d.outside_vram_mb
              FROM host_gpu_devices d
             WHERE d.retired_at IS NULL
               AND d.health = ANY(%s)
@@ -160,6 +162,10 @@ def read_fleet(
     for row in device_rows:
         held_by = _get(row, "held_by_plan", 5)
         allocated = bool(_get(row, "allocated", 4))
+        # A GPU the host is using for its own work is counted, never free.
+        outside_use = device_outside_use(
+            _get(row, "outside_processes", 7), _get(row, "outside_vram_mb", 8)
+        )
         devices_by_host.setdefault(str(_get(row, "host_id", 0)), []).append(
             {
                 "gpu_device_id": str(_get(row, "gpu_device_id", 1)),
@@ -168,7 +174,8 @@ def read_fleet(
                 "total_vram_mb": int(_get(row, "total_vram_mb", 6) or 0),
                 "allocated": allocated,
                 "held_by_plan": str(held_by) if held_by is not None else None,
-                "free": not allocated and held_by is None,
+                "outside_use": outside_use,
+                "free": not allocated and held_by is None and outside_use is None,
             }
         )
 
@@ -274,7 +281,9 @@ def with_nominated_devices(host: dict[str, Any], plan_id: str) -> dict[str, Any]
     devices = [
         {
             **d,
-            "free": not d.get("allocated") and d.get("held_by_plan") == str(plan_id),
+            "free": not d.get("allocated")
+            and d.get("held_by_plan") == str(plan_id)
+            and not d.get("outside_use"),
         }
         for d in host.get("gpu_devices") or []
     ]

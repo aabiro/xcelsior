@@ -136,4 +136,41 @@ describe("HostEvidenceCard", () => {
     expect(text).toContain("Earlier runs:");
     expect(text).toContain("New User");
   });
+
+  function idleEvidence(overrides: Partial<HostEvidence> = {}): HostEvidence {
+    return {
+      host_id: "tower",
+      verification: {
+        state: "verified",
+        freshness: "fresh",
+        overdue: false,
+        last_verified_at: RAN_AT,
+        last_check_at: RAN_AT,
+        next_check_at: RAN_AT + 3600,
+      },
+      benchmark: null,
+      reputation: { tier: "new_user", score: 0 },
+      jobs: { window_days: 30, runs_ended: 0, host_fault_failures: 0, success_rate: null },
+      ...overrides,
+    };
+  }
+
+  it("says the host is not rented out while its own GPU work runs", () => {
+    render(
+      <HostEvidenceCard
+        evidence={idleEvidence({ outside_use: { gpus: 1, processes: 8, vram_mb: 2970 } })}
+      />,
+    );
+    const text = screen.getByTestId("host-evidence-outside-use").textContent ?? "";
+    expect(text).toContain("Not rented out");
+    expect(text).toContain("8 process(es)");
+    expect(text).toContain("2.9 GB");
+  });
+
+  it("shows nothing about outside use when there is none", () => {
+    render(<HostEvidenceCard evidence={idleEvidence({ outside_use: null })} />);
+    expect(screen.queryByTestId("host-evidence-outside-use")).toBeNull();
+    render(<HostEvidenceCard evidence={idleEvidence()} />);
+    expect(screen.queryByTestId("host-evidence-outside-use")).toBeNull();
+  });
 });

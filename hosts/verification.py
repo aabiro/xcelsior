@@ -98,7 +98,13 @@ FINGERPRINT_VERSION = "v2:"
 # ── Benchmark / Verification Thresholds ──────────────────────────────
 
 VERIFICATION_THRESHOLDS = {
-    "min_pcie_bandwidth_gbps": 8.0,  # Minimum PCIe bandwidth in GB/s
+    # Pinned host<->GPU copies, the mean of both directions, in GB/s. The bar
+    # separates a real slot from a mining riser: PCIe 3.0 x8 measures about
+    # 6 GB/s (most laptops, and either card of a desktop's x8/x8 split) and
+    # passes; PCIe 3.0 x1/x2 links, a mining riser's, measure under 2 GB/s and
+    # fail. The measured figure is on every host's evidence for renters who
+    # need more.
+    "min_pcie_bandwidth_gbps": 2.0,
     "max_gpu_temp_celsius": 90,  # Max peak GPU temp during the benchmark load
     # Share of xcelsior-bench's sustained window spent thermal- or power-fault
     # throttled. The benchmark's own verdict uses the same number.
@@ -450,7 +456,11 @@ def check_cuda_readiness(report: dict) -> VerificationResult:
 
 
 def check_pcie_bandwidth(report: dict) -> VerificationResult:
-    """Verify PCIe bandwidth meets minimum threshold."""
+    """Host<->GPU bandwidth at or above ``min_pcie_bandwidth_gbps``.
+
+    The floor rules out riser links, not lane counts: an absolute 8 GB/s failed
+    every PCIe 3.0 x8 card, the link most laptops and dual-GPU desktops give.
+    """
     bandwidth = _num(report, "pcie_bandwidth_gbps")
     threshold = VERIFICATION_THRESHOLDS["min_pcie_bandwidth_gbps"]
     if not bandwidth:
@@ -570,7 +580,9 @@ def check_allocatable_vram(report: dict) -> VerificationResult:
 
     The bar is :func:`xcelsior_bench.allocatable_baseline_gb`: the listing less
     the driver's reservation, the same bar the benchmark's own verdict uses.
-    Memory another process holds still fails it.
+    The agent (2.4.0+) does not benchmark while it can see a compute process
+    it did not start on the GPU; memory held by one it cannot see still fails
+    this check.
     """
     allocatable = _num(report, "allocatable_vram_gb")
     advertised = _num(report, "advertised_vram_gb")

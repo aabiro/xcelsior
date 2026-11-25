@@ -168,7 +168,9 @@ PREFER_GVISOR = os.environ.get("XCELSIOR_PREFER_GVISOR", "true").lower() in ("1"
 
 #: 2.3.0: GPU identity and allocatable VRAM in the verification report, deferred
 #: reverification, host-fault failure codes.
-VERSION = "2.3.0"
+#: 2.4.0: each observed GPU carries its outside use (compute processes the agent
+#: did not start); the benchmark waits while there is any.
+VERSION = "2.4.0"
 _HOST_SSH_USER_RE = re.compile(r"\A[A-Za-z0-9_.-]{1,64}\Z")
 
 
@@ -4553,8 +4555,153 @@ def _collect_local_workloads() -> list[dict]:
     return workloads
 
 
+# ── GPU use outside Xcelsior ─────────────────────────────────────────
+
+#: The containers this agent runs: job containers are named ``xcl-*`` and the
+#: benchmark container carries this label (see run_compute_benchmark).
+_OWN_CONTAINER_PREFIX = "xcl-"
+_BENCH_CONTAINER_LABEL = "ai.xcelsior.benchmark"
+#: A Docker container's id in /proc/<pid>/cgroup, for both cgroup drivers:
+#: ``/system.slice/docker-<id>.scope`` (systemd) and ``/docker/<id>`` (cgroupfs).
+_CONTAINER_ID_IN_CGROUP = re.compile(r"docker[-/]([0-9a-f]{64})")
+
+
+def _own_container_ids() -> set[str] | None:
+    """Full ids of the running containers this agent started; None when Docker cannot say."""
+    try:
+        ps = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "--no-trunc",
+                "--format",
+                '{{.ID}}\t{{.Names}}\t{{.Label "' + _BENCH_CONTAINER_LABEL + '"}}',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if ps.returncode != 0:
+        return None
+    own = set()
+    for line in ps.stdout.splitlines():
+        cid, _, rest = line.partition("\t")
+        name, _, bench = rest.partition("\t")
+        if name.startswith(_OWN_CONTAINER_PREFIX) or bench.strip() == "true":
+            own.add(cid.strip())
+    return own
+
+
+def _proc_text(pid: int, name: str) -> str:
+    """/proc/<pid>/<name>. FileNotFoundError once the process has exited."""
+    with open(f"/proc/{pid}/{name}") as fh:
+        return fh.read()
+
+
+def _descends_from_agent(pid: int) -> bool:
+    """Whether this agent is an ancestor of `pid`: the benchmark run in the agent's own Python."""
+    me = os.getpid()
+    for _ in range(64):
+        if pid == me:
+            return True
+        if pid <= 1:
+            return False
+        try:
+            # The name in parentheses may itself hold spaces or ')': the parent
+            # pid is the second field after the last ')'.
+            pid = int(_proc_text(pid, "stat").rsplit(")", 1)[1].split()[1])
+        except (OSError, IndexError, ValueError):
+            return False
+    return False
+
+
+def _is_outside_gpu_process(pid: int, own_containers: set[str] | None) -> bool:
+    """A compute process this agent did not start. One whose owner cannot be read counts."""
+    try:
+        cgroup = _proc_text(pid, "cgroup")
+    except FileNotFoundError:
+        return False  # exited after nvidia-smi listed it: no longer on the GPU
+    except OSError:
+        return True
+    match = _CONTAINER_ID_IN_CGROUP.search(cgroup)
+    if match:
+        return own_containers is None or match.group(1) not in own_containers
+    return not _descends_from_agent(pid)
+
+
+def gpu_outside_use() -> dict[str, dict] | None:
+    """Compute processes on each GPU that this agent did not start, by GPU UUID.
+
+    A GPU the host also uses for its own work cannot be rented as a whole GPU:
+    the renter would share its memory and its compute with a process nobody
+    admitted. The server takes a GPU with outside use out of placement, and the
+    agent defers its benchmark while there is any, because a benchmark taken
+    under another process's load measures that process, not the hardware.
+
+    Xcelsior's own processes are those in a job container (``xcl-*``), in the
+    benchmark container, or descended from this agent (the benchmark when it
+    runs in the agent's Python). A desktop compositor is a graphics client, not
+    a compute process, and is not listed.
+
+    Returns ``{gpu_uuid: {"processes": n, "vram_mb": m}}`` for the GPUs that
+    have outside processes (an empty dict when none do), or None when the
+    processes cannot be listed, so a caller can tell "nothing else is on these
+    GPUs" from "we cannot tell".
+    """
+    try:
+        apps = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-compute-apps=gpu_uuid,pid,used_memory",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if apps.returncode != 0:
+        return None
+    rows: list[tuple[str, int, int]] = []
+    for line in apps.stdout.splitlines():
+        if not line.strip() or "no running processes" in line.lower():
+            continue
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) != 3 or not fields[0].startswith("GPU-") or not fields[1].isdigit():
+            return None
+        # used_memory reads "[N/A]" where the driver will not say; the process still counts.
+        rows.append((fields[0], int(fields[1]), int(fields[2]) if fields[2].isdigit() else 0))
+    if not rows:
+        return {}
+    own_containers = _own_container_ids()
+    outside: dict[str, dict] = {}
+    for gpu_uuid, pid, vram_mb in rows:
+        if not _is_outside_gpu_process(pid, own_containers):
+            continue
+        entry = outside.setdefault(gpu_uuid, {"processes": 0, "vram_mb": 0})
+        entry["processes"] += 1
+        entry["vram_mb"] += vram_mb
+    return outside
+
+
+def describe_outside_use(outside: dict[str, dict]) -> str:
+    """One line for the log: how many processes outside Xcelsior hold how much of which GPU."""
+    return "; ".join(
+        f"{use['processes']} process(es) outside Xcelsior hold {use['vram_mb']} MiB of {uuid}"
+        for uuid, use in sorted(outside.items())
+    )
+
+
 def _observation_inventory() -> tuple[list[dict] | None, dict]:
-    """Report actual per-device identities, never environment-declared slots."""
+    """Report actual per-device identities, never environment-declared slots.
+
+    Each device also carries its ``outside_use``: compute processes this agent
+    did not start (see `gpu_outside_use`). Zero counts mean none; the key is
+    left out when the processes could not be listed.
+    """
     if not is_nvml_available():
         return None, {"gpu_inventory": "unavailable"}
     try:
@@ -4581,10 +4728,20 @@ def _observation_inventory() -> tuple[list[dict] | None, dict]:
                     "total_vram_mb": gpu["total_vram_mb"],
                 }
             )
-        return inventory, {"gpu_inventory": "reported"}
     except Exception as exc:
         log.warning("Physical inventory unavailable (%s)", type(exc).__name__)
         return None, {"gpu_inventory": "unavailable"}
+    conditions = {"gpu_inventory": "reported", "gpu_outside_use": "unavailable"}
+    try:
+        outside = gpu_outside_use()
+    except Exception as exc:
+        log.warning("GPU process listing failed (%s)", type(exc).__name__)
+        outside = None
+    if outside is not None:
+        conditions["gpu_outside_use"] = "reported"
+        for item in inventory:
+            item["outside_use"] = outside.get(item["gpu_uuid"]) or {"processes": 0, "vram_mb": 0}
+    return inventory, conditions
 
 
 def report_observations_v2(force: bool = False) -> bool:
@@ -4871,6 +5028,10 @@ _reverify_running = threading.Event()
 #: hour for the sweep to ask again and finding the host busy once more.
 _reverify_pending = threading.Event()
 
+#: When a reverification was last deferred because the GPU was in use outside
+#: Xcelsior (monotonic), or None; see _run_pending_reverification.
+_outside_use_deferred_at: float | None = None
+
 #: The pending request, kept across restarts. In memory only, an agent restart
 #: (an upgrade, a reboot) forgot it, and a host that went idle afterwards waited
 #: for the next hourly sweep to be asked again.
@@ -5062,7 +5223,15 @@ def _start_reverification() -> bool:
     refresh a stamp. A permanently busy host therefore stays stale, and the
     placement gate says exactly that — which is the honest answer, and better
     than a fresh stamp bought out of someone's paid run.
+
+    **Declined while the GPU is in use outside Xcelsior.** A process the host
+    runs for itself (see `gpu_outside_use`) holds memory and compute, so the
+    benchmark would measure what that process left over and de-verify sound
+    hardware. The server already keeps such a GPU out of placement; the
+    benchmark runs once the GPU is free. Memory held by a process the agent
+    cannot see still fails the allocatable-VRAM check.
     """
+    global _outside_use_deferred_at
     with _active_lock:
         busy = set(_active_containers)
     # Journaled attempts count too: at startup, before adoption (or while the
@@ -5088,6 +5257,25 @@ def _start_reverification() -> bool:
         _set_reverify_pending()
         return False
 
+    # Holding the flag (so no job starts meanwhile), list the GPU's processes.
+    # It shells out, which must not happen under the attempts lock.
+    try:
+        outside = gpu_outside_use()
+    except Exception as exc:
+        log.warning("reverify: GPU process listing failed (%s)", type(exc).__name__)
+        outside = None
+    if outside:
+        _reverify_running.clear()
+        _outside_use_deferred_at = time.monotonic()
+        if not _reverify_pending.is_set():
+            log.info(
+                "reverify: deferred until the GPU is free: %s. A benchmark under another "
+                "process's load measures that process, not the hardware.",
+                describe_outside_use(outside),
+            )
+        _set_reverify_pending()
+        return False
+
     _clear_reverify_pending()
     try:
         thread = threading.Thread(target=_reverification_worker, name="reverification", daemon=True)
@@ -5105,8 +5293,16 @@ def _run_pending_reverification() -> bool:
     Called from the main loop. `_start_reverification` re-checks for workloads
     under the attempts lock, so a job that arrives between this call and the
     start is still seen, and the request stays pending.
+
+    After a deferral for outside GPU use the host is asked again once per
+    observation interval, not on every pass: listing GPU processes shells out.
     """
     if not _reverify_pending.is_set():
+        return False
+    if (
+        _outside_use_deferred_at is not None
+        and time.monotonic() - _outside_use_deferred_at < _OBSERVATION_INTERVAL_SEC
+    ):
         return False
     return _start_reverification()
 

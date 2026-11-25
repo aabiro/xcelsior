@@ -121,15 +121,26 @@ describe("runVerificationChecks", () => {
         expect(cuda?.passed).toBe(false);
     });
 
-    it("fails PCIe Bandwidth when below threshold", () => {
+    it("fails PCIe Bandwidth below the floor (an x1 riser link)", () => {
         const checks = runVerificationChecks(
             makeGpu(),
-            makeBench({ pcie_bandwidth_gbps: 4.0 }),
+            makeBench({ pcie_bandwidth_gbps: 0.9 }),
             makeNetwork(),
             makeVersions(),
         );
         const pcie = checks.find((c) => c.name === "PCIe Bandwidth");
         expect(pcie?.passed).toBe(false);
+    });
+
+    it("passes PCIe Bandwidth on a PCIe 3.0 x8 link (most laptops)", () => {
+        const checks = runVerificationChecks(
+            makeGpu(),
+            makeBench({ pcie_bandwidth_gbps: 6.11 }),
+            makeNetwork(),
+            makeVersions(),
+        );
+        const pcie = checks.find((c) => c.name === "PCIe Bandwidth");
+        expect(pcie?.passed).toBe(true);
     });
 
     it("thermal does not pass when the sensor reads nothing (temp = 0)", () => {

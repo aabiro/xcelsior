@@ -41,7 +41,7 @@ export const CHECK_REMEDIATION: Record<string, string> = {
  * fails if any of these drifts from the server's value.
  */
 export const VERIFICATION_THRESHOLDS = {
-    min_pcie_bandwidth_gbps: 8.0,
+    min_pcie_bandwidth_gbps: 2.0,
     max_gpu_temp_celsius: 90,
     max_vram_deviation_pct: 5.0,
     min_cuda_compute_capability: 7.0,

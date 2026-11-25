@@ -31,10 +31,35 @@ def validate_inventory(inventory: list[dict[str, Any]]) -> None:
             or (item.get("pci_bus_id") is not None and not isinstance(item["pci_bus_id"], str))
             or uuid in uuids
             or index in indices
+            or not _valid_outside_use(item.get("outside_use"))
         ):
             raise ValueError("physical GPU inventory is incomplete or ambiguous")
         uuids.add(uuid)
         indices.add(index)
+
+
+def _valid_outside_use(value: Any) -> bool:
+    """Absent (an agent before 2.4.0, or one that could not list processes) or two counts."""
+    if value is None:
+        return True
+    return (
+        isinstance(value, dict)
+        and set(value) == {"processes", "vram_mb"}
+        and all(type(value[key]) is int and 0 <= value[key] < 2**31 for key in value)
+    )
+
+
+def outside_use_counts(item: dict[str, Any]) -> tuple[int, int]:
+    """(processes, vram_mb) the agent saw on the device outside Xcelsior.
+
+    Absent from the report (an agent before 2.4.0, or one that could not list
+    processes) reads as none: a device is not taken out of placement on a
+    fact its agent cannot report.
+    """
+    use = item.get("outside_use")
+    if not isinstance(use, dict):
+        return 0, 0
+    return int(use["processes"]), int(use["vram_mb"])
 
 
 def sync_physical_inventory(conn, *, host_id: str, inventory: list[dict]) -> bool:
@@ -106,12 +131,14 @@ def sync_physical_inventory(conn, *, host_id: str, inventory: list[dict]) -> boo
         )
     for item in sorted(inventory, key=lambda record: record["gpu_uuid"]):
         # Reappearing in a complete report clears the missing-device mark;
-        # nothing else writes device health.
+        # nothing else writes device health. Outside use is replaced on every
+        # report; it is not an inventory change, so it bumps no generation
+        # (the reservation re-reads it under the device lock).
         conn.execute(
             """INSERT INTO host_gpu_devices
                 (host_id,gpu_uuid,device_index,pci_bus_id,model,total_vram_mb,allocatable_vram_mb,
-                 health,last_observed_at,inventory_generation)
-            SELECT %s,%s,%s,%s,%s,%s,%s,'unknown',clock_timestamp(),inventory_generation
+                 health,outside_processes,outside_vram_mb,last_observed_at,inventory_generation)
+            SELECT %s,%s,%s,%s,%s,%s,%s,'unknown',%s,%s,clock_timestamp(),inventory_generation
             FROM hosts WHERE host_id=%s
             ON CONFLICT(host_id,gpu_uuid) DO UPDATE SET
                 device_index=EXCLUDED.device_index,pci_bus_id=EXCLUDED.pci_bus_id,
@@ -120,6 +147,8 @@ def sync_physical_inventory(conn, *, host_id: str, inventory: list[dict]) -> boo
                 last_observed_at=EXCLUDED.last_observed_at,retired_at=NULL,
                 health=CASE WHEN host_gpu_devices.health='unhealthy' THEN 'unknown'
                             ELSE host_gpu_devices.health END,
+                outside_processes=EXCLUDED.outside_processes,
+                outside_vram_mb=EXCLUDED.outside_vram_mb,
                 inventory_generation=EXCLUDED.inventory_generation""",
             (
                 host_id,
@@ -129,6 +158,7 @@ def sync_physical_inventory(conn, *, host_id: str, inventory: list[dict]) -> boo
                 item["model"],
                 item["total_vram_mb"],
                 item["total_vram_mb"],
+                *outside_use_counts(item),
                 host_id,
             ),
         )

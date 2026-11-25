@@ -456,7 +456,8 @@ def test_overdue_is_next_check_plus_the_grace():
 
 def test_a_deverified_host_is_asked_again_after_its_cooldown(host_id):
     engine = _engine()
-    v = engine.run_verification(host_id, _report(pcie_bandwidth_gbps=6.25))
+    # 0.9 GB/s: a GPU on a PCIe 3.0 x1 riser.
+    v = engine.run_verification(host_id, _report(pcie_bandwidth_gbps=0.9))
     assert v.state == HostVerificationState.DEVERIFIED
     assert v.next_check_at == pytest.approx(
         v.last_check_at + VERIFICATION_THRESHOLDS["deverify_cooldown_sec"]
@@ -651,3 +652,14 @@ def test_the_legacy_failure_path_no_longer_blames_every_failure_on_the_host():
     source = inspect.getsource(scheduler.update_job_status)
     assert 'record_job_failure(j["host_id"], is_host_fault=is_host_fault)' in source
     assert "record_failed_attempt" in source
+
+
+def test_the_pcie_floor_admits_an_x8_link_and_refuses_a_riser():
+    """An absolute 8 GB/s failed every PCIe 3.0 x8 card (the prod RTX 2060 laptop
+    measured 6.11 GB/s on its Gen3 x8 link); the floor is for riser links."""
+    from verification import check_pcie_bandwidth
+
+    assert check_pcie_bandwidth({"pcie_bandwidth_gbps": 6.11}).status == CHECK_PASS
+    assert check_pcie_bandwidth({"pcie_bandwidth_gbps": 18.3}).status == CHECK_PASS
+    assert check_pcie_bandwidth({"pcie_bandwidth_gbps": 0.85}).status == CHECK_FAIL
+    assert check_pcie_bandwidth({"pcie_bandwidth_gbps": 1.6}).status == CHECK_FAIL

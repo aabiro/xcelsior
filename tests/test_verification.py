@@ -168,10 +168,17 @@ class TestPCIeBandwidth:
         assert r.passed is True
 
     def test_below_threshold_fails(self):
+        # A PCIe 3.0 x2 riser link measures about 1.6 GB/s.
         report = _good_report()
-        report["pcie_bandwidth_gbps"] = 2.0
+        report["pcie_bandwidth_gbps"] = 1.6
         r = check_pcie_bandwidth(report)
         assert r.passed is False
+
+    def test_exactly_the_floor_passes(self):
+        report = _good_report()
+        report["pcie_bandwidth_gbps"] = VERIFICATION_THRESHOLDS["min_pcie_bandwidth_gbps"]
+        r = check_pcie_bandwidth(report)
+        assert r.passed is True
 
 
 class TestThermalStability:

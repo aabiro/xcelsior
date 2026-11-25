@@ -98,7 +98,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `169_receipt_shares.py`.**
+**Repository head: `170_gpu_outside_use.py`.**
+
+170 gives `host_gpu_devices` the GPU's outside use: `outside_processes` and `outside_vram_mb` (INTEGER NOT NULL DEFAULT 0, both checked `>= 0`) count the compute processes on that GPU the agent did not start and the GPU memory they hold, as the agent's last observation reported them (agents before 2.4.0 report none, which reads as 0). Placement counts such a GPU but never offers it. The columns have constant defaults, so adding them rewrites nothing. One idempotent unit through `lock_safe`; downgrade drops both columns. The runtime floor moves to 170.
 
 169 adds `receipt_shares` (one row per finished run whose owner chose to count it on the public workload pages, keyed by `job_id`; `source` is `operator` for a platform admin's run and `customer` otherwise; turning a share off sets `revoked_at`). The pages store nothing of their own: they are computed from the shared runs' receipts. Billing-domain table. One idempotent unit through `lock_safe`; downgrade drops it. The runtime floor moves to 169.
 
