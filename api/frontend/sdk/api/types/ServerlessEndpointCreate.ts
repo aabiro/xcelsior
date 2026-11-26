@@ -3,10 +3,14 @@
 export interface ServerlessEndpointCreate {
     name?: string | undefined;
     mode?: string | undefined;
+    managed_engine?: string | undefined;
     model_name?: string | undefined;
     model_ref?: string | undefined;
     image_ref?: string | undefined;
     docker_image?: string | undefined;
+    source_type?: string | undefined;
+    source_ref?: string | undefined;
+    source_ref_branch?: string | undefined;
     gpu_type?: string | undefined;
     gpu_tier?: string | undefined;
     gpu_count?: number | undefined;
@@ -18,6 +22,8 @@ export interface ServerlessEndpointCreate {
     scaledown_window_sec?: (number | null) | undefined;
     scaling_policy_type?: string | undefined;
     scaling_policy_value?: number | undefined;
+    execution_mode?: string | undefined;
+    queue_timeout_sec?: number | undefined;
     startup_command?: string | undefined;
     http_port?: number | undefined;
     health_check_path?: string | undefined;
@@ -26,4 +32,5 @@ export interface ServerlessEndpointCreate {
     request_timeout_sec?: number | undefined;
     max_request_bytes?: number | undefined;
     env?: Record<string, string> | undefined;
+    lora_adapters?: Record<string, string>[] | undefined;
 }

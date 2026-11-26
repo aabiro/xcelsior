@@ -2,13 +2,11 @@
 
 /**
  * @example
- *     {
- *         job_id: "job_id",
- *         filename: "filename"
- *     }
+ *     {}
  */
 export interface DownloadRequest {
-    job_id: string;
-    filename: string;
+    job_id?: string | null;
+    filename?: string | null;
+    artifact_id?: string | null;
     artifact_type?: string;
 }

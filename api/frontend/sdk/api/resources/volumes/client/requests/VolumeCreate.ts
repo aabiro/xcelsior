@@ -11,4 +11,5 @@ export interface VolumeCreate {
     size_gb?: number;
     region?: string;
     encrypted?: boolean;
+    preview?: boolean;
 }

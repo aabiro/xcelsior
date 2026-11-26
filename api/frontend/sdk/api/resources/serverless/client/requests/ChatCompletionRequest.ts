@@ -9,6 +9,7 @@
  */
 export interface ChatCompletionRequest {
     endpoint_id: string;
+    endpoint_slug?: string;
     model: string;
     messages?: Record<string, unknown>[];
     max_tokens?: number;

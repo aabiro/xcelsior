@@ -10,4 +10,5 @@
 export interface CancelJobServerlessRequest {
     endpoint_id: string;
     job_id: string;
+    endpoint_slug?: string;
 }

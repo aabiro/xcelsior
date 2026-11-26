@@ -11,5 +11,6 @@ import type * as XcelsiorApi from "../../../../index.js";
  */
 export interface RunJobSyncServerlessRequest {
     endpoint_id: string;
+    endpoint_slug?: string;
     body: XcelsiorApi.RunJobRequest;
 }

@@ -9,4 +9,6 @@
 export interface GetWalletHistoryBillingRequest {
     customer_id: string;
     limit?: number;
+    /** `next_cursor` from the previous page */
+    before?: string | null;
 }

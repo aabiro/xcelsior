@@ -1,6 +1,5 @@
 import { createLogger, type LogConfig, type Logger } from "../logging/logger.js";
 import { join } from "../url/join.js";
-import { headersToRecord } from "./Headers.js";
 import { EndpointSupplier } from "./EndpointSupplier.js";
 import { getFetchFn } from "./getFetchFn.js";
 import { makeRequest } from "./makeRequest.js";
@@ -72,7 +71,7 @@ export async function makePassthroughRequest(
         if (init == null) {
             effectiveInit = {
                 method: input.method,
-                headers: headersToRecord(input.headers),
+                headers: Object.fromEntries(input.headers.entries()),
                 body: input.body,
                 signal: input.signal,
                 credentials: input.credentials,
@@ -127,7 +126,7 @@ export async function makePassthroughRequest(
     if (effectiveInit?.headers != null) {
         const initHeaders =
             effectiveInit.headers instanceof Headers
-                ? headersToRecord(effectiveInit.headers)
+                ? Object.fromEntries(effectiveInit.headers.entries())
                 : Array.isArray(effectiveInit.headers)
                   ? Object.fromEntries(effectiveInit.headers)
                   : effectiveInit.headers;

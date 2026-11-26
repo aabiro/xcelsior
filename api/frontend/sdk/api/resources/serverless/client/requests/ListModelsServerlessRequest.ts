@@ -8,4 +8,5 @@
  */
 export interface ListModelsServerlessRequest {
     endpoint_id: string;
+    endpoint_slug?: string;
 }

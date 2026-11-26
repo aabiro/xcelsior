@@ -13,7 +13,7 @@ export type { GetJobStatusServerlessRequest } from "./GetJobStatusServerlessRequ
 export type { ListKeysServerlessRequest } from "./ListKeysServerlessRequest.js";
 export type { ListModelsServerlessRequest } from "./ListModelsServerlessRequest.js";
 export type { RevokeKeyServerlessRequest } from "./RevokeKeyServerlessRequest.js";
-export type { RunJobServerlessRequest } from "./RunJobServerlessRequest.js";
 export type { RunJobSyncServerlessRequest } from "./RunJobSyncServerlessRequest.js";
+export type { RunServerlessRequest } from "./RunServerlessRequest.js";
 export type { ServerlessEndpointPatch } from "./ServerlessEndpointPatch.js";
 export type { StreamJobServerlessRequest } from "./StreamJobServerlessRequest.js";

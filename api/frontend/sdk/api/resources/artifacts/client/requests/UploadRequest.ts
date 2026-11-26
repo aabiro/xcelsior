@@ -12,4 +12,5 @@ export interface UploadRequest {
     filename: string;
     artifact_type?: string;
     storage_policy?: string;
+    retain_days?: number | null;
 }

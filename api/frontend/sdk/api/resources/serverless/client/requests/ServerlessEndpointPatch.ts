@@ -15,6 +15,8 @@ export interface ServerlessEndpointPatch {
     idle_timeout_sec?: number | null;
     scaling_policy_type?: string | null;
     scaling_policy_value?: number | null;
+    execution_mode?: string | null;
+    queue_timeout_sec?: number | null;
     request_timeout_sec?: number | null;
     max_queue_size?: number | null;
     keep_warm?: boolean | null;

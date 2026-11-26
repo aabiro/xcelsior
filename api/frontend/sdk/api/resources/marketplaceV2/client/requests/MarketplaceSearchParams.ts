@@ -9,6 +9,9 @@ export interface MarketplaceSearchParams {
     min_vram_gb?: number;
     max_price_cents?: number;
     region?: string;
+    spot_available?: boolean;
+    min_reputation?: number | null;
+    verified_only?: boolean;
     sort_by?: string;
     limit?: number;
 }
