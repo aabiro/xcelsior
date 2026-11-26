@@ -1,0 +1,46 @@
+name: Bug report
+description: Something in Xcelsior does not work the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, tokens, passwords or private keys. Security problems go through SECURITY.md, not here.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Website or dashboard
+        - API
+        - MCP connector or @xcelsior-gpu/mcp
+        - SDK or CLI
+        - Worker agent or installer
+        - Setup wizard (@xcelsior-gpu/wizard)
+        - Desktop app
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The package, app or worker agent version, if it applies.
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: Steps to reproduce, as exact as you can make them.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+  - type: input
+    id: request_id
+    attributes:
+      label: Request or instance ID
+      description: An `X-Request-ID`, instance ID or job ID helps us find it in our logs.

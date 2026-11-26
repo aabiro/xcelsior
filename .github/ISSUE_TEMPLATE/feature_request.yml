@@ -1,0 +1,45 @@
+name: Feature request
+description: Ask for something Xcelsior does not do yet. Requests go on the public roadmap.
+title: "[Request] "
+labels: ["roadmap", "status: under review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us what you are trying to get done, not only the feature you have in mind.
+        The problem is what we prioritise; there may be a better way to solve it.
+        Add a thumbs-up reaction to an existing request rather than opening a duplicate.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - GPU instances
+        - Serverless inference
+        - Volumes and snapshots
+        - Billing and wallet
+        - Hosting a GPU (providers)
+        - MCP and AI agents
+        - API, SDK and CLI
+        - Dashboard
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: story
+    attributes:
+      label: What do you want to do, and why?
+      description: One or two sentences in the form "As a …, I want …, so that …".
+      placeholder: As a researcher training on spot GPUs, I want my instance to stop itself after N hours, so that a forgotten run cannot drain my wallet.
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: How do you handle it today?
+      description: Your current workaround, if any, and what it costs you.
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Links, examples from other platforms, sizes or volumes that matter.

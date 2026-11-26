@@ -64,3 +64,44 @@ bash scripts/deploy.sh --quick   # VPS only (api/frontend/nginx)
 
 Worker agents on GPU hosts update themselves via the admin rollout endpoint
 (`POST /api/admin/agent/rollout`) — no manual scp needed.
+
+## Releasing
+
+Each shipped component has its own version and its own tag prefix:
+
+| Component | Version lives in | Tag |
+|---|---|---|
+| Platform (API, website, Python package) | `pyproject.toml` | `v2.3.0` |
+| Worker agent | `VERSION` in `workers/worker_agent.py` | `agent-v2.4.1` |
+| MCP server | `api/mcp/package.json` | `mcp-server-v4.0.0` |
+| `@xcelsior-gpu/mcp` (npm) | `api/mcp-cli/package.json` | `mcp-v0.2.0` |
+| `@xcelsior-gpu/wizard` (npm) | `api/wizard/package.json` | `wizard-v0.1.11` |
+| Desktop app | `api/desktop/package.json` | `desktop-v0.1.0` |
+
+`api/scripts/release.py` does the rest, locally:
+
+```bash
+python3 api/scripts/release.py status          # versions, tags, unreleased commits
+python3 api/scripts/release.py notes wizard    # notes since the last wizard tag
+python3 api/scripts/release.py tag wizard      # tag HEAD (clean, pushed main only)
+python3 api/scripts/release.py pack wizard     # tarball, SBOM, SHA256SUMS, signature
+python3 api/scripts/release.py verify dist/release/wizard-v0.1.11
+```
+
+Tag a release when it ships: when the package is published, the agent is
+rolled out or the platform is deployed. Notes come from conventional commit
+subjects (`feat`, `fix`, `perf`, and anything marked breaking), so write the
+subject as the sentence a user should read.
+
+`pack` signs `SHA256SUMS` with the release key from `release.py keygen` (kept
+outside the repository; its public half is `api/scripts/release-signing.pub`).
+Anyone can check a download with:
+
+```bash
+openssl pkeyutl -verify -pubin -inkey release-signing.pub -rawin -in SHA256SUMS -sigfile SHA256SUMS.sig
+sha256sum -c SHA256SUMS
+```
+
+The worker agent's files are signed separately by `sign-static-agent.py`, with
+the key the fleet trusts for self-updates. The release key never signs agent
+code.

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/aabiro/xcelsior/blob/main/SECURITY.md
+    about: Security problems are reported privately, never in a public issue. This page says how.
+  - name: Account, billing or instance help
+    url: https://xcelsior.ca/support
+    about: For anything about your own account, payments or a running instance, contact support.
