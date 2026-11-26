@@ -6399,6 +6399,7 @@ def run_job(job):
             memory_share=_memory_share(num_gpus),
             disk_quota_gb=container_disk_quota_gb(is_interactive),
         )
+        docker_args = _gpu_request_via_cdi(docker_args, authority.get("gpu_device_uuids"))
 
         # 4. Start container — remove stale container with same name (e.g. requeue)
         current_stage = "starting container"
@@ -8235,6 +8236,59 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
             )
         except Exception as e:
             log.debug("ssh-status report failed for job %s: %s", job_id, e)
+
+
+def _cdi_offers_gpus(uuids) -> bool:
+    """True when Docker on this host can inject every one of these GPUs by CDI.
+
+    An instance whose GPU came through the --gpus hook lost it at the host's
+    next `systemctl daemon-reload` ("Failed to initialize NVML: Unknown
+    Error"); one whose GPU came through CDI keeps it. Docker lists the CDI
+    devices it can resolve (`nvidia.com/gpu=<UUID>`, from the spec the NVIDIA
+    Container Toolkit writes). Anything short of all of them, or no answer,
+    keeps the --gpus path. XCELSIOR_GPU_CDI=0 turns it off.
+    """
+    if os.environ.get("XCELSIOR_GPU_CDI", "").strip() == "0":
+        return False
+    if not isinstance(uuids, (list, tuple)) or not uuids:
+        return False
+    try:
+        out = subprocess.run(
+            ["docker", "info", "--format", "{{json .DiscoveredDevices}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        listed = json.loads(out.stdout or "null") or []
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    if not isinstance(listed, list):
+        return False
+    ids = {str(d.get("ID", "")) for d in listed if isinstance(d, dict) and d.get("Source") == "cdi"}
+    return all(f"nvidia.com/gpu={u}" in ids for u in uuids)
+
+
+def _gpu_request_via_cdi(docker_args: list[str], uuids) -> list[str]:
+    """Ask for the reserved GPUs by CDI instead of --gpus, where the host can.
+
+    ``security.build_secure_docker_args`` writes ``--gpus "device=<UUIDs>"``.
+    upgrade_agent does not refresh security.py on a host, so the swap happens
+    here: for a runc container (no ``--runtime``; gVisor keeps its own GPU
+    path) whose GPUs Docker can all inject by CDI, that pair becomes one
+    ``--device nvidia.com/gpu=<UUID>`` per GPU. The same GPUs, the same
+    NVIDIA_VISIBLE_DEVICES; only how the device nodes get in changes.
+    """
+    if "--runtime" in docker_args or "--gpus" not in docker_args:
+        return docker_args
+    if not isinstance(uuids, (list, tuple)) or not uuids:
+        return docker_args
+    at = docker_args.index("--gpus")
+    if at + 1 >= len(docker_args) or docker_args[at + 1] != f'"device={",".join(uuids)}"':
+        return docker_args
+    if not _cdi_offers_gpus(uuids):
+        return docker_args
+    cdi = [part for uuid in uuids for part in ("--device", f"nvidia.com/gpu={uuid}")]
+    return docker_args[:at] + cdi + docker_args[at + 2 :]
 
 
 def _shell_quote(s: str) -> str:
