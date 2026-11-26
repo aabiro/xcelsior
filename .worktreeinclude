@@ -1,0 +1,11 @@
+# Gitignored files Claude Code copies into every new worktree (gitignore syntax).
+# Without them a fresh worktree cannot run the test suite.
+#
+# The suite runs on .env.test only; tests/conftest.py exits when it is missing.
+# Never list .env here: it holds live credentials and the tests never load it.
+.env.test
+# Scrubbed from the repo in the 2026-11-11 history rewrite, but host_metadata and
+# tests/conftest.py still read it, so a checkout without it fails with
+# KeyError 'service_tier_catalog'.
+billing/stripe_catalog.json
+billing/stripe_dashboard.json
