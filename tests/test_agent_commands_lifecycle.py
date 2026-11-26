@@ -92,6 +92,30 @@ def test_stop_container_runs_docker_stop_then_rm(monkeypatch):
     assert ["docker", "rm", "-f", "xcl-aaa"] in calls
 
 
+def test_stop_container_keeps_the_container_when_told_not_to_remove(monkeypatch):
+    """An owner stopped the instance: stop it, keep it for a later start."""
+    cmds = [
+        {
+            "id": 102,
+            "command": "stop_container",
+            "args": {"container_name": "xcl-bbb-att00001", "remove": False},
+            "created_by": "reconciler",
+        }
+    ]
+    monkeypatch.setattr(worker_agent, "requests", SimpleNamespace(RequestException=Exception))
+    calls: list[list[str]] = []
+
+    def _fake_run(argv, *a, **kw):
+        calls.append(list(argv))
+        return _ok()
+
+    monkeypatch.setattr(worker_agent.subprocess, "run", _fake_run)
+
+    assert worker_agent._dispatch_agent_commands(cmds) == 1
+    assert ["docker", "stop", "-t", "30", "xcl-bbb-att00001"] in calls
+    assert not any(argv[:2] == ["docker", "rm"] for argv in calls)
+
+
 def test_stop_container_absent_is_acknowledged_without_stop_rm(monkeypatch):
     cmds = [
         {

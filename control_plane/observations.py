@@ -308,7 +308,8 @@ def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
     """The newest snapshot header for a host, with its workloads."""
     row = conn.execute(
         """
-        SELECT o.observation_id, o.session_id, o.inventory_generation, o.received_at
+        SELECT o.observation_id, o.session_id, o.inventory_generation, o.received_at,
+               o.agent_version
           FROM host_observations o
           JOIN host_observation_sessions s ON s.host_id=o.host_id AND s.session_id=o.session_id
               AND s.latest_observation_id=o.observation_id
@@ -349,6 +350,7 @@ def latest_observation(conn: Connection, host_id: str) -> dict[str, Any] | None:
         "session_id": str(_get(row, "session_id", 1)),
         "observation_generation": int(_get(row, "inventory_generation", 2)),
         "received_at": _get(row, "received_at", 3),
+        "agent_version": _get(row, "agent_version", 4),
         "workloads": workloads,
     }
 

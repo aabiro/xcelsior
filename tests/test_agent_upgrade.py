@@ -97,12 +97,12 @@ def test_upgrade_agent_skip_when_already_at_target(fake_agent_file, monkeypatch)
     target_sha = "a" * 64
     monkeypatch.setattr(worker_agent, "_self_sha256", lambda: target_sha)
     # And min_version <= our VERSION
-    assert worker_agent.VERSION == "2.4.1"
+    assert worker_agent.VERSION == "2.4.2"
     ok = worker_agent._handle_upgrade_agent(
         {
             "url": "https://x/",
             "sha256": target_sha,
-            "min_version": "2.0.0",  # we're at 2.4.1
+            "min_version": "2.0.0",  # we're at 2.4.2
         }
     )
     # Returned True (skipped cleanly) and didn't download anything.
@@ -116,15 +116,27 @@ def test_self_sha256_matches_disk():
     assert worker_agent._self_sha256() == expected
 
 
-def test_version_bumped_to_2_4_1():
-    """Lock: the agent whose instance shells fit a phone (2026-11-26) ships as v2.4.1.
+def test_version_bumped_to_2_4_2():
+    """Lock: the agent that can keep a container it stops (2026-11-26) ships as v2.4.2.
 
     2.3.0 sent GPU identity and allocatable VRAM (Phase 0, 2026-11-22). 2.4.0
     added each GPU's outside use to the observation (2026-11-25). 2.4.1 writes a
-    banner that fits a phone's terminal and names the GPU device groups, so the
-    fleet view can tell which hosts' instances have both.
+    banner that fits a phone's terminal and names the GPU device groups. 2.4.2
+    counts a job container as its own only while it holds that attempt's
+    authority, and honours stop_container remove=false; the reconciler sends a
+    stop that must keep a container only to 2.4.2 or later, so this number is
+    load-bearing (control_plane/reconcile.py _PRESERVING_STOP_AGENT_VERSION).
     """
-    assert worker_agent.VERSION == "2.4.1"
+    assert worker_agent.VERSION == "2.4.2"
+
+
+def test_the_reconciler_keeps_containers_only_on_agents_that_can():
+    """The reconciler's minimum is a version that implements remove=false."""
+    from control_plane.reconcile import _PRESERVING_STOP_AGENT_VERSION
+
+    agent = tuple(int(part) for part in worker_agent.VERSION.split("."))
+    assert agent >= _PRESERVING_STOP_AGENT_VERSION
+    assert _PRESERVING_STOP_AGENT_VERSION == (2, 4, 2)
 
 
 def test_upgrade_agent_refuses_http_url(fake_agent_file):

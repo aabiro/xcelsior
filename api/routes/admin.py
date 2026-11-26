@@ -1797,10 +1797,13 @@ def api_admin_reconciler_enforce(finding_id: str, request: Request):
     from db import _get_pg_pool
     from psycopg.types.json import Jsonb
     from psycopg.rows import dict_row
+    from control_plane.observations import latest_observation
     from control_plane.reconcile import (
+        _PRESERVING_STOP_AGENT_VERSION,
         _enqueue_stop_container,
         _expedite_lease_expiry,
         _release_orphaned_allocations,
+        _version_tuple,
     )
 
     pool = _get_pg_pool()
@@ -1846,6 +1849,37 @@ def api_admin_reconciler_enforce(finding_id: str, request: Request):
                 host_id=resource_id,
                 container_name=str(container_name),
                 reason="Manually enforced remediation for stale fence container",
+            )
+
+        elif finding_type == "terminal_attempt_container":
+            # Stop a container that outlived its attempt; keep it after a user stop.
+            container_name = observed.get("container_name")
+            host_id = desired.get("host_id")
+            if not container_name or not host_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not identify the container and host for enforcement",
+                )
+            keep = bool(desired.get("keep"))
+            if keep:
+                latest = latest_observation(conn, str(host_id)) or {}
+                agent = _version_tuple(latest.get("agent_version"))
+                if agent is None or agent < _PRESERVING_STOP_AGENT_VERSION:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "The owner stopped this instance, so its container must be kept, "
+                            f"and agent {latest.get('agent_version') or 'unknown'} on {host_id} "
+                            "always removes. Upgrade the agent first."
+                        ),
+                    )
+            action_taken = "stop_container"
+            action_result = _enqueue_stop_container(
+                conn,
+                host_id=str(host_id),
+                container_name=str(container_name),
+                reason="Manually enforced remediation for a container that outlived its attempt",
+                remove=not keep,
             )
 
         elif finding_type == "orphaned_allocation":

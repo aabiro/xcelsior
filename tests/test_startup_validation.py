@@ -79,6 +79,13 @@ def test_job_repair_policy_is_validated(clean_env, mode, suffix, code):
 
 
 @pytest.mark.parametrize("mode", ["report_only", "enforce", "typo"])
+@pytest.mark.parametrize("suffix", ["STALE_FENCE_CONTAINER", "TERMINAL_ATTEMPT_CONTAINER"])
+def test_container_repair_policy_is_validated(clean_env, mode, suffix):
+    clean_env.setenv(f"XCELSIOR_RECONCILE_ACTION_{suffix}", mode)
+    assert ("container_repair_policy" in _codes(sv.collect_findings())) is (mode == "typo")
+
+
+@pytest.mark.parametrize("mode", ["report_only", "enforce", "typo"])
 @pytest.mark.parametrize("suffix", ["ACTIVE_METER_MISSING", "MISSING_METER", "ORPHANED_METER"])
 def test_billing_meter_repair_policy_is_validated(clean_env, mode, suffix):
     clean_env.setenv(f"XCELSIOR_RECONCILE_ACTION_BILLING_{suffix}", mode)

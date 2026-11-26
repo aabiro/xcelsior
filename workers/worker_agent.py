@@ -173,7 +173,10 @@ PREFER_GVISOR = os.environ.get("XCELSIOR_PREFER_GVISOR", "true").lower() in ("1"
 #: 2.4.1: an instance's welcome banner fits a phone-width terminal, and the GPU
 #: device groups a container is given get names (no more "groups: cannot find
 #: name for group ID 992" in every shell).
-VERSION = "2.4.1"
+#: 2.4.2: a job container counts as the agent's own only while it holds that
+#: attempt's authority (anything else on a GPU is outside use), and
+#: stop_container with remove=false stops a container and keeps it.
+VERSION = "2.4.2"
 _HOST_SSH_USER_RE = re.compile(r"\A[A-Za-z0-9_.-]{1,64}\Z")
 
 
@@ -2175,6 +2178,12 @@ def _dispatch_agent_commands(commands: list) -> int:
                         log.warning(
                             "stop_container cmd=%s stop failed; retaining container", cmd_id
                         )
+                        continue
+                    if args.get("remove") is False:
+                        # The owner stopped this instance: keep the container.
+                        log.info("stop_container cmd=%s container=%s stopped, kept", cmd_id, cname)
+                        _active_containers.pop(_job_id, None)
+                        dispatched += 1
                         continue
                     removed = subprocess.run(
                         ["docker", "rm", "-f", cname],
@@ -4560,9 +4569,7 @@ def _collect_local_workloads() -> list[dict]:
 
 # ── GPU use outside Xcelsior ─────────────────────────────────────────
 
-#: The containers this agent runs: job containers are named ``xcl-*`` and the
-#: benchmark container carries this label (see run_compute_benchmark).
-_OWN_CONTAINER_PREFIX = "xcl-"
+#: The benchmark container carries this label (see run_compute_benchmark).
 _BENCH_CONTAINER_LABEL = "ai.xcelsior.benchmark"
 #: A Docker container's id in /proc/<pid>/cgroup, for both cgroup drivers:
 #: ``/system.slice/docker-<id>.scope`` (systemd) and ``/docker/<id>`` (cgroupfs).
@@ -4570,7 +4577,21 @@ _CONTAINER_ID_IN_CGROUP = re.compile(r"docker[-/]([0-9a-f]{64})")
 
 
 def _own_container_ids() -> set[str] | None:
-    """Full ids of the running containers this agent started; None when Docker cannot say."""
+    """Full ids of the running containers this agent holds authority for.
+
+    That is the benchmark container, and a job container whose attempt the
+    agent tracks (including one restored from the journal and awaiting
+    adoption), whose start is in progress, or that the v1 path runs. Any
+    other ``xcl-*`` container (one that outlived its attempt, from a lost
+    journal or a crash Docker restarted) is not the agent's: what it runs on
+    a GPU is outside use. None when Docker cannot say.
+    """
+    with _v2_attempts_lock:
+        attempts = {
+            str(auth.get("attempt_id")) for auth in _v2_attempts.values() if auth.get("attempt_id")
+        }
+        starting = {str(job_id) for job_id in _v2_starts_in_progress if job_id}
+    names = {str(name) for name in _active_containers.values() if name}
     try:
         ps = subprocess.run(
             [
@@ -4578,7 +4599,9 @@ def _own_container_ids() -> set[str] | None:
                 "ps",
                 "--no-trunc",
                 "--format",
-                '{{.ID}}\t{{.Names}}\t{{.Label "' + _BENCH_CONTAINER_LABEL + '"}}',
+                '{{.ID}}\t{{.Names}}\t{{.Label "' + _BENCH_CONTAINER_LABEL + '"}}\t'
+                '{{.Label "ai.xcelsior.attempt_id"}}\t{{.Label "xcelsior.attempt_id"}}\t'
+                '{{.Label "ai.xcelsior.job_id"}}\t{{.Label "xcelsior.job_id"}}',
             ],
             capture_output=True,
             text=True,
@@ -4590,10 +4613,16 @@ def _own_container_ids() -> set[str] | None:
         return None
     own = set()
     for line in ps.stdout.splitlines():
-        cid, _, rest = line.partition("\t")
-        name, _, bench = rest.partition("\t")
-        if name.startswith(_OWN_CONTAINER_PREFIX) or bench.strip() == "true":
-            own.add(cid.strip())
+        fields = [field.strip() for field in line.split("\t")]
+        fields += [""] * (7 - len(fields))
+        cid, name, bench, attempt, legacy_attempt, job, legacy_job = fields[:7]
+        if (
+            bench == "true"
+            or name in names
+            or (attempt or legacy_attempt) in attempts
+            or (job or legacy_job) in starting
+        ):
+            own.add(cid)
     return own
 
 

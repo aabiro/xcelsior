@@ -96,6 +96,37 @@ first because the application requires its declared schema floor. Downgrading
 `123` removes only the runtime triggers/functions, retaining requests and the
 job-change trigger from `122`; deploy the preceding application first.
 
+## Containers that outlived their attempt
+
+`XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER=report_only` is the default.
+The setting reaches the scheduler and the API (manual enforcement); startup
+validation and the deploy preflight reject misspellings, as they now do for
+`XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER`.
+
+The stale-fence check compares a live container with its job's current
+authority on the same host. A job with no authority on that host (finished,
+failed, or moved elsewhere) had nothing to compare with, so a container that
+outlived its attempt was never reported. That happens when the worker misses
+its fence-loss kill, restarts without its journal, or the host crashes and
+Docker's restart policy starts the container again. On 2026-11-26 the ASUS
+host had three such containers from two jobs that failed on 11-13 and 11-14,
+two of them attempts of one job, all with the GPU attached and SSH ports open.
+
+`terminal_attempt_container` (error, one finding per attempt) is opened when
+a container is live in an observation received at least 10 minutes after its
+own attempt on that host ended (`ended_at`; an attempt without one is never
+flagged). With enforcement on, the durable `stop_container` command is
+enqueued once. A finding first recorded in report-only mode is acted on when
+the flag is turned on. When the job's recorded intent is `stop`, the
+container is stopped and kept (`remove: false`). Agents before 2.4.2 always
+remove, so that stop is not sent to them: the finding stays `report_only`
+with `agent_cannot_keep_container` until the agent is upgraded. Every other
+case stops and removes, which is what the worker's own fence-loss kill does.
+
+An administrator can enforce one finding by hand
+(`POST /api/admin/reconciler/findings/{id}/enforce`) while the flag is
+report-only. It refuses a stop that must keep the container on an older agent.
+
 ## Active-meter repair and settlement
 
 The `billing_meter_reconcile` maintenance task runs every 300 seconds under its

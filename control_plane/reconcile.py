@@ -30,6 +30,7 @@ from __future__ import annotations
 import enum
 import logging
 import os
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -55,6 +56,16 @@ _TERMINAL_ATTEMPT_STATUSES = (
 # Stale-fence stop command lives long enough to survive a worker restart
 # cycle; the worker GCs expired admin commands on drain.
 _STOP_COMMAND_EXPIRY_SEC = 3600
+
+# A container still live this long after its own attempt ended has outlived
+# its authority. The worker's own stop is a 30 s `docker stop`, reported in
+# the next observation (60 s), so ten minutes is far past any honest race.
+_TERMINAL_CONTAINER_GRACE_SEC = 600.0
+
+# Agents from this version honour `stop_container` with `remove: false`
+# (stop, keep the container). Older agents always remove, so a stop that
+# must keep a container is never sent to them.
+_PRESERVING_STOP_AGENT_VERSION = (2, 4, 2)
 
 # When the missing-container action expedites a lease's expiry, it stamps
 # expires_at this far into the past so the very next expire_stale_leases
@@ -94,9 +105,16 @@ class ActionPolicy(str, enum.Enum):
 # - `billing_orphaned_meter`: a usage_meter left open after its attempt is
 #   terminal. Remediation idempotently closes the meter using the attempt's
 #   terminal timestamps and calculates duration and micro-CAD cost.
+# - `terminal_attempt_container`: a container still live well after its own
+#   attempt on this host ended, while its job has no authority here. Nothing
+#   else compares such a container with anything, so before this check it
+#   ran unbilled, held the GPU and kept its SSH port open indefinitely.
+#   Remediation is the same durable stop_container; it keeps the container
+#   when the job's recorded intent is a user stop.
 _ENFORCEABLE: frozenset[str] = frozenset(
     {
         "stale_fence_container",
+        "terminal_attempt_container",
         "attempt_container_missing",
         "orphaned_allocation",
         "billing_active_meter_missing",
@@ -189,7 +207,12 @@ def _open_finding(
 
 
 def _enqueue_stop_container(
-    conn: Connection, *, host_id: str, container_name: str, reason: str
+    conn: Connection,
+    *,
+    host_id: str,
+    container_name: str,
+    reason: str,
+    remove: bool = True,
 ) -> dict[str, Any]:
     """Durable stop_container command by name (idempotent per container).
 
@@ -197,7 +220,8 @@ def _enqueue_stop_container(
     atomic with recording the action. A stale-fence container's fence is
     not current, so the fenced /agent/v2 path would reject it — this
     admin-level command (attempt_id NULL) is delivered by the worker's v1
-    drain, which already knows stop_container.
+    drain, which already knows stop_container. ``remove=False`` asks the
+    worker to stop the container and keep it (agents from 2.4.2).
     """
     row = conn.execute(
         """
@@ -213,7 +237,7 @@ def _enqueue_stop_container(
         """,
         (
             host_id,
-            Jsonb({"container_name": container_name, "reason": reason}),
+            Jsonb({"container_name": container_name, "reason": reason, "remove": remove}),
             _STOP_COMMAND_EXPIRY_SEC,
             f"reconcile_stop:{host_id}:{container_name}",
         ),
@@ -224,7 +248,156 @@ def _enqueue_stop_container(
         "container_name": container_name,
         "enqueued": enqueued,
         "reason": reason,
+        "remove": remove,
     }
+
+
+def _version_tuple(version: Any) -> tuple[int, ...] | None:
+    """``"2.4.2"`` → ``(2, 4, 2)``; anything else (missing, ``"dev"``) → None."""
+    try:
+        parts = tuple(int(part) for part in str(version or "").strip().split("."))
+    except ValueError:
+        return None
+    return parts or None
+
+
+def _open_finding_action(
+    conn: Connection, *, resource_type: str, resource_id: str, finding_type: str
+) -> tuple[str, str | None] | None:
+    """The open finding's id and recorded action, or None when none is open."""
+    row = conn.execute(
+        """
+        SELECT finding_id, action_taken FROM reconciliation_findings
+         WHERE resource_type = %s AND resource_id = %s
+           AND finding_type = %s AND resolved_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT 1
+        """,
+        (resource_type, resource_id, finding_type),
+    ).fetchone()
+    if row is None:
+        return None
+    return str(_get(row, "finding_id", 0)), _get(row, "action_taken", 1)
+
+
+def _reconcile_terminal_attempt_container(
+    conn: Connection,
+    *,
+    host_id: str,
+    observation: dict[str, Any],
+    workload: dict[str, Any],
+    still_open: set[tuple[str, str, str]],
+    opened: list[str],
+    actions: list[str],
+) -> None:
+    """A live container whose own attempt on this host ended long ago.
+
+    Its job has no runtime authority on this host (finished, failed, or moved
+    elsewhere), so the stale-fence comparison has nothing to compare it with.
+    Such a container outlived a missed fence-loss kill, a worker restart that
+    lost its journal, or a host crash after which Docker's restart policy
+    started it again. It runs unbilled, holds the GPU and keeps its SSH port
+    open until something stops it.
+
+    The finding is per attempt. With enforcement on, the stop is enqueued
+    once; a finding first recorded in report-only mode is acted on when
+    enforcement is turned on. A container whose job was stopped by its owner
+    is stopped and kept, never removed, and only by an agent that can do that.
+    """
+    try:
+        attempt_id = str(uuid.UUID(str(workload.get("attempt_id"))))
+    except (TypeError, ValueError):
+        return
+    row = conn.execute(
+        """
+        SELECT a.status, j.lifecycle_intent,
+               EXTRACT(EPOCH FROM (%(obs_at)s::timestamptz - a.ended_at))::float8
+                   AS ended_ago
+          FROM job_attempts a
+          JOIN jobs j ON j.job_id = a.job_id
+         WHERE a.attempt_id = %(attempt)s::uuid
+           AND a.job_id = %(job)s
+           AND a.host_id = %(host)s
+           AND a.status = ANY(%(terminal)s)
+           AND a.ended_at IS NOT NULL
+        """,
+        {
+            "attempt": attempt_id,
+            "job": str(workload.get("job_id")),
+            "host": host_id,
+            "obs_at": observation["received_at"],
+            "terminal": list(_TERMINAL_ATTEMPT_STATUSES),
+        },
+    ).fetchone()
+    if row is None:
+        return
+    status = str(_get(row, "status", 0))
+    keep = _get(row, "lifecycle_intent", 1) == "stop"
+    ended_ago = float(_get(row, "ended_ago", 2) or 0.0)
+    if ended_ago < _TERMINAL_CONTAINER_GRACE_SEC:
+        return  # the worker's own stop may still be in flight
+    container_name = workload.get("container_name")
+    key = ("attempt", attempt_id, "terminal_attempt_container")
+    still_open.add(key)
+    finding_id = _open_finding(
+        conn,
+        resource_type="attempt",
+        resource_id=attempt_id,
+        finding_type="terminal_attempt_container",
+        severity="error",
+        summary=(
+            f"container {container_name} on {host_id} is still {workload.get('state')} "
+            f"{int(ended_ago // 60)} min after its attempt {attempt_id[:8]} ended "
+            f"({status}); job {workload.get('job_id')} has no authority on this host"
+        ),
+        desired={
+            "host_id": host_id,
+            "job_id": workload.get("job_id"),
+            "attempt_status": status,
+            "keep": keep,
+        },
+        observed=workload,
+    )
+    if finding_id is not None:
+        opened.append("terminal_attempt_container")
+    else:
+        existing = _open_finding_action(
+            conn,
+            resource_type="attempt",
+            resource_id=attempt_id,
+            finding_type="terminal_attempt_container",
+        )
+        if existing is None or existing[1] != "report_only":
+            return  # already acted on
+        finding_id = existing[0]
+    if not container_name or (
+        action_policy_for("terminal_attempt_container") is not ActionPolicy.ENFORCE
+    ):
+        return
+    agent = _version_tuple(observation.get("agent_version"))
+    if keep and (agent is None or agent < _PRESERVING_STOP_AGENT_VERSION):
+        # Stays report_only, so the stop is sent once the agent can keep it.
+        _record_action(
+            conn,
+            finding_id,
+            "report_only",
+            {
+                "action": "stop_container",
+                "enqueued": False,
+                "reason": "agent_cannot_keep_container",
+                "agent_version": observation.get("agent_version"),
+            },
+        )
+        return
+    result = _enqueue_stop_container(
+        conn,
+        host_id=host_id,
+        container_name=str(container_name),
+        reason=f"attempt {attempt_id[:8]} of job {workload.get('job_id')} ended ({status})",
+        remove=not keep,
+    )
+    _record_action(conn, finding_id, "stop_container", result)
+    actions.append("terminal_attempt_container")
 
 
 def _expedite_lease_expiry(conn: Connection, *, attempt_id: str) -> dict[str, Any]:
@@ -339,6 +512,7 @@ def _record_action(
 _HOST_FINDING_TYPES: tuple[str, ...] = (
     "attempt_container_missing",
     "stale_fence_container",
+    "terminal_attempt_container",
     "unmanaged_workload",
     "orphaned_allocation",
 )
@@ -474,7 +648,18 @@ def reconcile_host(
         fence = w.get("fencing_token")
         if job_id and fence is not None:
             current = current_fence_by_job.get(str(job_id))
-            if current is not None and int(fence) != current:
+            if current is None:
+                # No authority for this job on this host at all.
+                _reconcile_terminal_attempt_container(
+                    conn,
+                    host_id=host_id,
+                    observation=observation,
+                    workload=w,
+                    still_open=still_open,
+                    opened=opened,
+                    actions=actions,
+                )
+            elif int(fence) != current:
                 key = ("host", host_id, "stale_fence_container")
                 still_open.add(key)
                 finding_id = _open_finding(

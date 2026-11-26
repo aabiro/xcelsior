@@ -48,6 +48,11 @@ def fleet():
         return
     with _pool.connection() as conn:
         for jid in ids["jobs"]:
+            conn.execute(
+                "DELETE FROM reconciliation_findings WHERE resource_type='attempt' "
+                "AND resource_id IN (SELECT attempt_id::text FROM job_attempts WHERE job_id=%s)",
+                (jid,),
+            )
             conn.execute("DELETE FROM outbox_events WHERE aggregate_id=%s", (jid,))
             conn.execute("DELETE FROM agent_commands WHERE job_id=%s", (jid,))
             conn.execute("DELETE FROM jobs WHERE job_id=%s", (jid,))
@@ -573,6 +578,206 @@ class TestReconcileActions:
                     (attempt_id,),
                 ).fetchone()
             )
+
+
+class TestTerminalAttemptContainer:
+    """A container still live long after its own attempt ended, with no authority left."""
+
+    def _end_attempt(self, job_id, resv, *, status="failed", minutes_ago=15, intent=None):
+        with _pool.connection() as conn:
+            conn.execute(
+                "UPDATE job_attempts SET status=%s, "
+                "ended_at=clock_timestamp() - make_interval(mins => %s) WHERE attempt_id=%s",
+                (status, minutes_ago, resv.attempt_id),
+            )
+            conn.execute(
+                "UPDATE jobs SET status=%s, lifecycle_intent=%s WHERE job_id=%s",
+                ("stopped" if intent == "stop" else "failed", intent, job_id),
+            )
+            conn.commit()
+
+    def _observe(self, host_id, job_id, resv, session, *, agent_version="2.4.1", gen=1):
+        container = f"xcl-{job_id}-{str(resv.attempt_id)[:8]}"
+        run_transaction(
+            lambda c: ingest_observation(
+                c,
+                host_id=host_id,
+                session_id=session,
+                observation_generation=gen,
+                workloads=[
+                    {
+                        "job_id": job_id,
+                        "attempt_id": str(resv.attempt_id),
+                        "fencing_token": resv.fencing_token,
+                        "container_name": container,
+                        "state": "running",
+                    }
+                ],
+                agent_version=agent_version,
+                worker_reported_at=time.time(),
+            ),
+            what="test_ingest",
+        )
+        return container
+
+    def _reconcile(self, host_id):
+        return run_transaction(
+            lambda c: reconcile_host(c, host_id, missing_grace_sec=3600), what="t"
+        )
+
+    def _finding(self, attempt_id):
+        with _pool.connection() as conn:
+            row = conn.execute(
+                "SELECT severity, action_taken, action_result, desired FROM reconciliation_findings "
+                "WHERE resource_type='attempt' AND resource_id=%s "
+                "AND finding_type='terminal_attempt_container' AND resolved_at IS NULL",
+                (str(attempt_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return (
+            dict(row)
+            if isinstance(row, dict)
+            else dict(zip(("severity", "action_taken", "action_result", "desired"), row))
+        )
+
+    def test_a_container_that_outlived_its_failed_attempt_is_reported(self, fleet, monkeypatch):
+        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER", raising=False)
+        job_id, host_id, resv = _place(fleet, uuid.uuid4().hex[:8])
+        self._end_attempt(job_id, resv)
+        self._observe(host_id, job_id, resv, "sess-tac")
+        report = self._reconcile(host_id)
+        assert "terminal_attempt_container" in report.findings_opened
+        finding = self._finding(resv.attempt_id)
+        assert finding["severity"] == "error"
+        assert finding["action_taken"] == "report_only"
+        assert finding["desired"]["host_id"] == host_id
+        assert report.actions_taken == []
+        assert _stop_commands(host_id) == []
+
+    def test_a_container_the_worker_is_still_stopping_is_left_alone(self, fleet, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER", "enforce")
+        job_id, host_id, resv = _place(fleet, uuid.uuid4().hex[:8])
+        self._end_attempt(job_id, resv, minutes_ago=2)
+        self._observe(host_id, job_id, resv, "sess-tac-grace")
+        report = self._reconcile(host_id)
+        assert "terminal_attempt_container" not in report.findings_opened
+        assert self._finding(resv.attempt_id) is None
+        assert _stop_commands(host_id) == []
+
+    def test_enforce_stops_and_removes_it_once(self, fleet, monkeypatch):
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER", "enforce")
+        job_id, host_id, resv = _place(fleet, uuid.uuid4().hex[:8])
+        self._end_attempt(job_id, resv)
+        container = self._observe(host_id, job_id, resv, "sess-tac-en")
+        report = self._reconcile(host_id)
+        assert report.actions_taken == ["terminal_attempt_container"]
+        commands = _stop_commands(host_id)
+        assert len(commands) == 1
+        args, status = commands[0]
+        assert args["container_name"] == container
+        assert args["remove"] is True
+        assert status == "pending"
+        assert self._finding(resv.attempt_id)["action_taken"] == "stop_container"
+        self._reconcile(host_id)
+        assert len(_stop_commands(host_id)) == 1
+
+    def test_turning_enforcement_on_acts_on_a_finding_from_report_only(self, fleet, monkeypatch):
+        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER", raising=False)
+        job_id, host_id, resv = _place(fleet, uuid.uuid4().hex[:8])
+        self._end_attempt(job_id, resv)
+        self._observe(host_id, job_id, resv, "sess-tac-late")
+        self._reconcile(host_id)
+        assert _stop_commands(host_id) == []
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER", "enforce")
+        report = self._reconcile(host_id)
+        assert report.actions_taken == ["terminal_attempt_container"]
+        assert len(_stop_commands(host_id)) == 1
+
+    def test_an_owner_stop_keeps_the_container_and_waits_for_an_agent_that_can(
+        self, fleet, monkeypatch
+    ):
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER", "enforce")
+        job_id, host_id, resv = _place(fleet, uuid.uuid4().hex[:8])
+        self._end_attempt(job_id, resv, status="cancelled", intent="stop")
+        self._observe(host_id, job_id, resv, "sess-tac-keep", agent_version="2.4.1")
+        report = self._reconcile(host_id)
+        assert report.actions_taken == []
+        assert _stop_commands(host_id) == []
+        finding = self._finding(resv.attempt_id)
+        assert finding["action_taken"] == "report_only"
+        assert finding["action_result"]["reason"] == "agent_cannot_keep_container"
+        assert finding["desired"]["keep"] is True
+
+        self._observe(host_id, job_id, resv, "sess-tac-keep", agent_version="2.4.2", gen=2)
+        report = self._reconcile(host_id)
+        assert report.actions_taken == ["terminal_attempt_container"]
+        ((args, _status),) = _stop_commands(host_id)
+        assert args["remove"] is False
+
+    def test_the_finding_resolves_once_the_container_is_gone(self, fleet, monkeypatch):
+        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER", raising=False)
+        job_id, host_id, resv = _place(fleet, uuid.uuid4().hex[:8])
+        self._end_attempt(job_id, resv)
+        self._observe(host_id, job_id, resv, "sess-tac-gone")
+        self._reconcile(host_id)
+        assert self._finding(resv.attempt_id) is not None
+        _ingest(host_id, "sess-tac-gone", 2, [])
+        report = self._reconcile(host_id)
+        assert report.findings_resolved >= 1
+        assert self._finding(resv.attempt_id) is None
+
+    def _finding_id(self, attempt_id):
+        with _pool.connection() as conn:
+            row = conn.execute(
+                "SELECT finding_id FROM reconciliation_findings WHERE resource_type='attempt' "
+                "AND resource_id=%s AND finding_type='terminal_attempt_container' "
+                "AND resolved_at IS NULL",
+                (str(attempt_id),),
+            ).fetchone()
+        return str(row[0] if not isinstance(row, dict) else row["finding_id"])
+
+    def test_an_admin_can_enforce_one_finding_while_the_flag_is_report_only(
+        self, fleet, monkeypatch
+    ):
+        import os
+
+        monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER", raising=False)
+        headers = {
+            "Authorization": "Bearer "
+            + (os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production")
+        }
+        job_id, host_id, resv = _place(fleet, uuid.uuid4().hex[:8])
+        self._end_attempt(job_id, resv, status="cancelled", intent="stop")
+        container = self._observe(host_id, job_id, resv, "sess-tac-admin", agent_version="2.4.1")
+        self._reconcile(host_id)
+        finding_id = self._finding_id(resv.attempt_id)
+
+        refused = client.post(
+            f"/api/admin/reconciler/findings/{finding_id}/enforce", headers=headers
+        )
+        assert refused.status_code == 409, refused.text
+        assert _stop_commands(host_id) == []
+
+        self._observe(host_id, job_id, resv, "sess-tac-admin", agent_version="2.4.2", gen=2)
+        done = client.post(f"/api/admin/reconciler/findings/{finding_id}/enforce", headers=headers)
+        assert done.status_code == 200, done.text
+        assert done.json()["action_result"]["remove"] is False
+        ((args, _status),) = _stop_commands(host_id)
+        assert args == {
+            "container_name": container,
+            "reason": "Manually enforced remediation for a container that outlived its attempt",
+            "remove": False,
+        }
+
+    def test_version_parsing_treats_anything_unparseable_as_too_old(self):
+        from control_plane.reconcile import _version_tuple
+
+        assert _version_tuple("2.4.2") == (2, 4, 2)
+        assert _version_tuple("2.10.0") > (2, 4, 2)
+        assert _version_tuple("test") is None
+        assert _version_tuple(None) is None
+        assert _version_tuple("2.4.2-dev") is None
 
 
 class TestOrphanedAllocations:

@@ -280,6 +280,7 @@ x-api-environment: &api-env
   XCELSIOR_SECRETS_BACKEND: ${XCELSIOR_SECRETS_BACKEND:-}
   XCELSIOR_ENV_FILE: ${XCELSIOR_ENV_FILE:-}
   XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING: ${XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING:-report_only}
+  XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER: ${XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER:-report_only}
   XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING: ${XCELSIOR_RECONCILE_ACTION_JOB_LEASE_AUTHORITY_MISSING:-report_only}
   # Billing repairs run in the API/maintenance identity, each opt-in independently.
   XCELSIOR_RECONCILE_ACTION_BILLING_ACTIVE_METER_MISSING: ${XCELSIOR_RECONCILE_ACTION_BILLING_ACTIVE_METER_MISSING:-report_only}
@@ -577,8 +578,11 @@ services:
       # report-only per action; "enforce" turns each on. stale-fence →
       # durable stop_container (§11.5 backstop); attempt-container-missing →
       # expedite lease expiry (zombie attempt); orphaned-allocation →
-      # release a device leaked by a partial settlement (§8.2 capacity).
+      # release a device leaked by a partial settlement (§8.2 capacity);
+      # terminal-attempt-container → stop a container that outlived its
+      # attempt (kept after an owner's stop).
       XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER: ${XCELSIOR_RECONCILE_ACTION_STALE_FENCE_CONTAINER:-report_only}
+      XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER: ${XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER:-report_only}
       XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING: ${XCELSIOR_RECONCILE_ACTION_ATTEMPT_CONTAINER_MISSING:-report_only}
       XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION: ${XCELSIOR_RECONCILE_ACTION_ORPHANED_ALLOCATION:-report_only}
       XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING: ${XCELSIOR_RECONCILE_ACTION_JOB_STOP_COMMAND_MISSING:-report_only}

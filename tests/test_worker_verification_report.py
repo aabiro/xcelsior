@@ -284,7 +284,12 @@ def test_an_unknown_gpu_process_list_does_not_hold_the_benchmark(idle_agent, mon
 
 # ── GPU use outside Xcelsior ──────────────────────────────────────────
 
-_OWN_CID, _OTHER_CID = "a" * 64, "b" * 64
+_OWN_CID, _OTHER_CID, _ORPHAN_CID = "a" * 64, "b" * 64, "c" * 64
+
+
+def _ps_line(cid, name, *, attempt="", job="", bench=""):
+    """One `docker ps` row in the agent's format: id, name, bench, attempt x2, job x2."""
+    return f"{cid}\t{name}\t{bench}\t{attempt}\t\t{job}\t\n"
 
 
 @pytest.fixture
@@ -293,11 +298,18 @@ def gpu_processes(monkeypatch):
     state = {
         "apps": "",
         "apps_rc": 0,
-        "docker": f"{_OWN_CID}\txcl-job-1\t\n{_OTHER_CID}\tsomeones-db\t\n",
+        "docker": (
+            _ps_line(_OWN_CID, "xcl-job-1-att00001", attempt="att-1", job="job-1")
+            + _ps_line(_OTHER_CID, "someones-db")
+        ),
         "docker_rc": 0,
         "docker_calls": 0,
     }
     procs: dict[int, dict] = {}
+    # job-1's attempt is the one this agent holds authority for.
+    monkeypatch.setattr(worker_agent, "_v2_attempts", {"job-1": {"attempt_id": "att-1"}})
+    monkeypatch.setattr(worker_agent, "_v2_starts_in_progress", set())
+    monkeypatch.setattr(worker_agent, "_active_containers", {})
 
     def run(cmd, **_kwargs):
         if cmd[0] == "nvidia-smi":
@@ -348,6 +360,43 @@ def test_outside_use_counts_only_processes_the_agent_did_not_start(gpu_processes
         }
     )
     assert worker_agent.gpu_outside_use() == {"GPU-a": {"processes": 2, "vram_mb": 318}}
+
+
+def test_a_job_container_the_agent_has_no_authority_for_is_outside_use(gpu_processes):
+    """An xcl-* container that outlived its attempt is not the agent's, whatever its name."""
+    state, procs = gpu_processes
+    state["docker"] += _ps_line(_ORPHAN_CID, "xcl-job-9-att00009", attempt="att-9", job="job-9")
+    state["apps"] = "GPU-a, 11, 1000\nGPU-a, 19, 700\n"
+    procs.update({11: _container(_OWN_CID), 19: _container(_ORPHAN_CID)})
+    assert worker_agent.gpu_outside_use() == {"GPU-a": {"processes": 1, "vram_mb": 700}}
+
+
+def test_authority_the_agent_holds_any_way_makes_a_container_its_own(gpu_processes, monkeypatch):
+    """Restored from the journal and awaiting adoption, starting, or run by the v1 path."""
+    state, procs = gpu_processes
+    monkeypatch.setattr(
+        worker_agent,
+        "_v2_attempts",
+        {"job-2": {"attempt_id": "att-2", "_awaiting_adoption": True}},
+    )
+    monkeypatch.setattr(worker_agent, "_v2_starts_in_progress", {"job-3"})
+    monkeypatch.setattr(worker_agent, "_active_containers", {"job-4": "xcl-job-4"})
+    state["docker"] = (
+        _ps_line("d" * 64, "xcl-job-2-att00002", attempt="att-2", job="job-2")
+        + _ps_line("e" * 64, "xcl-job-3-att00003", attempt="att-3", job="job-3")
+        + _ps_line("f" * 64, "xcl-job-4")
+        + _ps_line("0" * 64, "xcelsior-bench-1", bench="true")
+    )
+    state["apps"] = "".join(f"GPU-a, {pid}, 100\n" for pid in (21, 22, 23, 24))
+    procs.update(
+        {
+            21: _container("d" * 64),
+            22: _container("e" * 64),
+            23: _container("f" * 64),
+            24: _container("0" * 64),
+        }
+    )
+    assert worker_agent.gpu_outside_use() == {}
 
 
 def test_a_gpu_with_no_compute_processes_has_no_outside_use(gpu_processes):
