@@ -8,7 +8,8 @@ slug: benchmark
   DRAFT. Not published: the docs site builds only the pages docs.yml lists,
   and Xcel AI reads only api/fern/pages/. To publish it, move it to
   api/fern/pages/benchmark.mdx and add it to the navigation in
-  api/fern/docs.yml. Its licence is not decided yet. The signing key, flags,
+  api/fern/docs.yml. The file is under Apache-2.0 (its header; the rest of the
+  repository is BSL 1.1), as the Licence section says. The signing key, flags,
   thresholds and field names below are checked against the code by
   tests/test_xcelsior_bench_docs.py.
 */}
@@ -24,6 +25,12 @@ temperature. The full result is in `get_host_evidence` (MCP) and
 You can run the same file inside your own instance. Your numbers then come from
 the same code that produced the host's, so you can check what a listing says on
 the GPU you are actually paying for.
+
+## Licence
+
+`xcelsior_bench.py` is under the Apache License 2.0, unlike the rest of the
+Xcelsior repository. You may run it, read it, change it and pass it on, so you
+can check a listing's numbers yourself or have someone else check them.
 
 ## What it measures
 

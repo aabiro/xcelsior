@@ -240,6 +240,7 @@ Xcelsior is licensed under the **Business Source License 1.1 (BSL 1.1)** by **Xc
 - **Allowed in production:** Running Xcelsior host agents, workers, CLI tools, SDKs, and MCP clients to supply compute capacity to or consume capacity from the Xcelsior platform (`xcelsior.ca`), as well as internal development, testing, benchmarking, and evaluation. Using Xcelsior's hosted services requires no license under this repository.
 - **Commercial license required:** Operating or offering a competing compute marketplace, brokerage, or hosted multi-tenant GPU platform using this codebase.
 - **Open-source conversion:** On **November 11, 2030** (four years from the license switch), each version automatically converts to the **Apache License 2.0**.
+- **The benchmark is Apache-2.0 now:** [`workers/xcelsior_bench.py`](workers/xcelsior_bench.py), the benchmark behind every listing, is under the **Apache License 2.0** (see its header), so anyone can run, audit, change and redistribute it and check a listing's numbers.
 - **Pre-switch releases:** Commits and releases published prior to November 11, 2026 remain under the MIT License at those historical revisions.
 
 ---
