@@ -2316,8 +2316,8 @@
     "notes": "operator health sweep across hosts; no journey calls it"
   },
   "POST /instance": {
-    "class": "covered",
-    "notes": "MCP server calls this path"
+    "class": "redundant",
+    "notes": "Superseded on the tool surface by the plan flow: create_instance, run_training_job and schedule_under_budget post to /api/v1/launch-plans and its execute route, so approval cannot be skipped, and the route answers agent credentials with 409 launch_plan_required (3ce165e7). It stayed labelled covered after 3ce165e7 removed the last tool call to it; the dashboard and the wizard still launch here."
   },
   "POST /instance/{job_id}/requeue": {
     "class": "gap",
