@@ -4807,6 +4807,11 @@
             "type": "boolean",
             "title": "Encrypted",
             "default": true
+          },
+          "preview": {
+            "type": "boolean",
+            "title": "Preview",
+            "default": false
           }
         },
         "type": "object",
