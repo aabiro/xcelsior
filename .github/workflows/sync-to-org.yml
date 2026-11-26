@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -17,8 +20,9 @@ jobs:
     if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0 # Fetch all history so push succeeds seamlessly
 
       - name: Push to Org Mirror

@@ -62,7 +62,10 @@ for t in tests/test_migration_ledger.py \
          tests/test_source_tree_is_shared.py \
          tests/test_companion_schema_discipline.py \
          tests/test_sql_injection_guard.py \
-         tests/test_internal_documents_are_not_tracked.py; do
+         tests/test_internal_documents_are_not_tracked.py \
+         tests/test_workflow_actions_are_pinned.py \
+         tests/test_security_policy.py \
+         tests/test_release_tool.py; do
     [[ -f "$t" ]] && GATES+=("$t")
 done
 

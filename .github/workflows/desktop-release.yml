@@ -14,7 +14,7 @@ on:
         default: true
 
 permissions:
-  contents: write  # For creating GitHub releases
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -47,7 +47,9 @@ jobs:
     # once, with no diff to review.
     if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
       # ── Linux dependencies ──────────────────────────────────────────
       - name: Install Linux desktop dependencies
@@ -64,17 +66,18 @@ jobs:
             patchelf
 
       # ── Toolchains ──────────────────────────────────────────────────
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: api/desktop/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.rust-target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: api/desktop/src-tauri
 
@@ -82,9 +85,11 @@ jobs:
       - name: Set version
         if: inputs.version != ''
         shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           cd src-tauri
-          jq --arg v "${{ inputs.version }}" '.version = $v' tauri.conf.json > tmp.json
+          jq --arg v "$VERSION" '.version = $v' tauri.conf.json > tmp.json
           mv tmp.json tauri.conf.json
 
       # ── Build ───────────────────────────────────────────────────────
@@ -130,7 +135,7 @@ jobs:
           ls -lh ../artifacts/
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-${{ matrix.label }}
           path: artifacts/*
@@ -147,21 +152,29 @@ jobs:
     # variable HOSTED_ACTIONS=enabled to bring every one of these back at
     # once, with no diff to review.
     if: ${{ vars.HOSTED_ACTIONS == 'enabled' }}
+    # The only job that writes: it creates the GitHub release. The workflow
+    # default above is read-only.
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
 
       - name: Read version
         id: version
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$VERSION" ]; then
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           else
             echo "version=$(jq -r .version api/desktop/src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
           fi
         working-directory: .
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
           merge-multiple: true
@@ -171,7 +184,7 @@ jobs:
         working-directory: .
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: desktop-v${{ steps.version.outputs.version }}
           name: Xcelsior Desktop v${{ steps.version.outputs.version }}
