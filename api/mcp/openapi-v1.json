@@ -5113,6 +5113,11 @@
             "type": "string",
             "title": "Card Brand",
             "default": ""
+          },
+          "preview": {
+            "type": "boolean",
+            "title": "Preview",
+            "default": false
           }
         },
         "type": "object",
@@ -8250,6 +8255,11 @@
             "type": "boolean",
             "title": "Encrypted",
             "default": true
+          },
+          "preview": {
+            "type": "boolean",
+            "title": "Preview",
+            "default": false
           }
         },
         "type": "object",

@@ -2401,6 +2401,11 @@ export interface components {
              * @default
              */
             card_brand: string;
+            /**
+             * Preview
+             * @default false
+             */
+            preview: boolean;
         };
         /** MarketplaceSearchParams */
         MarketplaceSearchParams: {
@@ -3777,6 +3782,11 @@ export interface components {
              * @default true
              */
             encrypted: boolean;
+            /**
+             * Preview
+             * @default false
+             */
+            preview: boolean;
         };
         /** VolumeRename */
         VolumeRename: {
