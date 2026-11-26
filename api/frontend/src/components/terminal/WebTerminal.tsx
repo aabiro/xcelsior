@@ -309,7 +309,17 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
     }
     if (!isCurrent()) return;
 
-    const wsUrl = `${wsBase}/ws/terminal/${instanceId}?ticket=${encodeURIComponent(ticketResp.ticket)}`;
+    // The shell starts before the first resize frame arrives, so the size goes
+    // with the connection: the server opens the shell at it and the welcome
+    // banner fits a phone instead of wrapping.
+    try {
+      fitAddonRef.current?.fit();
+    } catch {
+      // not attached yet; the term's current size is still a fair guess
+    }
+    const wsUrl =
+      `${wsBase}/ws/terminal/${instanceId}?ticket=${encodeURIComponent(ticketResp.ticket)}` +
+      `&cols=${term.cols}&rows=${term.rows}`;
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;

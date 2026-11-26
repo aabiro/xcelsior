@@ -1440,8 +1440,10 @@ class _FakeDockerApi:
     def __init__(self, exec_socket):
         self._exec_socket = exec_socket
         self.resize_calls = []
+        self.create_calls = []
 
     def exec_create(self, *args, **kwargs):
+        self.create_calls.append({"args": args, "kwargs": kwargs})
         return {"Id": "exec-1"}
 
     def exec_start(self, *args, **kwargs):
@@ -1572,6 +1574,54 @@ class TestResizeClamp:
             assert ws.receive()["type"] == "websocket.close"
             assert released.wait(5), "terminal handler must finish cleanup before client teardown"
             assert fake_client.closed
+
+
+class TestInitialSize:
+    """The browser connects with its size, so the shell starts at it (not 80x24)."""
+
+    def _open(self, monkeypatch, job_id, query):
+        monkeypatch.setattr(
+            "routes.terminal._validate_ws_auth",
+            lambda ws, *args, **kwargs: {"user_id": "user-1", "email": "t@t.com"},
+        )
+        _inject_job(job_id=job_id, status="running", owner="user-1", host_ip="")
+        monkeypatch.setattr("routes.terminal._container_exists", lambda *a, **kw: True)
+        monkeypatch.setattr("routes.terminal._tmux_available", lambda *a, **kw: False)
+        fake_client = _FakeDockerClient(job_id=job_id)
+        monkeypatch.setattr("routes.terminal._docker_client", lambda *a, **kw: fake_client)
+        with client.websocket_connect(f"/ws/terminal/{job_id}{query}") as ws:
+            assert ws.receive_json()["type"] == "status"
+            ws.send_json({"type": "ping"})
+            assert ws.receive_json()["type"] == "pong"
+        return fake_client
+
+    def test_phone_size_seeds_the_pty_and_the_banner_width(self, monkeypatch):
+        fake = self._open(monkeypatch, "j-size", "?cols=36&rows=20")
+        assert fake.api.resize_calls[0]["kwargs"] == {"height": 20, "width": 36}
+        env = fake.api.create_calls[0]["kwargs"]["environment"]
+        assert env["XCELSIOR_TERM_COLS"] == "36"
+
+    def test_older_client_keeps_the_80x24_seed(self, monkeypatch):
+        fake = self._open(monkeypatch, "j-nosize", "")
+        assert fake.api.resize_calls[0]["kwargs"] == {"height": 24, "width": 80}
+        assert "XCELSIOR_TERM_COLS" not in fake.api.create_calls[0]["kwargs"]["environment"]
+
+    @pytest.mark.parametrize(
+        "query, expected",
+        [
+            ({"cols": "36", "rows": "20"}, (36, 20)),
+            ({"cols": "99999", "rows": "99999"}, (500, 200)),
+            ({"cols": "0", "rows": "20"}, None),
+            ({"cols": "-3", "rows": "20"}, None),
+            ({"cols": "abc", "rows": "20"}, None),
+            ({"cols": "36"}, None),
+            ({}, None),
+        ],
+    )
+    def test_size_is_read_and_clamped(self, monkeypatch, query, expected):
+        monkeypatch.setattr(term_mod, "_MAX_RESIZE_COLS", 500)
+        monkeypatch.setattr(term_mod, "_MAX_RESIZE_ROWS", 200)
+        assert term_mod._initial_terminal_size(query) == expected
 
 
 class TestSessionLifetime:

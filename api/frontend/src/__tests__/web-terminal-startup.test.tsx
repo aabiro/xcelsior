@@ -28,7 +28,7 @@ class Socket {
   onerror: (() => void) | null = null;
   send = vi.fn();
   close = vi.fn();
-  constructor() { Socket.instances.push(this); }
+  constructor(public url = "") { Socket.instances.push(this); }
 }
 
 beforeEach(async () => {
@@ -55,6 +55,15 @@ async function openTerminal() {
 }
 
 describe("terminal startup", () => {
+  it("connects with the terminal's size, so the shell starts at it", async () => {
+    const socket = await openTerminal();
+    const url = new URL(socket.url);
+    expect(url.pathname).toBe("/ws/terminal/startup-job");
+    expect(url.searchParams.get("ticket")).toBe("test-ticket");
+    expect(url.searchParams.get("cols")).toBe("80");
+    expect(url.searchParams.get("rows")).toBe("24");
+  });
+
   it("opens only one connection after the Strict Mode setup and cleanup cycle", async () => {
     render(<StrictMode><WebTerminal instanceId="startup-job" /></StrictMode>);
     await act(async () => { await vi.dynamicImportSettled(); });

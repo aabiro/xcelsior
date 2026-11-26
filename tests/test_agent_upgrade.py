@@ -97,12 +97,12 @@ def test_upgrade_agent_skip_when_already_at_target(fake_agent_file, monkeypatch)
     target_sha = "a" * 64
     monkeypatch.setattr(worker_agent, "_self_sha256", lambda: target_sha)
     # And min_version <= our VERSION
-    assert worker_agent.VERSION == "2.4.0"
+    assert worker_agent.VERSION == "2.4.1"
     ok = worker_agent._handle_upgrade_agent(
         {
             "url": "https://x/",
             "sha256": target_sha,
-            "min_version": "2.0.0",  # we're at 2.4.0
+            "min_version": "2.0.0",  # we're at 2.4.1
         }
     )
     # Returned True (skipped cleanly) and didn't download anything.
@@ -116,14 +116,15 @@ def test_self_sha256_matches_disk():
     assert worker_agent._self_sha256() == expected
 
 
-def test_version_bumped_to_2_4_0():
-    """Lock: the agent that reports outside GPU use (2026-11-25) ships as v2.4.0.
+def test_version_bumped_to_2_4_1():
+    """Lock: the agent whose instance shells fit a phone (2026-11-26) ships as v2.4.1.
 
     2.3.0 sent GPU identity and allocatable VRAM (Phase 0, 2026-11-22). 2.4.0
-    adds each GPU's outside use to the observation, so the fleet view can tell
-    which hosts report it.
+    added each GPU's outside use to the observation (2026-11-25). 2.4.1 writes a
+    banner that fits a phone's terminal and names the GPU device groups, so the
+    fleet view can tell which hosts' instances have both.
     """
-    assert worker_agent.VERSION == "2.4.0"
+    assert worker_agent.VERSION == "2.4.1"
 
 
 def test_upgrade_agent_refuses_http_url(fake_agent_file):

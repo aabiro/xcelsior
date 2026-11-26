@@ -35,6 +35,7 @@ Security
 
 import asyncio
 from collections import defaultdict
+from collections.abc import Mapping
 import json
 import os
 import re as _re
@@ -177,6 +178,25 @@ _TERMINAL_SESSION_LEASE_REFRESH_SEC: float = float(
 )
 _MAX_RESIZE_COLS: int = int(os.environ.get("XCELSIOR_TERMINAL_MAX_RESIZE_COLS", "500"))
 _MAX_RESIZE_ROWS: int = int(os.environ.get("XCELSIOR_TERMINAL_MAX_RESIZE_ROWS", "200"))
+
+
+def _initial_terminal_size(query_params: Mapping[str, str]) -> tuple[int, int] | None:
+    """The browser's terminal size from ``?cols=&rows=``, clamped like a resize frame.
+
+    The shell starts before the first resize frame is read, so without this it
+    printed its welcome banner at the 80x24 seed and a phone showed it wrapped.
+    Absent or unreadable values give None (an older client): the 80x24 seed.
+    """
+    try:
+        cols = int(query_params.get("cols", ""))
+        rows = int(query_params.get("rows", ""))
+    except (TypeError, ValueError):
+        return None
+    if cols < 1 or rows < 1:
+        return None
+    return min(_MAX_RESIZE_COLS, cols), min(_MAX_RESIZE_ROWS, rows)
+
+
 _MAX_MALFORMED_CONTROL_FRAMES: int = int(
     os.environ.get("XCELSIOR_TERMINAL_MAX_MALFORMED_CONTROL_FRAMES", "5")
 )
@@ -1236,6 +1256,7 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
         return
 
     ticket = websocket.query_params.get("ticket", "").strip()
+    initial_size = _initial_terminal_size(websocket.query_params)
     if ticket:
         user = _consume_ws_ticket(
             ticket,
@@ -1568,6 +1589,10 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
                 )
 
             env_vars = {"TERM": "xterm-256color", "PS1": "\\u@xcelsior:\\w\\$ "}
+            if initial_size is not None:
+                # The agent's login profile (2.4.1+) picks the banner that fits
+                # this width; the PTY may still read 0x0 when it runs.
+                env_vars["XCELSIOR_TERM_COLS"] = str(initial_size[0])
             if has_tmux:
                 env_vars["TMUX_SESSION"] = tmux_session
                 exec_cmd = ["tmux", "new-session", "-A", "-s", tmux_session, shell]
@@ -1695,11 +1720,12 @@ async def ws_terminal(websocket: WebSocket, instance_id: str) -> None:
             else:
                 await loop.sock_sendall(cast(Any, raw_sock), data)
 
-        # Seed PTY with sensible default dims so bash has a WINSIZE before it
-        # renders PS1; client's real dims arrive on the first resize frame.
+        # Seed the PTY so bash has a WINSIZE before it renders PS1: the size
+        # the browser connected with, else 80x24 until its first resize frame.
+        seed_cols, seed_rows = initial_size or (80, 24)
         try:
             await _docker_call(
-                lambda: docker_cl.api.exec_resize(exec_id, height=24, width=80),
+                lambda: docker_cl.api.exec_resize(exec_id, height=seed_rows, width=seed_cols),
                 _DOCKER_EXEC_CREATE_TIMEOUT_SEC,
             )
         except (asyncio.TimeoutError, APIError, DockerException, OSError, Exception):

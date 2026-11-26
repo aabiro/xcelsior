@@ -170,7 +170,10 @@ PREFER_GVISOR = os.environ.get("XCELSIOR_PREFER_GVISOR", "true").lower() in ("1"
 #: reverification, host-fault failure codes.
 #: 2.4.0: each observed GPU carries its outside use (compute processes the agent
 #: did not start); the benchmark waits while there is any.
-VERSION = "2.4.0"
+#: 2.4.1: an instance's welcome banner fits a phone-width terminal, and the GPU
+#: device groups a container is given get names (no more "groups: cannot find
+#: name for group ID 992" in every shell).
+VERSION = "2.4.1"
 _HOST_SSH_USER_RE = re.compile(r"\A[A-Za-z0-9_.-]{1,64}\Z")
 
 
@@ -8030,6 +8033,21 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 "  \033[2mTip: run \033[0m\033[33mnvidia-smi\033[0m\033[2m to see GPU status, \033[0m\033[33mexit\033[0m\033[2m to disconnect.\033[0m\n"
                 "\n"
             )
+            # The box is 59 columns and a phone's terminal about 36, where it
+            # wrapped into a mess. The same facts without the box fit 36.
+            motd_narrow = (
+                "\n"
+                f"  \033[1;36m{_motd_title}\033[0m\n"
+                "\n"
+                f"  \033[2mInstance\033[0m  \033[1m{short}\033[0m\n"
+                f"  \033[2mContainer\033[0m \033[1m{container_name}\033[0m\n"
+                "  \033[2mGPU      \033[0m $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo 'detached')\n"
+                "  \033[2mDocs     \033[0m \033[34mxcelsior.ca/docs\033[0m\n"
+                "\n"
+                "  \033[2mRun \033[0m\033[33mnvidia-smi\033[0m\033[2m for GPU status,\033[0m\n"
+                "  \033[33mexit\033[0m\033[2m to disconnect.\033[0m\n"
+                "\n"
+            )
             # Shell rc snippet — idempotent. Sets PS1, prints Last login + MOTD once per session.
             # Uses a sentinel env var so it doesn't print twice if both /etc/profile.d and
             # /root/.bashrc end up sourcing it.
@@ -8046,7 +8064,17 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                 'if [ -z "$XCELSIOR_MOTD_SHOWN" ] && [ -t 1 ] && [ -r /etc/motd.xcelsior ]; then\n'
                 "  export XCELSIOR_MOTD_SHOWN=1\n"
                 "  printf 'Last login: %s\\n' \"$(date '+%a %b %e %H:%M:%S %Y')\" 2>/dev/null || true\n"
-                '  eval "echo \\"$(cat /etc/motd.xcelsior)\\""\n'
+                # Width: the browser's, passed at connect (the PTY can still
+                # read 0x0 here), else the PTY's (ssh sets it before the shell).
+                "  _xcl_motd=/etc/motd.xcelsior\n"
+                '  _xcl_cols="${XCELSIOR_TERM_COLS:-}"\n'
+                "  case \"$_xcl_cols\" in ''|*[!0-9]*) _xcl_cols=$(stty size 2>/dev/null); "
+                '_xcl_cols="${_xcl_cols#* }";; esac\n'
+                "  case \"$_xcl_cols\" in ''|*[!0-9]*) _xcl_cols=0;; esac\n"
+                '  if [ "$_xcl_cols" -gt 0 ] && [ "$_xcl_cols" -lt 60 ] && [ -r /etc/motd.xcelsior.narrow ]; then '
+                "_xcl_motd=/etc/motd.xcelsior.narrow; fi\n"
+                '  eval "echo \\"$(cat "$_xcl_motd")\\""\n'
+                "  unset _xcl_motd _xcl_cols XCELSIOR_TERM_COLS\n"
                 "fi\n"
             )
             # Loader injected into every login-shell startup file. Sourcing /etc/profile.d/xcelsior.sh
@@ -8087,9 +8115,12 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
                     "sh",
                     "-c",
                     f"echo {_shell_quote(motd)} > /etc/motd.xcelsior && "
+                    f"echo {_shell_quote(motd_narrow)} > /etc/motd.xcelsior.narrow && "
                     f"echo {_shell_quote(profile)} > /etc/profile.d/xcelsior.sh && "
-                    "chmod 644 /etc/motd.xcelsior /etc/profile.d/xcelsior.sh && "
+                    "chmod 644 /etc/motd.xcelsior /etc/motd.xcelsior.narrow /etc/profile.d/xcelsior.sh && "
                     + ensure_profile_d_loop
+                    + " ; "
+                    + _name_supplementary_groups_script(_device_group_names())
                     + " ; "
                     + append_loader
                     + " ; "
@@ -8209,6 +8240,56 @@ def _inject_ssh_keys(job_id: str, container_name: str, interactive: bool = False
 def _shell_quote(s: str) -> str:
     """Shell-escape a string for use in sh -c."""
     return "'" + s.replace("'", "'\\''") + "'"
+
+
+_GROUP_NAME_RE = re.compile(r"\A[a-z_][a-z0-9_-]{0,31}\Z")
+
+
+def _device_group_names() -> dict[int, str]:
+    """This host's names for the groups that own the GPU device nodes.
+
+    NVIDIA's CDI spec adds those groups' ids to a container's processes
+    (``additionalGids``, e.g. 992 for /dev/dri/renderD128), but the image has
+    no name for them, so Ubuntu's bashrc printed ``groups: cannot find name
+    for group ID 992`` in every shell.
+    """
+    import glob
+    import grp
+
+    names: dict[int, str] = {}
+    for path in sorted(glob.glob("/dev/dri/*") + glob.glob("/dev/nvidia*")):
+        try:
+            gid = os.stat(path).st_gid
+            if gid and gid not in names:
+                name = grp.getgrgid(gid).gr_name
+                if _GROUP_NAME_RE.fullmatch(name):
+                    names[gid] = name
+        except (OSError, KeyError):
+            continue
+    return names
+
+
+def _name_supplementary_groups_script(names: dict[int, str]) -> str:
+    """Shell giving each unnamed group id of the container's processes a name.
+
+    The host's name when it has one the image does not already use, else
+    ``hostgid<id>``. Groups the image already names are left alone.
+    """
+    pairs = " ".join(
+        f"{gid}:{name}" for gid, name in sorted(names.items()) if _GROUP_NAME_RE.fullmatch(name)
+    )
+    lookup = (
+        f'for p in {pairs}; do [ "${{p%%:*}}" = "$g" ] && n="${{p#*:}}"; done; ' if pairs else ""
+    )
+    return (
+        "for g in $(id -G 2>/dev/null); do "
+        'grep -q "^[^:]*:[^:]*:$g:" /etc/group 2>/dev/null && continue; '
+        "n=; "
+        + lookup
+        + 'if [ -z "$n" ] || grep -q "^$n:" /etc/group 2>/dev/null; then n="hostgid$g"; fi; '
+        'echo "$n:x:$g:" >> /etc/group; '
+        "done"
+    )
 
 
 def _kill_container(container_name):
