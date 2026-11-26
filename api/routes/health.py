@@ -1238,7 +1238,16 @@ def _compute_service_status() -> dict:
     has_problem = any(s["state"] in ("down", "degraded") for s in services)
     verdict = "blocked" if required_down else ("degraded" if has_problem else "operational")
 
-    return {"ok": verdict != "blocked", "verdict": verdict, "services": services}
+    # Built-but-gated features and whether each is on (core/labs.py). They do
+    # not affect the verdict: a preview feature that is off is not an outage.
+    from labs import preview_features
+
+    return {
+        "ok": verdict != "blocked",
+        "verdict": verdict,
+        "services": services,
+        "features": preview_features(),
+    }
 
 
 @router.get("/metrics", tags=["Infrastructure"])

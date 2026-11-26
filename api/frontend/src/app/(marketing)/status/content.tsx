@@ -23,10 +23,19 @@ interface Service {
   required: boolean;
 }
 
+/** A built feature that is not on for everyone yet (core/labs.py). */
+interface PreviewFeature {
+  key: string;
+  audience: "customers" | "providers";
+  state: "live" | "limited" | "off";
+}
+
 interface StatusPayload {
   ok: boolean;
   verdict: "operational" | "degraded" | "blocked";
   services: Service[];
+  /** Absent from an API older than the preview list; the section then stays hidden. */
+  features?: PreviewFeature[];
 }
 
 const REFRESH_MS = 60_000;
@@ -96,6 +105,31 @@ export function StatusContent() {
               </ul>
             )}
           </section>
+
+          {!failed && payload?.features && payload.features.length > 0 ? (
+            <section className="site-legal-section">
+              <h2 className="site-legal-title">{t("status.features_title")}</h2>
+              <p>{t("status.features_intro")}</p>
+              <ul className="site-legal-list">
+                {payload.features.map((feature) => (
+                  <li key={feature.key} data-feature={feature.key} data-state={feature.state}>
+                    <strong>{t(`status.feature_${feature.key}_name`)}</strong>
+                    {" "}({t(`status.feature_audience_${feature.audience}`)}) —{" "}
+                    {t(`status.feature_state_${feature.state}`)}
+                    <br />
+                    {t(`status.feature_${feature.key}_desc`)}
+                  </li>
+                ))}
+              </ul>
+              <p>
+                {t("status.features_access")}{" "}
+                <Link href="/support" className="site-inline-link">
+                  {t("status.features_access_link")}
+                </Link>
+                .
+              </p>
+            </section>
+          ) : null}
 
           <section className="site-legal-section">
             <h2 className="site-legal-title">{t("status.slo_title")}</h2>
