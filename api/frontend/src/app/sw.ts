@@ -1,4 +1,7 @@
-/// <reference no-default-lib="true" />
+// No `/// <reference no-default-lib="true" />` here. This file is in the same
+// TypeScript program as the app, so that directive made tsc ignore the whole
+// tsconfig `lib` list for every file, and the app was typechecked without
+// `dom.iterable`. tsconfig already lists `webworker`; `self` is typed below.
 /// <reference lib="esnext" />
 /// <reference lib="webworker" />
 
