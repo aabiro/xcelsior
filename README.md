@@ -231,6 +231,10 @@ CI runs automatically on push to `main` and on PRs — see [CI](.github/workflow
 
 See [docs.xcelsior.ca](https://docs.xcelsior.ca) for full API reference and integration guides.
 
+- **Asking for a feature:** see [ROADMAP.md](ROADMAP.md).
+- **Reporting a security problem:** see [SECURITY.md](SECURITY.md). Never in a public issue.
+- **Working with an AI agent in this repo:** it reads [AGENTS.md](AGENTS.md).
+
 ---
 
 ## License
