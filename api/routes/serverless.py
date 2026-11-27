@@ -806,10 +806,43 @@ def api_serverless_patch_endpoint(
     ep = _get_endpoint_for_user(endpoint_id, user)
     _require_serverless_endpoint_write(user, ep)
     fields = body.model_dump(exclude_none=True)
+    raised = _raised_spend_fields(ep, fields)
+    if raised and _launch_plan_required(user):
+        # The credentials that create an endpoint only through an approved
+        # plan could otherwise create a one-worker endpoint that way and then
+        # raise its workers here, which bills worker-seconds nobody approved.
+        from routes.problem import ProblemException
+
+        raise ProblemException(
+            status=403,
+            code="human_required",
+            detail=(
+                f"Raising {', '.join(raised)} bills more worker time, so it needs a person "
+                "signed in to the dashboard. This credential may lower them, rename the "
+                "endpoint or change its other settings."
+            ),
+            extra={"fields": raised},
+        )
     updated = _svc().patch_endpoint(endpoint_id, str(ep["owner_id"]), fields)
     if not updated:
         raise HTTPException(404, "Endpoint not found")
     return {"ok": True, "endpoint": _serialize_endpoint(updated)}
+
+
+def _raised_spend_fields(ep: dict, fields: dict[str, Any]) -> list[str]:
+    """The patch fields that let an endpoint bill more worker time than now.
+
+    More always-on workers, a higher ceiling, keeping a worker warm, and a
+    longer idle timeout before a worker is let go each add worker-seconds.
+    Lowering any of them, or changing anything else, does not.
+    """
+    raised: list[str] = []
+    for name in ("min_workers", "max_workers", "idle_timeout_sec"):
+        if name in fields and int(fields[name]) > int(ep.get(name) or 0):
+            raised.append(name)
+    if fields.get("keep_warm") and not ep.get("keep_warm"):
+        raised.append("keep_warm")
+    return raised
 
 
 @router.post("/api/v2/serverless/endpoints/{endpoint_id}/warm", tags=["Serverless"])
