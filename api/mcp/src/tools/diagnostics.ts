@@ -29,7 +29,9 @@ function diagnosticHandler(
       const value = await request(args) as Record<string, unknown>;
       return structuredResult(value, `${name} completed.`);
     } catch (error) {
-      return structuredResult(apiProblem(error), `${name} failed.`);
+      // Most clients show only the text, so it carries what the API said.
+      const problem = apiProblem(error);
+      return structuredResult(problem, `${name} failed: ${String(problem.detail)}`);
     }
   };
 }

@@ -1,4 +1,4 @@
-import { ApiError, type ApiProblem } from "./errors.js";
+import { ApiError, problemFromBody } from "./errors.js";
 import { context, propagation } from "@opentelemetry/api";
 import createClient, { type Client } from "openapi-fetch";
 import type { paths } from "./generated/api.js";
@@ -139,7 +139,7 @@ export class XcelsiorApiClient {
       }
     }
     if (!res.ok) {
-      const problem = isProblem(parsed) ? parsed : undefined;
+      const problem = problemFromBody(parsed, res.status);
       captureApiCall({
         route: new URL(url).pathname,
         method: String(init.method || "GET"),
@@ -164,11 +164,6 @@ export interface RequestOptions {
   idempotencyKey?: string;
   retry?: "none" | "safe" | "idempotent";
   maxRetries?: number;
-}
-
-function isProblem(value: unknown): value is ApiProblem {
-  return typeof value === "object" && value !== null &&
-    ("type" in value || "code" in value || "detail" in value);
 }
 
 function isTransient(error: unknown): boolean {
