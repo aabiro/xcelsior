@@ -838,8 +838,11 @@ def api_put_spend_envelope(client_id: str, body: SpendEnvelopeIn, request: Reque
                 _clean(body.allowed_regions),
             ),
         )
-        cols = [c.name for c in cur.description]
-        row = dict(zip(cols, cur.fetchone()))
+        returned = cur.fetchone()
+        if returned is None or cur.description is None:
+            # An upsert with RETURNING always returns its row.
+            raise RuntimeError("the spend envelope upsert returned no row")
+        row = dict(zip([c.name for c in cur.description], returned))
     view = _envelope_view(row)
     append_user_audit_event(
         "user.spend_envelope.set", "oauth_client", client["client_id"], user, data=view
