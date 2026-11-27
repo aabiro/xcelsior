@@ -1802,6 +1802,7 @@ def api_admin_reconciler_enforce(finding_id: str, request: Request):
         _PRESERVING_STOP_AGENT_VERSION,
         _enqueue_stop_container,
         _expedite_lease_expiry,
+        _owner_stop_keeps_container,
         _release_orphaned_allocations,
         _version_tuple,
     )
@@ -1860,7 +1861,8 @@ def api_admin_reconciler_enforce(finding_id: str, request: Request):
                     status_code=400,
                     detail="Could not identify the container and host for enforcement",
                 )
-            keep = bool(desired.get("keep"))
+            # Re-derived, not read from the finding: it may predate the job's stop.
+            keep = _owner_stop_keeps_container(conn, str(resource_id))
             if keep:
                 latest = latest_observation(conn, str(host_id)) or {}
                 agent = _version_tuple(latest.get("agent_version"))

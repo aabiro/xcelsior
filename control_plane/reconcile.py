@@ -280,6 +280,32 @@ def _open_finding_action(
     return str(_get(row, "finding_id", 0)), _get(row, "action_taken", 1)
 
 
+def _owner_stop_keeps_container(conn: Connection, attempt_id: str) -> bool:
+    """Whether an ended attempt's container must be kept because its owner stopped it.
+
+    A user stop settles as a ``cancelled`` attempt on a job left ``stopped``.
+    Settlement clears ``lifecycle_intent``, so the intent itself is gone by
+    the time a leftover container is found. Only the job's latest attempt can
+    be the stopped one: an earlier attempt ended some other way (lost,
+    fenced), and once a start has created a fresh attempt the stopped one's
+    container is no longer used either. Terminate and cancel also settle as a
+    ``cancelled`` attempt, but leave the job ``terminated`` or ``cancelled``.
+    """
+    row = conn.execute(
+        """
+        SELECT (a.status = 'cancelled' AND j.status = 'stopped'
+                AND a.attempt_number = (
+                    SELECT max(l.attempt_number) FROM job_attempts l
+                     WHERE l.job_id = a.job_id)) AS keep
+          FROM job_attempts a
+          JOIN jobs j ON j.job_id = a.job_id
+         WHERE a.attempt_id = %s::uuid
+        """,
+        (attempt_id,),
+    ).fetchone()
+    return row is not None and bool(_get(row, "keep", 0))
+
+
 def _reconcile_terminal_attempt_container(
     conn: Connection,
     *,
@@ -310,11 +336,10 @@ def _reconcile_terminal_attempt_container(
         return
     row = conn.execute(
         """
-        SELECT a.status, j.lifecycle_intent,
+        SELECT a.status,
                EXTRACT(EPOCH FROM (%(obs_at)s::timestamptz - a.ended_at))::float8
                    AS ended_ago
           FROM job_attempts a
-          JOIN jobs j ON j.job_id = a.job_id
          WHERE a.attempt_id = %(attempt)s::uuid
            AND a.job_id = %(job)s
            AND a.host_id = %(host)s
@@ -332,10 +357,10 @@ def _reconcile_terminal_attempt_container(
     if row is None:
         return
     status = str(_get(row, "status", 0))
-    keep = _get(row, "lifecycle_intent", 1) == "stop"
-    ended_ago = float(_get(row, "ended_ago", 2) or 0.0)
+    ended_ago = float(_get(row, "ended_ago", 1) or 0.0)
     if ended_ago < _TERMINAL_CONTAINER_GRACE_SEC:
         return  # the worker's own stop may still be in flight
+    keep = _owner_stop_keeps_container(conn, attempt_id)
     container_name = workload.get("container_name")
     key = ("attempt", attempt_id, "terminal_attempt_container")
     still_open.add(key)

@@ -117,15 +117,21 @@ a container is live in an observation received at least 10 minutes after its
 own attempt on that host ended (`ended_at`; an attempt without one is never
 flagged). With enforcement on, the durable `stop_container` command is
 enqueued once. A finding first recorded in report-only mode is acted on when
-the flag is turned on. When the job's recorded intent is `stop`, the
-container is stopped and kept (`remove: false`). Agents before 2.4.2 always
+the flag is turned on. When the owner stopped the job, the container is
+stopped and kept (`remove: false`). Settlement clears `lifecycle_intent`, so
+the stop is read from what it leaves behind: the job is `stopped` and the
+container's attempt is its latest, `cancelled`. An earlier attempt of a
+stopped job (lost, fenced) is removed, and so is the stopped attempt's once a
+start has created a fresh one. Agents before 2.4.2 always
 remove, so that stop is not sent to them: the finding stays `report_only`
 with `agent_cannot_keep_container` until the agent is upgraded. Every other
 case stops and removes, which is what the worker's own fence-loss kill does.
 
 An administrator can enforce one finding by hand
 (`POST /api/admin/reconciler/findings/{id}/enforce`) while the flag is
-report-only. It refuses a stop that must keep the container on an older agent.
+report-only. It decides keep-or-remove from the job at that moment, not from
+the finding, and refuses a stop that must keep the container on an older
+agent.
 
 ## Active-meter repair and settlement
 

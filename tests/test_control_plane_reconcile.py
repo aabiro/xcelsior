@@ -583,16 +583,75 @@ class TestReconcileActions:
 class TestTerminalAttemptContainer:
     """A container still live long after its own attempt ended, with no authority left."""
 
-    def _end_attempt(self, job_id, resv, *, status="failed", minutes_ago=15, intent=None):
+    def _end_attempt(self, job_id, resv, *, status="failed", minutes_ago=15):
         with _pool.connection() as conn:
             conn.execute(
                 "UPDATE job_attempts SET status=%s, "
                 "ended_at=clock_timestamp() - make_interval(mins => %s) WHERE attempt_id=%s",
                 (status, minutes_ago, resv.attempt_id),
             )
+            conn.execute("UPDATE jobs SET status='failed' WHERE job_id=%s", (job_id,))
+            conn.commit()
+
+    def _owner_stop(self, job_id, host_id, resv, *, minutes_ago=15):
+        """The owner's stop, through the real request and the worker's settlement report.
+
+        Settlement clears lifecycle_intent; the stop survives only as a
+        cancelled attempt on a stopped job. Only the end time is moved back.
+        """
+        from control_plane.attempts import report_attempt_status
+        from control_plane.lifecycle import request_fenced_stop
+
+        _activate_lease(resv.attempt_id)
+        with _pool.connection() as conn:
+            # _place runs the attempt; the job projects running the same way.
+            conn.execute("UPDATE jobs SET status='running' WHERE job_id=%s", (job_id,))
+            conn.commit()
+        stop = request_fenced_stop(job_id=job_id, created_by="test-owner", reason_tag="user")
+        assert stop.ok, stop.reason
+        with _pool.connection() as conn:
+            report_attempt_status(
+                conn,
+                job_id=job_id,
+                attempt_id=str(resv.attempt_id),
+                host_id=host_id,
+                fencing_token=int(resv.fencing_token),
+                status="stopped",
+            )
             conn.execute(
-                "UPDATE jobs SET status=%s, lifecycle_intent=%s WHERE job_id=%s",
-                ("stopped" if intent == "stop" else "failed", intent, job_id),
+                "UPDATE job_attempts SET ended_at=clock_timestamp() - make_interval(mins => %s) "
+                "WHERE attempt_id=%s",
+                (minutes_ago, resv.attempt_id),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT j.status, j.lifecycle_intent, a.status FROM jobs j "
+                "JOIN job_attempts a ON a.job_id = j.job_id WHERE a.attempt_id=%s",
+                (resv.attempt_id,),
+            ).fetchone()
+        assert tuple(row.values() if isinstance(row, dict) else row) == (
+            "stopped",
+            None,
+            "cancelled",
+        )
+
+    def _later_attempt(self, resv):
+        """A fresh attempt after the given one, as a start creates for a stopped job."""
+        with _pool.connection() as conn:
+            cols = [
+                r[0] if not isinstance(r, dict) else r["column_name"]
+                for r in conn.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name='job_attempts' AND column_name NOT IN "
+                    "('attempt_id', 'attempt_number', 'fencing_token', 'status')"
+                ).fetchall()
+            ]
+            listed = ", ".join(cols)
+            conn.execute(
+                f"INSERT INTO job_attempts (attempt_id, attempt_number, fencing_token, status, "
+                f"{listed}) SELECT gen_random_uuid(), attempt_number + 1, fencing_token + 1, "
+                f"'cancelled', {listed} FROM job_attempts WHERE attempt_id=%s",
+                (resv.attempt_id,),
             )
             conn.commit()
 
@@ -699,7 +758,7 @@ class TestTerminalAttemptContainer:
     ):
         monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER", "enforce")
         job_id, host_id, resv = _place(fleet, uuid.uuid4().hex[:8])
-        self._end_attempt(job_id, resv, status="cancelled", intent="stop")
+        self._owner_stop(job_id, host_id, resv)
         self._observe(host_id, job_id, resv, "sess-tac-keep", agent_version="2.4.1")
         report = self._reconcile(host_id)
         assert report.actions_taken == []
@@ -714,6 +773,20 @@ class TestTerminalAttemptContainer:
         assert report.actions_taken == ["terminal_attempt_container"]
         ((args, _status),) = _stop_commands(host_id)
         assert args["remove"] is False
+
+    def test_a_stopped_jobs_old_container_is_removed_once_a_later_attempt_exists(
+        self, fleet, monkeypatch
+    ):
+        monkeypatch.setenv("XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER", "enforce")
+        job_id, host_id, resv = _place(fleet, uuid.uuid4().hex[:8])
+        self._owner_stop(job_id, host_id, resv)
+        self._later_attempt(resv)
+        self._observe(host_id, job_id, resv, "sess-tac-later", agent_version="2.4.2")
+        report = self._reconcile(host_id)
+        assert report.actions_taken == ["terminal_attempt_container"]
+        assert self._finding(resv.attempt_id)["desired"]["keep"] is False
+        ((args, _status),) = _stop_commands(host_id)
+        assert args["remove"] is True
 
     def test_the_finding_resolves_once_the_container_is_gone(self, fleet, monkeypatch):
         monkeypatch.delenv("XCELSIOR_RECONCILE_ACTION_TERMINAL_ATTEMPT_CONTAINER", raising=False)
@@ -748,10 +821,19 @@ class TestTerminalAttemptContainer:
             + (os.environ.get("XCELSIOR_API_TOKEN") or "test-token-not-for-production")
         }
         job_id, host_id, resv = _place(fleet, uuid.uuid4().hex[:8])
-        self._end_attempt(job_id, resv, status="cancelled", intent="stop")
+        self._owner_stop(job_id, host_id, resv)
         container = self._observe(host_id, job_id, resv, "sess-tac-admin", agent_version="2.4.1")
         self._reconcile(host_id)
         finding_id = self._finding_id(resv.attempt_id)
+        # The route decides from the job, not the finding: a finding recorded
+        # before the fix (keep false) must still keep the owner's container.
+        with _pool.connection() as conn:
+            conn.execute(
+                "UPDATE reconciliation_findings SET desired = desired || '{\"keep\": false}' "
+                "WHERE finding_id=%s",
+                (finding_id,),
+            )
+            conn.commit()
 
         refused = client.post(
             f"/api/admin/reconciler/findings/{finding_id}/enforce", headers=headers
