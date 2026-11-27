@@ -65,7 +65,7 @@ nothing. Run the gates yourself:
   and the published rate card. No emoji or text glyphs standing in for icons
   (use lucide icons). Regions are shown by name, country first, never as a
   code like `ca-on`.
-- **Xcelsior is global.** Do not write data-residency or sovereignty claims.
+- **Xcelsior is global.** Never write data-residency or sovereignty claims.
 - **Many routes were scaffolded and never wired.** Before building on an
   endpoint, follow it end to end and find the test that exercises it.
 - **Anything an agent can do that acts previews first.** MCP tools that change
