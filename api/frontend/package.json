@@ -46,7 +46,7 @@
     "@xterm/xterm": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "dompurify": "^3.3.3",
+    "dompurify": "^3.4.17",
     "framer-motion": "^12.38.0",
     "gray-matter": "^4.0.3",
     "lucide-react": "^1.7.0",
@@ -83,15 +83,20 @@
     "serwist": "^9.5.7",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.12"
   },
   "overrides": {
     "@serwist/next": {
       "browserslist": "^4.28.7"
     },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.1"
+    },
     "axios": "^1.20.0",
     "bitcoinjs-lib": "6.1.8",
     "esbuild": "$esbuild",
+    "fast-uri": "^3.1.9",
+    "glob": "^14.0.2",
     "postcss": "^8.5.19",
     "valibot": "^1.4.2"
   }
