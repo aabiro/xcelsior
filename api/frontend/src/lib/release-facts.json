@@ -2,5 +2,5 @@
   "$comment": "Written by api/scripts/generate_release_facts.py from the files that decide each value (core/release_facts.py names them). Do not edit: regenerate, and tests/test_release_facts.py fails until you do.",
   "mcpToolCount": 85,
   "verificationCheckCount": 7,
-  "wizardPackage": "@xcelsior-gpu/wizard@0.1.9"
+  "wizardPackage": "@xcelsior-gpu/wizard@0.1.11"
 }
