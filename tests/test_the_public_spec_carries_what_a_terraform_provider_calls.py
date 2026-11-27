@@ -59,11 +59,12 @@ PROVIDER_CALLS = {
     ("delete", "/api/v2/serverless/endpoints/{endpoint_id}"),
     # Only `name` is updated in place; worker counts replace (see the design).
     ("patch", "/api/v2/serverless/endpoints/{endpoint_id}"),
-    # data sources and the provider's own checks
+    # data sources, and the provider's token check at configure time. That
+    # check reads the spend envelope rather than /api/auth/me, which refuses
+    # machine credentials.
     ("get", "/api/v2/gpu/available"),
     ("get", "/api/pricing/reference"),
     ("get", "/api/v1/spend-envelope"),
-    ("get", "/api/auth/me"),
 }
 
 
