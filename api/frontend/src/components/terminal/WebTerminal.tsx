@@ -18,6 +18,7 @@ import { useMounted } from "@/hooks/useMounted";
 import { createTerminalTicket } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Loader2, Maximize2, Minimize2, RotateCcw, X } from "lucide-react";
+import { attachPinchToResize, storeFontSize, storedFontSize, TERMINAL_FONT_DEFAULT } from "./pinch-font";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -156,6 +157,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
   const mountedRef = useRef(true);
   const termReadyRef = useRef(false);
   const visChangeRef = useRef<(() => void) | null>(null);
+  const detachPinchRef = useRef<(() => void) | null>(null);
   // True once we've shown the "reconnecting…" notice for the current
   // disconnect series. Reset on every successful onopen so a *new* disconnect
   // shows the notice again, but rapid retry cycles don't spam the terminal.
@@ -472,7 +474,7 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       cursorStyle: "block",
       scrollSensitivity: 2,
       fastScrollSensitivity: 5,
-      fontSize: 13,
+      fontSize: storedFontSize(),
       fontFamily:
         "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', 'Consolas', 'DejaVu Sans Mono', monospace",
       theme: {
@@ -599,6 +601,16 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
       window.dispatchEvent(new Event("keydown"));
     });
 
+    // ── Pinch to resize the text (touch screens) ────────────────────────────
+    detachPinchRef.current = attachPinchToResize(screen, {
+      get: () => term.options.fontSize ?? TERMINAL_FONT_DEFAULT,
+      set: (size) => {
+        term.options.fontSize = size;
+        _fit();
+      },
+      done: storeFontSize,
+    });
+
     // ── Resize observer ─────────────────────────────────────────────────────
     const obs = new ResizeObserver(() => _fit());
     obs.observe(screen);
@@ -631,6 +643,8 @@ export function WebTerminal({ instanceId, onClose }: WebTerminalProps) {
         visChangeRef.current = null;
       }
       observerRef.current?.disconnect();
+      detachPinchRef.current?.();
+      detachPinchRef.current = null;
       try { wsRef.current?.close(); } catch { /* ignore */ }
       wsRef.current = null;
       webglAddonRef.current?.dispose();
