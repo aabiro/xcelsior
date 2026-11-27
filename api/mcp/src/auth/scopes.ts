@@ -72,6 +72,7 @@ const TOOL_SCOPE_REGISTRY = {
   create_instance: { allOf: ["instances:write"] },
   cancel_instance: { allOf: ["instances:write"] },
   terminate_instance: { allOf: ["instances:write"] },
+  stop_instance: { allOf: ["instances:write"] },
   should_i_run_this: { allOf: ["billing:read", "instances:read"] },
   run_training_job: { allOf: ["instances:write", "billing:read"] },
   schedule_under_budget: { allOf: ["instances:write", "gpu:read", "marketplace:read"] },

@@ -38,6 +38,7 @@ const TITLES: Record<ToolName, string> = {
   create_instance: "Launch a GPU instance",
   cancel_instance: "Cancel instance",
   terminate_instance: "Terminate instance",
+  stop_instance: "Stop instance",
   should_i_run_this: "Check whether to run a job",
   run_training_job: "Run a training job",
   schedule_under_budget: "Schedule a job under budget",

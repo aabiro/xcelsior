@@ -126,6 +126,15 @@ const DESCRIPTIONS: Record<ToolName, string> = {
     "again with confirm:true. Stops hourly billing immediately, and is irreversible: " +
     "instance-local state is destroyed and cannot be recovered.",
 
+  stop_instance:
+    "Stop a running instance and end its compute billing while keeping the container and any " +
+    "persistent volumes. Use this when the user wants the instance parked and able to start " +
+    "again, instead of cancel_instance, which cannot be resumed, or terminate_instance, which " +
+    "destroys it. Call it with confirm:false first: that previews the instance and changes " +
+    "nothing. Then call again with confirm:true. Stopping ends hourly compute billing. Storage " +
+    "billing for an allocated volume continues. A later start runs a fresh attempt from the " +
+    "admitted workload, and files that lived only in the container are not restored.",
+
   // ── Guardrails ──────────────────────────────────────────────────────────
   should_i_run_this:
     "Decide whether a proposed GPU job is affordable: estimates cost, reads the wallet balance, " +

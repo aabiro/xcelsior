@@ -503,8 +503,22 @@ const REHEARSALS: Record<string, Rehearsal> = {
   delete_user_image: { confirm: true, args: (ctx) => ({ image_id: ctx.imageId }) },
   delete_volume: { confirm: true, args: (ctx) => ({ volume_id: ctx.volumeId }) },
   delete_ssh_key: { confirm: true, args: (ctx) => ({ key_id: ctx.sshKeyId }) },
-  // The retried instance is queued again: cancel it. The training job is
+  // The retried instance is queued again: cancel it. Stop needs a running
+  // instance, so it launches its own and parks that one. The training job is
   // running: terminate it.
+  stop_instance: {
+    confirm: true,
+    before: async (ctx) => {
+      const created = await callConfirmed("create_instance", {
+        name: `${marker}-stop`,
+        ...instanceSpec,
+        idempotency_key: randomUUID(),
+      });
+      ctx.stopJobId = need(pick(created, "job.job_id", "job_id"), "stop job id", created);
+      await bringToRunning(String(ctx.stopJobId));
+    },
+    args: (ctx) => ({ job_id: ctx.stopJobId }),
+  },
   cancel_instance: { confirm: true, args: (ctx) => ({ job_id: ctx.jobId }) },
   terminate_instance: { confirm: true, args: (ctx) => ({ job_id: ctx.trainJobId }) },
 };
@@ -518,6 +532,7 @@ const TIDY = new Set([
   "delete_user_image",
   "delete_volume",
   "delete_ssh_key",
+  "stop_instance",
   "cancel_instance",
   "terminate_instance",
 ]);

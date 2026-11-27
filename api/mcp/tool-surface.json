@@ -2512,6 +2512,33 @@
       "hasOutputSchema": true
     },
     {
+      "name": "stop_instance",
+      "version": "2.0.0",
+      "tenantClass": "tenant",
+      "requiredScopes": [
+        "instances:write"
+      ],
+      "idempotency": "keyed",
+      "retry": "idempotent",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "input": {
+        "job_id": {
+          "type": "string",
+          "optional": false
+        },
+        "confirm": {
+          "type": "boolean",
+          "optional": true
+        }
+      },
+      "hasOutputSchema": true
+    },
+    {
       "name": "terminate_instance",
       "version": "2.0.0",
       "tenantClass": "tenant",

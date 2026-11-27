@@ -314,6 +314,7 @@ def api_v1_mcp_activation_funnel(request: Request):
                        bool_or(outcome = 'success')                       AS any_success,
                        bool_or(tool_name IN (
                            'create_instance', 'cancel_instance', 'terminate_instance',
+                           'stop_instance',
                            'run_training_job', 'schedule_under_budget',
                            'create_serverless_endpoint', 'run_serverless_job',
                            'retry_instance', 'reconcile_instance'

@@ -263,6 +263,46 @@ export function registerComputeTools(
   );
 
   server.registerTool(
+    "stop_instance",
+    {
+      inputSchema: z.object({
+        job_id: z.string(),
+        confirm: z.boolean().default(false),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ job_id, confirm }) => {
+      const denied = scopeDenied("stop_instance", user);
+      if (denied) return denied;
+      if (!confirm) {
+        const target = await readPreviewTarget(
+          () => client.get(`/api/v1/instances/${encodeURIComponent(job_id)}`),
+          `instance ${job_id}`,
+          "list_instances",
+        );
+        if (!target.found) return target.result;
+        const instance = (target.value.instance ?? target.value.job ?? target.value) as Record<string, unknown>;
+        return jsonText({
+          ok: true,
+          preview: true,
+          message:
+            `Set confirm:true to stop ${instance.name ?? job_id} (${instance.status ?? "status unknown"}). ` +
+            "The container is kept and the instance can be started again. Nothing has changed.",
+          job_id,
+          name: instance.name ?? null,
+          status: instance.status ?? null,
+        });
+      }
+      try {
+        const data = await client.post(`/instances/${encodeURIComponent(job_id)}/stop`);
+        return jsonText(data);
+      } catch (e) {
+        return jsonText({ error: formatApiError(e) });
+      }
+    },
+  );
+
+  server.registerTool(
     "register_ssh_key",
     {
       inputSchema: z.object({

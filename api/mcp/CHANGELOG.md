@@ -13,6 +13,15 @@ reflected here and version-bumped fails the build.
 
 ## Unreleased
 
+### Added
+
+- **`stop_instance`** (2.0.0). Parks a running instance through
+  `POST /instances/{job_id}/stop`. The container and persistent volumes stay,
+  hourly compute billing stops, and a later start runs a fresh attempt.
+  `confirm:false` previews and changes nothing. This is not `cancel_instance`
+  (that run cannot be resumed) and not `terminate_instance` (the instance is
+  destroyed).
+
 ### Breaking
 
 - **Twelve more tools that act preview first** (each **→ 3.0.0**,

@@ -1,7 +1,7 @@
 {
   "$comment": "What these images show, recorded once because pixels cannot read a file. tests/test_release_facts.py fails when a value here no longer matches its source, which means the images listed under it need re-cutting from the design canvas, then this file updating.",
   "mcpToolCount": {
-    "value": 85,
+    "value": 86,
     "source": "api/mcp/tool-surface.json",
     "images": [
       "x/header-1500x500",
@@ -12,14 +12,14 @@
   },
   "toolsListSplit": {
     "readOnly": 55,
-    "destructive": 29,
+    "destructive": 30,
     "other": 1,
     "source": "the annotations in api/mcp/tool-surface.json",
     "images": [
       "screenshots/mcp-tools-list-1270x760"
     ],
-    "printedDate": "24 NOV 2026",
-    "checkedAgainstLive": "24 NOV 2026"
+    "printedDate": "27 NOV 2026",
+    "checkedAgainstLive": "not yet: run again with --live after deploying"
   },
   "capturedOnly": {
     "$comment": "A verbatim capture of the live service on the date given. It is dated, not a claim about now, so no test holds it to the current version.",

@@ -152,7 +152,7 @@ those deletion credentials.
 ## Tools (v2)
 
 - **Discovery:** `list_available_gpus`, `get_spot_prices`, `get_pricing_reference`, `search_marketplace`, `list_tiers`
-- **Compute:** `list_instances`, `get_instance`, `get_instance_logs`, `create_instance`, `cancel_instance`, `terminate_instance`
+- **Compute:** `list_instances`, `get_instance`, `get_instance_logs`, `create_instance`, `stop_instance`, `cancel_instance`, `terminate_instance`
 - **Billing:** `get_wallet_balance`, `estimate_job_cost`, `list_invoices`
 - **Guardrails:** `should_i_run_this` (estimate + wallet + optional `max_hourly_cad`)
 - **Workflows:** `run_training_job`, `schedule_under_budget`

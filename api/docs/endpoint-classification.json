@@ -2376,8 +2376,8 @@
     "notes": "Requests a fresh native attempt from the admitted workload, preserving persistent volumes. No MCP tool reaches this lifecycle operation."
   },
   "POST /instances/{job_id}/stop": {
-    "class": "gap",
-    "notes": "Requests fenced worker settlement without terminating the workload. No MCP tool exposes this reversible lifecycle intent."
+    "class": "covered",
+    "notes": "stop_instance. The container is kept and a later start runs a fresh attempt. Distinct from cancel_instance and terminate_instance."
   },
   "POST /instances/{job_id}/terminate": {
     "class": "covered",

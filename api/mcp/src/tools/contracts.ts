@@ -160,6 +160,9 @@ const TOOL_POLICY: Record<ToolName, ToolPolicy> = {
   create_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "2.1.0" },
   cancel_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   terminate_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
+  // Parks the instance. The container stays, and start runs it again. Not in
+  // IRREVERSIBLE_TOOLS: cancel ends the run, terminate destroys it.
+  stop_instance: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed" },
   should_i_run_this: { readOnly: true, destructive: false, audience: "customer" },
   run_training_job: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", version: "3.0.0" },
   schedule_under_budget: { readOnly: false, destructive: true, audience: "customer", idempotency: "keyed", openWorld: true, version: "3.0.0" },
