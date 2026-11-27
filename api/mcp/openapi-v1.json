@@ -11,7 +11,7 @@
           "Launch plans"
         ],
         "summary": "Api Simulate Placement",
-        "description": "\u00a718 placement feasibility for a spec \u2014 read-only.\n\nReuses the launch service's snapshot + Stage-C filter simulation: it creates\nno plan, no attempt, no allocation, and no lease. Answers \"could this be\nplaced right now, and if not, why\".",
+        "description": "§18 placement feasibility for a spec — read-only.\n\nReuses the launch service's snapshot + Stage-C filter simulation: it creates\nno plan, no attempt, no allocation, and no lease. Answers \"could this be\nplaced right now, and if not, why\".",
         "operationId": "api_simulate_placement_api_v1_placements_simulate_post",
         "requestBody": {
           "content": {
@@ -51,7 +51,7 @@
           "Launch plans"
         ],
         "summary": "Api Evaluate Placement",
-        "description": "What this preference would place on, or why it refuses \u2014 read-only.\n\nSeparate from `/placements/simulate` on purpose. That route answers \"is\nthere *an* eligible host\", and its `feasible` flag has one meaning. A\nconstrained request has a second, independent answer \u2014 the constraint was\nor was not satisfiable \u2014 and overloading one boolean with both is how a\nrefusal comes to read as an outage.\n\n**A refusal is a 200.** The caller asked what would happen and is being\ntold, with the number that failed attached so the trade-off can be\nrendered before anything is committed. An HTTP error would say the request\nwas wrong; the request was fine and the fleet could not satisfy it.",
+        "description": "What this preference would place on, or why it refuses — read-only.\n\nSeparate from `/placements/simulate` on purpose. That route answers \"is\nthere *an* eligible host\", and its `feasible` flag has one meaning. A\nconstrained request has a second, independent answer — the constraint was\nor was not satisfiable — and overloading one boolean with both is how a\nrefusal comes to read as an outage.\n\n**A refusal is a 200.** The caller asked what would happen and is being\ntold, with the number that failed attached so the trade-off can be\nrendered before anything is committed. An HTTP error would say the request\nwas wrong; the request was fine and the fleet could not satisfy it.",
         "operationId": "api_evaluate_placement_api_v1_placements_evaluate_post",
         "requestBody": {
           "content": {
@@ -91,8 +91,48 @@
           "Launch plans"
         ],
         "summary": "Api Create Launch Plan",
-        "description": "\u00a714.1 preview. Creates an action plan; no attempt/allocation/lease/hold/job.\n\nReturns the plan id, versioned estimate, current placement availability,\nexpiry, approval mode, and the next action. A confirmed launch happens\nonly after approval, through the execute endpoint (B2.5).",
+        "description": "§14.1 preview. Creates an action plan; no attempt/allocation/lease/hold/job.\n\nReturns the plan id, versioned estimate, current placement availability,\nexpiry, approval mode, and the next action. A confirmed launch happens\nonly after approval, through the execute endpoint (B2.5).",
         "operationId": "api_create_launch_plan_api_v1_launch_plans_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/launch-plans/quote": {
+      "post": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Api Quote Launch Plan",
+        "description": "What a preview would answer, and nothing persisted.\n\nThe estimate, the placement check, and the approval this credential's spend\nenvelope would give the launch right now (`approval_mode` is\n`standing_policy` when it would approve itself), with no plan created.\n`terraform plan` calls this so a plan run, which may be speculative, never\nleaves an approval waiting in someone's dashboard.",
+        "operationId": "api_quote_launch_plan_api_v1_launch_plans_quote_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -172,7 +212,7 @@
           "Launch plans"
         ],
         "summary": "Api Approve Launch Plan",
-        "description": "\u00a714.2 approval. Standing policy self-approves inside limits; else a human.",
+        "description": "§14.2 approval. Standing policy self-approves inside limits; else a human.",
         "operationId": "api_approve_launch_plan_api_v1_launch_plans__plan_id__approve_post",
         "parameters": [
           {
@@ -191,7 +231,7 @@
               "schema": {
                 "anyOf": [
                   {
-                    "$ref": "#/components/schemas/_ApproveIn"
+                    "$ref": "#/components/schemas/LaunchPlanApproveIn"
                   },
                   {
                     "type": "null"
@@ -230,7 +270,7 @@
           "Launch plans"
         ],
         "summary": "Api Revoke Launch Plan",
-        "description": "\u00a714.2 revoke \u2014 idempotent; a consumed or terminal plan cannot be revoked.",
+        "description": "§14.2 revoke — idempotent; a consumed or terminal plan cannot be revoked.",
         "operationId": "api_revoke_launch_plan_api_v1_launch_plans__plan_id__revoke_post",
         "parameters": [
           {
@@ -249,7 +289,7 @@
               "schema": {
                 "anyOf": [
                   {
-                    "$ref": "#/components/schemas/_RevokeIn"
+                    "$ref": "#/components/schemas/LaunchPlanRevokeIn"
                   },
                   {
                     "type": "null"
@@ -288,7 +328,7 @@
           "Launch plans"
         ],
         "summary": "Api Execute Launch Plan",
-        "description": "\u00a714.3 execute. Exactly-once; a price move beyond tolerance is 409 quote_changed.",
+        "description": "§14.3 execute. Exactly-once; a price move beyond tolerance is 409 quote_changed.",
         "operationId": "api_execute_launch_plan_api_v1_launch_plans__plan_id__execute_post",
         "parameters": [
           {
@@ -307,7 +347,7 @@
               "schema": {
                 "anyOf": [
                   {
-                    "$ref": "#/components/schemas/_ExecuteIn"
+                    "$ref": "#/components/schemas/LaunchPlanExecuteIn"
                   },
                   {
                     "type": "null"
@@ -346,7 +386,7 @@
           "Launch plans"
         ],
         "summary": "Api Create Pipeline",
-        "description": "Quote a dependency graph and persist it as one approvable plan.\n\nGate P4's \"one approval, three stages\". The graph lives in the plan's\ncanonical args, so the existing `canonical_args_hash` check is what makes\nthe approved graph server-bound \u2014 editing any stage afterwards invalidates\nit without a mechanism written for this phase.\n\n**The plan requires the union of its stages' scopes.** Approving\n`train \u2192 serve` on `instances:operate` alone would let the serve stage run\nwithout `inference:write`; one approval silently widening authority is the\nfailure this phase could introduce if scopes came from the first stage.\n\n`approval_mode` is `\"human\"` and not the spend policy's decision. A standing\npolicy pre-authorises spending inside ceilings; letting it approve a graph\nthat sets its own ceiling is circular \u2014 the same reasoning that fixed\n`configure_auto_topup` to human-only.",
+        "description": "Quote a dependency graph and persist it as one approvable plan.\n\nGate P4's \"one approval, three stages\". The graph lives in the plan's\ncanonical args, so the existing `canonical_args_hash` check is what makes\nthe approved graph server-bound — editing any stage afterwards invalidates\nit without a mechanism written for this phase.\n\n**The plan requires the union of its stages' scopes.** Approving\n`train → serve` on `instances:operate` alone would let the serve stage run\nwithout `inference:write`; one approval silently widening authority is the\nfailure this phase could introduce if scopes came from the first stage.\n\n`approval_mode` is `\"human\"` and not the spend policy's decision. A standing\npolicy pre-authorises spending inside ceilings; letting it approve a graph\nthat sets its own ceiling is circular — the same reasoning that fixed\n`configure_auto_topup` to human-only.",
         "operationId": "api_create_pipeline_api_v1_pipelines_post",
         "requestBody": {
           "content": {
@@ -427,7 +467,7 @@
           "Launch plans"
         ],
         "summary": "Api Execute Pipeline",
-        "description": "Run an approved pipeline. The graph comes from the plan, never the request.\n\nGate P4's \"the approved graph is server-bound: editing any stage after\napproval invalidates it\" is enforced here, and it is enforced the same way\nthe promotion executor does it \u2014 by rehashing the stored canonical args and\ncomparing. A caller cannot supply stages; it can only name a plan.\n\nThat is the whole reason the graph lives in `canonical_args` rather than in\n`pipeline_stages`: the rows are execution state and are written by the\nexecutor, so binding the approval to them would be binding it to something\nthe executor itself controls.",
+        "description": "Run an approved pipeline. The graph comes from the plan, never the request.\n\nGate P4's \"the approved graph is server-bound: editing any stage after\napproval invalidates it\" is enforced here, and it is enforced the same way\nthe promotion executor does it — by rehashing the stored canonical args and\ncomparing. A caller cannot supply stages; it can only name a plan.\n\nThat is the whole reason the graph lives in `canonical_args` rather than in\n`pipeline_stages`: the rows are execution state and are written by the\nexecutor, so binding the approval to them would be binding it to something\nthe executor itself controls.",
         "operationId": "api_execute_pipeline_api_v1_pipelines__plan_id__execute_post",
         "parameters": [
           {
@@ -462,13 +502,143 @@
         }
       }
     },
+    "/api/v1/spend-envelope": {
+      "get": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Api Get Own Spend Envelope",
+        "description": "The envelope on the credential making this call, and what is left of it.\n\nFor a machine credential to check before it acts: `terraform plan` reads\nit to say whether an apply will run unattended. A dashboard session has no\nenvelope of its own, so it gets `envelope: null`.",
+        "operationId": "api_get_own_spend_envelope_api_v1_spend_envelope_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/spend-envelopes": {
+      "get": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Api List Spend Envelopes",
+        "description": "Every envelope in the caller's workspace. Dashboard sessions only.",
+        "operationId": "api_list_spend_envelopes_api_v1_spend_envelopes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/spend-envelopes/{client_id}": {
+      "put": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Api Put Spend Envelope",
+        "description": "Set the envelope a credential spends inside without asking. Human-only.\n\nReplaces the whole envelope: a field left out has no ceiling of that kind,\nexcept the daily ceiling, which is required. The credential's plans that\nfit inside it approve themselves from the next preview on; a plan already\nwaiting for a person keeps waiting.",
+        "operationId": "api_put_spend_envelope_api_v1_spend_envelopes__client_id__put",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Client Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpendEnvelopeIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Api Delete Spend Envelope",
+        "description": "Remove an envelope. Its credential's next plans wait for a person.\n\nA person in the dashboard may remove any envelope in their workspace; a\ncredential may remove its own, because that only takes authority away.\nIdempotent: removing an envelope that is not there succeeds.",
+        "operationId": "api_delete_spend_envelope_api_v1_spend_envelopes__client_id__delete",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Client Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/mcp/tool-audit": {
       "get": {
         "tags": [
           "Control plane v1"
         ],
         "summary": "Api V1 Mcp Tool Audit Export",
-        "description": "Customer-visible export of this tenant's own MCP tool-call audit trail.\n\nThe trail was already recorded per call \u2014 principal, tenant, scopes, a hash\nof the redacted arguments, the action plan, the upstream route and status,\ntrace id, latency, and outcome. An audit trail a customer cannot read is a\nlog file, not an assurance: this is what makes \"every agent action is\naudited\" checkable by the person whose account it is, which is what an\nenterprise security review actually asks for (adoption plan X6.30).\n\nStrictly tenant-scoped. There is no cross-tenant view here at any privilege\nlevel \u2014 an operator investigating an incident uses the operator surface,\nwhich is separately authorized and separately audited.",
+        "description": "Customer-visible export of this tenant's own MCP tool-call audit trail.\n\nThe trail was already recorded per call — principal, tenant, scopes, a hash\nof the redacted arguments, the action plan, the upstream route and status,\ntrace id, latency, and outcome. An audit trail a customer cannot read is a\nlog file, not an assurance: this is what makes \"every agent action is\naudited\" checkable by the person whose account it is, which is what an\nenterprise security review actually asks for (adoption plan X6.30).\n\nStrictly tenant-scoped. There is no cross-tenant view here at any privilege\nlevel — an operator investigating an incident uses the operator surface,\nwhich is separately authorized and separately audited.",
         "operationId": "api_v1_mcp_tool_audit_export_api_v1_mcp_tool_audit_get",
         "responses": {
           "200": {
@@ -526,7 +696,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Mcp Activation Funnel",
-        "description": "Connector activation funnel, with per-surface attribution.\n\nAdoption plan X7.33/X7.34. The stages are the ones a connector actually\npasses through, computed from durable records rather than estimated:\n\n  authorized       \u2192 a user approved the connector (`oauth_consent_grants`)\n  first_tool_call  \u2192 that tenant made at least one MCP tool call\n  first_success    \u2192 at least one of those calls succeeded\n  first_write      \u2192 they used a tool that changes something\n  first_paid       \u2192 they ran a workload that was billed\n\n**The two stages above `authorized` are deliberately not here.** Discovery\nhits and 401 challenges are counted at the MCP edge as Prometheus counters\n(`xcelsior_mcp_auth_failures_total`, `xcelsior_mcp_active_transports`) and\nread in Grafana. Persisting a database row per unauthenticated request would\nmake an unauthenticated endpoint a write amplifier \u2014 the top of this funnel\nbelongs in a metrics pipeline, not in Postgres, and saying so is more useful\nthan a number we would have to fabricate.\n\nPlatform-wide, so admin-only: a tenant's own activity is the audit export.",
+        "description": "Connector activation funnel, with per-surface attribution.\n\nAdoption plan X7.33/X7.34. The stages are the ones a connector actually\npasses through, computed from durable records rather than estimated:\n\n  authorized       → a user approved the connector (`oauth_consent_grants`)\n  first_tool_call  → that tenant made at least one MCP tool call\n  first_success    → at least one of those calls succeeded\n  first_write      → they used a tool that changes something\n  first_paid       → they ran a workload that was billed\n\n**The two stages above `authorized` are deliberately not here.** Discovery\nhits and 401 challenges are counted at the MCP edge as Prometheus counters\n(`xcelsior_mcp_auth_failures_total`, `xcelsior_mcp_active_transports`) and\nread in Grafana. Persisting a database row per unauthenticated request would\nmake an unauthenticated endpoint a write amplifier — the top of this funnel\nbelongs in a metrics pipeline, not in Postgres, and saying so is more useful\nthan a number we would have to fabricate.\n\nPlatform-wide, so admin-only: a tenant's own activity is the audit export.",
         "operationId": "api_v1_mcp_activation_funnel_api_v1_mcp_activation_funnel_get",
         "responses": {
           "200": {
@@ -739,7 +909,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Drain Host",
-        "description": "\u00a73.3 drain \u2014 stop **new** placements only. Running workloads keep running.\n\nEviction requires a separate scope and the durable preemption controller.",
+        "description": "§3.3 drain — stop **new** placements only. Running workloads keep running.\n\nEviction requires a separate scope and the durable preemption controller.",
         "operationId": "api_v1_drain_host_api_v1_hosts__host_id__drain_post",
         "parameters": [
           {
@@ -797,7 +967,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Undrain Host",
-        "description": "\u00a73.3 undrain \u2014 return a drained host to service.",
+        "description": "§3.3 undrain — return a drained host to service.",
         "operationId": "api_v1_undrain_host_api_v1_hosts__host_id__undrain_post",
         "parameters": [
           {
@@ -913,7 +1083,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Instance Control Plane",
-        "description": "\u00a718/\u00a720.3 \u2014 a job's control-plane state: phase, desired state, current\nattempt. Tenant-scoped; a cross-tenant id is not-found (no existence leak).",
+        "description": "§18/§20.3 — a job's control-plane state: phase, desired state, current\nattempt. Tenant-scoped; a cross-tenant id is not-found (no existence leak).",
         "operationId": "api_v1_instance_control_plane_api_v1_instances__job_id__control_plane_get",
         "parameters": [
           {
@@ -954,7 +1124,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Instance Timeline",
-        "description": "\u00a720.3 \u2014 the attempt timeline for a job (reserve \u2192 command \u2192 lease \u2192\nstart \u2192 end per attempt). Tenant-scoped; cross-tenant is not-found.",
+        "description": "§20.3 — the attempt timeline for a job (reserve → command → lease →\nstart → end per attempt). Tenant-scoped; cross-tenant is not-found.",
         "operationId": "api_v1_instance_timeline_api_v1_instances__job_id__timeline_get",
         "parameters": [
           {
@@ -1166,7 +1336,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Reconciliation Findings",
-        "description": "\u00a718/\u00a720.2 \u2014 reconciler findings feed (operator surface).\n\nAdmin, or a machine principal with `control_plane:read`. Wraps the existing\n`reconciliation_findings` authority; read-only.",
+        "description": "§18/§20.2 — reconciler findings feed (operator surface).\n\nAdmin, or a machine principal with `control_plane:read`. Wraps the existing\n`reconciliation_findings` authority; read-only.",
         "operationId": "api_v1_reconciliation_findings_api_v1_control_plane_reconciliation_findings_get",
         "parameters": [
           {
@@ -1234,7 +1404,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Instance Attempts",
-        "description": "\u00a718 \u2014 the raw attempt records for a job. Tenant-scoped.",
+        "description": "§18 — the raw attempt records for a job. Tenant-scoped.",
         "operationId": "api_v1_instance_attempts_api_v1_instances__job_id__attempts_get",
         "parameters": [
           {
@@ -1316,7 +1486,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Instance Placement Explanation",
-        "description": "\u00a73.2/\u00a718 \u2014 the persisted placement explanation for the current attempt.\n\nReturns the bounded, pre-computed explanation the scheduler stored (no LLM\ninvents a reason). Tenant-scoped; not-found for a cross-tenant id.",
+        "description": "§3.2/§18 — the persisted placement explanation for the current attempt.\n\nReturns the bounded, pre-computed explanation the scheduler stored (no LLM\ninvents a reason). Tenant-scoped; not-found for a cross-tenant id.",
         "operationId": "api_v1_instance_placement_explanation_api_v1_instances__job_id__placement_explanation_get",
         "parameters": [
           {
@@ -1357,7 +1527,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Instance Retry",
-        "description": "\u00a718 \u2014 re-enqueue a failed/stuck instance (does not run the queue inline).\n\nTenant-scoped write. Delegates to the one requeue authority; the scheduler\nthen claims and places it.",
+        "description": "§18 — re-enqueue a failed/stuck instance (does not run the queue inline).\n\nTenant-scoped write. Delegates to the one requeue authority; the scheduler\nthen claims and places it.",
         "operationId": "api_v1_instance_retry_api_v1_instances__job_id__retry_post",
         "parameters": [
           {
@@ -1415,7 +1585,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Host Capacity",
-        "description": "\u00a718/\u00a720.4 \u2014 a host's GPU capacity snapshot. Operator read.",
+        "description": "§18/§20.4 — a host's GPU capacity snapshot. Operator read.",
         "operationId": "api_v1_host_capacity_api_v1_hosts__host_id__capacity_get",
         "parameters": [
           {
@@ -1456,7 +1626,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Host Observations",
-        "description": "\u00a718/\u00a720.4 \u2014 recent worker-reported observations for a host. Operator read.",
+        "description": "§18/§20.4 — recent worker-reported observations for a host. Operator read.",
         "operationId": "api_v1_host_observations_api_v1_hosts__host_id__observations_get",
         "parameters": [
           {
@@ -1509,7 +1679,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Control Plane Queue",
-        "description": "\u00a718/\u00a720.2 \u2014 the queued instances awaiting placement, with reasons. Operator read.",
+        "description": "§18/§20.2 — the queued instances awaiting placement, with reasons. Operator read.",
         "operationId": "api_v1_control_plane_queue_api_v1_control_plane_queue_get",
         "responses": {
           "200": {
@@ -1529,7 +1699,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Control Plane Health",
-        "description": "\u00a718/\u00a720.2 \u2014 control-plane health aggregate: outbox, findings, tasks.\n\nA dashboard \"0\" from a broken pipeline must be distinguishable from a\ngenuine zero (DA\u00a717), so this reports live counts, not a single flag.\nOperator read.",
+        "description": "§18/§20.2 — control-plane health aggregate: outbox, findings, tasks.\n\nA dashboard \"0\" from a broken pipeline must be distinguishable from a\ngenuine zero (DA§17), so this reports live counts, not a single flag.\nOperator read.",
         "operationId": "api_v1_control_plane_health_api_v1_control_plane_health_get",
         "responses": {
           "200": {
@@ -1549,7 +1719,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Openapi",
-        "description": "The versioned OpenAPI schema for the `/api/v1` surface (\u00a718.1).\n\nThe app serves a *curated* public spec at `/openapi.json`; the generated MCP\nand dashboard clients (B5.2, B6.1) instead pin this \u2014 the live FastAPI schema\nfiltered to `/api/v1/*` \u2014 so a client is always in lockstep with the routes\nactually mounted.",
+        "description": "The versioned OpenAPI schema for the `/api/v1` surface (§18.1).\n\nThe app serves a *curated* public spec at `/openapi.json`; the generated MCP\nand dashboard clients (B5.2, B6.1) instead pin this — the live FastAPI schema\nfiltered to `/api/v1/*` — so a client is always in lockstep with the routes\nactually mounted.",
         "operationId": "api_v1_openapi_api_v1_openapi_json_get",
         "responses": {
           "200": {
@@ -1569,7 +1739,7 @@
           "Control plane v1"
         ],
         "summary": "Api V1 Instance Reconcile",
-        "description": "\u00a73.3/\u00a718 reconcile \u2014 **enqueue** a reconcile for this instance.\n\nIt never performs direct repair (\u00a73.3): it inserts a durable request into\n`reconciliation_queue`, coalesced to one pending entry per instance, and the\nreconciler claims and processes it out-of-band. Tenant-scoped.",
+        "description": "§3.3/§18 reconcile — **enqueue** a reconcile for this instance.\n\nIt never performs direct repair (§3.3): it inserts a durable request into\n`reconciliation_queue`, coalesced to one pending entry per instance, and the\nreconciler claims and processes it out-of-band. Tenant-scoped.",
         "operationId": "api_v1_instance_reconcile_api_v1_instances__job_id__reconcile_post",
         "parameters": [
           {
@@ -2207,7 +2377,7 @@
           "Agent"
         ],
         "summary": "Api Report Sweep Fingerprint",
-        "description": "Receive what a sweep member's container said about its own environment.\n\nGate P7's evidence has to come from the running container: the control\nplane already knows the digest it sent to all N members, so comparing that\nto itself establishes the request was consistent rather than the\ncontainers.\n\nAuthenticated as the agent, not as a user \u2014 the reporter is the worker that\nran the collector, and `_require_agent_auth` binds the credential to the\nhost in the usual way.\n\n**Both halves or neither.** `record_fingerprint` refuses a hash without its\nmanifest: a bare mismatch is undiagnosable, and the first time a sweep goes\nred the question is which field.",
+        "description": "Receive what a sweep member's container said about its own environment.\n\nGate P7's evidence has to come from the running container: the control\nplane already knows the digest it sent to all N members, so comparing that\nto itself establishes the request was consistent rather than the\ncontainers.\n\nAuthenticated as the agent, not as a user — the reporter is the worker that\nran the collector, and `_require_agent_auth` binds the credential to the\nhost in the usual way.\n\n**Both halves or neither.** `record_fingerprint` refuses a hash without its\nmanifest: a bare mismatch is undiagnosable, and the first time a sweep goes\nred the question is which field.",
         "operationId": "api_report_sweep_fingerprint_api_v1_image_sweeps__sweep_id__members__member_index__fingerprint_post",
         "parameters": [
           {
@@ -2348,7 +2518,7 @@
           "Instances"
         ],
         "summary": "Api Create Image Sweep",
-        "description": "Quote a sweep and persist it as one approvable plan. Nothing launches here.\n\n**A sweep is the largest single spend on the platform and had the weakest\ngate.** `create_instance` refuses to launch one instance without an approved\n`plan_id`; this route launched up to sixty-four on a bare call. Exposing it\nto an agent in that shape would have made the bulk path the way to skip the\napproval that guards the single path.\n\nThe obvious shortcut \u2014 reuse `/api/v1/launch-plans`, which quotes one job \u2014\nis worse than no gate: `count` would sit outside the approved canonical\nargs, so a plan approved for one instance would authorise sixty-four. The\ncount is inside the plan here, and the canonical hash binds it, so an\napproval means the number that was shown.\n\nThe image is validated **before** a plan is written, so an unsweepable image\nis refused now rather than after someone approves a spend for it.",
+        "description": "Quote a sweep and persist it as one approvable plan. Nothing launches here.\n\n**A sweep is the largest single spend on the platform and had the weakest\ngate.** `create_instance` refuses to launch one instance without an approved\n`plan_id`; this route launched up to sixty-four on a bare call. Exposing it\nto an agent in that shape would have made the bulk path the way to skip the\napproval that guards the single path.\n\nThe obvious shortcut — reuse `/api/v1/launch-plans`, which quotes one job —\nis worse than no gate: `count` would sit outside the approved canonical\nargs, so a plan approved for one instance would authorise sixty-four. The\ncount is inside the plan here, and the canonical hash binds it, so an\napproval means the number that was shown.\n\nThe image is validated **before** a plan is written, so an unsweepable image\nis refused now rather than after someone approves a spend for it.",
         "operationId": "api_create_image_sweep_api_v1_image_sweeps_post",
         "requestBody": {
           "content": {
@@ -2388,7 +2558,7 @@
           "Instances"
         ],
         "summary": "Api Execute Image Sweep Plan",
-        "description": "Launch N instances from one snapshot for one approved plan.\n\nGate P7. The record is the feature: N job ids handed back from N calls\nleaves \"these came from one snapshot\" as an intention in the caller, with\npartial failure invisible and nothing for the fingerprint comparison to be\ncompared across.\n\n**No host pin.** Each member goes through the ordinary queue and the\nscheduler places it \u2014 which is what a sweep wants anyway, since members\nspread across hosts establish more than members stacked on one. It also\nmeans this route never touches the direct-assignment branch of\n`api_submit_instance`, which is where that handler's complexity lives.\n\n**Every member is funded before it is submitted.** A sweep is N times the\nspend of one launch, so `_wallet_preflight` runs per member and a member\nthat cannot be funded is recorded `failed` rather than launched \u2014 the wallet\ncheck is not something a bulk path gets to skip. The hold is linked to the\njob exactly as the single-instance path does it, so a sweep member's money\nis accounted for the same way.\n\n**A launch failure does not abort the sweep.** It is recorded against that\nmember with its reason, because \"3 of 5 launched, and here are the two that\ndid not\" is the answer an operator needs, and aborting would strand the\nthree that started.",
+        "description": "Launch N instances from one snapshot for one approved plan.\n\nGate P7. The record is the feature: N job ids handed back from N calls\nleaves \"these came from one snapshot\" as an intention in the caller, with\npartial failure invisible and nothing for the fingerprint comparison to be\ncompared across.\n\n**No host pin.** Each member goes through the ordinary queue and the\nscheduler places it — which is what a sweep wants anyway, since members\nspread across hosts establish more than members stacked on one. It also\nmeans this route never touches the direct-assignment branch of\n`api_submit_instance`, which is where that handler's complexity lives.\n\n**Every member is funded before it is submitted.** A sweep is N times the\nspend of one launch, so `_wallet_preflight` runs per member and a member\nthat cannot be funded is recorded `failed` rather than launched — the wallet\ncheck is not something a bulk path gets to skip. The hold is linked to the\njob exactly as the single-instance path does it, so a sweep member's money\nis accounted for the same way.\n\n**A launch failure does not abort the sweep.** It is recorded against that\nmember with its reason, because \"3 of 5 launched, and here are the two that\ndid not\" is the answer an operator needs, and aborting would strand the\nthree that started.",
         "operationId": "api_execute_image_sweep_plan_api_v1_image_sweep_plans__plan_id__execute_post",
         "parameters": [
           {
@@ -2470,7 +2640,7 @@
           "Volumes"
         ],
         "summary": "Api Promotion Manifest For Agent",
-        "description": "The file list and read grants for one promotion. Worker-authenticated.\n\nSeparate from the customer-facing preview, and deliberately so: this is the\nonly response that carries **presigned URLs**, which are time-limited read\ngrants for a tenant's weights. That is why the command row holds nothing but\n`{promotion_id}` \u2014 a queued, logged, retained row is the wrong place for a\ncredential \u2014 and why this endpoint is reachable only by a platform worker.\n\nThe manifest is re-resolved from the catalog rather than stored on the row,\nso a promotion cannot hand out URLs for artifacts that have since been\ndeleted, and the tenant is taken from the promotion rather than the caller.",
+        "description": "The file list and read grants for one promotion. Worker-authenticated.\n\nSeparate from the customer-facing preview, and deliberately so: this is the\nonly response that carries **presigned URLs**, which are time-limited read\ngrants for a tenant's weights. That is why the command row holds nothing but\n`{promotion_id}` — a queued, logged, retained row is the wrong place for a\ncredential — and why this endpoint is reachable only by a platform worker.\n\nThe manifest is re-resolved from the catalog rather than stored on the row,\nso a promotion cannot hand out URLs for artifacts that have since been\ndeleted, and the tenant is taken from the promotion rather than the caller.",
         "operationId": "api_promotion_manifest_for_agent_api_v1_promotions__promotion_id__manifest_get",
         "parameters": [
           {
@@ -2562,7 +2732,7 @@
           "Volumes"
         ],
         "summary": "Api Promotion File Result",
-        "description": "One file finished. Worker-authenticated.\n\n\u00a73.5 exists because retries are certain: \"a promotion that restarts from\nzero after a failure at 38 GB will be retried by a human who then watches it\nfail again\". This is the row that lets the next attempt skip it.\n\n**`done` requires `sha256_verified`** \u2014 enforced by a CHECK, not only here.\nThe resume path skips `done` files, so a file marked done without\nverification would be skipped forever and the volume would carry an\nunverified copy that looks like a backup. An agent claiming `done` without\nverification is refused rather than trusted.",
+        "description": "One file finished. Worker-authenticated.\n\n§3.5 exists because retries are certain: \"a promotion that restarts from\nzero after a failure at 38 GB will be retried by a human who then watches it\nfail again\". This is the row that lets the next attempt skip it.\n\n**`done` requires `sha256_verified`** — enforced by a CHECK, not only here.\nThe resume path skips `done` files, so a file marked done without\nverification would be skipped forever and the volume would carry an\nunverified copy that looks like a backup. An agent claiming `done` without\nverification is refused rather than trusted.",
         "operationId": "api_promotion_file_result_api_v1_promotions__promotion_id__files_post",
         "parameters": [
           {
@@ -4885,6 +5055,63 @@
         ],
         "title": "JobIn"
       },
+      "LaunchPlanApproveIn": {
+        "properties": {
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "default": false
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          },
+          "confirmation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation"
+          }
+        },
+        "type": "object",
+        "title": "LaunchPlanApproveIn"
+      },
+      "LaunchPlanExecuteIn": {
+        "properties": {
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "LaunchPlanExecuteIn"
+      },
+      "LaunchPlanRevokeIn": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "LaunchPlanRevokeIn"
+      },
       "LeaseAuthorityRequest": {
         "properties": {
           "lease_id": {
@@ -5125,7 +5352,7 @@
           "amount_cad"
         ],
         "title": "ManualTopupRequest",
-        "description": "A one-off top-up on a card already saved to the account.\n\nThe card selector is human-shaped on purpose. Nobody says `pm_1QxYz...`;\nthey say \"my Visa\" or \"the one ending 4242\". All three selectors are\noptional \u2014 omitting them uses the account's default card, which is the\nsensible reading of \"top up my account\"."
+        "description": "A one-off top-up on a card already saved to the account.\n\nThe card selector is human-shaped on purpose. Nobody says `pm_1QxYz...`;\nthey say \"my Visa\" or \"the one ending 4242\". All three selectors are\noptional — omitting them uses the account's default card, which is the\nsensible reading of \"top up my account\"."
       },
       "MarketplaceSearchParams": {
         "properties": {
@@ -5397,7 +5624,7 @@
           "confidence"
         ],
         "title": "MiningAlert",
-        "description": "A worker's word on resource abuse.\n\nThe GPU-only form (``gpu_index`` + ``reason``) is logged and broadcast.\nWith ``job_id`` it is one pass of a response episode (CVP-01 \u00a73): the\ncontrol plane records it, raises the alert on a rung change, and answers\nwith the account prior, prior incidents and any administrator decision."
+        "description": "A worker's word on resource abuse.\n\nThe GPU-only form (``gpu_index`` + ``reason``) is logged and broadcast.\nWith ``job_id`` it is one pass of a response episode (CVP-01 §3): the\ncontrol plane records it, raises the alert on a rung change, and answers\nwith the account prior, prior incidents and any administrator decision."
       },
       "OAuthClientCreateRequest": {
         "properties": {
@@ -6088,7 +6315,7 @@
         },
         "type": "object",
         "title": "PlacementPreferenceBody",
-        "description": "A stated placement preference on a launch \u2014 the same shape\n`/api/v1/placements/evaluate` takes, so what a user previewed is what they\ncan submit.\n\nBounds mirror `routes.action_plans.PlacementPreferenceIn` deliberately: one\nvalidator disagreeing with another is how a request that previewed fine gets\nrefused at launch. The database CHECKs (migration 115) sit beneath both."
+        "description": "A stated placement preference on a launch — the same shape\n`/api/v1/placements/evaluate` takes, so what a user previewed is what they\ncan submit.\n\nBounds mirror `routes.action_plans.PlacementPreferenceIn` deliberately: one\nvalidator disagreeing with another is how a request that previewed fine gets\nrefused at launch. The database CHECKs (migration 115) sit beneath both."
       },
       "PlacementPreferenceIn": {
         "properties": {
@@ -6138,7 +6365,7 @@
         },
         "type": "object",
         "title": "PlacementPreferenceIn",
-        "description": "A stated placement preference \u2014 constraints that gate, a bound that caps.\n\nDeliberately **not** part of `JobIn`. The spec is what to run; this is which\nhost may run it. Folding it into the spec would put it inside `canonicalize`\nand `spec_hash`, so two identical workloads asking for different reliability\nwould hash differently and an approval could not be matched to a rerun."
+        "description": "A stated placement preference — constraints that gate, a bound that caps.\n\nDeliberately **not** part of `JobIn`. The spec is what to run; this is which\nhost may run it. Folding it into the spec would put it inside `canonicalize`\nand `spec_hash`, so two identical workloads asking for different reliability\nwould hash differently and an approval could not be matched to a rerun."
       },
       "PoolHost": {
         "properties": {
@@ -7741,6 +7968,110 @@
         "type": "object",
         "title": "SocialOAuthInitBody"
       },
+      "SpendEnvelopeIn": {
+        "properties": {
+          "daily_spend_max_micros": {
+            "type": "integer",
+            "maximum": 1000000000000.0,
+            "minimum": 0.0,
+            "title": "Daily Spend Max Micros"
+          },
+          "hourly_spend_max_micros": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hourly Spend Max Micros"
+          },
+          "per_action_max_micros": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Per Action Max Micros"
+          },
+          "max_gpus_per_launch": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 64.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Gpus Per Launch"
+          },
+          "allowed_gpu_models": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Gpu Models"
+          },
+          "allowed_regions": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Regions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "daily_spend_max_micros"
+        ],
+        "title": "SpendEnvelopeIn",
+        "description": "Ceilings in integer micros of the account currency.\n\n`daily_spend_max_micros` is required. Without an aggregate ceiling an\nenvelope bounds each launch and nothing else, so `count = 500` in a\nTerraform file would be 500 self-approved launches.\n\nThe ceilings bound what the credential **authorizes**: each launch reserves\nits plan's estimate (one hour of its burn rate) against the hour and the\nday it was launched in. They do not meter an instance that keeps running;\nthe wallet does that, and stops instances when it reaches zero."
+      },
+      "SshKeyIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "A label; `default` when empty. At most 100 characters.",
+            "default": ""
+          },
+          "public_key": {
+            "type": "string",
+            "title": "Public Key",
+            "description": "One OpenSSH public key line: `<type> <base64> [comment]`.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "SshKeyIn",
+        "description": "An SSH public key to register.\n\nBoth fields default to empty so the handler, not the schema, reports what\nis wrong with them: an empty key is a 400 naming the field, exactly as it\nwas before this model existed, and a client that relied on that keeps it."
+      },
       "StatusUpdate": {
         "properties": {
           "status": {
@@ -8445,41 +8776,6 @@
         "type": "object",
         "title": "WorkerReadyBody"
       },
-      "_ApproveIn": {
-        "properties": {
-          "confirm": {
-            "type": "boolean",
-            "title": "Confirm",
-            "default": false
-          },
-          "expected_version": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expected Version"
-          },
-          "confirmation": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 32
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Confirmation"
-          }
-        },
-        "type": "object",
-        "title": "_ApproveIn"
-      },
       "_AutoLaunchReport": {
         "properties": {
           "host_id": {
@@ -8558,17 +8854,6 @@
           "reason"
         ],
         "title": "_EvictionPlanIn"
-      },
-      "_ExecuteIn": {
-        "properties": {
-          "confirm": {
-            "type": "boolean",
-            "title": "Confirm",
-            "default": false
-          }
-        },
-        "type": "object",
-        "title": "_ExecuteIn"
       },
       "_ExposeIn": {
         "properties": {
@@ -8996,17 +9281,6 @@
         "type": "object",
         "title": "_OpIn"
       },
-      "_RevokeIn": {
-        "properties": {
-          "reason": {
-            "type": "string",
-            "title": "Reason",
-            "default": ""
-          }
-        },
-        "type": "object",
-        "title": "_RevokeIn"
-      },
       "_SweepFingerprintIn": {
         "properties": {
           "hash": {
@@ -9178,7 +9452,7 @@
         },
         "type": "object",
         "title": "_UserImagePatchIn",
-        "description": "Phase D \u2014 partial update for a template's UI-facing metadata.\n\nEvery field is optional; only provided fields are updated. Image\ndata itself (``image_ref``, ``size_bytes``, ``status``) is NEVER\npatched via this endpoint \u2014 those are managed by the worker."
+        "description": "Phase D — partial update for a template's UI-facing metadata.\n\nEvery field is optional; only provided fields are updated. Image\ndata itself (``image_ref``, ``size_bytes``, ``status``) is NEVER\npatched via this endpoint — those are managed by the worker."
       }
     }
   }

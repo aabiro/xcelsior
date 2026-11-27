@@ -1731,6 +1731,49 @@ def _is_agent_launch_credential(user: dict) -> bool:
     return bool(audience) and audience in accepted_mcp_audiences()
 
 
+def _has_spend_envelope(user: dict) -> bool:
+    """True when a person has put a spend envelope on this machine credential.
+
+    An envelope is a ceiling on what the credential spends without a person:
+    its launches self-approve inside it and stop for a human outside it. That
+    only holds if the credential cannot launch some other way. An OAuth
+    client-credentials token may otherwise POST `/instance` directly, so once
+    its client carries an envelope it is held to launch plans like an agent
+    key. Fails closed: if the envelope cannot be read, the credential is
+    treated as having one.
+    """
+    if user.get("auth_type") not in _MACHINE_AUTH_TYPES and user.get("grant_type") != (
+        "client_credentials"
+    ):
+        return False
+    client_id = str(user.get("client_id") or "").strip()
+    if not client_id:
+        return False
+    try:
+        from control_plane.db import control_plane_transaction
+        from control_plane.launch import action_plans as plans_repo
+
+        with control_plane_transaction() as conn:
+            policy = plans_repo.load_client_policy(
+                conn, client_id=client_id, tenant_id=_effective_billing_customer_id(user)
+            )
+    except Exception as exc:
+        log.warning("spend envelope lookup failed for client %s: %s", client_id, exc)
+        return True
+    return policy is not None
+
+
+def _launch_plan_required(user: dict) -> bool:
+    """True for a credential that may create billed compute only through a plan.
+
+    Agent credentials always (`_is_agent_launch_credential`), and any machine
+    credential under a spend envelope (`_has_spend_envelope`). Both direct
+    create routes — `POST /instance` and `POST /api/v2/serverless/endpoints` —
+    refuse these and point at the plan routes instead.
+    """
+    return _is_agent_launch_credential(user) or _has_spend_envelope(user)
+
+
 #: Scopes a broader scope already contains. Exactly one entry, and it is narrow
 #: on purpose: `billing:topup` is the part of `billing:write` that puts money
 #: *into* the caller's own wallet — top up from a saved card, a Bitcoin or

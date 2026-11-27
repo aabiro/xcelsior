@@ -17,6 +17,7 @@ from routes._deps import (
     _effective_billing_customer_id,
     _canonical_owner_id,
     _get_current_user,
+    _launch_plan_required,
     _require_auth,
     _require_scope,
     _require_serverless_endpoint_access,
@@ -549,6 +550,23 @@ def api_serverless_create_endpoint(body: ServerlessEndpointCreate, request: Requ
     _require_serverless_feature(user=user)
     _require_scope(user, "inference:write")
     _require_team_instance_write(user)
+    if _launch_plan_required(user):
+        # The rule `POST /instance` already holds, on the other route that
+        # starts billed compute. An endpoint bills worker-seconds, so an agent
+        # key, or any credential under a spend envelope, that created one here
+        # skipped the plan its owner would otherwise have approved.
+        from routes.problem import ProblemException
+
+        raise ProblemException(
+            status=409,
+            code="launch_plan_required",
+            detail=(
+                "This credential creates serverless endpoints through an approved plan: "
+                "POST /api/v1/serverless/endpoint-plans, have it approved, then POST "
+                "/api/v1/serverless/endpoint-plans/{plan_id}/execute."
+            ),
+            extra={"endpoint_plans": "/api/v1/serverless/endpoint-plans"},
+        )
     try:
         ep = _svc().create_endpoint(
             _body_to_endpoint_create(body, _serverless_scope_owner_id(user))
@@ -576,8 +594,12 @@ def _serverless_plan_principal(user: dict):
 def api_v1_serverless_endpoint_plan(body: ServerlessEndpointCreate, request: Request):
     """Persist an encrypted, server-bound approval plan for endpoint spend."""
     from control_plane.db import control_plane_transaction
-    from control_plane.launch import action_plans as plans_repo, spend_policy
-    from control_plane.launch.service import DEFAULT_TOLERANCE_BPS, plan_ttl_sec
+    from control_plane.launch import action_plans as plans_repo
+    from control_plane.launch.service import (
+        DEFAULT_TOLERANCE_BPS,
+        decide_approval,
+        plan_ttl_sec,
+    )
     from serverless.metering import pricing_for_endpoint
 
     user = _require_auth(request)
@@ -613,8 +635,15 @@ def api_v1_serverless_endpoint_plan(body: ServerlessEndpointCreate, request: Req
         policy = plans_repo.load_client_policy(
             conn, client_id=principal.client_id, tenant_id=principal.tenant_id
         )
-        decision = spend_policy.evaluate(
-            policy_spec, estimate_micros=estimate_micros, policy=policy
+        # Same decision the instance preview makes, rolling ceilings included,
+        # so an endpoint cannot self-approve past a daily ceiling an instance
+        # launch would have been stopped at.
+        decision = decide_approval(
+            policy,
+            policy_spec,
+            estimate_micros=estimate_micros,
+            client_id=principal.client_id,
+            tenant_id=principal.tenant_id,
         )
         plan = plans_repo.create_quoted_plan(
             conn,
@@ -641,6 +670,11 @@ def api_v1_serverless_endpoint_plan(body: ServerlessEndpointCreate, request: Req
         "preview": True,
         "plan_id": plan_id,
         "approval_state": plan["status"],
+        # Who approves it, and why, as the instance preview reports: a caller
+        # under a spend envelope learns here whether the plan approves itself
+        # or waits for a person, instead of finding out from a refused approve.
+        "approval_mode": decision.approval_mode,
+        "policy": decision.as_dict(),
         "canonical_spec": {**canonical, "env": redact_env_for_api(canonical["env"])},
         "estimate": {**pricing, "approved_max_micros": estimate_micros, "currency": "CAD"},
         "availability": {"policy_valid": True},
@@ -653,13 +687,14 @@ def api_v1_serverless_endpoint_plan(body: ServerlessEndpointCreate, request: Req
 def api_v1_execute_serverless_endpoint_plan(plan_id: str, request: Request):
     """Idempotently create one endpoint for one approved plan."""
     from control_plane.db import control_plane_transaction
-    from control_plane.launch import action_plans as plans_repo
-    from control_plane.launch.service import PlanConflict, PlanNotFound
+    from control_plane.launch import action_plans as plans_repo, spend_counters
+    from control_plane.launch.service import LaunchPlanError, PlanConflict, PlanNotFound
 
     user = _require_auth(request)
     _require_serverless_feature(user=user)
     _require_scope(user, "inference:write")
     principal = _serverless_plan_principal(user)
+    reservation = None
     with control_plane_transaction() as conn:
         plan = plans_repo.get_plan_for_update(conn, plan_id)
         if not plan or str(plan["tenant_id"]) != principal.tenant_id:
@@ -676,6 +711,32 @@ def api_v1_execute_serverless_endpoint_plan(plan_id: str, request: Request):
         ).hexdigest()
         if digest != plan["canonical_args_hash"]:
             raise PlanConflict("argument_hash_mismatch", "the approved endpoint plan was altered")
+        # A plan its envelope approved spends from that envelope's windows,
+        # reserved atomically here exactly as an instance plan's execute does.
+        # Endpoint plans were approved against the policy and then never
+        # counted, so the hourly and daily ceilings held for instances only.
+        if plan.get("approval_method") == "standing_policy":
+            policy = plans_repo.load_client_policy(
+                conn, client_id=plan.get("client_id"), tenant_id=str(plan["tenant_id"])
+            )
+            if policy:
+                try:
+                    reservation = spend_counters.reserve(
+                        plan_id=plan_id,
+                        client_id=str(plan.get("client_id") or principal.principal_id),
+                        tenant_id=str(plan["tenant_id"]),
+                        amount_micros=int(plan["estimate_micros"] or 0),
+                        hourly_limit_micros=policy.get("hourly_spend_max_micros"),
+                        daily_limit_micros=policy.get("daily_spend_max_micros"),
+                    )
+                except spend_counters.SpendLimitExceeded as exc:
+                    raise PlanConflict(f"{exc.window}_spend_limit_exceeded", str(exc)) from exc
+                except spend_counters.SpendCounterUnavailable as exc:
+                    raise LaunchPlanError(
+                        "spend_counter_unavailable",
+                        "distributed spend policy is unavailable; refusing execution",
+                        status=503,
+                    ) from exc
 
     body = ServerlessEndpointCreate.model_validate(canonical)
     spec = _body_to_endpoint_create(
@@ -687,9 +748,14 @@ def api_v1_execute_serverless_endpoint_plan(plan_id: str, request: Request):
     try:
         ep = _svc().create_endpoint(spec)
     except WalletPreflightError as e:
+        spend_counters.release(reservation)
         raise HTTPException(e.status_code, e.message)
     except ValueError as e:
+        spend_counters.release(reservation)
         raise HTTPException(400, str(e))
+    except Exception:
+        spend_counters.release(reservation)
+        raise
     response = {"ok": True, "endpoint": _serialize_endpoint(ep), "plan_id": plan_id}
     with control_plane_transaction() as conn:
         locked = plans_repo.get_plan_for_update(conn, plan_id)

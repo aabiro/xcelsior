@@ -33,7 +33,7 @@ from routes._deps import (
     _consume_ws_ticket,
     _filter_jobs_for_user,
     _get_current_user,
-    _is_agent_launch_credential,
+    _launch_plan_required,
     _is_platform_admin,
     _issue_ws_ticket,
     _require_admin,
@@ -691,8 +691,10 @@ def api_submit_instance(j: JobIn, request: Request):
     user = _require_auth(request)
     _require_scope(user, "instances:write")
     _require_team_instance_write(user)
-    if _is_agent_launch_credential(user):
-        # An agent launches through a plan the user approves, never directly.
+    if _launch_plan_required(user):
+        # An agent launches through a plan the user approves, never directly,
+        # and so does any credential under a spend envelope: the envelope is
+        # enforced on plans, so a direct launch would step around it.
         from routes.problem import ProblemException
 
         raise ProblemException(

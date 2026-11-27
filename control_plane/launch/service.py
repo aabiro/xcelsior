@@ -22,7 +22,7 @@ from typing import Any
 
 from control_plane.db import control_plane_transaction, run_transaction
 from control_plane.launch import action_plans as plans_repo
-from control_plane.launch import quoting, spend_policy
+from control_plane.launch import quoting, spend_counters, spend_policy
 
 # Import the functions from the submodule path directly: the package __init__
 # re-exports a `canonicalize` *function*, which shadows the same-named
@@ -138,29 +138,64 @@ def simulate_placement(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def preview(
-    request: dict[str, Any],
+def decide_approval(
+    policy: dict[str, Any] | None,
+    spec: dict[str, Any],
     *,
-    principal: Principal,
-    action_type: str = "create_instance",
-    runway_hours: float = quoting.DEFAULT_RUNWAY_HOURS,
-    trace_id: str | None = None,
-) -> dict[str, Any]:
-    """§14.1 steps 1–8. Returns a plan preview; no compute-side effects.
+    estimate_micros: int,
+    client_id: str | None,
+    tenant_id: str,
+) -> spend_policy.PolicyDecision:
+    """The approval a plan earns from its credential's spend envelope.
 
-    On a structurally invalid spec it returns the problems and does *not*
-    persist a plan — a plan for an unlaunchable spec is dead weight.
+    The policy's fixed limits are judged by :func:`spend_policy.evaluate`; the
+    rolling hourly and daily ceilings are judged against what is already
+    reserved this hour and today. A plan that would cross one goes to a human
+    at preview, rather than self-approving and then failing at execute with
+    nothing the user can do about it. Counters that cannot be read send the
+    plan to a human too: an envelope whose remaining balance is unknown does
+    not authorize anything.
     """
-    if trace_id is None:
-        from control_plane.request_context import event_context
+    usage: dict[str, int] | None = None
+    rolling = policy is not None and (
+        policy.get("hourly_spend_max_micros") is not None
+        or policy.get("daily_spend_max_micros") is not None
+    )
+    if rolling and client_id:
+        try:
+            usage = spend_counters.window_usage(client_id=client_id, tenant_id=tenant_id)
+        except spend_counters.SpendCounterUnavailable:
+            return spend_policy.PolicyDecision(
+                allowed=True,
+                approval_mode="human",
+                reasons=["spend counters unavailable; requires human approval"],
+            )
+    return spend_policy.evaluate(
+        spec, estimate_micros=estimate_micros, policy=policy, window_usage=usage
+    )
 
-        trace_id = event_context().get("trace_id")
 
+@dataclass(frozen=True)
+class _PricedSpec:
+    spec: dict[str, Any]
+    spec_hash: str
+    quote: quoting.Quote
+    availability: dict[str, Any]
+
+
+def _price_request(
+    request: dict[str, Any], *, runway_hours: float
+) -> tuple[_PricedSpec | None, dict[str, Any] | None]:
+    """§14.1 steps 1–6: validate, bind the price, quote, check placement.
+
+    Writes nothing. Returns the priced spec, or the refusal a caller returns
+    as-is when the spec cannot be priced.
+    """
     # 1–2. validate + canonicalize.
     spec = canonicalize(request)
     problems = validate_canonical_spec(spec)
     if problems:
-        return {
+        return None, {
             "ok": False,
             "problems": [p.as_dict() for p in problems],
             "plan_id": None,
@@ -169,7 +204,7 @@ def preview(
     from service_tier_pricing import quote_tier, TierPricingUnavailable
 
     if not spec.get("gpu_model"):
-        return {
+        return None, {
             "ok": False,
             "problems": [
                 {
@@ -194,7 +229,7 @@ def preview(
             min_vram_gb=spec.get("vram_needed_gb") or None,
         )
     except (ValueError, TierPricingUnavailable) as exc:
-        return {
+        return None, {
             "ok": False,
             "problems": [{"code": "tier_pricing_unavailable", "field": "tier", "detail": str(exc)}],
             "plan_id": None,
@@ -205,13 +240,96 @@ def preview(
     spec["queue_bid_price_id"] = tier_quote["queue_bid_price_id"] or ""
     spec["host_exclusive"] = tier_quote["host_exclusive"]
     spec["exclusive_gpu"] = tier_quote["gpu_exclusive"]
-    spec_hash = _spec_hash(spec)
 
     # 4–5. versioned quote + expected burn / worst-case authorized amount.
-    quote = quoting.quote_launch(spec, runway_hours=runway_hours)
-
     # 6. placement feasibility (read-only).
-    availability = simulate_placement(spec)
+    return (
+        _PricedSpec(
+            spec=spec,
+            spec_hash=_spec_hash(spec),
+            quote=quoting.quote_launch(spec, runway_hours=runway_hours),
+            availability=simulate_placement(spec),
+        ),
+        None,
+    )
+
+
+def quote(
+    request: dict[str, Any],
+    *,
+    principal: Principal,
+    action_type: str = "create_instance",
+    runway_hours: float = quoting.DEFAULT_RUNWAY_HOURS,
+) -> dict[str, Any]:
+    """What :func:`preview` would answer, with nothing persisted.
+
+    The same validation, price binding, quote, placement check and approval
+    decision, and no plan row. It exists for callers that must ask "what
+    would this cost, and would it run without a person?" without starting
+    anything: `terraform plan` is the first. A plan created on every
+    `terraform plan` would expire unused minutes later, and a speculative run
+    in a pull request must not leave approvals waiting in someone's dashboard.
+
+    The decision is a forecast. Prices move and the envelope's windows fill,
+    so the preview that follows can still land on a human approval.
+    """
+    priced, refusal = _price_request(request, runway_hours=runway_hours)
+    if refusal is not None:
+        return refusal
+    assert priced is not None
+    with control_plane_transaction() as conn:
+        policy = plans_repo.load_client_policy(
+            conn, client_id=principal.client_id, tenant_id=principal.tenant_id
+        )
+    decision = decide_approval(
+        policy,
+        priced.spec,
+        estimate_micros=priced.quote.estimate_micros,
+        client_id=principal.client_id,
+        tenant_id=principal.tenant_id,
+    )
+    return {
+        "ok": True,
+        "plan_id": None,
+        "persisted": False,
+        "action_type": action_type,
+        "approval_mode": decision.approval_mode,
+        "policy": decision.as_dict(),
+        "spec_hash": priced.spec_hash,
+        "estimate": priced.quote.as_dict(),
+        "availability": priced.availability,
+        "required_scopes": ACTION_REQUIRED_SCOPES.get(action_type, []),
+    }
+
+
+def preview(
+    request: dict[str, Any],
+    *,
+    principal: Principal,
+    action_type: str = "create_instance",
+    runway_hours: float = quoting.DEFAULT_RUNWAY_HOURS,
+    trace_id: str | None = None,
+) -> dict[str, Any]:
+    """§14.1 steps 1–8. Returns a plan preview; no compute-side effects.
+
+    On a structurally invalid spec it returns the problems and does *not*
+    persist a plan — a plan for an unlaunchable spec is dead weight.
+    """
+    if trace_id is None:
+        from control_plane.request_context import event_context
+
+        trace_id = event_context().get("trace_id")
+
+    priced, refusal = _price_request(request, runway_hours=runway_hours)
+    if refusal is not None:
+        return refusal
+    assert priced is not None
+    spec, spec_hash, quote_, availability = (
+        priced.spec,
+        priced.spec_hash,
+        priced.quote,
+        priced.availability,
+    )
 
     required_scopes = ACTION_REQUIRED_SCOPES.get(action_type, [])
 
@@ -220,7 +338,13 @@ def preview(
         policy = plans_repo.load_client_policy(
             conn, client_id=principal.client_id, tenant_id=principal.tenant_id
         )
-        decision = spend_policy.evaluate(spec, estimate_micros=quote.estimate_micros, policy=policy)
+        decision = decide_approval(
+            policy,
+            spec,
+            estimate_micros=quote_.estimate_micros,
+            client_id=principal.client_id,
+            tenant_id=principal.tenant_id,
+        )
         plan = plans_repo.create_quoted_plan(
             conn,
             action_type=action_type,
@@ -231,10 +355,10 @@ def preview(
             canonical_args=spec,
             canonical_args_hash=spec_hash,
             spec_hash=spec_hash,
-            quote_id=quote.quote_id,
-            pricing_version=quote.pricing_version,
-            estimate_micros=quote.estimate_micros,
-            currency=quote.currency,
+            quote_id=quote_.quote_id,
+            pricing_version=quote_.pricing_version,
+            estimate_micros=quote_.estimate_micros,
+            currency=quote_.currency,
             price_tolerance_bps=DEFAULT_TOLERANCE_BPS,
             required_scopes=required_scopes,
             approval_mode=decision.approval_mode,
@@ -251,7 +375,7 @@ def preview(
         "approval_mode": decision.approval_mode,
         "policy": decision.as_dict(),
         "spec_hash": spec_hash,
-        "estimate": quote.as_dict(),
+        "estimate": quote_.as_dict(),
         "availability": availability,
         "expires_at": _iso(plan["expires_at"]),
         "next_action": "approve",
@@ -602,9 +726,12 @@ def execute(plan_id: str, *, principal: Principal) -> dict[str, Any]:
                     client_id=plan.get("client_id"),
                     tenant_id=tenant_id,
                 )
-                if policy:
-                    from control_plane.launch import spend_counters
-
+                # The envelope bounds what runs *without* a person. A plan a
+                # human approved is that person's decision and is not refused
+                # for crossing the ceiling the human set for unattended use;
+                # without this a token with an envelope could never launch
+                # past it at all, approval or not.
+                if policy and plan.get("approval_method") == "standing_policy":
                     try:
                         spend_reservation = spend_counters.reserve(
                             plan_id=plan_id,

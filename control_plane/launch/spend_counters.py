@@ -134,6 +134,31 @@ def _window_ttls(now: float) -> tuple[int, int]:
     return max(60, next_hour - int(now) + 60), max(60, next_day - int(now) + 60)
 
 
+def window_usage(*, client_id: str, tenant_id: str, now: float | None = None) -> dict[str, int]:
+    """What is already reserved in the current hour and day. Reads only.
+
+    Used to decide, before anything is reserved, whether a plan still fits
+    the rolling ceilings (so it can be routed to a human rather than fail at
+    execute), and to show a credential how much of its envelope is left.
+    Raises :class:`SpendCounterUnavailable` when Redis cannot be read: a
+    caller that cannot see the counters must not guess they are empty.
+    """
+    now = time.time() if now is None else now
+    hourly_key, daily_key, _ = _keys(client_id, tenant_id, "-", now)
+    if _backend() == "memory":
+        with _memory_lock:
+            values = []
+            for key in (hourly_key, daily_key):
+                value = _memory_values.get(key)
+                values.append(value[0] if value and value[1] > now else 0)
+        return {"hourly_micros": int(values[0]), "daily_micros": int(values[1])}
+    try:
+        hourly, daily = _redis().mget(hourly_key, daily_key)
+    except Exception as exc:
+        raise SpendCounterUnavailable("distributed spend counters unavailable") from exc
+    return {"hourly_micros": int(hourly or 0), "daily_micros": int(daily or 0)}
+
+
 def reserve(
     *,
     plan_id: str,

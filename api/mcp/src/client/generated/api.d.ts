@@ -83,6 +83,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/launch-plans/quote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Quote Launch Plan
+         * @description What a preview would answer, and nothing persisted.
+         *
+         *     The estimate, the placement check, and the approval this credential's spend
+         *     envelope would give the launch right now (`approval_mode` is
+         *     `standing_policy` when it would approve itself), with no plan created.
+         *     `terraform plan` calls this so a plan run, which may be speculative, never
+         *     leaves an approval waiting in someone's dashboard.
+         */
+        post: operations["api_quote_launch_plan_api_v1_launch_plans_quote_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/launch-plans/{plan_id}": {
         parameters: {
             query?: never;
@@ -243,6 +269,83 @@ export interface paths {
          */
         post: operations["api_execute_pipeline_api_v1_pipelines__plan_id__execute_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spend-envelope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api Get Own Spend Envelope
+         * @description The envelope on the credential making this call, and what is left of it.
+         *
+         *     For a machine credential to check before it acts: `terraform plan` reads
+         *     it to say whether an apply will run unattended. A dashboard session has no
+         *     envelope of its own, so it gets `envelope: null`.
+         */
+        get: operations["api_get_own_spend_envelope_api_v1_spend_envelope_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spend-envelopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Api List Spend Envelopes
+         * @description Every envelope in the caller's workspace. Dashboard sessions only.
+         */
+        get: operations["api_list_spend_envelopes_api_v1_spend_envelopes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/spend-envelopes/{client_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Api Put Spend Envelope
+         * @description Set the envelope a credential spends inside without asking. Human-only.
+         *
+         *     Replaces the whole envelope: a field left out has no ceiling of that kind,
+         *     except the daily ceiling, which is required. The credential's plans that
+         *     fit inside it approve themselves from the next preview on; a plan already
+         *     waiting for a person keeps waiting.
+         */
+        put: operations["api_put_spend_envelope_api_v1_spend_envelopes__client_id__put"];
+        post?: never;
+        /**
+         * Api Delete Spend Envelope
+         * @description Remove an envelope. Its credential's next plans wait for a person.
+         *
+         *     A person in the dashboard may remove any envelope in their workspace; a
+         *     credential may remove its own, because that only takes authority away.
+         *     Idempotent: removing an envelope that is not there succeeds.
+         */
+        delete: operations["api_delete_spend_envelope_api_v1_spend_envelopes__client_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2271,6 +2374,34 @@ export interface components {
             /** Launch Template Id */
             launch_template_id?: string | null;
         };
+        /** LaunchPlanApproveIn */
+        LaunchPlanApproveIn: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
+            /** Expected Version */
+            expected_version?: number | null;
+            /** Confirmation */
+            confirmation?: string | null;
+        };
+        /** LaunchPlanExecuteIn */
+        LaunchPlanExecuteIn: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
+        };
+        /** LaunchPlanRevokeIn */
+        LaunchPlanRevokeIn: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
         /** LeaseAuthorityRequest */
         LeaseAuthorityRequest: {
             /** Lease Id */
@@ -3571,6 +3702,55 @@ export interface components {
              */
             redirect: string;
         };
+        /**
+         * SpendEnvelopeIn
+         * @description Ceilings in integer micros of the account currency.
+         *
+         *     `daily_spend_max_micros` is required. Without an aggregate ceiling an
+         *     envelope bounds each launch and nothing else, so `count = 500` in a
+         *     Terraform file would be 500 self-approved launches.
+         *
+         *     The ceilings bound what the credential **authorizes**: each launch reserves
+         *     its plan's estimate (one hour of its burn rate) against the hour and the
+         *     day it was launched in. They do not meter an instance that keeps running;
+         *     the wallet does that, and stops instances when it reaches zero.
+         */
+        SpendEnvelopeIn: {
+            /** Daily Spend Max Micros */
+            daily_spend_max_micros: number;
+            /** Hourly Spend Max Micros */
+            hourly_spend_max_micros?: number | null;
+            /** Per Action Max Micros */
+            per_action_max_micros?: number | null;
+            /** Max Gpus Per Launch */
+            max_gpus_per_launch?: number | null;
+            /** Allowed Gpu Models */
+            allowed_gpu_models?: string[] | null;
+            /** Allowed Regions */
+            allowed_regions?: string[] | null;
+        };
+        /**
+         * SshKeyIn
+         * @description An SSH public key to register.
+         *
+         *     Both fields default to empty so the handler, not the schema, reports what
+         *     is wrong with them: an empty key is a 400 naming the field, exactly as it
+         *     was before this model existed, and a client that relied on that keeps it.
+         */
+        SshKeyIn: {
+            /**
+             * Name
+             * @description A label; `default` when empty. At most 100 characters.
+             * @default
+             */
+            name: string;
+            /**
+             * Public Key
+             * @description One OpenSSH public key line: `<type> <base64> [comment]`.
+             * @default
+             */
+            public_key: string;
+        };
         /** StatusUpdate */
         StatusUpdate: {
             /** Status */
@@ -3869,18 +4049,6 @@ export interface components {
              */
             host_id: string;
         };
-        /** _ApproveIn */
-        _ApproveIn: {
-            /**
-             * Confirm
-             * @default false
-             */
-            confirm: boolean;
-            /** Expected Version */
-            expected_version?: number | null;
-            /** Confirmation */
-            confirmation?: string | null;
-        };
         /** _AutoLaunchReport */
         _AutoLaunchReport: {
             /** Host Id */
@@ -3915,14 +4083,6 @@ export interface components {
              * @default 60
              */
             grace_seconds: number;
-        };
-        /** _ExecuteIn */
-        _ExecuteIn: {
-            /**
-             * Confirm
-             * @default false
-             */
-            confirm: boolean;
         };
         /** _ExposeIn */
         _ExposeIn: {
@@ -4032,14 +4192,6 @@ export interface components {
         _OpIn: {
             /** Expected Version */
             expected_version?: number | null;
-        };
-        /** _RevokeIn */
-        _RevokeIn: {
-            /**
-             * Reason
-             * @default
-             */
-            reason: string;
         };
         /** _SweepFingerprintIn */
         _SweepFingerprintIn: {
@@ -4227,6 +4379,39 @@ export interface operations {
             };
         };
     };
+    api_quote_launch_plan_api_v1_launch_plans_quote_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     api_get_launch_plan_api_v1_launch_plans__plan_id__get: {
         parameters: {
             query?: never;
@@ -4269,7 +4454,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["_ApproveIn"] | null;
+                "application/json": components["schemas"]["LaunchPlanApproveIn"] | null;
             };
         };
         responses: {
@@ -4304,7 +4489,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["_RevokeIn"] | null;
+                "application/json": components["schemas"]["LaunchPlanRevokeIn"] | null;
             };
         };
         responses: {
@@ -4339,7 +4524,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["_ExecuteIn"] | null;
+                "application/json": components["schemas"]["LaunchPlanExecuteIn"] | null;
             };
         };
         responses: {
@@ -4433,6 +4618,112 @@ export interface operations {
             header?: never;
             path: {
                 plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_get_own_spend_envelope_api_v1_spend_envelope_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    api_list_spend_envelopes_api_v1_spend_envelopes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    api_put_spend_envelope_api_v1_spend_envelopes__client_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpendEnvelopeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_delete_spend_envelope_api_v1_spend_envelopes__client_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
             };
             cookie?: never;
         };

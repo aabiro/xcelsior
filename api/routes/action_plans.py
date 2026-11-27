@@ -11,6 +11,8 @@ already-resolved :class:`Principal` and never touches request headers.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Request
 
 from pydantic import BaseModel, Field
@@ -32,7 +34,7 @@ from routes._deps import (
     effective_scopes,
 )
 from routes.instances import JobIn
-from routes.problem import problem_response
+from routes.problem import ProblemException, problem_response
 
 router = APIRouter(tags=["Launch plans"])
 
@@ -243,6 +245,31 @@ def api_create_launch_plan(j: JobIn, request: Request):
     return result
 
 
+@router.post("/api/v1/launch-plans/quote")
+def api_quote_launch_plan(j: JobIn, request: Request):
+    """What a preview would answer, and nothing persisted.
+
+    The estimate, the placement check, and the approval this credential's spend
+    envelope would give the launch right now (`approval_mode` is
+    `standing_policy` when it would approve itself), with no plan created.
+    `terraform plan` calls this so a plan run, which may be speculative, never
+    leaves an approval waiting in someone's dashboard.
+    """
+    from control_plane.launch.service import quote
+
+    user, principal = _resolve_principal(request)
+    _require_scope(user, "instances:read")
+    result = quote(j.model_dump(), principal=principal)
+    if not result.get("ok"):
+        return problem_response(
+            status=422,
+            code="invalid_spec",
+            detail="the launch spec failed validation",
+            errors=result.get("problems"),
+        )
+    return result
+
+
 @router.get("/api/v1/launch-plans/{plan_id}")
 def api_get_launch_plan(plan_id: str, request: Request):
     """Return action status only to its tenant; foreign ids remain not-found."""
@@ -264,7 +291,7 @@ def api_get_launch_plan(plan_id: str, request: Request):
     return result
 
 
-class _ApproveIn(BaseModel):
+class LaunchPlanApproveIn(BaseModel):
     # `confirm` is intent only and never constitutes approval (§14.2); it is
     # accepted for client symmetry and deliberately ignored here.
     confirm: bool = False
@@ -273,7 +300,9 @@ class _ApproveIn(BaseModel):
 
 
 @router.post("/api/v1/launch-plans/{plan_id}/approve")
-def api_approve_launch_plan(plan_id: str, request: Request, body: _ApproveIn | None = None):
+def api_approve_launch_plan(
+    plan_id: str, request: Request, body: LaunchPlanApproveIn | None = None
+):
     """§14.2 approval. Standing policy self-approves inside limits; else a human."""
     user, principal = _resolve_principal(request)
     plan_view = get_owned_plan(plan_id, principal=principal)["plan"]
@@ -293,12 +322,12 @@ def api_approve_launch_plan(plan_id: str, request: Request, body: _ApproveIn | N
     return {**result, "plan": {**full, **result.get("plan", {})}}
 
 
-class _RevokeIn(BaseModel):
+class LaunchPlanRevokeIn(BaseModel):
     reason: str = ""
 
 
 @router.post("/api/v1/launch-plans/{plan_id}/revoke")
-def api_revoke_launch_plan(plan_id: str, request: Request, body: _RevokeIn | None = None):
+def api_revoke_launch_plan(plan_id: str, request: Request, body: LaunchPlanRevokeIn | None = None):
     """§14.2 revoke — idempotent; a consumed or terminal plan cannot be revoked."""
     user, principal = _resolve_principal(request)
     plan_view = get_owned_plan(plan_id, principal=principal)["plan"]
@@ -306,14 +335,16 @@ def api_revoke_launch_plan(plan_id: str, request: Request, body: _RevokeIn | Non
     return revoke(plan_id, principal=principal, reason=(body.reason if body else ""))
 
 
-class _ExecuteIn(BaseModel):
+class LaunchPlanExecuteIn(BaseModel):
     # `confirm` expresses intent; approval is what authorizes (§14.2). Accepted
     # for client symmetry with create_instance's two-step flow.
     confirm: bool = False
 
 
 @router.post("/api/v1/launch-plans/{plan_id}/execute")
-def api_execute_launch_plan(plan_id: str, request: Request, body: _ExecuteIn | None = None):
+def api_execute_launch_plan(
+    plan_id: str, request: Request, body: LaunchPlanExecuteIn | None = None
+):
     """§14.3 execute. Exactly-once; a price move beyond tolerance is 409 quote_changed."""
     user, principal = _resolve_principal(request)
     _require_scope(user, "instances:write")
@@ -610,3 +641,236 @@ def api_execute_pipeline(plan_id: str, request: Request):
                 idempotency_key=f"pipeline:{plan_id}",
             )
     return response
+
+
+# ── Spend envelopes: what a credential may spend without a person ─────
+#
+# An envelope is the standing policy (`mcp_client_policies`) bound to one
+# OAuth client — the client behind an agent key or a client-credentials token.
+# Inside it, that credential's launch plans approve themselves; outside it they
+# wait for a person at the dashboard. This is what lets an unattended caller
+# (a `terraform apply` in CI) launch at all without a human approving each
+# plan, while every ceiling stays a decision a human made.
+#
+# Setting or raising one is human-only, for the reason `configure_auto_topup`
+# is: a credential that could write its own envelope would be approving its own
+# spending. Removing one is open to the credential itself as well, because
+# removing it only takes authority away (Gate P1: "raising a spend cap requires
+# approval; lowering one does not").
+
+#: Hard sanity bound on any one ceiling: 1,000,000 currency units in micros.
+#: A typo of six extra zeros should be refused, not stored.
+_ENVELOPE_CEILING_MAX_MICROS = 1_000_000 * 1_000_000
+
+
+class SpendEnvelopeIn(BaseModel):
+    """Ceilings in integer micros of the account currency.
+
+    `daily_spend_max_micros` is required. Without an aggregate ceiling an
+    envelope bounds each launch and nothing else, so `count = 500` in a
+    Terraform file would be 500 self-approved launches.
+
+    The ceilings bound what the credential **authorizes**: each launch reserves
+    its plan's estimate (one hour of its burn rate) against the hour and the
+    day it was launched in. They do not meter an instance that keeps running;
+    the wallet does that, and stops instances when it reaches zero.
+    """
+
+    daily_spend_max_micros: int = Field(ge=0, le=_ENVELOPE_CEILING_MAX_MICROS)
+    hourly_spend_max_micros: int | None = Field(default=None, ge=0, le=_ENVELOPE_CEILING_MAX_MICROS)
+    per_action_max_micros: int | None = Field(default=None, ge=0, le=_ENVELOPE_CEILING_MAX_MICROS)
+    max_gpus_per_launch: int | None = Field(default=None, ge=1, le=64)
+    allowed_gpu_models: list[str] | None = Field(default=None, max_length=64)
+    allowed_regions: list[str] | None = Field(default=None, max_length=64)
+
+
+def _envelope_view(row: dict | None) -> dict | None:
+    if not row:
+        return None
+    updated = row.get("updated_at")
+    return {
+        "client_id": row["client_id"],
+        "daily_spend_max_micros": row.get("daily_spend_max_micros"),
+        "hourly_spend_max_micros": row.get("hourly_spend_max_micros"),
+        "per_action_max_micros": row.get("per_action_max_micros"),
+        # Stored as `max_concurrency`, and compared with the GPU count of one
+        # launch (`spend_policy.evaluate`). Named here for what it checks.
+        "max_gpus_per_launch": row.get("max_concurrency"),
+        "allowed_gpu_models": list(row.get("allowed_gpu_models") or []) or None,
+        "allowed_regions": list(row.get("allowed_regions") or []) or None,
+        "auto_approve": bool(row.get("auto_approve")),
+        "version": int(row.get("version") or 1),
+        "updated_at": updated.isoformat() if isinstance(updated, datetime) else updated,
+    }
+
+
+def _envelope_usage(row: dict | None, tenant_id: str) -> dict | None:
+    """Reserved so far this hour and today, or None when there is no envelope."""
+    if not row:
+        return None
+    from control_plane.launch import spend_counters
+
+    try:
+        usage = spend_counters.window_usage(client_id=row["client_id"], tenant_id=tenant_id)
+    except spend_counters.SpendCounterUnavailable:
+        return {"available": False}
+    return {"available": True, **usage}
+
+
+def _require_human(user: dict, action: str) -> None:
+    if not _is_human(user):
+        raise ProblemException(
+            status=403,
+            code="human_required",
+            detail=f"{action} needs a person signed in to the dashboard, not a machine credential",
+        )
+
+
+def _owned_client(user: dict, client_id: str) -> tuple[dict, str]:
+    """The OAuth client and the tenant its credentials resolve to, or 404.
+
+    The tenant is the client's own workspace: that is the `tenant_id` its
+    launch plans are filed under, so an envelope recorded anywhere else would
+    never be found by them.
+    """
+    from db import OAuthStore
+    from routes._deps import _user_can_access_oauth_client
+
+    client = OAuthStore.get_client(client_id)
+    if not client or not _user_can_access_oauth_client(user, client):
+        raise ProblemException(status=404, code="not_found", detail="no such client")
+    tenant = str(client.get("workspace_customer_id") or "").strip()
+    return client, tenant or _effective_billing_customer_id(user)
+
+
+@router.get("/api/v1/spend-envelope")
+def api_get_own_spend_envelope(request: Request):
+    """The envelope on the credential making this call, and what is left of it.
+
+    For a machine credential to check before it acts: `terraform plan` reads
+    it to say whether an apply will run unattended. A dashboard session has no
+    envelope of its own, so it gets `envelope: null`.
+    """
+    user, principal = _resolve_principal(request)
+    if not principal.client_id or _is_human(user):
+        return {"ok": True, "client_id": None, "envelope": None, "usage": None}
+    from control_plane.db import control_plane_transaction
+    from control_plane.launch import action_plans as plans_repo
+
+    with control_plane_transaction() as conn:
+        row = plans_repo.load_client_policy(
+            conn, client_id=principal.client_id, tenant_id=principal.tenant_id
+        )
+    return {
+        "ok": True,
+        "client_id": principal.client_id,
+        "envelope": _envelope_view(row),
+        "usage": _envelope_usage(row, principal.tenant_id),
+    }
+
+
+@router.get("/api/v1/spend-envelopes")
+def api_list_spend_envelopes(request: Request):
+    """Every envelope in the caller's workspace. Dashboard sessions only."""
+    user, principal = _resolve_principal(request)
+    _require_human(user, "Listing spend envelopes")
+    from control_plane.db import control_plane_transaction
+
+    with control_plane_transaction() as conn:
+        cur = conn.execute(
+            "SELECT * FROM mcp_client_policies WHERE tenant_id = %s ORDER BY client_id",
+            (principal.tenant_id,),
+        )
+        cols = [c.name for c in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    return {"ok": True, "envelopes": [_envelope_view(r) for r in rows]}
+
+
+@router.put("/api/v1/spend-envelopes/{client_id}")
+def api_put_spend_envelope(client_id: str, body: SpendEnvelopeIn, request: Request):
+    """Set the envelope a credential spends inside without asking. Human-only.
+
+    Replaces the whole envelope: a field left out has no ceiling of that kind,
+    except the daily ceiling, which is required. The credential's plans that
+    fit inside it approve themselves from the next preview on; a plan already
+    waiting for a person keeps waiting.
+    """
+    user, _principal = _resolve_principal(request)
+    _require_human(user, "Setting a spend envelope")
+    client, tenant_id = _owned_client(user, client_id)
+    from control_plane.db import control_plane_transaction
+    from routes._deps import append_user_audit_event
+
+    def _clean(values: list[str] | None) -> list[str] | None:
+        cleaned = sorted({str(v).strip() for v in values or [] if str(v).strip()})
+        return cleaned or None
+
+    with control_plane_transaction() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO mcp_client_policies (
+                client_id, principal_id, tenant_id,
+                per_action_max_micros, hourly_spend_max_micros, daily_spend_max_micros,
+                max_concurrency, allowed_gpu_models, allowed_regions, auto_approve
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true)
+            ON CONFLICT (client_id, tenant_id) DO UPDATE SET
+                principal_id = EXCLUDED.principal_id,
+                per_action_max_micros = EXCLUDED.per_action_max_micros,
+                hourly_spend_max_micros = EXCLUDED.hourly_spend_max_micros,
+                daily_spend_max_micros = EXCLUDED.daily_spend_max_micros,
+                max_concurrency = EXCLUDED.max_concurrency,
+                allowed_gpu_models = EXCLUDED.allowed_gpu_models,
+                allowed_regions = EXCLUDED.allowed_regions,
+                auto_approve = true,
+                version = mcp_client_policies.version + 1,
+                updated_at = clock_timestamp()
+            RETURNING *
+            """,
+            (
+                client["client_id"],
+                _canonical_owner_id(user),
+                tenant_id,
+                body.per_action_max_micros,
+                body.hourly_spend_max_micros,
+                body.daily_spend_max_micros,
+                body.max_gpus_per_launch,
+                _clean(body.allowed_gpu_models),
+                _clean(body.allowed_regions),
+            ),
+        )
+        cols = [c.name for c in cur.description]
+        row = dict(zip(cols, cur.fetchone()))
+    view = _envelope_view(row)
+    append_user_audit_event(
+        "user.spend_envelope.set", "oauth_client", client["client_id"], user, data=view
+    )
+    return {"ok": True, "envelope": view, "usage": _envelope_usage(row, tenant_id)}
+
+
+@router.delete("/api/v1/spend-envelopes/{client_id}")
+def api_delete_spend_envelope(client_id: str, request: Request):
+    """Remove an envelope. Its credential's next plans wait for a person.
+
+    A person in the dashboard may remove any envelope in their workspace; a
+    credential may remove its own, because that only takes authority away.
+    Idempotent: removing an envelope that is not there succeeds.
+    """
+    user, principal = _resolve_principal(request)
+    if _is_human(user):
+        _client, tenant_id = _owned_client(user, client_id)
+    elif principal.client_id == client_id:
+        tenant_id = principal.tenant_id
+    else:
+        raise ProblemException(status=404, code="not_found", detail="no such client")
+    from control_plane.db import control_plane_transaction
+    from routes._deps import append_user_audit_event
+
+    with control_plane_transaction() as conn:
+        cur = conn.execute(
+            "DELETE FROM mcp_client_policies WHERE client_id = %s AND tenant_id = %s",
+            (client_id, tenant_id),
+        )
+        removed = (cur.rowcount or 0) > 0
+    if removed:
+        append_user_audit_event("user.spend_envelope.removed", "oauth_client", client_id, user)
+    return {"ok": True, "removed": removed}
