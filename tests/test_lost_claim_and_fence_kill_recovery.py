@@ -187,6 +187,10 @@ class Docker:
             if outcome == "ok":
                 return SimpleNamespace(returncode=0, stdout="", stderr="")
             return SimpleNamespace(returncode=1, stdout="", stderr=outcome)
+        if argv[1:3] == ["update", "--restart=no"]:
+            # A killed container keeps restart policy "no", so a reboot
+            # does not start it again (agent 2.4.3).
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
         raise AssertionError(argv)
 
 
@@ -209,7 +213,7 @@ def test_failed_fence_kill_is_journaled_and_retried_until_stopped(agent, monkeyp
     agent._v2_retry_fence_kills()
     assert agent._v2_pending_fence_kills == {}
     assert agent._V2_FENCE_KILLS_KEY not in _journal(agent)
-    assert docker.calls == ["inspect", "kill", "inspect", "kill"]
+    assert docker.calls == ["inspect", "kill", "inspect", "kill", "update"]
 
 
 def test_inspect_failure_is_retried_instead_of_refusing_the_stop(agent, monkeypatch):
@@ -219,7 +223,7 @@ def test_inspect_failure_is_retried_instead_of_refusing_the_stop(agent, monkeypa
     assert docker.calls == ["inspect"]
     assert "xcl-job-1-att" in agent._v2_pending_fence_kills
     agent._v2_retry_fence_kills()
-    assert docker.calls == ["inspect", "inspect", "kill"]
+    assert docker.calls == ["inspect", "inspect", "kill", "update"]
     assert agent._v2_pending_fence_kills == {}
 
 
@@ -230,7 +234,7 @@ def test_pending_fence_kill_survives_a_restart(agent, monkeypatch):
     monkeypatch.setattr(agent, "_v2_pending_fence_kills", {})
     monkeypatch.setattr(agent, "_v2_enabled", True)
     assert agent.v2_adopt_attempts() == 0
-    assert docker.calls == ["inspect", "kill", "inspect", "kill"]
+    assert docker.calls == ["inspect", "kill", "inspect", "kill", "update"]
     assert agent._v2_pending_fence_kills == {}
 
 
@@ -250,6 +254,7 @@ def test_already_stopped_container_settles_without_retry(agent, monkeypatch):
     monkeypatch.setattr(agent.subprocess, "run", docker)
     agent._v2_stop_container("job-1", "renewal fenced", "xcl-job-1-att", "att-1")
     assert agent._v2_pending_fence_kills == {}
+    assert docker.calls == ["inspect", "kill", "update"]
 
 
 def _auth():

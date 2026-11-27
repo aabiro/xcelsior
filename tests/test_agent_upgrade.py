@@ -97,12 +97,12 @@ def test_upgrade_agent_skip_when_already_at_target(fake_agent_file, monkeypatch)
     target_sha = "a" * 64
     monkeypatch.setattr(worker_agent, "_self_sha256", lambda: target_sha)
     # And min_version <= our VERSION
-    assert worker_agent.VERSION == "2.4.2"
+    assert worker_agent.VERSION == "2.4.3"
     ok = worker_agent._handle_upgrade_agent(
         {
             "url": "https://x/",
             "sha256": target_sha,
-            "min_version": "2.0.0",  # we're at 2.4.2
+            "min_version": "2.0.0",  # we're at 2.4.3
         }
     )
     # Returned True (skipped cleanly) and didn't download anything.
@@ -116,18 +116,20 @@ def test_self_sha256_matches_disk():
     assert worker_agent._self_sha256() == expected
 
 
-def test_version_bumped_to_2_4_2():
-    """Lock: the agent that can keep a container it stops (2026-11-26) ships as v2.4.2.
+def test_version_bumped_to_2_4_3():
+    """Lock: the agent whose kept containers stay stopped across a reboot ships as v2.4.3.
 
     2.3.0 sent GPU identity and allocatable VRAM (Phase 0, 2026-11-22). 2.4.0
     added each GPU's outside use to the observation (2026-11-25). 2.4.1 writes a
     banner that fits a phone's terminal and names the GPU device groups. 2.4.2
     counts a job container as its own only while it holds that attempt's
     authority, and honours stop_container remove=false; the reconciler sends a
-    stop that must keep a container only to 2.4.2 or later, so this number is
+    stop that must keep a container only to 2.4.2 or later, so that number is
     load-bearing (control_plane/reconcile.py _PRESERVING_STOP_AGENT_VERSION).
+    2.4.3 gives every container it stops and keeps, or fences, restart policy
+    "no", so Docker does not start it again when the host reboots (2026-11-27).
     """
-    assert worker_agent.VERSION == "2.4.2"
+    assert worker_agent.VERSION == "2.4.3"
 
 
 def test_the_reconciler_keeps_containers_only_on_agents_that_can():

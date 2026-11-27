@@ -176,7 +176,10 @@ PREFER_GVISOR = os.environ.get("XCELSIOR_PREFER_GVISOR", "true").lower() in ("1"
 #: 2.4.2: a job container counts as the agent's own only while it holds that
 #: attempt's authority (anything else on a GPU is outside use), and
 #: stop_container with remove=false stops a container and keeps it.
-VERSION = "2.4.2"
+#: 2.4.3: a container the agent stops and keeps, or fences, gets restart policy
+#: "no", so Docker does not start it again when its daemon restarts or the host
+#: reboots.
+VERSION = "2.4.3"
 _HOST_SSH_USER_RE = re.compile(r"\A[A-Za-z0-9_.-]{1,64}\Z")
 
 
@@ -2181,6 +2184,7 @@ def _dispatch_agent_commands(commands: list) -> int:
                         continue
                     if args.get("remove") is False:
                         # The owner stopped this instance: keep the container.
+                        _keep_stopped(cname)
                         log.info("stop_container cmd=%s container=%s stopped, kept", cmd_id, cname)
                         _active_containers.pop(_job_id, None)
                         dispatched += 1
@@ -2822,6 +2826,34 @@ def _v2_container_name(job_id: str, attempt_id: str) -> str:
     return f"xcl-{job_id}-{attempt_id[:8]}"
 
 
+def _keep_stopped(container_name: str) -> None:
+    """Give a container the agent stopped and kept restart policy "no".
+
+    Job containers run with ``--restart on-failure:3`` (auth/security.py), and
+    ``docker stop`` or ``docker kill`` leaves a non-zero exit code (137), so
+    Docker starts the container again the next time its daemon starts, a
+    reboot included: outside any attempt, unbilled, holding its GPU and SSH
+    port. Shown on Docker 29.1.3 (2026-11-27). Best effort: the stop stands
+    either way, and a failure is logged.
+    """
+    try:
+        updated = subprocess.run(
+            ["docker", "update", "--restart=no", container_name],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        log.warning("could not clear the restart policy of %s: %s", container_name, e)
+        return
+    if updated.returncode != 0:
+        log.warning(
+            "could not clear the restart policy of %s: %s",
+            container_name,
+            ((updated.stderr or "") + (updated.stdout or "")).strip()[:300],
+        )
+
+
 def _v2_stop_container(
     job_id: str,
     why: str,
@@ -2863,7 +2895,11 @@ def _v2_fence_kill(
 ) -> bool:
     """Kill an unauthorized container. True once settled, False if unknown."""
     state, _exit_code, observed_attempt_id = _v2_container_state(job_id, container_name)
-    if state in ("missing", "exited"):
+    if state == "missing":
+        return True
+    if state == "exited":
+        if not expected_attempt_id or observed_attempt_id == expected_attempt_id:
+            _keep_stopped(container_name)
         return True
     if state == "unknown" and expected_attempt_id:
         # The label cannot be proven; retry the inspect rather than kill blind.
@@ -2889,9 +2925,13 @@ def _v2_fence_kill(
         log.error("fence-loss docker kill failed for %s: %s", container_name, e)
         return False
     if killed.returncode == 0:
+        _keep_stopped(container_name)
         return True
     error = (killed.stderr or "").lower()
-    if "no such container" in error or "is not running" in error:
+    if "no such container" in error:
+        return True
+    if "is not running" in error:
+        _keep_stopped(container_name)
         return True
     log.error(
         "fence-loss docker kill refused for %s: %s", container_name, (killed.stderr or "")[:300]
@@ -4318,8 +4358,9 @@ def _v2_preemption_signal(
 def handle_stop_attempt(cmd: dict) -> None:
     """Stop a container only while the command's attempt/fence is current.
 
-    User-stop enqueues ``preserve=True`` (docker stop only). Terminate/cancel
-    enqueue ``preserve=False`` (stop + rm). The fenced terminal status report
+    User-stop enqueues ``preserve=True`` (docker stop, then restart policy
+    "no" so a reboot does not start it again). Terminate/cancel enqueue
+    ``preserve=False`` (stop + rm). The fenced terminal status report
     then releases lease/allocation and projects the job; only then is the
     command ACKed.
     """
@@ -4471,6 +4512,8 @@ def handle_stop_attempt(cmd: dict) -> None:
                     retryable=True,
                 )
                 return
+    elif preserve and state != "missing":
+        _keep_stopped(container_name)
 
     # Refresh pending terminal result after preserve/remove decision.
     with _v2_attempts_lock:

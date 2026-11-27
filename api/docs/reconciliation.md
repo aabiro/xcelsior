@@ -125,7 +125,15 @@ stopped job (lost, fenced) is removed, and so is the stopped attempt's once a
 start has created a fresh one. Agents before 2.4.2 always
 remove, so that stop is not sent to them: the finding stays `report_only`
 with `agent_cannot_keep_container` until the agent is upgraded. Every other
-case stops and removes, which is what the worker's own fence-loss kill does.
+case stops and removes.
+
+A kept container must stay stopped. Job containers run with `--restart
+on-failure:3`, and `docker stop` or `docker kill` leaves exit code 137, so
+Docker starts such a container again the next time its daemon starts, a host
+reboot included. From agent 2.4.3, every container the worker keeps after a
+stop gets restart policy `no`: an owner's stop, `stop_container` with
+`remove: false`, and the worker's own fence-loss kill, which kills the
+container without removing it.
 
 An administrator can enforce one finding by hand
 (`POST /api/admin/reconciler/findings/{id}/enforce`) while the flag is
