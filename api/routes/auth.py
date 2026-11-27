@@ -1512,7 +1512,6 @@ async def oauth_authorize_decision(request: Request):
         grant_id=new_grant_id(),
         tenant_id=str(user.get("team_id") or user.get("customer_id") or user_id),
         user_id=user_id,
-        email=str(user.get("email") or ""),
         client_id=str(client["client_id"]),
         scopes=scopes,
         resource=resource,

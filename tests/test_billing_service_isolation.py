@@ -73,7 +73,7 @@ def test_billing_login_runs_native_periodic_and_terminal_settlement(restricted_l
             "UPDATE serverless_workers SET state=state",
             "UPDATE serverless_endpoints SET env=env",
             "UPDATE serverless_endpoints SET total_requests=total_requests",
-            "INSERT INTO notifications(id,user_email,type,title) VALUES('forbidden','u','billing','x')",
+            "INSERT INTO notifications(id,user_id,type,title) VALUES('forbidden','u','billing','x')",
             "DELETE FROM agent_commands",
         ):
             with pytest.raises(InsufficientPrivilege):

@@ -99,6 +99,9 @@ from psycopg import Connection
 # 170 records each GPU's outside use (`host_gpu_devices.outside_processes`,
 # `outside_vram_mb`), which every inventory sync writes and placement reads.
 # A database at 169 refuses that upsert.
+# 171 only removes what no serving release reads (the email copies 164 and 165
+# kept, their triggers, rows whose user is gone) and adds a key no code
+# depends on, so the floor stays at 170.
 REQUIRED_MIN_REVISION = "170"
 REQUIRED_MAX_REVISION: str | None = None
 

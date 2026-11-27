@@ -7,8 +7,8 @@ left sessions behind that still authenticated. A wallet notice stored the
 billing account id where an email belonged, so nobody ever saw one.
 
 These pin the replacement: rows refer to `users.user_id`, the address lives
-only on `users`, deleting a user removes what it owned, and the email copies
-that the previous release still reads stay correct while it serves.
+only on `users` (171 dropped the copies 164 kept for the release before it),
+and deleting a user removes what it owned.
 """
 
 from __future__ import annotations
@@ -75,7 +75,6 @@ def _give_everything(user: dict) -> dict:
         grant_id=f"grant-{tag}",
         tenant_id=user["customer_id"],
         user_id=user["user_id"],
-        email=user["email"],
         client_id=f"client-{tag}",
         scopes=["instances:read"],
     )
@@ -127,92 +126,88 @@ def test_changing_an_address_keeps_two_factor_and_everything_else(user):
     assert MfaStore.list_methods(user["email"]) == []
 
 
-def test_the_previous_release_reads_the_new_address_from_its_copies(user):
-    """The release still serving during a deploy reads the email columns."""
-    owned = _give_everything(user)
-    new_email = user["email"].replace("ident-", "copy-")
+#: The email copies 164 and 165 kept for the release before them, and the
+#: copied account fields; 171 dropped them all.
+DROPPED_COPIES = (
+    ("sessions", "email"),
+    ("sessions", "role"),
+    ("sessions", "name"),
+    ("sessions", "is_admin"),
+    ("api_keys", "email"),
+    ("api_keys", "role"),
+    ("api_keys", "is_admin"),
+    ("oauth_refresh_tokens", "email"),
+    ("oauth_consent_grants", "email"),
+    ("user_ssh_keys", "email"),
+    ("mfa_methods", "email"),
+    ("mfa_backup_codes", "email"),
+    ("mfa_challenges", "email"),
+    ("team_members", "email"),
+    ("teams", "owner_email"),
+    ("notifications", "user_email"),
+    ("web_push_subscriptions", "user_email"),
+    ("chat_conversations", "user_email"),
+    ("oauth_clients", "created_by_email"),
+)
 
-    UserStore.change_email(user["email"], new_email)
 
+def test_the_address_lives_only_on_users():
+    """An address held in a second place is one an email change can miss."""
     with auth_connection() as conn:
-        for table, column in (
-            ("mfa_methods", "email"),
-            ("user_ssh_keys", "email"),
-            ("oauth_consent_grants", "email"),
-            ("team_members", "email"),
-            ("sessions", "email"),
-            ("api_keys", "email"),
-            ("notifications", "user_email"),
-        ):
-            stale = conn.execute(
-                f"SELECT count(*) AS n FROM {table} WHERE user_id = %s AND {column} <> %s",
-                (user["user_id"], new_email),
-            ).fetchone()["n"]
-            assert stale == 0, f"{table}.{column} still holds the old address"
-        owner = conn.execute(
-            "SELECT owner_email FROM teams WHERE team_id = %s", (owned["team_id"],)
-        ).fetchone()
-        assert owner["owner_email"] == new_email
-
-
-def test_a_row_written_by_user_id_alone_gets_its_email_copy(user):
-    MfaStore.create_method({"email": user["email"], "method_type": "totp", "secret": "x"})
-    with auth_connection() as conn:
-        row = conn.execute(
-            "SELECT email FROM mfa_methods WHERE user_id = %s", (user["user_id"],)
-        ).fetchone()
-    assert row["email"] == user["email"]
-
-
-def test_a_row_written_by_the_previous_release_gets_its_user_id(user):
-    """The previous release inserts by email only; the row must still belong."""
-    with auth_connection() as conn:
-        conn.execute(
-            "INSERT INTO mfa_methods (email, method_type, secret, enabled, created_at) "
-            "VALUES (%s, 'totp', 'x', 1, %s)",
-            (user["email"].upper(), time.time()),
-        )
-        rows = conn.execute(
-            "SELECT user_id, email FROM mfa_methods WHERE user_id = %s", (user["user_id"],)
-        ).fetchall()
-    assert [(r["user_id"], r["email"]) for r in rows] == [(user["user_id"], user["email"])]
-    assert len(MfaStore.list_methods(user["email"])) == 1
-
-
-def test_a_row_naming_two_users_belongs_to_its_user_id(user):
-    """Both releases must agree whose row it is, so the email copy follows user_id."""
-    other = _new_user()
-    try:
-        with auth_connection() as conn:
-            conn.execute(
-                "INSERT INTO mfa_methods (email, user_id, method_type, enabled, created_at) "
-                "VALUES (%s, %s, 'totp', 1, %s)",
-                (user["email"], other["user_id"], time.time()),
-            )
-            owners = conn.execute(
-                "SELECT user_id, email FROM mfa_methods WHERE user_id IN (%s, %s)",
-                (user["user_id"], other["user_id"]),
+        left = [
+            f"{r['table_name']}.{r['column_name']}"
+            for r in conn.execute(
+                "SELECT table_name, column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND (table_name, column_name) IN ("
+                + ", ".join(["(%s, %s)"] * len(DROPPED_COPIES))
+                + ")",
+                [part for pair in DROPPED_COPIES for part in pair],
             ).fetchall()
-        assert [(r["user_id"], r["email"]) for r in owners] == [(other["user_id"], other["email"])]
-    finally:
-        with auth_connection() as conn:
-            conn.execute("DELETE FROM users WHERE user_id = %s", (other["user_id"],))
+        ]
+        triggers = conn.execute(
+            "SELECT count(*) AS n FROM pg_trigger "
+            "WHERE NOT tgisinternal AND tgname LIKE 'xcl%user%'"
+        ).fetchone()["n"]
+        label = conn.execute(
+            "SELECT count(*) AS n FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'api_keys' AND column_name = 'name'"
+        ).fetchone()["n"]
+    assert left == [], f"copies of a user's fields are back: {left}"
+    assert triggers == 0, "the triggers that kept the copies in step are back"
+    assert label == 1, "api_keys.name is the key's own label, not a copy; it stays"
 
 
-def test_the_previous_release_moving_a_row_by_email_moves_its_owner(user):
-    other = _new_user()
-    try:
-        MfaStore.create_method({"email": user["email"], "method_type": "totp", "secret": "x"})
+def test_every_key_to_a_user_is_enforced():
+    with auth_connection() as conn:
+        loose = conn.execute(
+            "SELECT conrelid::regclass::text AS t, conname FROM pg_constraint "
+            "WHERE contype = 'f' AND NOT convalidated"
+        ).fetchall()
+        key = conn.execute(
+            "SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint "
+            "WHERE conname = 'team_members_pkey'"
+        ).fetchone()["d"]
+    assert loose == [], f"keys still exempt rows whose parent is gone: {loose}"
+    assert key == "PRIMARY KEY (team_id, user_id)"
+
+
+def test_a_row_must_name_a_user_that_exists(user):
+    import psycopg
+
+    with pytest.raises(psycopg.errors.NotNullViolation):
         with auth_connection() as conn:
             conn.execute(
-                "UPDATE mfa_methods SET email = %s WHERE user_id = %s",
-                (other["email"], user["user_id"]),
+                "INSERT INTO mfa_methods (method_type, enabled, created_at) "
+                "VALUES ('totp', 1, %s)",
+                (time.time(),),
             )
-        assert MfaStore.list_methods(user["email"]) == []
-        assert len(MfaStore.list_methods(other["email"])) == 1
-    finally:
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
         with auth_connection() as conn:
-            conn.execute("DELETE FROM users WHERE user_id = %s", (other["user_id"],))
+            conn.execute(
+                "INSERT INTO mfa_methods (user_id, method_type, enabled, created_at) "
+                "VALUES (%s, 'totp', 1, %s)",
+                (user["user_id"] + "-gone", time.time()),
+            )
 
 
 def test_deleting_a_user_removes_what_it_owned(user):

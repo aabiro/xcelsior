@@ -14,9 +14,10 @@
 BEGIN;
 
 -- show what will be removed (appears in psql output)
-SELECT client_id, client_name, created_by_email
-FROM oauth_clients
-WHERE client_id ~ '^oauth_';
+SELECT c.client_id, c.client_name, u.email AS created_by_email
+FROM oauth_clients c
+LEFT JOIN users u ON u.user_id = c.created_by_user_id
+WHERE c.client_id ~ '^oauth_';
 
 DELETE FROM oauth_refresh_tokens WHERE client_id ~ '^oauth_';
 DELETE FROM sessions             WHERE client_id ~ '^oauth_';

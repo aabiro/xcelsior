@@ -2,7 +2,8 @@
 
 What the schema stores more than once, which copies are bugs and which are
 deliberate, and where each fix stands. Written 2026-11-18 from the live
-catalog (177 tables, 52 foreign keys before 164) and the code that reads it.
+catalog (177 tables, 52 foreign keys before 164) and the code that reads it;
+re-audited 2026-11-26 after migrations 166–170.
 Rules for *how* to change the schema are in [README.md](README.md); this file
 is about *what* the schema should say once.
 
@@ -14,7 +15,7 @@ key. A copy is allowed only when it is a **snapshot**: a record of what was
 true at a moment (a charge, an audit event, a receipt), which must not change
 when the original does. Every snapshot below says so.
 
-## 1. Users were identified by email — fixed in 164
+## 1. Users were identified by email — fixed in 164, contracted in 171
 
 `users` was keyed by `email`, and 13 tables copied the email as their
 reference to a user, with no foreign key anywhere pointing at `users`. Three
@@ -46,9 +47,10 @@ email from their callers and resolve it; nothing reads or writes the email
 copies. Email, role, name and admin flag come from `users` by join. A wallet
 notice goes to the wallet's user and to the owner of a team billed to it.
 
-Expand step only. The email columns remain for the release still serving
-during a blue-green deploy, kept correct by two `SECURITY DEFINER` triggers,
-and are removed by the contract step (§6).
+164 was the expand step: the email columns stayed for the release then
+serving, kept correct by two `SECURITY DEFINER` triggers. 171 is the contract
+step (§6): the copies, the triggers and the rows whose user was gone are
+removed, and every key is validated.
 
 ## 2. References without a foreign key
 
@@ -73,6 +75,18 @@ Also `oauth_clients.created_by_user_id`, which replaces the creator's email as
 the owner of a connector. The old copy was never rewritten on an email
 change, so a user who changed address lost access to connectors they had
 registered.
+
+Done in 171: `receipt_shares.job_id` → `jobs` (`ON DELETE CASCADE`). 169
+created the table without it, so a share outlived its run when the privacy
+pipeline deleted the job, and the page guarded against that by comparing a
+copy of the job's owner (`receipt_shares.owner_id`) with the job. The owner of
+a job never changes once set, so the key alone says it; readers no longer
+read the copy, which goes in the next contract step (§7).
+
+The other columns 166–170 added are not live references: `benchmarks.host_id`
+and `verification_id` are run history (group b), `host_gpu_devices.pci_bus_id`
+is the hardware's own id (group c), and `receipt_emails` is a delivery record
+whose `owner_id` says whom it was sent to (group b).
 
 Left without a key, each for a reason:
 
@@ -108,7 +122,8 @@ ledger, audit and legal retention forbid both (data-architecture companion
 and events (`audit_events_v2`, `events`, `event_snapshots`, `outbox_events`,
 `projection_deliveries`, `mcp_tool_audit`, `placement_decisions`,
 `placement_decision_observations`, `scheduler_shadow_decisions`,
-`reconciliation_*`, `reputation_events`, every `*_archive`), telemetry and
+`reconciliation_*`, `reputation_events`, `receipt_emails`, every `*_archive`),
+telemetry and
 observations (`telemetry_samples`, `telemetry_snapshots`,
 `verification_history`, `sla_*`, `benchmarks`, `observed_workloads`,
 `job_failure_log`), and privacy/legal records that outlive the subject
@@ -139,25 +154,42 @@ tidy-up. **Not changed; needs its own decision.**
   `desired_state`, `error_message` and `exit_code` were already read from the
   columns. `wallet_hold_id` now is too: billing and settlement set and clear
   the column alone, so the payload kept whatever hold the job had when it was
-  last saved. `priority`, `submitted_at` and `pricing_mode` are written to
-  both from the same dict in one statement, so they cannot disagree; they
-  leave the payload in the contract release. `payload.updated_at` is **not** a
-  copy of `jobs.updated_at`: it is the last status transition, which the
-  stuck-job reaper measures from, while the column is the last write of any
-  kind. One name for two facts; it should become its own column
-  (`status_changed_at`).
+  last saved (6 of 400 production jobs disagreed on 2026-11-26).
+  `priority`, `submitted_at` and `pricing_mode` were still read from the
+  payload by every reader, while the queue orders by the columns and
+  settlement charges by the column. `upsert_job` writes both from one dict,
+  but the lease and attempt requeues write each in its own SQL and an operator
+  or migration can write the column alone, and the next save then copied the
+  stale payload value back over the column. Production had no disagreement on
+  2026-11-26. Since 171's release every reader lays the columns over the
+  payload (`_JOB_COLUMN_OVERLAY` in `core/db.py`, the scheduler's loader, and
+  `get_next_job`, which returned the raw payload); the copies leave in the
+  next contract step (§7).
+- `payload.updated_at` is **not** a copy of `jobs.updated_at`: it is the last
+  status transition, which the stuck-job reaper measures from, while the
+  column is the last write of any kind. One name for two facts; it should
+  become its own column (`status_changed_at`). **Deferred:** about 40 places
+  write `jobs.status` in SQL and each would have to set it, and the projection
+  triggers that could have done it centrally were retired on purpose. The
+  reaper only consults it for legacy rows with no attempt, whose status only
+  `update_job_status` changes, and that stamps it. Related: the scheduler
+  resets `submitted_at` to now while a job waits for a busy GPU, so the queued
+  reaper does not count the wait; the column means "queued since", not
+  "submitted".
 - `hosts.payload` repeats `region`, `country`, `province`, `capabilities`,
   `registered_at` and the admission and availability states (12 hosts in the
   dev database disagree on `region`). `load_hosts`/`get_host` already read
   the columns; the volume region warning in `workers/volumes.py` read the
-  payload and now reads the columns.
+  payload and now reads the columns. Since 171's release admission lists a
+  host's GPU offers under the location columns too; it read the payload,
+  which keeps a field the heartbeat stopped reporting only in the column.
 - `users.mfa_enabled` is derived from `mfa_methods`. Kept as a cache: every
   MFA change recomputes it, and login decides the second factor from the
   methods themselves, never from the flag. It went stale only through the
   email re-key that 164 removed.
 
-The duplicated keys leave the payload in the contract release, because the
-release still serving reads them.
+The duplicated keys leave the payload in a contract release, because the
+release still serving reads them (§7).
 
 ## 5. Kept on purpose (snapshots)
 
@@ -171,25 +203,44 @@ release still serving reads them.
 - Actor fields on audit-like rows (`created_by`, `approved_by`,
   `requested_by`): who acted, as they were then.
 
-## 6. Contract step for 164 and 165 (the release after they are live)
+## 6. Contract step for 164 and 165 — done in 171
 
-Ship in the release after the 164/165 code is serving everywhere (README rule 5):
+`171_user_identity_contract.py`, in the release after 164/165 code was serving
+everywhere (README rule 5):
 
-1. Delete rows whose user no longer exists (`user_id` NULL, or naming no
-   user), then `VALIDATE` the keys 164 left `NOT VALID`. 164 logs which those
-   are.
-2. `SET NOT NULL` on each user id column except `chat_conversations.user_id`
-   (anonymous chats) and `oauth_refresh_tokens.user_id`
-   (client-credential tokens); make `(team_id, user_id)` the `team_members`
-   primary key.
-3. Drop the two compatibility triggers and their functions, the email copies
-   (`sessions.email`, `api_keys.email`, `oauth_refresh_tokens.email`,
-   `oauth_consent_grants.email`, `user_ssh_keys.email`, `mfa_*.email`,
-   `team_members.email`, `teams.owner_email`, `notifications.user_email`,
-   `web_push_subscriptions.user_email`, `chat_conversations.user_email`), the
-   copied `role`/`name`/`is_admin` on `sessions` and `api_keys`, and the email
-   indexes. Likewise `oauth_clients.created_by_email` with its trigger and
-   `xcl_users_email_sync_oauth_clients()`.
-4. Delete the orphans 165 logged and `VALIDATE` its `NOT VALID` keys.
-5. Strip `priority`, `submitted_at`, `pricing_mode` and `wallet_hold_id` from
-   `jobs.payload`, and the column-backed keys from `hosts.payload`.
+1. Rows whose user no longer exists are deleted: a user id naming no user,
+   or a NULL user id beside an address (a row 164 could not map). A
+   `SET NULL` reference is cleared instead. Every key 164 left `NOT VALID` is
+   validated.
+2. Each user id column is `NOT NULL` except where NULL is a real value:
+   `chat_conversations.user_id` (anonymous chats),
+   `oauth_refresh_tokens.user_id` (client-credential tokens),
+   `teams.owner_user_id` and `oauth_clients.created_by_user_id` (`ON DELETE
+   SET NULL`: a team and a connector outlive their creator). `team_members` is
+   keyed by `(team_id, user_id)`.
+3. The compatibility triggers and their functions are dropped, then the email
+   copies, the copied `role`/`name`/`is_admin` on `sessions` and `api_keys`
+   (`api_keys.name` stays: it is the key's own label) and
+   `oauth_clients.created_by_email`, with their indexes.
+4. The orphans 165 exempted are deleted (on production, 17 agent keys whose
+   OAuth client is gone, all already revoked) and its keys validated.
+
+Not done here: stripping the payload copies. The release before 171 reads
+`priority`, `submitted_at` and `pricing_mode` from the payload, so a copy
+removed while it still serves would be read as 0, now and `on_demand`, and its
+next save would write a spot job back as on-demand. 171's release reads the
+columns instead; the strip follows (§7).
+
+## 7. Next contract step (the release after 171's code is live)
+
+1. `upsert_job` stops writing `priority`, `submitted_at`, `pricing_mode` and
+   `wallet_hold_id` into `jobs.payload`, the lease and attempt requeues stop
+   adding `submitted_at` to it, and a migration strips the four keys from
+   existing rows.
+2. `set_shared` stops writing `receipt_shares.owner_id`, and a migration drops
+   the column.
+3. The column-backed keys in `hosts.payload` (`region`, `country`,
+   `province`, `capabilities`, `registered_at`, the admission and availability
+   states). Needs its own reader audit first: `upsert_host` merges the
+   confirmed location and admission state back into the payload, and the
+   worker's heartbeat sends the payload whole.

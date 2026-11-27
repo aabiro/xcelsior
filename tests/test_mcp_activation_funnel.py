@@ -82,7 +82,6 @@ def _grant(tenant: str, surface: str, client_id: str = "xcelsior-connector") -> 
         grant_id=f"cg_{uuid.uuid4().hex}",
         tenant_id=tenant,
         user_id=owner["user_id"],
-        email=owner["email"],
         client_id=client_id,
         scopes=["instances:read"],
         resource="https://mcp.xcelsior.ca/mcp",

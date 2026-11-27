@@ -41,10 +41,11 @@ def team():
     state = {"team_id": team_id, "wallet": wallet, "jobs": [], "hosts": [], "keys": []}
     with _pool.connection() as conn:
         conn.execute(
-            """INSERT INTO teams (team_id, name, owner_email, created_at, plan, max_members,
+            # A team whose owner has no account here: owner_user_id is NULL.
+            """INSERT INTO teams (team_id, name, created_at, plan, max_members,
                                   billing_customer_id)
-               VALUES (%s, %s, %s, %s, 'free', 5, %s)""",
-            (team_id, team_id, f"{marker}@example.com", time.time(), wallet),
+               VALUES (%s, %s, %s, 'free', 5, %s)""",
+            (team_id, team_id, time.time(), wallet),
         )
         conn.commit()
     yield state

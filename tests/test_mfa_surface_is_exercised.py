@@ -49,7 +49,10 @@ def _fresh_auth_rate_limits(monkeypatch):
         conn.execute("DELETE FROM mfa_methods")
         conn.execute("DELETE FROM mfa_challenges")
         conn.execute("DELETE FROM sessions")
-        conn.execute("DELETE FROM oauth_refresh_tokens WHERE email LIKE 'mfa-surface-%'")
+        conn.execute(
+            "DELETE FROM oauth_refresh_tokens WHERE user_id IN "
+            "(SELECT user_id FROM users WHERE email LIKE 'mfa-surface-%')"
+        )
         conn.execute("DELETE FROM users WHERE email LIKE 'mfa-surface-%'")
 
 

@@ -109,6 +109,10 @@ KNOWN_SAFE = {
     #        tuple and INDEXES dict
     "api/migrations/versions/164_user_identity_by_user_id.py",
     "api/migrations/versions/165_live_reference_foreign_keys.py",
+    #   171: table, column and parent names from the module-level CHILDREN,
+    #        COPIED, USER_ID_TABLES, EMAIL_INDEXES and RECEIPT_SHARE_JOB tuples
+    #        and 165's REFERENCES; no runtime value reaches the DDL
+    "api/migrations/versions/171_user_identity_contract.py",
 }
 
 # SQL keywords must be UPPERCASE — this is the codebase convention for all real

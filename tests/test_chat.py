@@ -161,7 +161,8 @@ class TestConversationPersistence:
         cid, _ = get_or_create_conversation(user_email="test@xcelsior.ca")
         with _chat_db() as conn:
             row = conn.execute(
-                "SELECT user_email FROM chat_conversations WHERE conversation_id = %s",
+                "SELECT u.email AS user_email FROM chat_conversations c "
+                "JOIN users u ON u.user_id = c.user_id WHERE c.conversation_id = %s",
                 (cid,),
             ).fetchone()
         assert row["user_email"] == "test@xcelsior.ca"

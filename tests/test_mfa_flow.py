@@ -24,7 +24,10 @@ def clean_mfa_flow_state(monkeypatch):
         conn.execute("DELETE FROM mfa_methods")
         conn.execute("DELETE FROM mfa_challenges")
         conn.execute("DELETE FROM sessions")
-        conn.execute("DELETE FROM oauth_refresh_tokens WHERE email LIKE 'mfa-flow-%'")
+        conn.execute(
+            "DELETE FROM oauth_refresh_tokens WHERE user_id IN "
+            "(SELECT user_id FROM users WHERE email LIKE 'mfa-flow-%')"
+        )
         conn.execute("DELETE FROM users WHERE email LIKE 'mfa-flow-%'")
     yield
     with auth_connection() as conn:
@@ -32,7 +35,10 @@ def clean_mfa_flow_state(monkeypatch):
         conn.execute("DELETE FROM mfa_methods")
         conn.execute("DELETE FROM mfa_challenges")
         conn.execute("DELETE FROM sessions")
-        conn.execute("DELETE FROM oauth_refresh_tokens WHERE email LIKE 'mfa-flow-%'")
+        conn.execute(
+            "DELETE FROM oauth_refresh_tokens WHERE user_id IN "
+            "(SELECT user_id FROM users WHERE email LIKE 'mfa-flow-%')"
+        )
         conn.execute("DELETE FROM users WHERE email LIKE 'mfa-flow-%'")
 
 

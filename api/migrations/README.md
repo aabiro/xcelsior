@@ -98,7 +98,9 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `170_gpu_outside_use.py`.**
+**Repository head: `171_user_identity_contract.py`.**
+
+171 is the contract step for 164 and 165. Rows whose user, team, client, host or worker no longer exists are deleted (a `SET NULL` reference is cleared), and every key the two left `NOT VALID` is validated (NORMALIZATION.md §6 says what that removes on production). Each user id column becomes `NOT NULL` except `chat_conversations.user_id`, `oauth_refresh_tokens.user_id`, `teams.owner_user_id` and `oauth_clients.created_by_user_id`, where NULL is a real value. `team_members` is keyed by `(team_id, user_id)`. The compatibility triggers and their functions go, then the email copies, the copied `role`/`name`/`is_admin` on `sessions` and `api_keys` (`api_keys.name`, the key's own label, stays) and `oauth_clients.created_by_email`. It also gives `receipt_shares.job_id` a key to `jobs` (`ON DELETE CASCADE`) and drops `NOT NULL` from `receipt_shares.owner_id`, a copy of the job's owner that the next contract step removes. One unit per table through `lock_safe`; downgrade re-creates the columns from `users` and `jobs` and the triggers through 164's and 165's own functions, but not the deleted rows. The runtime floor stays at 170: no code depends on anything 171 adds.
 
 170 gives `host_gpu_devices` the GPU's outside use: `outside_processes` and `outside_vram_mb` (INTEGER NOT NULL DEFAULT 0, both checked `>= 0`) count the compute processes on that GPU the agent did not start and the GPU memory they hold, as the agent's last observation reported them (agents before 2.4.0 report none, which reads as 0). Placement counts such a GPU but never offers it. The columns have constant defaults, so adding them rewrites nothing. One idempotent unit through `lock_safe`; downgrade drops both columns. The runtime floor moves to 170.
 

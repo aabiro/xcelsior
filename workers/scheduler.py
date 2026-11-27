@@ -236,7 +236,8 @@ def _load_jobs_from_conn(conn, status=None):
     if status:
         rows = conn.execute(
             """
-            SELECT status, payload, spec,job_id,host_id,owner_id,tenant_id,team_id,error_message,exit_code
+            SELECT status, payload, spec,job_id,host_id,owner_id,tenant_id,team_id,error_message,exit_code,
+                   priority,submitted_at,pricing_mode,wallet_hold_id
             FROM jobs
             WHERE status = %s
             ORDER BY submitted_at ASC, job_id ASC
@@ -245,7 +246,8 @@ def _load_jobs_from_conn(conn, status=None):
         ).fetchall()
     else:
         rows = conn.execute("""
-            SELECT status, payload, spec,job_id,host_id,owner_id,tenant_id,team_id,error_message,exit_code
+            SELECT status, payload, spec,job_id,host_id,owner_id,tenant_id,team_id,error_message,exit_code,
+                   priority,submitted_at,pricing_mode,wallet_hold_id
             FROM jobs
             ORDER BY submitted_at ASC, job_id ASC
             """).fetchall()
@@ -280,6 +282,14 @@ def _load_jobs_from_conn(conn, status=None):
                 team_id=row["team_id"],
                 error_message=row["error_message"],
                 exit_code=row["exit_code"],
+                # Columns, as in `DatabaseOps.get_job`: the queue orders by
+                # them and settlement charges by pricing_mode.
+                priority=row["priority"],
+                submitted_at=row["submitted_at"],
+                pricing_mode=row["pricing_mode"],
+                wallet_hold_id=(
+                    str(row["wallet_hold_id"]) if row["wallet_hold_id"] is not None else None
+                ),
             )
             jobs.append(item)
     return jobs
@@ -2108,7 +2118,7 @@ def get_next_job():
     """
     with _db_connection() as conn:
         row = conn.execute("""
-            SELECT payload
+            SELECT job_id
             FROM jobs
             WHERE status = 'queued'
             ORDER BY priority DESC, submitted_at ASC, job_id ASC
@@ -2116,7 +2126,9 @@ def get_next_job():
             """).fetchone()
         if not row:
             return None
-        return _decode_payload(row["payload"])
+        # Through the one reader, so the job carries its columns, not the
+        # payload's copies of them.
+        return _get_job_by_id_conn(conn, row["job_id"])
 
 
 def _reserve_host_vram(conn, host_id, amount_gb):

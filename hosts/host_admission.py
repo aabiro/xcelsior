@@ -1072,7 +1072,8 @@ def decide_admission(
         host = conn.execute(
             """
             SELECT host_id, tenant_id, owner_id, payload, status,
-                   admission_state, admission_version, provider_id
+                   admission_state, admission_version, provider_id,
+                   country, province, region
               FROM hosts
              WHERE host_id = %s
              FOR UPDATE
@@ -1258,7 +1259,15 @@ def decide_admission(
             conn,
             host_id=host_id,
             provider_id=str(provider_id) if provider_id else None,
-            payload=payload,
+            # The location is the host's columns: an operator's confirmed
+            # location lives there, and a heartbeat that stopped reporting a
+            # field leaves the column set but the payload without it.
+            payload={
+                **payload,
+                "country": _row_value(host, "country", 8) or "",
+                "province": _row_value(host, "province", 9) or "",
+                "region": _row_value(host, "region", 10) or "",
+            },
             admitted=resulting_state == "admitted",
             host_status=new_status,
         )

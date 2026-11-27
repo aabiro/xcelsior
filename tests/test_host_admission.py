@@ -330,6 +330,43 @@ class TestDecisions:
         )
         assert result["admission_state"] == "admitted"
 
+    def test_admission_lists_offers_where_the_host_is(self, host):
+        """The listing takes the location columns, not the payload's copy.
+
+        An operator's confirmed location lives in the columns, and a heartbeat
+        that stopped reporting a field leaves the column set and the payload
+        without it; the offer was listed with no province.
+        """
+
+        def locate(conn):
+            conn.execute(
+                "UPDATE hosts SET country = 'CA', province = 'ON', "
+                "payload = payload - 'country' - 'province' WHERE host_id = %s",
+                (host,),
+            )
+
+        run_transaction(locate, what="test_locate_host")
+        self._authorise(host)
+        ha.decide_admission(
+            host_id=host,
+            actor=_operator(),
+            action="admit",
+            reason="hardware verified",
+            idempotency_key=f"dec-{uuid.uuid4().hex[:8]}",
+            expected_version=_version(host),
+        )
+        provinces = run_transaction(
+            lambda conn: [
+                r[0] if not isinstance(r, dict) else r["province"]
+                for r in conn.execute(
+                    "SELECT province FROM gpu_offers WHERE host_id = %s AND available",
+                    (host,),
+                ).fetchall()
+            ],
+            what="test_read_offers",
+        )
+        assert provinces == ["ON"]
+
     def test_reject_and_revoke_are_terminal_states(self, host):
         self._authorise(host)
         rejected = ha.decide_admission(

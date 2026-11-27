@@ -219,3 +219,32 @@ def test_the_frontend_page_type_carries_exactly_the_page_fields():
     body = re.search(r"export interface ReceiptPage \{(.*?)\n\}", source, re.S)
     assert body, "ReceiptPage is missing from api.ts"
     assert set(re.findall(r"^\s+(\w+)\??:", body.group(1), re.M)) == set(PAGE_FIELDS)
+
+
+@pytest.mark.needs_db
+def test_a_share_goes_with_its_run():
+    """The privacy pipeline deletes jobs; a share of one that is gone means nothing."""
+    import uuid
+
+    import psycopg
+
+    from db import DatabaseOps, _get_pg_pool
+
+    job_id = "share-gone-" + uuid.uuid4().hex[:10]
+    insert = (
+        "INSERT INTO receipt_shares (job_id, owner_id, shared_by, source) "
+        "VALUES (%s, 'owner', 'owner', 'customer')"
+    )
+    with _get_pg_pool().connection() as conn:
+        DatabaseOps.upsert_job(
+            conn, {"job_id": job_id, "status": "completed", "owner": "owner"}, backend="postgres"
+        )
+        conn.execute(insert, (job_id,))
+        conn.execute("DELETE FROM jobs WHERE job_id = %s", (job_id,))
+        left = conn.execute(
+            "SELECT count(*) FROM receipt_shares WHERE job_id = %s", (job_id,)
+        ).fetchone()[0]
+    assert left == 0
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        with _get_pg_pool().connection() as conn:
+            conn.execute(insert, (job_id,))

@@ -115,7 +115,12 @@ def share_state(conn, job_id: str) -> dict | None:
 
 
 def set_shared(conn, *, job_id: str, owner_id: str, shared_by: str, source: str, on: bool) -> None:
-    """Turn the run's share on (again) or off. ``conn`` is a dict cursor."""
+    """Turn the run's share on (again) or off. ``conn`` is a dict cursor.
+
+    ``owner_id`` is written only for the release before 171, whose page still
+    compares it with the job's owner; nothing here reads it, and the next
+    contract step drops the column (migrations/NORMALIZATION.md §7).
+    """
     if on:
         conn.execute(
             """INSERT INTO receipt_shares (job_id, owner_id, shared_by, source)
@@ -170,12 +175,13 @@ def _shared_runs(pool) -> list[dict]:
 
     runs = []
     with pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-        shares = cur.execute("""SELECT job_id, owner_id, source FROM receipt_shares
+        # A share outlives nothing: its key to `jobs` cascades (171), and a
+        # job's owner never changes once set, so the share needs no copy of it.
+        shares = cur.execute("""SELECT job_id, source FROM receipt_shares
                 WHERE revoked_at IS NULL ORDER BY job_id""").fetchall()
         for share in shares:
             job = get_job(str(share["job_id"]))
-            # A share outlives nothing: the job must still belong to whoever shared it.
-            if not job or (job.get("owner") or "") != share["owner_id"]:
+            if not job:
                 continue
             receipt = build_receipt(cur, job)
             if share_blocker(receipt) is not None:

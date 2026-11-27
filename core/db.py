@@ -356,6 +356,21 @@ def pg_transaction():
 
 # ── Unified Interface ─────────────────────────────────────────────────
 
+#: Job fields that are columns, laid over the payload by every Postgres reader
+#: so a caller always sees the column. ``priority``, ``submitted_at`` and
+#: ``pricing_mode`` were read from the payload's copy until 171; the queue
+#: orders by the columns and settlement charges by ``pricing_mode``, so a copy
+#: that drifted would have queued and billed one job two ways. ``upsert_job``
+#: still writes the copies for the release before 171; the next contract step
+#: strips them (migrations/NORMALIZATION.md §7).
+_JOB_COLUMN_OVERLAY = (
+    "'job_id',job_id,'owner',owner_id,'owner_id',owner_id,"
+    "'tenant_id',tenant_id,'team_id',team_id,'status',status,'host_id',host_id,"
+    "'phase',phase,'desired_state',desired_state,'error_message',error_message,"
+    "'exit_code',exit_code,'wallet_hold_id',wallet_hold_id,"
+    "'priority',priority,'submitted_at',submitted_at,'pricing_mode',pricing_mode"
+)
+
 
 class DatabaseOps:
     """Unified database operations that work across SQLite and PostgreSQL."""
@@ -696,19 +711,17 @@ class DatabaseOps:
         diverge from the JSONB payload (legacy reaper SQL, partial migrations).
         So is ``wallet_hold_id``: billing and settlement set and clear the
         column alone, so the payload's copy is whatever the job held when it
-        was last saved. ``updated_at`` is not overlaid: the payload's is the
-        last status transition (the reaper's clock), the column's the last
-        write of any kind, which are different facts.
+        was last saved. So are ``priority``, ``submitted_at`` and
+        ``pricing_mode`` (see ``_JOB_COLUMN_OVERLAY``). ``updated_at`` is not
+        overlaid: the payload's is the last status transition (the reaper's
+        clock), the column's the last write of any kind, which are different
+        facts.
         """
         ph = "%s" if backend == "postgres" else "?"
         if backend == "postgres":
             row = conn.execute(
-                "SELECT payload || jsonb_build_object("
-                "'job_id',job_id,'owner',owner_id,'owner_id',owner_id,"
-                "'tenant_id',tenant_id,'team_id',team_id,'status',status,'host_id',host_id,"
-                "'phase',phase,'desired_state',desired_state,'error_message',error_message,"
-                "'exit_code',exit_code,'wallet_hold_id',wallet_hold_id,'version',version) AS payload "
-                "FROM jobs WHERE job_id=%s",
+                f"SELECT payload || jsonb_build_object({_JOB_COLUMN_OVERLAY},"
+                "'version',version) AS payload FROM jobs WHERE job_id=%s",
                 (job_id,),
             ).fetchone()
             if row is None:
@@ -773,11 +786,7 @@ class DatabaseOps:
         ph = "%s" if backend == "postgres" else "?"
         if backend == "postgres":
             query = (
-                "SELECT payload || jsonb_build_object("
-                "'job_id',job_id,'owner',owner_id,'owner_id',owner_id,"
-                "'tenant_id',tenant_id,'team_id',team_id,'status',status,'host_id',host_id,"
-                "'phase',phase,'desired_state',desired_state,'error_message',error_message,"
-                "'exit_code',exit_code,'wallet_hold_id',wallet_hold_id) AS payload FROM jobs"
+                f"SELECT payload || jsonb_build_object({_JOB_COLUMN_OVERLAY}) AS payload FROM jobs"
             )
             if status:
                 query += " WHERE status=%s"
@@ -3329,7 +3338,6 @@ class ConsentStore:
         grant_id: str,
         tenant_id: str,
         user_id: str,
-        email: str,
         client_id: str,
         scopes: list[str],
         resource: str = "",

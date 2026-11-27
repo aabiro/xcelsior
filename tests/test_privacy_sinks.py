@@ -94,25 +94,22 @@ def subject(monkeypatch):
                    FROM chat_messages m
                    JOIN chat_conversations c
                      ON c.conversation_id = m.conversation_id
-                  WHERE c.user_email IN (%s, %s)
+                  WHERE c.user_id = %s
              )
             """,
-            (email, f"erased+{request['subject_reference_hash'][:24]}@deleted.invalid"),
+            (user_id,),
         )
         conn.execute(
             """
             DELETE FROM chat_messages
              WHERE conversation_id IN (
                  SELECT conversation_id FROM chat_conversations
-                  WHERE user_email IN (%s, %s)
+                  WHERE user_id = %s
              )
             """,
-            (email, f"erased+{request['subject_reference_hash'][:24]}@deleted.invalid"),
+            (user_id,),
         )
-        conn.execute(
-            "DELETE FROM chat_conversations WHERE user_email IN (%s, %s)",
-            (email, f"erased+{request['subject_reference_hash'][:24]}@deleted.invalid"),
-        )
+        conn.execute("DELETE FROM chat_conversations WHERE user_id = %s", (user_id,))
         conn.execute("DELETE FROM ai_confirmations WHERE user_id = %s", (user_id,))
         conn.execute("DELETE FROM ai_conversations WHERE user_id = %s", (user_id,))
         conn.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
@@ -295,10 +292,10 @@ def test_retrieval_sink_deletes_conversations_and_verifier_passes(subject):
         conn.execute(
             """
             INSERT INTO chat_conversations (
-                conversation_id, ip_hash, user_email, created_at, updated_at
+                conversation_id, ip_hash, user_id, created_at, updated_at
             ) VALUES (%s, 'hashed-ip', %s, %s, %s)
             """,
-            (chat_id, subject["email"], time.time(), time.time()),
+            (chat_id, subject["user_id"], time.time(), time.time()),
         )
         conn.execute(
             """
