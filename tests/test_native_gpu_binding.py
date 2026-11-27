@@ -297,6 +297,10 @@ def test_real_runner_uses_claimed_devices_and_rechecks_start_authority(agent, mo
     monkeypatch.setattr(worker, "_v2_stop_container", stop)
 
     def subprocess_run(args, **kwargs):
+        if args[:2] == ["docker", "info"]:
+            # The CDI probe (`_cdi_offers_gpus`): a Docker that lists no CDI
+            # devices, so the request keeps the --gpus form asserted below.
+            return mock.Mock(returncode=0, stdout="null", stderr="")
         if args[:2] == ["docker", "run"]:
             built.append(args)
             if fault == "authority_lost_during_start":
