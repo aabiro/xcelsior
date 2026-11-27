@@ -3,11 +3,14 @@
 import { ArtifactsClient } from "./api/resources/artifacts/client/Client.js";
 import { AuthClient } from "./api/resources/auth/client/Client.js";
 import { BillingClient } from "./api/resources/billing/client/Client.js";
+import { GpuClient } from "./api/resources/gpu/client/Client.js";
 import { InferenceClient } from "./api/resources/inference/client/Client.js";
 import { InstancesClient } from "./api/resources/instances/client/Client.js";
+import { LaunchPlansClient } from "./api/resources/launchPlans/client/Client.js";
 import { MarketplaceClient } from "./api/resources/marketplace/client/Client.js";
 import { MarketplaceV2Client } from "./api/resources/marketplaceV2/client/Client.js";
 import { ServerlessClient } from "./api/resources/serverless/client/Client.js";
+import { SshKeysClient } from "./api/resources/sshKeys/client/Client.js";
 import { VolumesClient } from "./api/resources/volumes/client/Client.js";
 import type { BaseClientOptions, BaseRequestOptions } from "./BaseClient.js";
 import { type NormalizedClientOptionsWithAuth, normalizeClientOptionsWithAuth } from "./BaseClient.js";
@@ -21,18 +24,25 @@ export declare namespace XcelsiorApiClient {
 
 export class XcelsiorApiClient {
     protected readonly _options: NormalizedClientOptionsWithAuth<XcelsiorApiClient.Options>;
+    protected _launchPlans: LaunchPlansClient | undefined;
     protected _artifacts: ArtifactsClient | undefined;
     protected _auth: AuthClient | undefined;
     protected _billing: BillingClient | undefined;
+    protected _gpu: GpuClient | undefined;
     protected _inference: InferenceClient | undefined;
     protected _serverless: ServerlessClient | undefined;
     protected _instances: InstancesClient | undefined;
     protected _marketplace: MarketplaceClient | undefined;
     protected _marketplaceV2: MarketplaceV2Client | undefined;
+    protected _sshKeys: SshKeysClient | undefined;
     protected _volumes: VolumesClient | undefined;
 
     constructor(options: XcelsiorApiClient.Options = {}) {
         this._options = normalizeClientOptionsWithAuth(options);
+    }
+
+    public get launchPlans(): LaunchPlansClient {
+        return (this._launchPlans ??= new LaunchPlansClient(this._options));
     }
 
     public get artifacts(): ArtifactsClient {
@@ -45,6 +55,10 @@ export class XcelsiorApiClient {
 
     public get billing(): BillingClient {
         return (this._billing ??= new BillingClient(this._options));
+    }
+
+    public get gpu(): GpuClient {
+        return (this._gpu ??= new GpuClient(this._options));
     }
 
     public get inference(): InferenceClient {
@@ -65,6 +79,10 @@ export class XcelsiorApiClient {
 
     public get marketplaceV2(): MarketplaceV2Client {
         return (this._marketplaceV2 ??= new MarketplaceV2Client(this._options));
+    }
+
+    public get sshKeys(): SshKeysClient {
+        return (this._sshKeys ??= new SshKeysClient(this._options));
     }
 
     public get volumes(): VolumesClient {

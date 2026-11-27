@@ -385,6 +385,85 @@ export class InstancesClient {
     }
 
     /**
+     * Permanently terminate an instance. This action is irreversible.
+     *
+     * The container and its anonymous volumes are hard-killed and removed.
+     * Named/NFS volumes are preserved. The instance cannot be restarted
+     * after termination.
+     *
+     * @param {XcelsiorApi.TerminateInstancesRequest} request
+     * @param {InstancesClient.RequestOptions} requestOptions - Request-specific configuration.
+     *
+     * @throws {@link XcelsiorApi.UnprocessableEntityError}
+     *
+     * @example
+     *     await client.instances.terminate({
+     *         job_id: "job_id"
+     *     })
+     */
+    public terminate(
+        request: XcelsiorApi.TerminateInstancesRequest,
+        requestOptions?: InstancesClient.RequestOptions,
+    ): core.HttpResponsePromise<unknown> {
+        return core.HttpResponsePromise.fromPromise(this.__terminate(request, requestOptions));
+    }
+
+    private async __terminate(
+        request: XcelsiorApi.TerminateInstancesRequest,
+        requestOptions?: InstancesClient.RequestOptions,
+    ): Promise<core.WithRawResponse<unknown>> {
+        const { job_id: jobId } = request;
+        const _authRequest: core.AuthRequest = await this._options.authProvider.getAuthRequest();
+        const _headers: core.Fetcher.Args["headers"] = mergeHeaders(
+            _authRequest.headers,
+            this._options?.headers,
+            requestOptions?.headers,
+        );
+        const _response = await core.fetcher({
+            url: core.url.join(
+                (await core.Supplier.get(this._options.baseUrl)) ??
+                    (await core.Supplier.get(this._options.environment)) ??
+                    environments.XcelsiorApiEnvironment.Production,
+                `instances/${core.url.encodePathParam(jobId)}/terminate`,
+            ),
+            method: "POST",
+            headers: _headers,
+            queryParameters: requestOptions?.queryParams,
+            timeoutMs: (requestOptions?.timeoutInSeconds ?? this._options?.timeoutInSeconds ?? 60) * 1000,
+            maxRetries: requestOptions?.maxRetries ?? this._options?.maxRetries,
+            abortSignal: requestOptions?.abortSignal,
+            fetchFn: this._options?.fetch,
+            logging: this._options.logging,
+        });
+        if (_response.ok) {
+            return { data: _response.body, rawResponse: _response.rawResponse };
+        }
+
+        if (_response.error.reason === "status-code") {
+            switch (_response.error.statusCode) {
+                case 422:
+                    throw new XcelsiorApi.UnprocessableEntityError(
+                        _response.error.body as XcelsiorApi.HttpValidationError,
+                        _response.rawResponse,
+                    );
+                default:
+                    throw new errors.XcelsiorApiError({
+                        statusCode: _response.error.statusCode,
+                        body: _response.error.body,
+                        rawResponse: _response.rawResponse,
+                    });
+            }
+        }
+
+        return handleNonStatusCodeError(
+            _response.error,
+            _response.rawResponse,
+            "POST",
+            "/instances/{job_id}/terminate",
+        );
+    }
+
+    /**
      * Read recent durable logs consistently across API processes.
      *
      * @param {XcelsiorApi.GetLogsInstancesRequest} request

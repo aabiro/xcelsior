@@ -5,6 +5,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from routes._deps import (
     _require_auth,
@@ -154,8 +155,25 @@ def _trigger_reinject_for_user(user: dict) -> int:
     return enqueued
 
 
+class SshKeyIn(BaseModel):
+    """An SSH public key to register.
+
+    Both fields default to empty so the handler, not the schema, reports what
+    is wrong with them: an empty key is a 400 naming the field, exactly as it
+    was before this model existed, and a client that relied on that keeps it.
+    """
+
+    name: str = Field(
+        default="", description="A label; `default` when empty. At most 100 characters."
+    )
+    public_key: str = Field(
+        default="",
+        description="One OpenSSH public key line: `<type> <base64> [comment]`.",
+    )
+
+
 @router.post("/api/ssh/keys", tags=["SSH Keys"])
-async def api_add_ssh_key(request: Request):
+def api_add_ssh_key(body: SshKeyIn, request: Request):
     """Upload a user SSH public key. Like GitHub/AWS key management.
 
     **Machine credentials may register a key, and that is a deliberate
@@ -185,9 +203,8 @@ async def api_add_ssh_key(request: Request):
 
     user = _require_auth(request)
     _require_scope(user, "ssh:write")
-    body = await request.json()
-    name = body.get("name", "").strip() or "default"
-    public_key = body.get("public_key", "").strip()
+    name = body.name.strip() or "default"
+    public_key = body.public_key.strip()
     if not public_key:
         raise HTTPException(400, "public_key is required")
     if len(name) > 100:

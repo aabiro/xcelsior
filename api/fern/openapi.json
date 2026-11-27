@@ -25,6 +25,321 @@
     }
   ],
   "paths": {
+    "/api/v1/launch-plans": {
+      "post": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Create Launch Plan",
+        "description": "§14.1 preview. Creates an action plan; no attempt/allocation/lease/hold/job.\n\nReturns the plan id, versioned estimate, current placement availability,\nexpiry, approval mode, and the next action. A confirmed launch happens\nonly after approval, through the execute endpoint (B2.5).",
+        "operationId": "api_create_launch_plan_api_v1_launch_plans_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/launch-plans/quote": {
+      "post": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Quote Launch Plan",
+        "description": "What a preview would answer, and nothing persisted.\n\nThe estimate, the placement check, and the approval this credential's spend\nenvelope would give the launch right now (`approval_mode` is\n`standing_policy` when it would approve itself), with no plan created.\n`terraform plan` calls this so a plan run, which may be speculative, never\nleaves an approval waiting in someone's dashboard.",
+        "operationId": "api_quote_launch_plan_api_v1_launch_plans_quote_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/launch-plans/{plan_id}": {
+      "get": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Get Launch Plan",
+        "description": "Return action status only to its tenant; foreign ids remain not-found.",
+        "operationId": "api_get_launch_plan_api_v1_launch_plans__plan_id__get",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/launch-plans/{plan_id}/approve": {
+      "post": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Approve Launch Plan",
+        "description": "§14.2 approval. Standing policy self-approves inside limits; else a human.",
+        "operationId": "api_approve_launch_plan_api_v1_launch_plans__plan_id__approve_post",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LaunchPlanApproveIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/launch-plans/{plan_id}/revoke": {
+      "post": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Revoke Launch Plan",
+        "description": "§14.2 revoke — idempotent; a consumed or terminal plan cannot be revoked.",
+        "operationId": "api_revoke_launch_plan_api_v1_launch_plans__plan_id__revoke_post",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LaunchPlanRevokeIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/launch-plans/{plan_id}/execute": {
+      "post": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Execute Launch Plan",
+        "description": "§14.3 execute. Exactly-once; a price move beyond tolerance is 409 quote_changed.",
+        "operationId": "api_execute_launch_plan_api_v1_launch_plans__plan_id__execute_post",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LaunchPlanExecuteIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/spend-envelope": {
+      "get": {
+        "tags": [
+          "Launch plans"
+        ],
+        "summary": "Get Own Spend Envelope",
+        "description": "The envelope on the credential making this call, and what is left of it.\n\nFor a machine credential to check before it acts: `terraform plan` reads\nit to say whether an apply will run unattended. A dashboard session has no\nenvelope of its own, so it gets `envelope: null`.",
+        "operationId": "api_get_own_spend_envelope_api_v1_spend_envelope_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/artifacts/upload": {
       "post": {
         "tags": [
@@ -1219,6 +1534,54 @@
         }
       }
     },
+    "/api/v2/gpu/available": {
+      "get": {
+        "tags": [
+          "GPU"
+        ],
+        "summary": "GPU Available",
+        "description": "Free GPUs plus admitted inventory and online/allocated capacity counts.\n\nUse the same device/allocation snapshot as placement. Provider offers are\npricing metadata; they never create devices or override host geography.",
+        "operationId": "api_gpu_available_api_v2_gpu_available_get",
+        "parameters": [
+          {
+            "name": "region",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Region"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/inference": {
       "post": {
         "tags": [
@@ -1495,6 +1858,87 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/serverless/endpoint-plans": {
+      "post": {
+        "tags": [
+          "Serverless"
+        ],
+        "summary": "V1 Serverless Endpoint Plan",
+        "description": "Persist an encrypted, server-bound approval plan for endpoint spend.",
+        "operationId": "api_v1_serverless_endpoint_plan_api_v1_serverless_endpoint_plans_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServerlessEndpointCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/serverless/endpoint-plans/{plan_id}/execute": {
+      "post": {
+        "tags": [
+          "Serverless"
+        ],
+        "summary": "V1 Execute Serverless Endpoint Plan",
+        "description": "Idempotently create one endpoint for one approved plan.",
+        "operationId": "api_v1_execute_serverless_endpoint_plan_api_v1_serverless_endpoint_plans__plan_id__execute_post",
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Plan Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2694,6 +3138,47 @@
         }
       }
     },
+    "/instances/{job_id}/terminate": {
+      "post": {
+        "tags": [
+          "Instances"
+        ],
+        "summary": "Terminate Instance",
+        "description": "Permanently terminate an instance. This action is irreversible.\n\nThe container and its anonymous volumes are hard-killed and removed.\nNamed/NFS volumes are preserved. The instance cannot be restarted\nafter termination.",
+        "operationId": "api_terminate_instance_instances__job_id__terminate_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/instances/{job_id}/logs": {
       "get": {
         "tags": [
@@ -3199,6 +3684,105 @@
         }
       }
     },
+    "/api/ssh/keys": {
+      "get": {
+        "tags": [
+          "SSH Keys"
+        ],
+        "summary": "List SSH Keys",
+        "description": "List the authenticated user's SSH public keys.",
+        "operationId": "api_list_ssh_keys_api_ssh_keys_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "SSH Keys"
+        ],
+        "summary": "Add SSH Key",
+        "description": "Upload a user SSH public key. Like GitHub/AWS key management.\n\n**Machine credentials may register a key, and that is a deliberate\nnarrowing of the guard that used to stand here.**\n\nThis route called `_require_user_grant`, which refuses\n`auth_type == \"client_credentials\"` outright. A Quick Connect token is\nexactly that (`oauth_service.py`), so the `register_ssh_key` tool — the\nstep Gate P2's journey depends on — answered 403 for the credential this\nproduct tells people to paste. \"Launch → connected, without a browser\" was\nunreachable for one of the two credential types, and the tool shipped\nbefore anyone checked which helper the route used.\n\n`_require_user_grant` is the right guard for MFA, password and account\ndeletion: state whose whole point is that a human is present. Registering a\npublic key is not that. It is an ordinary scoped mutation of the caller's\nown resources, and the authorisation question is the one `_require_scope`\nasks — does *this credential* hold `ssh:write`.\n\nWhat the narrowing costs is attribution: a key added by an agent used to be\nindistinguishable from one a human pasted into the dashboard. Migration\n`099` adds the two columns that fix that, and they are written here. A key\nregistered by a machine credential is attributable to the OAuth client that\nadded it, so revoking that client identifies exactly which keys to remove.",
+        "operationId": "api_add_ssh_key_api_ssh_keys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SshKeyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ssh/keys/{key_id}": {
+      "delete": {
+        "tags": [
+          "SSH Keys"
+        ],
+        "summary": "Delete SSH Key",
+        "description": "Delete a user SSH public key by ID.",
+        "operationId": "api_delete_ssh_key_api_ssh_keys__key_id__delete",
+        "parameters": [
+          {
+            "name": "key_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/volumes": {
       "get": {
         "tags": [
@@ -3276,6 +3860,55 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Volumes"
+        ],
+        "summary": "Rename",
+        "description": "Rename a volume.",
+        "operationId": "api_volume_rename_api_v2_volumes__volume_id__patch",
+        "parameters": [
+          {
+            "name": "volume_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Volume Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VolumeRename"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3981,6 +4614,63 @@
         ],
         "title": "JobIn"
       },
+      "LaunchPlanApproveIn": {
+        "properties": {
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "default": false
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          },
+          "confirmation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation"
+          }
+        },
+        "type": "object",
+        "title": "LaunchPlanApproveIn"
+      },
+      "LaunchPlanExecuteIn": {
+        "properties": {
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "LaunchPlanExecuteIn"
+      },
+      "LaunchPlanRevokeIn": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "LaunchPlanRevokeIn"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -4623,6 +5313,25 @@
         "type": "object",
         "title": "ServerlessEndpointPatch"
       },
+      "SshKeyIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "A label; `default` when empty. At most 100 characters.",
+            "default": ""
+          },
+          "public_key": {
+            "type": "string",
+            "title": "Public Key",
+            "description": "One OpenSSH public key line: `<type> <base64> [comment]`.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "SshKeyIn",
+        "description": "An SSH public key to register.\n\nBoth fields default to empty so the handler, not the schema, reports what\nis wrong with them: an empty key is a 400 naming the field, exactly as it\nwas before this model existed, and a client that relied on that keeps it."
+      },
       "UploadRequest": {
         "properties": {
           "job_id": {
@@ -4819,6 +5528,21 @@
           "name"
         ],
         "title": "VolumeCreate"
+      },
+      "VolumeRename": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "VolumeRename"
       }
     },
     "securitySchemes": {
@@ -4843,6 +5567,9 @@
       "description": "Wallet management, invoicing, refunds. Credit-first billing in CAD."
     },
     {
+      "name": "GPU"
+    },
+    {
       "name": "Inference"
     },
     {
@@ -4852,11 +5579,17 @@
       "name": "Instances"
     },
     {
+      "name": "Launch plans"
+    },
+    {
       "name": "Marketplace",
       "description": "Rig listings, browsing, and marketplace billing."
     },
     {
       "name": "Marketplace v2"
+    },
+    {
+      "name": "SSH Keys"
     },
     {
       "name": "Serverless"

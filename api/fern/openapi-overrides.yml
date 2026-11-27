@@ -58,6 +58,46 @@ paths:
     get:
       x-fern-sdk-group-name: instances
       x-fern-sdk-method-name: list
+  /instances/{job_id}/terminate:
+    post:
+      x-fern-sdk-group-name: instances
+      x-fern-sdk-method-name: terminate
+  /api/v1/launch-plans:
+    post:
+      x-fern-sdk-group-name: launchPlans
+      x-fern-sdk-method-name: create
+  /api/v1/launch-plans/quote:
+    post:
+      x-fern-sdk-group-name: launchPlans
+      x-fern-sdk-method-name: quote
+  /api/v1/launch-plans/{plan_id}:
+    get:
+      x-fern-sdk-group-name: launchPlans
+      x-fern-sdk-method-name: get
+  /api/v1/launch-plans/{plan_id}/approve:
+    post:
+      x-fern-sdk-group-name: launchPlans
+      x-fern-sdk-method-name: approve
+  /api/v1/launch-plans/{plan_id}/revoke:
+    post:
+      x-fern-sdk-group-name: launchPlans
+      x-fern-sdk-method-name: revoke
+  /api/v1/launch-plans/{plan_id}/execute:
+    post:
+      x-fern-sdk-group-name: launchPlans
+      x-fern-sdk-method-name: execute
+  /api/v1/serverless/endpoint-plans:
+    post:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: createEndpointPlan
+  /api/v1/serverless/endpoint-plans/{plan_id}/execute:
+    post:
+      x-fern-sdk-group-name: serverless
+      x-fern-sdk-method-name: executeEndpointPlan
+  /api/v1/spend-envelope:
+    get:
+      x-fern-sdk-group-name: launchPlans
+      x-fern-sdk-method-name: getSpendEnvelope
   /instances/{job_id}/cancel:
     post:
       x-fern-sdk-group-name: instances
@@ -854,16 +894,13 @@ paths:
     get:
       x-fern-sdk-group-name: sshKeys
       x-fern-sdk-method-name: list
-      x-fern-ignore: true
     post:
       x-fern-sdk-group-name: sshKeys
       x-fern-sdk-method-name: add
-      x-fern-ignore: true
   /api/ssh/keys/{key_id}:
     delete:
       x-fern-sdk-group-name: sshKeys
       x-fern-sdk-method-name: delete
-      x-fern-ignore: true
   /agent/versions:
     post:
       x-fern-ignore: true
@@ -1027,6 +1064,9 @@ paths:
     delete:
       x-fern-sdk-group-name: volumes
       x-fern-sdk-method-name: delete
+    patch:
+      x-fern-sdk-group-name: volumes
+      x-fern-sdk-method-name: rename
   /api/v2/volumes/{volume_id}/attach:
     post:
       x-fern-sdk-group-name: volumes
@@ -1301,7 +1341,6 @@ paths:
     get:
       x-fern-sdk-group-name: gpu
       x-fern-sdk-method-name: listAvailable
-      x-fern-ignore: true
   /api/v2/inference/endpoints/{endpoint_id}/health:
     get:
       x-fern-sdk-group-name: serverless

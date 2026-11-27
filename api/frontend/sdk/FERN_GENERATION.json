@@ -5,9 +5,9 @@
   "inputs": {
     "fern/fern.config.json": "e4f17354656a5931b481dc34ad4c9a71e6f067fe1545847ed481cfa583affdc4",
     "fern/generators.yml": "c7085904817dc9460ba74f181073f3406b39d93419f2deb88e12b6764684294c",
-    "fern/openapi.json": "0f40bb3ca172a585468d2ed4b9f52911bf97c336d221f5106c15680d59989f4d",
-    "fern/openapi-overrides.yml": "718cda2c5a6abc9b0fb2cd4f03969c8d976c6ae0e3f40735d9c28a3d8523b6a7"
+    "fern/openapi.json": "8743b923f39d162339d31ea4e49fbd931ad79bc7e83b78683467d0019b011cec",
+    "fern/openapi-overrides.yml": "28159746e6cba374a4ed3e570a24e9d8e47f5f66cf994781f489c731f28a53e9"
   },
-  "files": 169,
-  "output_sha256": "29fc72f7623e6f433b21a22831519684317fce77fa14b77a46d43f69708b4168"
+  "files": 197,
+  "output_sha256": "f33e31f2f32479e46ab6c3a6720310a76591ca7072d600f9d1eb5990047a1903"
 }

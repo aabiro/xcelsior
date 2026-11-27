@@ -123,4 +123,4 @@ def test_public_openapi_excludes_internal_routes():
     assert "/v1/serverless/{endpoint_id}/run" in paths
 
     operation_count = sum(len(methods) for methods in paths.values())
-    assert 70 <= operation_count <= 85
+    assert 85 <= operation_count <= 100

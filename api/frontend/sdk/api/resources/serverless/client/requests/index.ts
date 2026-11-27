@@ -3,6 +3,7 @@ export type { CancelJobServerlessRequest } from "./CancelJobServerlessRequest.js
 export type { ChatCompletionRequest } from "./ChatCompletionRequest.js";
 export type { DeleteEndpointCompatServerlessRequest } from "./DeleteEndpointCompatServerlessRequest.js";
 export type { DeleteEndpointServerlessRequest } from "./DeleteEndpointServerlessRequest.js";
+export type { ExecuteEndpointPlanServerlessRequest } from "./ExecuteEndpointPlanServerlessRequest.js";
 export type { GetEndpointCompatServerlessRequest } from "./GetEndpointCompatServerlessRequest.js";
 export type { GetEndpointHealthCompatServerlessRequest } from "./GetEndpointHealthCompatServerlessRequest.js";
 export type { GetEndpointHealthServerlessRequest } from "./GetEndpointHealthServerlessRequest.js";
