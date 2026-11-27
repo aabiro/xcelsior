@@ -91,6 +91,10 @@
     "class": "covered",
     "notes": "MCP server calls this path (cancel_hpc_job, confirm-gated); marks the job for cancel, which the reconciler sends to the cluster"
   },
+  "DELETE /api/v1/spend-envelopes/{client_id}": {
+    "class": "internal",
+    "notes": "Removing an envelope sends the credential's next plans back to a person. The dashboard does it; a token may remove its own over the API, which only narrows what it can do, so no tool is needed."
+  },
   "DELETE /api/v2/inference/endpoints/{endpoint_id}": {
     "class": "redundant",
     "notes": "a compatibility shim: the handler is `api_inference_compat_*`, tagged 'Serverless (compat)', and its whole body delegates to the corresponding api_serverless_* function. Folded into the serverless surface the MCP already calls, and the code declares it rather than leaving it to be inferred"
@@ -902,6 +906,14 @@
   "GET /api/v1/promotions/{promotion_id}/manifest": {
     "class": "internal",
     "notes": "Worker-only (_require_platform_worker). The single response that carries presigned URLs, which is why the agent command holds nothing but {promotion_id}: a queued, logged, retained command row is the wrong place for a time-limited read grant on a tenant's weights. Re-resolves the manifest and refuses if the artifact set changed since the promotion was created."
+  },
+  "GET /api/v1/spend-envelope": {
+    "class": "gap",
+    "notes": "An agent working under a spend envelope cannot read what is left of its hour and day; `get_spend_envelope` reads the wallet's runway instead. The Terraform provider reads this route."
+  },
+  "GET /api/v1/spend-envelopes": {
+    "class": "internal",
+    "notes": "Dashboard sessions only: every envelope in the workspace, for the person who manages them."
   },
   "GET /api/v2/billing/auto-topup": {
     "class": "covered",
@@ -2059,6 +2071,10 @@
     "class": "covered",
     "notes": "MCP server calls this path"
   },
+  "POST /api/v1/launch-plans/quote": {
+    "class": "redundant",
+    "notes": "The tools preview by creating a plan (POST /api/v1/launch-plans), which is the plan a person then approves. This quote persists nothing, for `terraform plan`, whose speculative runs must not leave approvals waiting in a dashboard. A tool calling it would duplicate the preview the tools already make."
+  },
   "POST /api/v1/launch-plans/{plan_id}/approve": {
     "class": "internal",
     "notes": "Deliberately not a tool. Approval is the human in the loop; an agent tool for it would let an agent authorise its own spend, which is what the gate exists to prevent."
@@ -2506,6 +2522,10 @@
   "PUT /api/users/me/preferences": {
     "class": "internal",
     "notes": "first-party account and session management — login, password, email, profile, sessions; no P0-P7 journey changes someone's credentials"
+  },
+  "PUT /api/v1/spend-envelopes/{client_id}": {
+    "class": "internal",
+    "notes": "Deliberately not a tool. Setting an envelope is human-only; a tool for it would let an agent raise its own spending limit, which is what the envelope exists to prevent."
   },
   "PUT /host": {
     "class": "gap",

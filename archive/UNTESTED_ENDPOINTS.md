@@ -1,8 +1,8 @@
 # Untested endpoints — coverage-gap worklist
 
-_Regenerated 2026-11-22 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
+_Regenerated 2026-11-27 by `scripts/regenerate_untested_endpoints.py`: a route/CLI command counts as covered when **either** its path (prefix before `{…}`) **or** its handler function name appears anywhere under `tests/`._ CLI commands require a `test_cmd_*` smoke test in `tests/test_cli*.py`._
 
-**12 of 590 routes (2%)** and **0 of 46 CLI commands** (0%) have no test signal.
+**12 of 595 routes (2%)** and **0 of 46 CLI commands** (0%) have no test signal.
 
 Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the box; if it 500s/throws, fix-or-delete then tick. Caveat: a few may be exercised transitively; confirm with the test.
 
@@ -18,6 +18,7 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 
 ### `routes/action_plans.py` (0 untested)
 - [x] `POST /api/v1/launch-plans` — `api_create_launch_plan`
+- [x] `POST /api/v1/launch-plans/quote` — `api_quote_launch_plan`
 - [x] `GET /api/v1/launch-plans/{plan_id}` — `api_get_launch_plan`
 - [x] `POST /api/v1/launch-plans/{plan_id}/approve` — `api_approve_launch_plan`
 - [x] `POST /api/v1/launch-plans/{plan_id}/execute` — `api_execute_launch_plan`
@@ -27,6 +28,10 @@ Workflow per item: write a `TestClient` (or CLI) test → if it works, tick the 
 - [x] `POST /api/v1/pipelines/{plan_id}/execute` — `api_execute_pipeline`
 - [x] `POST /api/v1/placements/evaluate` — `api_evaluate_placement`
 - [x] `POST /api/v1/placements/simulate` — `api_simulate_placement`
+- [x] `GET /api/v1/spend-envelope` — `api_get_own_spend_envelope`
+- [x] `GET /api/v1/spend-envelopes` — `api_list_spend_envelopes`
+- [x] `PUT /api/v1/spend-envelopes/{client_id}` — `api_put_spend_envelope`
+- [x] `DELETE /api/v1/spend-envelopes/{client_id}` — `api_delete_spend_envelope`
 
 ### `routes/admin.py` (3 untested)
 - [x] `GET /api/admin/activity` — `api_admin_activity`  ✓ test_admin_endpoints_coverage.py
