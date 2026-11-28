@@ -12,6 +12,8 @@ from tests.test_worker_agent_v2 import _start_cmd, worker_agent
         (False, None, ""),
         (True, {}, ""),
         (True, {"GPU-other": {"processes": 1, "vram_mb": 256}}, ""),
+        (True, {"GPU-test-1": {"processes": 1, "vram_mb": 0}}, "gpu_outside_use"),
+        (False, {"GPU-test-1": {"processes": 1, "vram_mb": 0}}, "gpu_outside_use"),
     ],
 )
 def test_start_uses_the_fenced_grant_occupancy_policy(tmp_path, required, outside, reason):
