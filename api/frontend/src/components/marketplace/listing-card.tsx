@@ -4,6 +4,7 @@ import { Cpu, MapPin, ArrowRight } from "lucide-react";
 import type { MarketplaceListing } from "@/lib/api";
 import { SpotSavingsPill } from "@/components/spot/spot-surface";
 import { EvidenceSummary, VerificationChip } from "@/components/hosts/host-evidence";
+import { useLocale } from "@/lib/locale";
 
 interface ListingCardProps {
   listing: MarketplaceListing;
@@ -13,6 +14,7 @@ interface ListingCardProps {
 }
 
 export function ListingCard({ listing, onClick, spotRateCad }: ListingCardProps) {
+  const { t } = useLocale();
   const price = listing.price_per_hour_cad ?? listing.price_per_hour ?? 0;
   const spot = spotRateCad ?? null;
   const savingsPct =
@@ -47,6 +49,7 @@ export function ListingCard({ listing, onClick, spotRateCad }: ListingCardProps)
               {model}
               {vram && <span className="ml-1.5 text-text-muted font-normal">· {vram}</span>}
             </h3>
+            <p className="mt-1 text-xs text-text-muted">{t("dash.gpu_contract.whole")}</p>
           </div>
         </div>
         {/* The host's verification, not the listing's own status flag: every

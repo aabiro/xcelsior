@@ -41,6 +41,7 @@ LIVE_OFFER_HOST_SQL = (
 # diverged: they agreed at one and three months, then this one offered 6 months
 # at 40% while billing offered a year at 45%, so the quote depended on which
 # endpoint a customer reached.
+from control_plane.contracts import require_whole_gpu_count
 from money import micros_to_cad
 from reserved_pricing import RESERVED_TIERS as _RESERVED_TIERS
 
@@ -84,6 +85,7 @@ class MarketplaceEngine:
         spot_min_cents: int = 0,
     ) -> dict:
         """Create or update a GPU offer from a provider."""
+        require_whole_gpu_count(gpu_count_total)
         now = time.time()
         from host_metadata import normalize_region
 
@@ -275,6 +277,7 @@ class MarketplaceEngine:
 
         Uses SELECT ... FOR UPDATE to prevent race conditions.
         """
+        require_whole_gpu_count(gpu_count)
         now = time.time()
         with self._conn() as conn:
             # Lock the offer row
@@ -500,6 +503,7 @@ class MarketplaceEngine:
         fourth set of numbers (10/20/30/40) that disagreed with the dict
         directly above it, which is why the rates are no longer written here.
         """
+        require_whole_gpu_count(gpu_count)
         discount_pct = RESERVED_DISCOUNTS.get(period_months)
         if discount_pct is None:
             raise ValueError(

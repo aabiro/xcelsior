@@ -2,6 +2,9 @@
 
 const fr_dashboard: Record<string, string> = {
   "dash.overview": "Aperçu",
+  "dash.gpu_contract.whole": "GPU entier (exclusif pour la durée de la tâche)",
+  "dash.gpu_contract.hardware_vram": "Mémoire physique du GPU (Go)",
+  "dash.gpu_contract.reserved_from_spot": "Emplacements GPU hors capacité spot : {count}",
   "dash.main_label": "Tableau de bord",
   "dash.nav.compute": "Calcul",
   "dash.nav.storage": "Stockage",

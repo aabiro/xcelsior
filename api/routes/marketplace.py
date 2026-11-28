@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from routes._gpu_contract import WholeGPURequest
 
 from routes._deps import (
     _effective_billing_customer_id,
@@ -75,7 +76,7 @@ def api_marketplace_search(
 # ── Model: RigListing ──
 
 
-class RigListing(BaseModel):
+class RigListing(WholeGPURequest):
     host_id: str
     gpu_model: str
     vram_gb: float
@@ -213,7 +214,7 @@ def api_marketplace_stats(request: Request):
 # ── Model: GPUOfferCreate ──
 
 
-class GPUOfferCreate(BaseModel):
+class GPUOfferCreate(WholeGPURequest):
     host_id: str = Field(min_length=1, max_length=64)
     gpu_model: str = Field(min_length=1, max_length=64)
     gpu_count_total: int = Field(default=1, ge=1, le=64)
@@ -388,7 +389,7 @@ def api_marketplace_stats_v2():
 # ── Model: ReservationCreate ──
 
 
-class ReservationCreate(BaseModel):
+class ReservationCreate(WholeGPURequest):
     gpu_model: str
     gpu_count: int = 1
     period_months: int = 1
@@ -441,7 +442,7 @@ def api_marketplace_cancel_reservation(reservation_id: str, request: Request):
 # ── Model: AllocateGPURequest ──
 
 
-class AllocateGPURequest(BaseModel):
+class AllocateGPURequest(WholeGPURequest):
     offer_id: str
     job_id: str
     gpu_count: int = 1

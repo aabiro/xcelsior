@@ -17,6 +17,7 @@ import uuid
 from contextlib import contextmanager, nullcontext
 from email.mime.text import MIMEText
 from typing import TYPE_CHECKING, Any, cast
+from control_plane.contracts import require_whole_gpu_count
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from psycopg import Connection as PgConnection
@@ -1176,6 +1177,7 @@ def register_host(
     Every host sends: GPU model, VRAM, IP, uptime.
     You store it.
     """
+    require_whole_gpu_count(spot_gpu_slots)
     with _atomic_mutation() as conn:
         existing = _get_host_by_id_conn(conn, host_id)
         gpu_count = _host_physical_gpu_count(conn, host_id, existing)
@@ -1306,6 +1308,7 @@ def update_host_spot_settings(
     spot_min_cents: int | None = None,
 ) -> dict | None:
     """Update provider spot controls on a host and sync marketplace offer."""
+    require_whole_gpu_count(spot_gpu_slots)
     with _atomic_mutation() as conn:
         host = _get_host_by_id_conn(conn, host_id)
         if not host:

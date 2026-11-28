@@ -80,6 +80,29 @@ def test_hosts_register_web_requires_auth():
     assert r.status_code == 401
 
 
+@pytest.mark.parametrize("gpu_model", ["RTX 2060", "RTX 3060", "NVIDIA GeForce RTX 5090"])
+@pytest.mark.parametrize("budget", [{"vram_budget_gb": 4}, {"spot_gpu_slots": 0.5}])
+def test_web_registration_rejects_vram_budgets_and_fractional_slots(
+    user_headers, gpu_model, budget
+):
+    from control_plane.contracts import WHOLE_GPU_REQUIRED
+
+    response = client.post(
+        "/api/hosts/register",
+        json={
+            "hostname": "whole-gpu-test",
+            "gpu_model": gpu_model,
+            "vram_gb": 12,
+            "country": "CA",
+            "province": "ON",
+            **budget,
+        },
+        headers=user_headers["headers"],
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["message"] == WHOLE_GPU_REQUIRED
+
+
 def test_hosts_check_admin():
     r = client.post("/hosts/check", headers=_admin_headers())
     assert r.status_code == 200

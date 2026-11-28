@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSock
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
+from routes._gpu_contract import WholeGPURequest
 
 from routes._deps import (
     AUTH_REQUIRED,
@@ -376,7 +377,7 @@ class PlacementPreferenceBody(BaseModel):
     max_premium_pct: float | None = Field(default=None, ge=0, le=10_000)
 
 
-class JobIn(BaseModel):
+class JobIn(WholeGPURequest):
     name: str = Field(min_length=1, max_length=128)
     vram_needed_gb: float = Field(default=0, ge=0)
     priority: int = Field(default=0, ge=0, le=10)

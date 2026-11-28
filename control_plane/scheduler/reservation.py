@@ -532,6 +532,7 @@ def reserve_and_bind(
         # Re-read under the device lock, so a GPU the host started using after
         # the snapshot is still refused. Dedicated needs every GPU free, so
         # outside use on any one of them refuses it too.
+        # Only a positive compute process count blocks a device.
         if device_outside_use(_one(row, "outside_processes", 7)) is not None:
             continue
         if requested_vram_mb and int(_one(row, "allocatable_vram_mb", 4)) < requested_vram_mb:

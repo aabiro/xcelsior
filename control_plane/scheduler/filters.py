@@ -42,6 +42,8 @@ def device_outside_use(processes: Any, vram_mb: Any = 0) -> dict[str, int] | Non
     nobody admitted. None when there is none, or the agent does not report it.
     """
     count = int(processes or 0)
+    # VRAM usage is supporting telemetry. With zero compute processes it
+    # cannot establish outside use or remove a device from placement.
     if count <= 0:
         return None
     return {"processes": count, "vram_mb": int(vram_mb or 0)}

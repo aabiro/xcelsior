@@ -2,6 +2,9 @@
 
 const en_dashboard: Record<string, string> = {
   "dash.overview": "Overview",
+  "dash.gpu_contract.whole": "Whole GPU (exclusive for the duration of the job)",
+  "dash.gpu_contract.hardware_vram": "Physical GPU memory (GB)",
+  "dash.gpu_contract.reserved_from_spot": "GPU slots kept out of spot: {count}",
   "dash.main_label": "Dashboard",
   "dash.nav.compute": "Compute",
   "dash.nav.storage": "Storage",

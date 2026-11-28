@@ -38,6 +38,7 @@ from control_plane.leases import (
 )
 from routes.agent import _require_agent_auth
 from routes._deps import _get_real_client_ip, otel_span
+from metrics_catalog import WORKER_GPU_OUTSIDE_USE_UNAVAILABLE_TOTAL
 
 router = APIRouter()
 
@@ -255,6 +256,7 @@ def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request, response: R
         )
     except LeaseClaimRejected as exc:
         raise _lease_conflict(exc)
+    trusted_hosts = os.environ.get("XCELSIOR_GPU_OCCUPANCY_TRUSTED_HOSTS", "")
     response.headers["Cache-Control"] = "no-store"
     return {
         "ok": True,
@@ -265,6 +267,8 @@ def api_v2_lease_claim(req: LeaseAuthorityRequest, request: Request, response: R
         "expires_at": str(grant.expires_at),
         "renewal_ttl_sec": grant.renewal_ttl_sec,
         "gpu_device_uuids": list(grant.gpu_device_uuids),
+        "gpu_occupancy_required": req.host_id
+        not in {host.strip() for host in trusted_hosts.split(",") if host.strip()},
         **({"callback_token": callback_token} if callback_token else {}),
         **environment,
     }
@@ -363,6 +367,8 @@ def api_v2_observations(report: ObservationReport, request: Request):
         ),
         what="v2_observation_ingest",
     )
+    if result.applied and (report.conditions or {}).get("gpu_outside_use") == "unavailable":
+        WORKER_GPU_OUTSIDE_USE_UNAVAILABLE_TOTAL.inc()
     return {
         "ok": True,
         "duplicate": result.duplicate,

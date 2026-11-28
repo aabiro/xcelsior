@@ -125,6 +125,11 @@ WORKER_RUNTIME_PREPARATION_FAILURES_TOTAL = Counter(
     ["failure_type"],
 )
 
+WORKER_GPU_OUTSIDE_USE_UNAVAILABLE_TOTAL = Counter(
+    "xcelsior_worker_gpu_outside_use_unavailable_total",
+    "Applied worker observations that could not report GPU compute occupancy",
+)
+
 WORKER_VOLUME_PREPARATION_FAILURES_TOTAL = Counter(
     "xcelsior_worker_volume_preparation_failures_total",
     "Total failures during volume mount or decryption",

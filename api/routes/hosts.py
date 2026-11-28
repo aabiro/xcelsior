@@ -8,6 +8,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
+from routes._gpu_contract import WholeGPURequest
 
 from routes._deps import (
     _caller_owner_ids,
@@ -900,7 +901,7 @@ def _blocking_host_jobs(host_id: str) -> tuple[list[dict], list[dict]]:
 # ── Model: HostIn ──
 
 
-class HostIn(BaseModel):
+class HostIn(WholeGPURequest):
     host_id: str = Field(min_length=1, max_length=64)
     ip: str = Field(min_length=7, max_length=45)  # IPv4 min 7, IPv6 max 45
     gpu_model: str = Field(min_length=1, max_length=64)
@@ -939,7 +940,7 @@ class HostIn(BaseModel):
 # ── Model: JobIn ──
 
 
-class JobIn(BaseModel):
+class JobIn(WholeGPURequest):
     name: str = Field(min_length=1, max_length=128)
     vram_needed_gb: float = Field(default=0, ge=0)
     priority: int = Field(default=0, ge=0, le=10)
@@ -1417,7 +1418,7 @@ _VALID_CA_PROVINCES = frozenset(
 )
 
 
-class RegisterHostRequest(BaseModel):
+class RegisterHostRequest(WholeGPURequest):
     """Human-facing host registration from the dashboard UI.
 
     Separate from HostIn which is the machine-to-machine agent schema.
@@ -1709,7 +1710,7 @@ def api_update_host_availability(host_id: str, body: HostAvailabilityUpdate, req
     return {"ok": True, "host": enrich_host_for_api(updated)}
 
 
-class HostSpotSettingsUpdate(BaseModel):
+class HostSpotSettingsUpdate(WholeGPURequest):
     spot_enabled: bool | None = None
     spot_gpu_slots: int | None = Field(default=None, ge=0, le=64)
     spot_min_cents: int | None = Field(default=None, ge=0, le=1_000_000)

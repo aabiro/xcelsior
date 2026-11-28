@@ -4264,6 +4264,25 @@ def _handle_start_attempt(cmd: dict) -> None:
             v2_nack_command(command_id, "runtime_environment_missing", retryable=False)
             return
 
+    if "gpu_occupancy_required" in grant:
+        outside = gpu_outside_use()
+        if outside is None:
+            log.warning("Could not verify GPU compute occupancy before start")
+            reason = "gpu_outside_use_unavailable" if grant["gpu_occupancy_required"] else ""
+        else:
+            held = {
+                device: outside[device]
+                for device in devices
+                if (outside.get(device) or {}).get("processes", 0) > 0
+            }
+            reason = "gpu_outside_use" if held else ""
+            if held:
+                log.warning("start_attempt refused: %s", describe_outside_use(held))
+        if reason:
+            _v2_abort_claimed_start(auth, reason)
+            v2_nack_command(command_id, reason, retryable=False)
+            return
+
     with _v2_attempts_lock:
         registered = _v2_attempts.get(job_id) is auth
     if not registered:

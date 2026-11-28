@@ -652,7 +652,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-sm font-medium">VRAM (GB)</Label>
+              <Label className="text-sm font-medium">{t("dash.gpu_contract.hardware_vram")}</Label>
               <NumberInput
                 value={vramGb ? parseFloat(vramGb) : 0}
                 onChange={(val) => setVramGb(String(val))}
@@ -660,7 +660,7 @@ function RegisterHostForm({ api, onDone }: { api: ReturnType<typeof useApi>; onD
                 max={192}
                 step={1}
               />
-              <p className="text-xs text-text-muted">Auto-filled from GPU selection</p>
+              <p className="text-xs text-text-muted">{t("dash.gpu_contract.whole")}</p>
             </div>
             <div className="space-y-2">
               <Label className="text-sm font-medium">Hourly Rate</Label>

@@ -13,6 +13,7 @@ import {
 import type { Host, SpotRatePreview } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useLocale } from "@/lib/locale";
 import {
   SpotInterruptWarning,
   SpotRateDisplay,
@@ -26,9 +27,11 @@ interface HostSpotSettingsProps {
 }
 
 export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsProps) {
+  const { t } = useLocale();
   const gpuCount = Math.max(1, host.gpu_count ?? 1);
   const [spotEnabled, setSpotEnabled] = useState(host.spot_enabled !== false);
-  const [spotSlots, setSpotSlots] = useState(host.spot_gpu_slots ?? gpuCount);
+  const configuredSpotSlots = Math.min(gpuCount, host.spot_gpu_slots ?? gpuCount);
+  const [spotSlots, setSpotSlots] = useState(configuredSpotSlots);
   const [spotMinCents, setSpotMinCents] = useState(host.spot_min_cents ?? 0);
   const [suggestedMin, setSuggestedMin] = useState<number | null>(null);
   const [preview, setPreview] = useState<SpotRatePreview | null>(null);
@@ -36,7 +39,7 @@ export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsP
   const [saving, setSaving] = useState(false);
   const [savedSpot, setSavedSpot] = useState(() => ({
     spotEnabled: host.spot_enabled !== false,
-    spotSlots: host.spot_gpu_slots ?? gpuCount,
+    spotSlots: configuredSpotSlots,
     spotMinCents: host.spot_min_cents ?? 0,
   }));
   const isDirty =
@@ -116,6 +119,11 @@ export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsP
           <p className="text-[10px] text-text-muted">Host interruptible capacity & floor rates</p>
         </div>
       </div>
+      <p className="mb-4 text-xs text-text-muted">
+        {t("dash.gpu_contract.whole")} · {t("dash.gpu_contract.reserved_from_spot", {
+          count: spotEnabled ? gpuCount - spotSlots : gpuCount,
+        })}
+      </p>
 
       <button
         type="button"
@@ -161,7 +169,8 @@ export function HostSpotSettings({ host, onUpdated, compact }: HostSpotSettingsP
                 min={0}
                 max={gpuCount}
                 value={spotSlots}
-                onChange={(v) => setSpotSlots(Math.min(gpuCount, Math.max(0, v)))}
+                step={1}
+                onChange={(v) => setSpotSlots(Math.min(gpuCount, Math.max(0, Math.trunc(v))))}
               />
               <p className="text-[10px] text-text-muted">Max {gpuCount} (total GPUs on host)</p>
             </div>
