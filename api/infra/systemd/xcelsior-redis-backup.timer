@@ -1,0 +1,9 @@
+[Unit]
+Description=Copy a verified Xcelsior Redis snapshot off-host each day
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

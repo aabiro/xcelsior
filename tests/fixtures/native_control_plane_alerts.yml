@@ -330,7 +330,7 @@ tests:
         component: control-plane
         instance: prod
       exp_annotations:
-        summary: No successful restore drill in 35 days
+        summary: No successful restore drill in 8 days
         description: Backups are not proven recoverable until an isolated restore drill succeeds.
         runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 - name: XcelsiorRestoreDrillFailedSinceLastSuccess uses native host metrics

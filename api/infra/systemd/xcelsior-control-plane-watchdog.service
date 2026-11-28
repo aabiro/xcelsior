@@ -1,0 +1,15 @@
+[Unit]
+Description=Probe Xcelsior public readiness and Headscale
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=true
+EnvironmentFile=/etc/xcelsior/control-plane-watchdog.env
+ExecStart=/usr/bin/python3 /opt/xcelsior/api/scripts/control_plane_watchdog.py
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+TimeoutStartSec=30

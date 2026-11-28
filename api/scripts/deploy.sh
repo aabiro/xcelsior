@@ -1668,7 +1668,7 @@ deploy_ssh_gateway_blue_green() {
     log "SSH gateway blue-green: live=$live_colour ($live_service:$live_health) → $standby_service:$standby_health"
 
     log "Starting standby SSH gateway ($standby_service)..."
-    ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps $standby_service" \
+    ssh_cmd "cd /opt/xcelsior && api/scripts/with-runtime-secrets.sh docker compose --profile blue up -d --no-deps $standby_service" \
         || error "Standby SSH gateway ($standby_service) failed to start"
 
     local standby_ok=false
@@ -1866,7 +1866,7 @@ docker compose build $build_args frontend
 
         # 1. Start the standby service on the other port
         log "Starting standby API on port $standby_port..."
-        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps $standby_service" || error "Standby API ($standby_service) failed to start"
+        ssh_cmd "cd /opt/xcelsior && api/scripts/with-runtime-secrets.sh docker compose --profile blue up -d --no-deps $standby_service" || error "Standby API ($standby_service) failed to start"
 
         # 2. Require dependencies and runtime credentials, not just liveness.
         # /healthz can pass while NFS, auth, or terminal access is broken.
@@ -1900,10 +1900,10 @@ docker compose build $build_args frontend
         store_remote_api_colour "$new_colour"
         success "Deploy state: $new_colour is now live"
 
-        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps scheduler-worker" || error "Scheduler-worker restart failed"
+        ssh_cmd "cd /opt/xcelsior && api/scripts/with-runtime-secrets.sh docker compose --profile blue up -d --no-deps scheduler-worker" || error "Scheduler-worker restart failed"
         success "Scheduler-worker restarted"
 
-        ssh_cmd "cd /opt/xcelsior && docker compose --profile blue up -d --no-deps bg-worker" || error "bg-worker restart failed"
+        ssh_cmd "cd /opt/xcelsior && api/scripts/with-runtime-secrets.sh docker compose --profile blue up -d --no-deps bg-worker" || error "bg-worker restart failed"
         success "bg-worker restarted"
 
         deploy_ssh_gateway_blue_green

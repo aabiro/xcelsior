@@ -23,6 +23,11 @@ RUN_MIGRATIONS="${XCELSIOR_RESTORE_RUN_MIGRATIONS:-1}"
 PROJECT_DIR="${XCELSIOR_PROJECT_DIR:-/opt/xcelsior}"
 METRICS_DIR="${XCELSIOR_NODE_EXPORTER_TEXTFILE_DIR:-/var/lib/node_exporter/textfile_collector}"
 LOG_PREFIX="[xcelsior-restore-drill]"
+started_epoch="$(date +%s)"
+remote_input_dir=""
+backup_source="local"
+target_db=""
+temporary_restore_input=""
 
 log() { echo "${LOG_PREFIX} $(date -u '+%Y-%m-%dT%H:%M:%SZ') $*"; }
 die() { log "ERROR $*" >&2; exit 1; }
@@ -84,7 +89,45 @@ as_postgres() {
     fi
 }
 
+cleanup() {
+    local status=$?
+    trap - EXIT
+    if [[ -n "$temporary_restore_input" ]]; then
+        rm -f -- "$temporary_restore_input"
+    fi
+    if [[ -n "$remote_input_dir" ]]; then
+        rm -rf -- "$remote_input_dir"
+    fi
+    if [[ -n "$target_db" ]]; then
+        if [[ "$KEEP_RESTORE_DB" == "1" ]]; then
+            log "keeping isolated database $target_db for inspection"
+        else
+            as_postgres dropdb --if-exists "$target_db" >/dev/null 2>&1 || true
+        fi
+    fi
+    if [[ "$status" -ne 0 ]]; then
+        write_textfile_metric "xcelsior_restore_failure.prom" \
+            "# TYPE xcelsior_restore_last_failure_timestamp_seconds gauge" \
+            "xcelsior_restore_last_failure_timestamp_seconds $(date +%s)"
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+
 backup_file="${1:-}"
+if [[ -z "$backup_file" && -n "${XCELSIOR_OBJECT_STORE_BUCKET:-}" ]]; then
+    mkdir -p "$BACKUP_DIR"
+    remote_input_dir="$(mktemp -d "${BACKUP_DIR}/.object-restore-XXXXXX")"
+    backup_file="$(
+        cd "$PROJECT_DIR"
+        "${XCELSIOR_MAINTENANCE_PYTHON:-$PROJECT_DIR/.venv/bin/python}" \
+            -m api.scripts.object_storage_ops latest-postgres "$remote_input_dir"
+    )" || die "off-host download failed"
+    backup_source="object_storage"
+elif [[ -z "$backup_file" && "${XCELSIOR_OBJECT_STORE_REQUIRED:-0}" == 1 ]]; then
+    die "off-host restore is required but no bucket is configured"
+fi
 if [[ -z "$backup_file" ]]; then
     backup_file="$(
         find "$BACKUP_DIR" -maxdepth 1 -type f -name 'xcelsior_*.dump' \
@@ -95,26 +138,22 @@ if [[ -z "$backup_file" ]]; then
 fi
 [[ -n "$backup_file" ]] || die "no xcelsior backup found in $BACKUP_DIR"
 
-backup_dir_real="$(realpath "$BACKUP_DIR")"
+backup_dir_real="$(realpath "${remote_input_dir:-$BACKUP_DIR}")"
 backup_real="$(realpath "$backup_file")"
-case "$backup_real" in
-    "$backup_dir_real"/*.dump) ;;
-    *) die "backup must be an explicit .dump file directly under $backup_dir_real" ;;
-esac
+[[ "$(dirname "$backup_real")" == "$backup_dir_real" && "$backup_real" == *.dump ]] ||
+    die "backup must be an explicit .dump file directly under $backup_dir_real"
 [[ -s "$backup_real" ]] || die "backup is missing or empty: $backup_real"
 
+backup_sha256="$(sha256sum "$backup_real" | awk '{print $1}')"
 checksum_file="${backup_real}.sha256"
 if [[ -f "$checksum_file" ]]; then
-    (
-        cd "$(dirname "$backup_real")"
-        sha256sum --check --status "$(basename "$checksum_file")"
-    ) || die "backup checksum verification failed"
+    read -r expected_checksum _ <"$checksum_file"
+    [[ "$backup_sha256" == "$expected_checksum" ]] || die "backup checksum verification failed"
 elif [[ "$REQUIRE_CHECKSUM" == "1" ]]; then
     die "checksum sidecar is required: $checksum_file"
 else
     log "WARNING checksum sidecar is absent"
 fi
-backup_sha256="$(sha256sum "$backup_real" | awk '{print $1}')"
 
 stamp="$(date -u +%Y%m%d_%H%M%S)"
 target_db="xcelsior_restore_${stamp}_$$"
@@ -122,38 +161,12 @@ target_db="xcelsior_restore_${stamp}_$$"
     die "unsafe generated restore database name"
 [[ "$target_db" != "xcelsior" ]] || die "refusing to target the production database"
 
-started_epoch="$(date +%s)"
 restore_input="$backup_real"
-temporary_restore_input=""
 if [[ "$(id -u)" -eq 0 ]]; then
     temporary_restore_input="$(mktemp /var/lib/postgresql/.xcelsior-restore-XXXXXX.dump)"
     install -m 0400 -o postgres -g postgres "$backup_real" "$temporary_restore_input"
     restore_input="$temporary_restore_input"
 fi
-
-cleanup() {
-    local status=$?
-    trap - EXIT
-    if [[ -n "$temporary_restore_input" ]]; then
-        case "$temporary_restore_input" in
-            /var/lib/postgresql/.xcelsior-restore-*.dump)
-                rm -f "$temporary_restore_input"
-                ;;
-        esac
-    fi
-    if [[ "$KEEP_RESTORE_DB" == "1" ]]; then
-        log "keeping isolated database $target_db for inspection"
-    else
-        as_postgres dropdb --if-exists "$target_db" >/dev/null 2>&1 || true
-    fi
-    if [[ "$status" -ne 0 ]]; then
-        write_textfile_metric "xcelsior_restore_failure.prom" \
-            "# TYPE xcelsior_restore_last_failure_timestamp_seconds gauge" \
-            "xcelsior_restore_last_failure_timestamp_seconds $(date +%s)"
-    fi
-    exit "$status"
-}
-trap cleanup EXIT
 
 log "creating isolated database $target_db"
 as_postgres createdb --template=template0 --owner="$APP_DB_ROLE" "$target_db"
@@ -274,6 +287,7 @@ evidence = {
     "completed_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
     "backup_file": "$(basename "$backup_real")",
     "backup_sha256": "$backup_sha256",
+    "backup_source": "$backup_source",
     "schema_revision": "$schema_revision",
     "duration_seconds": $duration_seconds,
     "invariants": {
@@ -302,5 +316,7 @@ write_textfile_metric "xcelsior_restore_success.prom" \
     "# TYPE xcelsior_restore_last_success_timestamp_seconds gauge" \
     "xcelsior_restore_last_success_timestamp_seconds $(date +%s)" \
     "# TYPE xcelsior_restore_duration_seconds gauge" \
-    "xcelsior_restore_duration_seconds ${duration_seconds}"
+    "xcelsior_restore_duration_seconds ${duration_seconds}" \
+    "# TYPE xcelsior_restore_over_recovery_target gauge" \
+    "xcelsior_restore_over_recovery_target $((duration_seconds >= 1800))"
 log "PASS revision=$schema_revision duration=${duration_seconds}s evidence=$evidence_file"

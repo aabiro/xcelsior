@@ -1,0 +1,17 @@
+[Unit]
+Description=Xcelsior Redis RDB snapshot to object storage
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/xcelsior
+EnvironmentFile=/etc/xcelsior/db-maintenance.env
+ExecStart=/opt/xcelsior/api/scripts/with-runtime-secrets.sh /opt/xcelsior/.venv/bin/python -m api.scripts.object_storage_ops backup-redis
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+NoNewPrivileges=true
+TimeoutStartSec=10m

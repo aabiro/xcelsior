@@ -418,14 +418,24 @@ groups:
           runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 
       - alert: XcelsiorRestoreDrillStale
-        expr: time() - xcelsior_restore_last_success_timestamp_seconds > 3024000
+        expr: time() - xcelsior_restore_last_success_timestamp_seconds > 691200
         for: 1h
         labels:
           severity: warning
           owner: platform
         annotations:
-          summary: No successful restore drill in 35 days
+          summary: No successful restore drill in 8 days
           description: Backups are not proven recoverable until an isolated restore drill succeeds.
+          runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
+
+      - alert: XcelsiorRestoreDrillMissedRecoveryTarget
+        expr: xcelsior_restore_over_recovery_target == 1
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: The restore drill exceeded its recovery-time target
           runbook_url: https://github.com/aabiro/xcelsior/blob/main/api/infra/observability/RUNBOOK.md#backup-and-restore-freshness
 
       - alert: XcelsiorRestoreDrillFailedSinceLastSuccess

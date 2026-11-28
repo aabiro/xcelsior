@@ -130,7 +130,7 @@ if [[ ! "$DB_PORT" =~ ^[0-9]{1,5}$ ]] || (( 10#$DB_PORT < 1 || 10#$DB_PORT > 655
     err "an explicit valid PostgreSQL port is required; default cluster refused"
     exit 1
 fi
-TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)"
 BACKUP_FILE="${BACKUP_DIR}/${DB_NAME}_${TIMESTAMP}.dump"
 
 # ── Pre-flight checks ────────────────────────────────────────────────
@@ -201,6 +201,21 @@ mv -- "$IN_PROGRESS" "$BACKUP_FILE"
 IN_PROGRESS=""
 sha256sum "$BACKUP_FILE" >"${BACKUP_FILE}.sha256"
 chmod 600 "$BACKUP_FILE" "${BACKUP_FILE}.sha256"
+
+if [[ -n "${XCELSIOR_OBJECT_STORE_BUCKET:-}" ]]; then
+    if ! (
+        cd "$PROJECT_DIR"
+        "${XCELSIOR_MAINTENANCE_PYTHON:-$PROJECT_DIR/.venv/bin/python}" \
+            -m api.scripts.object_storage_ops put postgres "$BACKUP_FILE"
+    ); then
+        err "Off-host upload failed; local verified dump retained"
+        send_tg_alert "Off-host Postgres backup upload failed"
+        exit 1
+    fi
+elif [[ "${XCELSIOR_OBJECT_STORE_REQUIRED:-0}" == 1 ]]; then
+    err "Off-host backup required but no bucket configured"
+    exit 1
+fi
 
 # ── Rotate old backups ──────────────────────────────────────────────
 DELETED=0

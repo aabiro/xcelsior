@@ -40,6 +40,28 @@ Reach the box directly, never through the tailnet. Snippet:
   challenge now goes through the `xcelsior.ca` port-80 block in
   `nginx/xcelsior.conf`.
 
+### Move the other sites to separate ingress
+
+This VPS is one failure domain for the public API, Headscale, and local
+services. Move the unrelated sites, certificates, and renewal hooks to a
+separate VPS. A second control-plane VPS is a separate recovery project.
+
+1. Inventory the unrelated vhosts and certificate lineages from the running
+   `/usr/sbin/nginx -T` and `certbot certificates`. Stage their application
+   upstreams, certificates, and renewal automation on the destination. Use
+   `curl --resolve` to check TLS, application routes, and redirects against
+   the destination before moving DNS.
+2. Move the unrelated DNS records, wait out the old TTL, and check traffic at
+   the destination. Back up the source nginx config. Remove the unrelated
+   vhost symlinks from the source, then install and enable
+   `api/nginx/unmatched-hosts.conf` in their place. The supplied config
+   assumes the stream TLS router and a PROXY protocol listener on port 8444.
+3. Run `/usr/sbin/nginx -t` and reload. Check Xcelsior readiness, Headscale
+   health, MCP, agent TLS, and HTTP certificate challenges through the public
+   ingress. Check that an unknown Host gets 404 over HTTP and an unknown
+   TLS SNI gets no certificate. Restore the saved vhost links and DNS records
+   if the move fails.
+
 ## Certificates
 
 - `certbot.timer` renews every certificate on the box, twice a day, with nginx
@@ -61,6 +83,27 @@ Headscale runs here and answers `hs.xcelsior.ca` itself; see
 `runbooks/headscale-failover.md`. The standby reads its host and key from
 `/etc/default/headscale-failover` (host `46.225.20.97`, key `id_ed25519`), for
 the timers and for a manual `sudo headscale-failover ...` alike.
+
+### Independent alerting
+
+On an existing independent monitoring host, put a Healthchecks.io ping URL in
+a root-owned `/etc/xcelsior/control-plane-watchdog.env` as
+`XCELSIOR_HEALTHCHECKS_PING_URL`. Set `XCELSIOR_WATCHDOG_API_URL` to
+`https://xcelsior.ca/readyz` and `XCELSIOR_WATCHDOG_HEADSCALE_URL` to
+`https://hs.xcelsior.ca/health` for production.
+Configure the check with a five-minute period and two-minute grace, and
+attach the operations notification channel. Install the watchdog script at
+`/opt/xcelsior/api/scripts/control_plane_watchdog.py` and the
+`xcelsior-control-plane-watchdog.{service,timer}` units. Run
+`systemctl daemon-reload`, `systemctl start xcelsior-control-plane-watchdog.service`,
+and `systemctl enable --now xcelsior-control-plane-watchdog.timer`.
+
+The timer checks the public API's `/readyz` and Headscale's `/health`.
+Healthchecks receives an explicit failure if either probe fails. It also
+alerts when the monitoring VPS stops sending heartbeats. Record the
+notification timestamp in a staging outage drill and confirm the page
+arrives within ten minutes. Schedule a production outage drill separately
+through the maintainer.
 
 ## Logs
 
