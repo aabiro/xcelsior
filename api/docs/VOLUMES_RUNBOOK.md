@@ -34,46 +34,48 @@
 
 **Critical:** `XCELSIOR_NFS_EXPORT_BASE` on API must match the path exported by the NFS server. Mismatch → provision succeeds on wrong path or mount fails on workers.
 
-### Production — VPS colocated NFS (current)
+### Stage off-host volume checkpoints
 
-NFS export on **pixelenhance-labs** (`100.64.0.1`). API containers SSH to `127.0.0.1` for provision/destroy; GPU workers mount `100.64.0.1:/exports/volumes/{volume_id}`.
+NFS serves the current live mounts. The staging command archives a detached
+volume and its snapshots on the export host. For encrypted volumes it copies
+the closed sparse LUKS image, preserving encryption and requiring no volume
+key. S3 object credentials stay on the trusted maintenance host. See the
+[operator runbook](../runbooks/operations.md#off-host-backups-and-secrets)
+for bucket and credential configuration.
 
-**Why not Mac:** Docker Desktop port-forwarding mangled NFS RPC; Ganesha on `:12049` was unreliable. Moved to kernel NFS on the VPS (2026-06-08).
-
-**Production `.env` (on VPS `/opt/xcelsior/.env`):**
-
-```
-XCELSIOR_NFS_SERVER=100.64.0.1
-XCELSIOR_NFS_SSH_HOST=127.0.0.1
-XCELSIOR_NFS_SSH_USER=root
-XCELSIOR_NFS_EXPORT_BASE=/exports/volumes
-XCELSIOR_NFS_SSH_CMD_WRAP=
-XCELSIOR_NFS_REQUIRED=true
-```
-
-**Setup:**
-
-1. `sudo bash scripts/setup_nfs_vps.sh` (if not already done)
-2. `docker-compose.yml` bind-mounts `/exports:/exports` on API + scheduler-worker
-3. Worker `~/.xcelsior/worker.env`: `XCELSIOR_NFS_SERVER=100.64.0.1` (no `port=12049`)
-
-**GPU worker deploy** (`worker_agent.py`):
+Set `XCELSIOR_VOLUME_MIGRATION_DSN` to the operator database connection and
+apply the checkpoint-catalog migration. Run a preview on the export host.
+Before applying the copy, drain attachments and freeze all volume writers,
+including snapshot operations, model promotion, and new launches. Unmount
+each encrypted filesystem and close its LUKS and loop mappings. Use a
+private scratch directory outside the export with sufficient free space.
 
 ```bash
-# From dev machine (mesh SSH works as aaryn@, not xcelsior@):
-cd /path/to/xcelsior
-bash scripts/deploy_worker_agent.sh --host 100.64.0.6 --user aaryn
-
-# From VPS (repo is /opt/xcelsior — not ~/storage/projects/xcelsior):
-cd /opt/xcelsior
-bash scripts/deploy_worker_agent.sh --host 100.64.0.6 --user aaryn
+.venv/bin/python -m api.scripts.migrate_nfs_to_object \
+  --export /exports/volumes --scratch /var/backups/xcelsior
+.venv/bin/python -m api.scripts.migrate_nfs_to_object \
+  --export /exports/volumes --scratch /var/backups/xcelsior --apply --source-quiesced
 ```
 
-VPS → worker `:22` may time out; deploy from a workstation with direct mesh SSH to the worker.
+Use `--volume <id>` for a canary. The tool records a checkpoint only after
+reading every uploaded byte back and checking the SHA-256 digest. If the
+tool exits early, previous checkpoints remain usable. Start recovery by
+fetching a checkpoint into an empty scratch directory on a trusted recovery
+host with access to the database and bucket.
 
-### Deprecated — Mac InferenceData appliance
+```bash
+.venv/bin/python -m api.scripts.migrate_nfs_to_object \
+  --fetch-volume "$volume_id" --scratch /var/backups/xcelsior
+```
 
-LUKS + NFS-Ganesha on Mac (`100.64.0.3`, `:12049`) — **retired** due to Docker Desktop NFS RPC issues. Scripts remain for reference: `deploy_mac_nfs_appliance.sh`, `switch_prod_nfs_mac.sh`, `check_mac_nfs_disk.sh`.
+Inspect the verified archive and restore it to an isolated recovery export.
+For a LUKS volume, restore the matching database and Fernet key, then use
+the volume reopen procedure. Test the recovered files and snapshots from a
+separate worker before bringing the export online for tenants.
+
+The cutover requires an authoritative writer fence, successful detach
+checkpoints, and worker cache recovery from object storage. Keep the live
+export until dual-write has run for 48 hours and the cross-worker tests pass.
 
 ---
 

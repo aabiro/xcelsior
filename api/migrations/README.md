@@ -98,7 +98,13 @@ since spent on other content. The companion anticipated this and instructs
 the implementer to inspect the real head and renumber (§14, §22.10). This
 table is that renumbering, recorded once so no future work guesses.
 
-**Repository head: `171_user_identity_contract.py`.**
+**Repository head: `172_volume_object_checkpoints.py`.**
+
+172 adds `volume_object_checkpoints`. It records a volume's verified
+checkpoint object location, byte length, SHA-256, encryption state, and
+creation time. The staging and recovery utility uses the table after the
+migration. Worker mounts still use the live volumes and the runtime schema
+floor stays at 170. Downgrade drops the checkpoint catalog.
 
 171 is the contract step for 164 and 165. Rows whose user, team, client, host or worker no longer exists are deleted (a `SET NULL` reference is cleared), and every key the two left `NOT VALID` is validated (NORMALIZATION.md §6 says what that removes on production). Each user id column becomes `NOT NULL` except `chat_conversations.user_id`, `oauth_refresh_tokens.user_id`, `teams.owner_user_id` and `oauth_clients.created_by_user_id`, where NULL is a real value. `team_members` is keyed by `(team_id, user_id)`. The compatibility triggers and their functions go, then the email copies, the copied `role`/`name`/`is_admin` on `sessions` and `api_keys` (`api_keys.name`, the key's own label, stays) and `oauth_clients.created_by_email`. It also gives `receipt_shares.job_id` a key to `jobs` (`ON DELETE CASCADE`) and drops `NOT NULL` from `receipt_shares.owner_id`, a copy of the job's owner that the next contract step removes. One unit per table through `lock_safe`; downgrade re-creates the columns from `users` and `jobs` and the triggers through 164's and 165's own functions, but not the deleted rows. The runtime floor stays at 170: no code depends on anything 171 adds.
 

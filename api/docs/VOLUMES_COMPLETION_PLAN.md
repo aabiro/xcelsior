@@ -1,15 +1,15 @@
-# DONE
-
-**Approx. completed:** 2026-06-08
-
----
-
 # Persistent Volumes — Completion Plan
 
 *Created: 2026-06-07*
 *Parent roadmap:* [`NEXT_PRIORITIES_ROADMAP.md`](./NEXT_PRIORITIES_ROADMAP.md) §1
 
 Track every task required to move volumes from **metadata-only dev mode** to **production NFS-backed persistent storage** with full team tenancy, billing, UI, ops, and tests.
+
+The first NFS rollout is historical. The object storage transition has
+checkpoint staging and recovery tooling. Live cache attachment, fenced
+writeback, the 48-hour dual-write period, and export retirement remain
+cutover requirements. See the
+[volume runbook](./VOLUMES_RUNBOOK.md#stage-off-host-volume-checkpoints).
 
 **Status legend:** `[ ]` not started · `[~]` in progress · `[x]` done
 
