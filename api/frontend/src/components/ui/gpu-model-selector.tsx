@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { apiFetch, type GpuAvailability, type GpuInventoryRow } from "@/lib/api";
 import { GPU_CATEGORIES, getGpuModel } from "@/lib/gpu-models";
+import { deployGpuOptions } from "@/features/serverless/gpu-options";
 
-/** One GPU a host can list: a model with a published rate on the backend rate card. */
+/** A model in the live fleet with a published rate; memory comes from the fleet. */
 interface GpuModel {
   value: string;
   label: string;
@@ -15,24 +16,27 @@ interface GpuModel {
 type RateCard = { pricing?: Record<string, { vram_gb?: number; base_rate_cad?: number }> };
 
 /**
- * The models a host can register are the ones the backend publishes a rate
- * for (`/api/pricing/reference`), not a list compiled into the page. The
- * frontend catalog only supplies the display label and the group heading.
+ * The rate card prices models; it does not prove anyone hosts them. Only
+ * actual inventory supplies choices, including busy machines. The frontend
+ * catalog only supplies a display label and group heading, never capacity.
  */
-function useRateCardModels() {
+function useInventoryModels() {
   const [models, setModels] = useState<GpuModel[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let active = true;
-    apiFetch<RateCard>("/api/pricing/reference")
-      .then((card) => {
+    Promise.all([
+      apiFetch<{ gpus: GpuAvailability[]; inventory?: GpuInventoryRow[] }>("/api/v2/gpu/available"),
+      apiFetch<RateCard>("/api/pricing/reference"),
+    ])
+      .then(([inventory, card]) => {
         if (!active) return;
-        const rows = Object.entries(card.pricing || {})
-          .filter(([, rate]) => (rate.base_rate_cad ?? 0) > 0 && (rate.vram_gb ?? 0) > 0)
-          .map(([value, rate]) => {
-            const known = getGpuModel(value);
-            return { value, label: known?.label ?? value, vram_gb: rate.vram_gb as number, category: known?.category ?? "Other" };
+        const rows = deployGpuOptions({ gpus: inventory.gpus ?? [], inventory: inventory.inventory })
+          .filter((gpu) => gpu.vramGb > 0 && (card.pricing?.[gpu.model]?.base_rate_cad ?? 0) > 0)
+          .map((gpu) => {
+            const known = getGpuModel(gpu.model);
+            return { value: gpu.model, label: known?.label ?? gpu.model, vram_gb: gpu.vramGb, category: known?.category ?? "Other" };
           });
         setModels(rows);
         setFailed(false);
@@ -64,8 +68,6 @@ interface GpuModelSelectorProps {
   disabled?: boolean;
 }
 
-const LISTBOX_ID = "gpu-model-listbox";
-
 export function GpuModelSelector({
   value,
   onChange,
@@ -78,16 +80,17 @@ export function GpuModelSelector({
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxId = useId();
 
-  const { models: rateCard, failed, retry } = useRateCardModels();
+  const { models: inventoryModels, failed, retry } = useInventoryModels();
 
   const selectedLabel = useMemo(() => {
     if (!value) return "";
-    return rateCard?.find((g) => g.value === value)?.label ?? getGpuModel(value)?.label ?? value;
-  }, [rateCard, value]);
+    return inventoryModels?.find((g) => g.value === value)?.label ?? getGpuModel(value)?.label ?? value;
+  }, [inventoryModels, value]);
 
   const filtered = useMemo(() => {
-    const grouped = groupByCategory(rateCard ?? []);
+    const grouped = groupByCategory(inventoryModels ?? []);
     if (!search.trim()) return grouped;
     const q = search.toLowerCase();
     const result: Record<string, GpuModel[]> = {};
@@ -98,7 +101,7 @@ export function GpuModelSelector({
       if (matches.length > 0) result[cat] = matches;
     }
     return result;
-  }, [rateCard, search]);
+  }, [inventoryModels, search]);
 
   // Pre-compute flat list with stable indices (no mutable render variable)
   const flatFiltered = useMemo(() => {
@@ -177,14 +180,13 @@ export function GpuModelSelector({
         setOpen(false);
         if (e.key === "Escape") {
           e.preventDefault();
-          inputRef.current?.blur();
         }
         break;
     }
   }
 
   const activeDescendant = flatFiltered[effectiveHighlightIndex]
-    ? `gpu-opt-${flatFiltered[effectiveHighlightIndex].value}`
+    ? `${listboxId}-option-${effectiveHighlightIndex}`
     : undefined;
 
   return (
@@ -196,7 +198,7 @@ export function GpuModelSelector({
         aria-label="GPU model"
         aria-expanded={open}
         aria-haspopup="listbox"
-        aria-controls={LISTBOX_ID}
+        aria-controls={listboxId}
         aria-activedescendant={open ? activeDescendant : undefined}
         aria-autocomplete="list"
         value={open ? search : selectedLabel}
@@ -227,7 +229,7 @@ export function GpuModelSelector({
       {open && (
         <div
           ref={listRef}
-          id={LISTBOX_ID}
+          id={listboxId}
           role="listbox"
           aria-label="GPU models"
           className="absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-navy shadow-lg"
@@ -238,11 +240,11 @@ export function GpuModelSelector({
               <button type="button" className="min-h-9 rounded px-2 font-medium text-ice-blue hover:underline"
                 onMouseDown={(e) => e.preventDefault()} onClick={retry}>Retry</button>
             </div>
-          ) : rateCard === null ? (
+          ) : inventoryModels === null ? (
             <div className="px-3 py-2 text-sm text-text-muted" role="status">Loading GPUs&hellip;</div>
           ) : Object.keys(filtered).length === 0 ? (
             <div className="px-3 py-2 text-sm text-text-muted">
-              {search.trim() ? <>No GPUs match &ldquo;{search}&rdquo;</> : "No GPU models are published yet."}
+              {search.trim() ? <>No GPUs match &ldquo;{search}&rdquo;</> : "No GPUs are listed in the live inventory."}
             </div>
           ) : (
             Object.entries(filtered).map(([category, models]) => (
@@ -257,7 +259,7 @@ export function GpuModelSelector({
                   return (
                     <button
                       key={model.value}
-                      id={`gpu-opt-${model.value}`}
+                      id={`${listboxId}-option-${idx}`}
                       type="button"
                       role="option"
                       aria-selected={isSelected}
@@ -268,8 +270,8 @@ export function GpuModelSelector({
                       onMouseEnter={() => setHighlightIndex(idx)}
                       onMouseDown={(e) => {
                         e.preventDefault();
-                        selectItem(model);
                       }}
+                      onClick={() => selectItem(model)}
                     >
                       <span className="flex items-center gap-2">
                         {isSelected && (

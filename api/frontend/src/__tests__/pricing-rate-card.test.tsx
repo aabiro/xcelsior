@@ -22,7 +22,14 @@ const card = {
   },
 };
 
-function backend({ cardOk = true, spot = {} as Record<string, number>, fleet = [] as unknown[] } = {}) {
+const inventory = [
+  { gpu_model: "RTX 2060", vram_gb: 6, count_total: 1, count_available: 0 },
+  { gpu_model: "RTX 3060", vram_gb: 12, count_total: 1, count_available: 1 },
+  { gpu_model: "B200", vram_gb: 192, count_total: 1, count_available: 0 },
+  { gpu_model: "H100", vram_gb: 80, count_total: 1, count_available: 0 },
+];
+
+function backend({ cardOk = true, spot = {} as Record<string, number>, fleet = inventory as unknown[] } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     if (url.includes("/api/pricing/reference")) {
       if (!cardOk) throw new Error("offline");
@@ -56,8 +63,17 @@ describe("pricing rates", () => {
   it("always lists the GPUs in the live fleet", async () => {
     backend({ fleet: [{ gpu_model: "RTX 3060", vram_gb: 12, count_total: 1, count_available: 1 }] });
     const { rows, fleet } = await loadPricing(2);
-    expect(rows.map((row) => row.model)).toContain("RTX 3060");
+    expect(rows.map((row) => row.model)).toEqual(["RTX 3060"]);
     expect(fleet).toEqual({ "RTX 3060": 1 });
+  });
+
+  it("keeps busy inventory and never turns the rate card into an empty fleet's inventory", async () => {
+    backend({ fleet: [inventory[0]] });
+    const busy = await loadPricing();
+    expect(busy.rows.map((row) => row.model)).toEqual(["RTX 2060"]);
+    expect(busy.fleet).toEqual({ "RTX 2060": 0 });
+    backend({ fleet: [] });
+    expect((await loadPricing()).rows).toEqual([]);
   });
 
   it("shows nothing rather than a stand-in list when the card cannot be read", async () => {
@@ -92,26 +108,62 @@ describe("host GPU picker", () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it("offers the models the backend publishes a rate for", async () => {
+  function hostBackend(fleet = [{ gpu_model: "RTX 3060", vram_gb: 8, count_total: 1, count_available: 0 }]) {
+    mocks.apiFetch.mockImplementation(async (path: string) => path === "/api/pricing/reference"
+      ? card : { gpus: [], inventory: fleet });
+  }
+
+  it("offers only live inventory, even when busy, using its measured memory", async () => {
     const { GpuModelSelector } = await import("@/components/ui/gpu-model-selector");
-    mocks.apiFetch.mockResolvedValue(card);
+    hostBackend();
     const selected = vi.fn();
     render(<GpuModelSelector value="" onChange={selected} />);
     fireEvent.focus(screen.getByRole("combobox", { name: "GPU model" }));
     await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalled());
-    fireEvent.mouseDown(await screen.findByRole("option", { name: /RTX 3060/ }));
-    expect(selected).toHaveBeenCalledWith({ model: "RTX 3060", vram_gb: 12 });
+    fireEvent.click(await screen.findByRole("option", { name: /RTX 3060/ }));
+    expect(selected).toHaveBeenCalledWith({ model: "RTX 3060", vram_gb: 8 });
+    fireEvent.focus(screen.getByRole("combobox"));
+    expect(screen.queryByRole("option", { name: /B200/ })).toBeNull();
     expect(screen.queryByRole("option", { name: /Mystery/ })).toBeNull();
     expect(mocks.apiFetch).toHaveBeenCalledWith("/api/pricing/reference");
+    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/v2/gpu/available");
+  });
+
+  it("reports an empty fleet without listing priced models", async () => {
+    const { GpuModelSelector } = await import("@/components/ui/gpu-model-selector");
+    hostBackend([]);
+    render(<GpuModelSelector value="" onChange={vi.fn()} />);
+    fireEvent.focus(screen.getByRole("combobox"));
+    expect(await screen.findByText("No GPUs are listed in the live inventory.")).toBeInTheDocument();
+    expect(screen.queryByRole("option")).toBeNull();
+  });
+
+  it("supports keyboard selection and gives each picker's options valid distinct IDs", async () => {
+    const { GpuModelSelector } = await import("@/components/ui/gpu-model-selector");
+    hostBackend();
+    const selected = vi.fn();
+    render(<><GpuModelSelector value="" onChange={selected} /><GpuModelSelector value="" onChange={vi.fn()} /></>);
+    const [first, second] = screen.getAllByRole("combobox");
+    expect(first.getAttribute("aria-controls")).not.toBe(second.getAttribute("aria-controls"));
+    fireEvent.focus(first);
+    const option = await screen.findByRole("option", { name: /RTX 3060/ });
+    expect(first.getAttribute("aria-activedescendant")).toBe(option.id);
+    expect(option.id).not.toMatch(/\s/);
+    fireEvent.keyDown(first, { key: "Escape" });
+    expect(first).toHaveAttribute("aria-expanded", "false");
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    fireEvent.keyDown(first, { key: "Enter" });
+    expect(selected).toHaveBeenCalledWith({ model: "RTX 3060", vram_gb: 8 });
   });
 
   it("reports a failed load and retries", async () => {
     const { GpuModelSelector } = await import("@/components/ui/gpu-model-selector");
-    mocks.apiFetch.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(card);
+    hostBackend();
+    mocks.apiFetch.mockRejectedValueOnce(new Error("offline"));
     render(<GpuModelSelector value="" onChange={vi.fn()} />);
     fireEvent.focus(screen.getByRole("combobox"));
     fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledTimes(2));
-    expect(await screen.findByRole("option", { name: /B200/ })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: /RTX 3060/ })).toBeInTheDocument();
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(4);
   });
 });

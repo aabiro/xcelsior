@@ -21,7 +21,7 @@ const mockEndpoint = {
   model_name: "meta-llama/Llama-3.1-8B-Instruct",
   model_ref: "meta-llama/Llama-3.1-8B-Instruct",
   gpu_type: "RTX 4090",
-  region: "ca-east",
+  region: "ca-on",
   docker_image: "xcelsior/serverless-vllm:12.4",
   mode: "preset",
   status: "active",
@@ -124,8 +124,8 @@ async function installServerlessRouteMocks(ctx: BrowserContext, baseURL: string)
             {
               gpu_model: "RTX 4090",
               vram_gb: 24,
-              region: "ca-east",
-              province: "QC",
+              region: "ca-on",
+              province: "ON",
               count_available: 4,
               price_per_hour_cad: 1.2,
             },
@@ -203,7 +203,7 @@ test.describe("serverless dashboard", () => {
       const continueBtn = page.getByRole("button", { name: /Continue|Continuer|dash\.serverless\.continue/i });
       await continueBtn.click();
       await continueBtn.click();
-      await page.locator("select").first().selectOption({ index: 1 });
+      await page.getByRole("combobox", { name: "GPU type", exact: true }).selectOption("RTX 4090");
       await continueBtn.click();
       await continueBtn.click();
       await continueBtn.click();

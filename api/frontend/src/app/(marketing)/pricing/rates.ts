@@ -70,6 +70,9 @@ export async function loadPricing(max = 10): Promise<PricingData> {
   }
 
   const all: PricingCardRow[] = Object.entries(card?.pricing || {})
+    // The table and calculator may quote only hardware someone actually lists,
+    // including busy inventory. A published price is not fleet capacity.
+    .filter(([model]) => Object.hasOwn(fleet, model))
     // A row needs its published rate and its memory; neither is guessed.
     .filter(([, rate]) => rate.base_rate_cad > 0 && (rate.vram_gb ?? 0) > 0)
     .map(([model, rate]) => ({
